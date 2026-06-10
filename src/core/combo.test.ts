@@ -72,7 +72,7 @@ describe("buildRunnerScript", () => {
   });
 
   it("runs inside the worktree", () => {
-    expect(script).toContain('cd "/repos/r/.worktrees/issue-7"');
+    expect(script).toContain("cd '/repos/r/.worktrees/issue-7'");
   });
 
   it("sequences rower, hodor, pr detection, and the final handoff to humans", () => {
@@ -95,6 +95,29 @@ describe("buildRunnerScript", () => {
   });
 
   it("detects the PR by branch", () => {
-    expect(script).toContain('--head "combo/issue-7"');
+    expect(script).toContain("--head 'combo/issue-7'");
+  });
+
+  it("hands off as pr_ready only when a PR exists, pr_missing otherwise", () => {
+    const prReady = script.indexOf("reason=pr_ready");
+    const prMissing = script.indexOf("reason=pr_missing");
+    expect(prReady).toBeGreaterThan(-1);
+    expect(prMissing).toBeGreaterThan(-1);
+    // pr_ready lives inside the if-branch that saw a URL; pr_missing in the
+    // final else (lastIndexOf: earlier elses belong to rower/hodor failure).
+    expect(script.indexOf('if [ -n "${pr_url:-}" ]')).toBeLessThan(prReady);
+    expect(prReady).toBeLessThan(script.lastIndexOf("else"));
+    expect(prMissing).toBeGreaterThan(script.lastIndexOf("else"));
+  });
+
+  it("single-quotes derived values so paths with spaces or metacharacters stay literal", () => {
+    const spaced = buildRunnerScript({
+      combo: { ...combo, worktree: "/repos/my repo/.worktrees/issue-7", branch: "combo/it's-7" },
+      rowerCommand: "gnhf",
+      hodorCommand: "no-mistakes axi run",
+      emit: "emit",
+    });
+    expect(spaced).toContain("cd '/repos/my repo/.worktrees/issue-7'");
+    expect(spaced).toContain("--head 'combo/it'\\''s-7'");
   });
 });

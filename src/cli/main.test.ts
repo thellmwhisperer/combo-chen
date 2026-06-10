@@ -59,14 +59,29 @@ describe("command surface", () => {
 describe("emit", () => {
   it("appends a validated event to the combo journal", async () => {
     const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["emit", "-n", "o-r-7", "rower_failed", "--field", "exit_code=3"]);
 
-    const events = readEvents(runDirFor(h, "o-r-7"));
+    const events = readEvents(dir);
     expect(events).toHaveLength(1);
     expect(events[0]?.event).toBe("rower_failed");
     expect(events[0]?.["exit_code"]).toBe(3);
+  });
+
+  it("surfaces emitting to a combo that was never created (caller bug)", async () => {
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: home() } });
+    await expect(exec(deps, ["emit", "-n", "ghost", "rower_started"])).rejects.toThrow(/ENOENT/);
   });
 });
 
@@ -155,5 +170,74 @@ describe("stop", () => {
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "kill-session")).toBe(true);
     const events = readEvents(dir);
     expect(events.at(-1)?.event).toBe("stopped");
+  });
+
+  it("does not journal stopped when the tmux kill fails (the journal never lies)", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) =>
+        args[0] === "kill-session"
+          ? { status: 1, stdout: "", stderr: "no server running" }
+          : { status: 0, stdout: "", stderr: "" },
+    });
+
+    await expect(exec(deps, ["stop", "-n", "o-r-7"])).rejects.toThrow(/kill/i);
+    expect(readEvents(dir)).toEqual([]);
+  });
+});
+
+describe("resolvePollMs", () => {
+  it("reads COMBO_CHEN_POLL_MS and falls back to undefined (core default applies)", async () => {
+    const { resolvePollMs } = await import("./main.js");
+    expect(resolvePollMs({ COMBO_CHEN_POLL_MS: "250" })).toBe(250);
+    expect(resolvePollMs({ COMBO_CHEN_POLL_MS: "nonsense" })).toBeUndefined();
+    expect(resolvePollMs({})).toBeUndefined();
+  });
+});
+
+describe("run ordering and safety", () => {
+  it("journals combo_created before the tmux session starts", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    let journalAtSessionStart: string[] | undefined;
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "" };
+        if (args[0] === "new-session") {
+          journalAtSessionStart = readEvents(runDirFor(h, "o-r-7")).map((e) => e.event);
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(journalAtSessionStart).toEqual(["combo_created"]);
+  });
+
+  it("refuses a repo whose origin does not match the issue's owner/repo", async () => {
+    const { deps } = fakeDeps({
+      git: (args) =>
+        args[0] === "remote"
+          ? { status: 0, stdout: "git@github.com:someone/else.git\n", stderr: "" }
+          : { status: 0, stdout: "", stderr: "" },
+    });
+
+    await expect(
+      exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
+    ).rejects.toThrow(/origin/i);
   });
 });

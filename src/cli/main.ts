@@ -83,6 +83,14 @@ function cliInvocation(): string {
   return `"${process.execPath}" "${script}"`;
 }
 
+/** Poll cadence cascade: COMBO_CHEN_POLL_MS env → core's in-code fallback. */
+export function resolvePollMs(env: Record<string, string | undefined>): number | undefined {
+  const raw = env["COMBO_CHEN_POLL_MS"];
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
@@ -98,6 +106,17 @@ export function createProgram(deps: Deps): Command {
       const issue = parseIssueUrl(options.issue);
       if (!deps.issueExists(options.issue)) {
         throw new Error(`Issue not reachable: ${options.issue} (gh issue view failed)`);
+      }
+
+      // The wrong cwd must not silently row on unrelated code: when the
+      // target repo has an origin, it has to match the issue's owner/repo.
+      const remote = deps.git(["remote", "get-url", "origin"], options.repo);
+      const remoteUrl = remote.stdout.trim();
+      if (remote.status === 0 && remoteUrl !== "" && !remoteUrl.includes(`${issue.owner}/${issue.repo}`)) {
+        throw new Error(
+          `Repo mismatch: origin is "${remoteUrl}" but the issue belongs to ${issue.owner}/${issue.repo}. ` +
+            `Pass the right --repo.`,
+        );
       }
 
       const config = loadConfig({ repoDir: options.repo });
@@ -145,12 +164,8 @@ export function createProgram(deps: Deps): Command {
       writeFileSync(runnerPath, runner);
       chmodSync(runnerPath, 0o755);
 
-      const created = deps.tmux(newSessionArgs(session, "rower", `sh "${runnerPath}"`));
-      if (created.status !== 0) {
-        throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
-      }
-      deps.tmux(newWindowArgs(session, "watch", `${cliInvocation()} events --follow -n ${id}`));
-
+      // Birth event lands BEFORE the detached runner can emit anything,
+      // so journal ordering always matches the tested contract.
       appendEvent(runDir, "combo_created", {
         issue_url: combo.issueUrl,
         repo: combo.repoDir,
@@ -158,6 +173,12 @@ export function createProgram(deps: Deps): Command {
         branch: combo.branch,
         tmux: session,
       });
+
+      const created = deps.tmux(newSessionArgs(session, "rower", `sh "${runnerPath}"`));
+      if (created.status !== 0) {
+        throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
+      }
+      deps.tmux(newWindowArgs(session, "watch", `${cliInvocation()} events --follow -n ${id}`));
 
       deps.out(`🥢 ${session}`);
       deps.out(`   worktree ${worktree} · branch ${branch}`);
@@ -193,7 +214,13 @@ export function createProgram(deps: Deps): Command {
     .action(async (options: { name: string; by: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
       const combo = readCombo(runDir);
-      deps.tmux(killSessionArgs(combo.tmuxSession));
+      const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
+      if (killed.status !== 0) {
+        // The journal never lies: no stopped event for a session still alive.
+        throw new Error(
+          `tmux kill-session failed for "${combo.tmuxSession}": ${killed.stderr.trim() || "unknown error"}`,
+        );
+      }
       appendEvent(runDir, "stopped", { by: options.by });
       deps.out(`stopped ${combo.id} (tmux session ${combo.tmuxSession} killed, journal kept)`);
     });
@@ -209,7 +236,8 @@ export function createProgram(deps: Deps): Command {
         for (const event of readEvents(runDir)) deps.out(JSON.stringify(event));
         return;
       }
-      for await (const event of followEvents(runDir)) {
+      const pollMs = resolvePollMs(deps.env);
+      for await (const event of followEvents(runDir, pollMs === undefined ? {} : { pollMs })) {
         deps.out(JSON.stringify(event));
       }
     });

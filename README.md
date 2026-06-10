@@ -46,9 +46,10 @@ Cascade: defaults ← user ← repo. Zero hardcoded operational values.
 
 ## Status
 
-v0 under construction. The protocol is in [`docs/spec.md`](docs/spec.md).
-Deferred to v1+: treehouse worktree pools, ACP role driving, automated
-gordon/director, preflight issue grading, the automerge counterfactual log.
+v0 implemented and test-verified; awaiting its first real combo (the fire
+test). The protocol is in [`docs/spec.md`](docs/spec.md). Deferred to v1+:
+treehouse worktree pools, ACP role driving, automated gordon/director,
+preflight issue grading, the automerge counterfactual log.
 
 ## Development
 

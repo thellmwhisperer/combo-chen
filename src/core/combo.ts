@@ -76,6 +76,17 @@ export interface RunnerInput {
   emit: string;
 }
 
+/**
+ * Single-quote a value for POSIX shell so it stays a literal: paths with
+ * spaces, branch names with apostrophes, anything. Trust boundary note:
+ * rowerCommand/hodorCommand are operator-written config (they ARE shell,
+ * like a Makefile recipe) and are inserted verbatim by design; every value
+ * combo-chen derives itself (worktree, branch) goes through this.
+ */
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 export function buildRunnerScript(input: RunnerInput): string {
   const { combo, rowerCommand, hodorCommand, emit } = input;
   return `#!/bin/sh
@@ -83,7 +94,7 @@ export function buildRunnerScript(input: RunnerInput): string {
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
 
-cd "${combo.worktree}"
+cd ${shellQuote(combo.worktree)}
 
 ${emit} rower_started
 
@@ -105,11 +116,12 @@ else
   exit $code
 fi
 
-pr_url=$(gh pr list --head "${combo.branch}" --json url --jq '.[0].url' 2>/dev/null || true)
+pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
   ${emit} pr_opened --field url="$pr_url"
+  ${emit} needs_human --field reason=pr_ready
+else
+  ${emit} needs_human --field reason=pr_missing
 fi
-
-${emit} needs_human --field reason=pr_ready
 `;
 }

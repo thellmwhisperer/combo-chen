@@ -12,7 +12,7 @@ a human merge decision.
 
 ## Architecture: fixed roles, configurable agents
 
-```
+```text
 DIRECTOR  (orchestrates and watches; NEVER touches code)   [tmux: combo-chen-N]
    │
    ├─ PHASE 1 · ROWER     gnhf in a worktree (treehouse)   → thread_id captured

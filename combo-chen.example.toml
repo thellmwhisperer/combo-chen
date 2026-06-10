@@ -8,9 +8,15 @@
 [roles]
 # The cast. Fixed roles, configurable agents.
 rower = "codex"                   # who rows (implements); needs a [rower.<name>] command
-hodor = "no-mistakes"             # who holds the door; its agent lives in .no-mistakes.yaml
-gordon = ["claude", "coderabbit"] # who judges; validated: gordon != rower
-merge = "human"                   # hard default — earn automerge with data first
+# hodor is ALWAYS the no-mistakes binary; WHICH MODEL holds the door is
+# chosen in the target repo's .no-mistakes.yaml (agent: codex | claude |
+# acp:hermes-deepseek | ...). Non-interactive agents are fine there: the
+# gate drives them headlessly through its own agent interface.
+hodor = "no-mistakes"
+# gordon runs post-PR, judging the result (automated gordon is v1+). Today
+# this names who SHOULD judge, and validates nobody judges their own work.
+gordon = ["claude", "coderabbit"] # validated: gordon != rower
+merge = "human"                   # hard default: earn automerge with data first
 
 [rower.codex]
 # {placeholders}: issue_url, worktree, repo, branch, prompt

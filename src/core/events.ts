@@ -2,7 +2,7 @@
  * The combo's spine: an append-only JSONL journal per run.
  * The event catalogue below IS the schema — events.test.ts pins it.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export class ComboEventError extends Error {}
@@ -51,7 +51,8 @@ export function appendEvent(
     }
   }
   const entry: ComboEvent = { t: new Date().toISOString(), event, ...payload };
-  mkdirSync(runDir, { recursive: true });
+  // The run dir is created by writeCombo; emitting to a combo that was
+  // never created is a caller bug and should surface, not be papered over.
   appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
   return entry;
 }
@@ -66,7 +67,8 @@ export function readEvents(runDir: string): ComboEvent[] {
     try {
       events.push(JSON.parse(line) as ComboEvent);
     } catch {
-      // A torn last line means a write is in flight; it will complete later.
+      // A torn last line can happen during concurrent writes (appendFileSync
+      // is not guaranteed atomic); ignored gracefully, re-read picks it up.
     }
   }
   return events;
