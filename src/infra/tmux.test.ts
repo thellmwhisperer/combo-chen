@@ -6,6 +6,7 @@ import {
   killSessionArgs,
   newSessionArgs,
   newWindowArgs,
+  nudgeWindowArgs,
   renameWindowArgs,
 } from "./tmux.js";
 
@@ -42,6 +43,13 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
       "-t",
       "s:rower",
       "rower:RUNNING",
+    ]);
+  });
+
+  it("nudges an interactive sitter with literal text and a separate bare Enter", () => {
+    expect(nudgeWindowArgs("combo-chen-o-r-7", "thread-sitter", "Review https://x/y#z")).toEqual([
+      ["send-keys", "-l", "-t", "combo-chen-o-r-7:thread-sitter", "Review https://x/y#z"],
+      ["send-keys", "-t", "combo-chen-o-r-7:thread-sitter", "Enter"],
     ]);
   });
 });
