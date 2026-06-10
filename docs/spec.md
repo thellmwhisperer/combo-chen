@@ -32,6 +32,9 @@ SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
 Any phase can transition to `STALLED` (timeout, rate limit, agent death) —
 a director concern, never a silent state.
 
+A recoverable rower failure journals `rower_retry` (no required fields) and
+the loop restarts; repeated failures transition to `STALLED`.
+
 ## 3. The two babysitters and their boundary
 
 - **hodor** (no-mistakes ci-step): machine signals only. Watches the PR
@@ -51,7 +54,7 @@ moments.
 
 - On `rower_done`, combo-chen captures the implementing session's thread id
   (gnhf logs, or lookup in La Roca's ingested session metadata).
-- On `review_comment`, the thread-sitter is the implementing thread resumed:
+- On `review_comment` (fields: `author`, `kind`, `url`), the thread-sitter is the implementing thread resumed:
   `codex resume <id>`, `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh rower instance
   primed with issue + PR diff + the comment. Degraded, never blocking.
@@ -65,8 +68,10 @@ moments.
 
 ## 5. Review state
 
-- Gordon's LGTM is pinned to the SHA it reviewed: `lgtm @ <sha>`.
-- Any push invalidates it (`lgtm_stale`); gordon re-reviews the delta
+- Gordon emits `lgtm` (required field `sha`) to journal the reviewed commit;
+  the LGTM is pinned to that SHA.
+- Any push invalidates it and the journal records `lgtm_stale` (fields
+  `old_sha`, `new_sha`); gordon re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
   findings.
 - READY requires: current LGTM on HEAD ∧ CodeRabbit clean ∧ hodor
@@ -74,7 +79,9 @@ moments.
 
 ## 6. Merge policy and the counterfactual log
 
-- Default: human merges. Always.
+- Default: human merges. Always. When merged, the combo journals `merged`
+  (fields: `sha`, `by`). When the PR is closed without merge, the combo
+  journals `combo_closed` (no required fields).
 - Every run records the counterfactual: would this combo have automerged
   (PR type, hodor risk assessment, signals, timestamp)? After enough runs,
   per-risk-tier automerge can be enabled where the counterfactual matches

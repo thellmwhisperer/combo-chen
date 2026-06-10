@@ -16,6 +16,12 @@ export const EVENT_TYPES = {
   hodor_failed: { required: ["exit_code"] },
   pr_opened: { required: ["url"] },
   needs_human: { required: ["reason"] },
+  review_comment: { required: ["author", "kind", "url"] },
+  lgtm: { required: ["sha"] },
+  lgtm_stale: { required: ["old_sha", "new_sha"] },
+  merged: { required: ["sha", "by"] },
+  combo_closed: { required: [] },
+  rower_retry: { required: [] },
   stopped: { required: ["by"] },
   // phase_changed and hodor_status return when the runner emits them (v1).
 } as const satisfies Record<string, { required: readonly string[] }>;
