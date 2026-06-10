@@ -8,6 +8,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
+import { shellQuote } from "../core/combo.js";
+
 export class ComboConfigError extends Error {}
 
 export interface ComboRoles {
@@ -46,7 +48,7 @@ const DEFAULTS = {
   },
   rower: {
     codex: {
-      command: 'npx -y gnhf --agent codex --current-branch "{prompt}"',
+      command: "npx -y gnhf --agent codex --current-branch {prompt}",
     },
   } as Record<string, { command?: string }>,
   hodor: {
@@ -148,6 +150,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     }
   }
 
+  if (roles.gordon.length === 0) {
+    throw new ComboConfigError(
+      "gordon must name at least one judge: an empty gordon silently disables judgment.",
+    );
+  }
+
   if (roles.gordon.includes(roles.rower)) {
     throw new ComboConfigError(
       `gordon != rower: "${roles.rower}" cannot judge its own cooking. Pick a different gordon or rower.`,
@@ -174,12 +182,16 @@ export function loadConfig(options: LoadOptions): ComboConfig {
 
 const PLACEHOLDER = /\{([a-z_]+)\}/g;
 
+/**
+ * Each value is substituted as one single-quoted POSIX shell token, so
+ * templates must not add their own quotes around {placeholders}.
+ */
 export function renderCommand(template: string, vars: Record<string, string>): string {
   return template.replace(PLACEHOLDER, (_, name: string) => {
     const value = vars[name];
     if (value === undefined) {
       throw new ComboConfigError(`Unknown placeholder {${name}} in command template`);
     }
-    return value;
+    return shellQuote(value);
   });
 }

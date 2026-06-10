@@ -19,12 +19,13 @@ gordon = ["claude", "coderabbit"] # validated: gordon != rower
 merge = "human"                   # hard default: earn automerge with data first
 
 [rower.codex]
-# {placeholders}: issue_url, worktree, repo, branch, prompt
-command = 'npx -y gnhf --agent codex --current-branch "{prompt}"'
+# {placeholders}: issue_url, worktree, repo, branch, prompt. Each value is
+# substituted as a single-quoted shell token; don't add quotes around them.
+command = 'npx -y gnhf --agent codex --current-branch {prompt}'
 
 # A hermes example (DeepSeek/Gemini/... via the Hermes harness):
 # [rower."hermes:deepseek"]
-# command = 'hermes -z "{prompt}"'
+# command = 'hermes -z {prompt}'
 
 [hodor]
 command = "no-mistakes axi run"

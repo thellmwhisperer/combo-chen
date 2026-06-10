@@ -22,22 +22,22 @@ describe("defaultPrompt", () => {
 });
 
 describe("buildRowerInvocation", () => {
-  it("renders the configured template with the combo's facts", () => {
+  it("renders the configured template with the combo's facts as quoted tokens", () => {
     const command = buildRowerInvocation({
-      rowerCommand: 'gnhf --x {issue_url} --wt {worktree} "{prompt}"',
+      rowerCommand: "gnhf --x {issue_url} --wt {worktree} {prompt}",
       combo,
     });
-    expect(command).toContain("--x https://github.com/o/r/issues/7");
-    expect(command).toContain("--wt /repos/r/.worktrees/issue-7");
+    expect(command).toContain("--x 'https://github.com/o/r/issues/7'");
+    expect(command).toContain("--wt '/repos/r/.worktrees/issue-7'");
     expect(command).toContain("Implement GitHub issue");
   });
 
   it("lets a custom prompt replace the default", () => {
     const command = buildRowerInvocation({
-      rowerCommand: 'gnhf "{prompt}"',
+      rowerCommand: "gnhf {prompt}",
       combo,
       prompt: "fix the flaky test only",
     });
-    expect(command).toBe('gnhf "fix the flaky test only"');
+    expect(command).toBe("gnhf 'fix the flaky test only'");
   });
 });

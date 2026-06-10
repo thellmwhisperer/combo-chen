@@ -15,17 +15,26 @@ function runDir(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-events-"));
 }
 
+/** Poll until the condition holds; the deadline only bounds a hung test. */
+async function waitFor(condition: () => boolean, deadlineMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > deadlineMs) {
+      throw new Error(`waitFor: condition not met within ${deadlineMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 describe("event schema", () => {
   it("pins the v0 event catalogue — a new event without a schema does not exist", () => {
     expect(Object.keys(EVENT_TYPES).sort()).toEqual(
       [
         "combo_created",
-        "phase_changed",
         "rower_started",
         "rower_done",
         "rower_failed",
         "hodor_started",
-        "hodor_status",
         "hodor_failed",
         "pr_opened",
         "needs_human",
@@ -35,7 +44,7 @@ describe("event schema", () => {
   });
 
   it("requires the documented payload fields per event", () => {
-    expect(EVENT_TYPES.phase_changed.required).toEqual(["from", "to"]);
+    expect(EVENT_TYPES.combo_created.required).toEqual(["issue_url"]);
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
     expect(EVENT_TYPES.rower_failed.required).toEqual(["exit_code"]);
@@ -54,13 +63,13 @@ describe("journal", () => {
   it("appends JSONL with a timestamp and reads back in order", () => {
     const dir = runDir();
     appendEvent(dir, "combo_created", { issue_url: "https://github.com/o/r/issues/7" });
-    appendEvent(dir, "phase_changed", { from: "SETUP", to: "ROWING" });
+    appendEvent(dir, "needs_human", { reason: "gate_decision" });
 
     const events = readEvents(dir);
     expect(events).toHaveLength(2);
     expect(events[0]?.event).toBe("combo_created");
-    expect(events[1]?.event).toBe("phase_changed");
-    expect(events[1]?.from).toBe("SETUP");
+    expect(events[1]?.event).toBe("needs_human");
+    expect(events[1]?.reason).toBe("gate_decision");
     expect(typeof events[0]?.t).toBe("string");
     expect(Number.isNaN(Date.parse(events[0]!.t))).toBe(false);
   });
@@ -86,14 +95,17 @@ describe("journal", () => {
     const seen: string[] = [];
     const controller = new AbortController();
     const following = (async () => {
-      for await (const event of followEvents(dir, { pollMs: 10, signal: controller.signal })) {
+      for await (const event of followEvents(dir, { pollMs: 5, signal: controller.signal })) {
         seen.push(event.event);
-        if (seen.length === 2) controller.abort();
       }
     })();
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // No fixed sleeps gating correctness: wait until the follower has the
+    // first event, only then append the second, then wait for it to land.
+    await waitFor(() => seen.length >= 1);
     appendEvent(dir, "rower_started", {});
+    await waitFor(() => seen.length >= 2);
+    controller.abort();
     await following;
 
     expect(seen).toEqual(["combo_created", "rower_started"]);

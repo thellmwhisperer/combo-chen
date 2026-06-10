@@ -8,7 +8,7 @@
  * these four commands.
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
@@ -83,6 +83,16 @@ function cliInvocation(): string {
   return `"${process.execPath}" "${script}"`;
 }
 
+/**
+ * Extract the "owner/repo" slug from a git remote URL. Handles the two
+ * shapes git uses in practice — scp-like ssh (git@host:owner/repo.git) and
+ * https (https://host/owner/repo.git) — with or without a trailing ".git".
+ */
+function remoteSlug(remoteUrl: string): string | undefined {
+  const match = /^(?:git@[^:/]+:|https:\/\/[^/]+\/)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(remoteUrl);
+  return match?.[1];
+}
+
 /** Poll cadence cascade: COMBO_CHEN_POLL_MS env → core's in-code fallback. */
 export function resolvePollMs(env: Record<string, string | undefined>): number | undefined {
   const raw = env["COMBO_CHEN_POLL_MS"];
@@ -109,14 +119,18 @@ export function createProgram(deps: Deps): Command {
       }
 
       // The wrong cwd must not silently row on unrelated code: when the
-      // target repo has an origin, it has to match the issue's owner/repo.
+      // target repo has an origin, its slug has to equal the issue's
+      // owner/repo exactly (substring matching would accept owner/repo-fork).
       const remote = deps.git(["remote", "get-url", "origin"], options.repo);
       const remoteUrl = remote.stdout.trim();
-      if (remote.status === 0 && remoteUrl !== "" && !remoteUrl.includes(`${issue.owner}/${issue.repo}`)) {
-        throw new Error(
-          `Repo mismatch: origin is "${remoteUrl}" but the issue belongs to ${issue.owner}/${issue.repo}. ` +
-            `Pass the right --repo.`,
-        );
+      if (remote.status === 0 && remoteUrl !== "") {
+        const slug = remoteSlug(remoteUrl);
+        if (slug?.toLowerCase() !== `${issue.owner}/${issue.repo}`.toLowerCase()) {
+          throw new Error(
+            `Repo mismatch: origin is "${remoteUrl}" but the issue belongs to ${issue.owner}/${issue.repo}. ` +
+              `Pass the right --repo.`,
+          );
+        }
       }
 
       const config = loadConfig({ repoDir: options.repo });
@@ -176,6 +190,10 @@ export function createProgram(deps: Deps): Command {
 
       const created = deps.tmux(newSessionArgs(session, "rower", `sh "${runnerPath}"`));
       if (created.status !== 0) {
+        // A combo that never started must not leave orphans behind: undo the
+        // run dir and the worktree before surfacing the failure.
+        rmSync(runDir, { recursive: true, force: true });
+        deps.git(["worktree", "remove", "--force", worktree], options.repo);
         throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
       }
       deps.tmux(newWindowArgs(session, "watch", `${cliInvocation()} events --follow -n ${id}`));

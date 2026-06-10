@@ -240,4 +240,59 @@ describe("run ordering and safety", () => {
       exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
     ).rejects.toThrow(/origin/i);
   });
+
+  it("refuses an origin that merely contains the issue's owner/repo as a prefix", async () => {
+    // o/r-fork contains "o/r"; only exact slug equality may pass the guard.
+    const { deps } = fakeDeps({
+      git: (args) =>
+        args[0] === "remote"
+          ? { status: 0, stdout: "git@github.com:o/r-fork.git\n", stderr: "" }
+          : { status: 0, stdout: "", stderr: "" },
+    });
+
+    await expect(
+      exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
+    ).rejects.toThrow(/origin/i);
+  });
+
+  it("rolls back the run dir and the worktree when tmux fails to start the session", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) =>
+        args[0] === "new-session"
+          ? { status: 1, stdout: "", stderr: "no terminal" }
+          : { status: 1, stdout: "", stderr: "" },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/tmux/i);
+
+    const worktreeRemove = calls.find((c) => c[0] === "git" && c.includes("remove"));
+    expect(worktreeRemove).toBeDefined();
+    expect(worktreeRemove).toContain("worktree");
+    expect(worktreeRemove).toContain("--force");
+    expect(worktreeRemove).toContain(join(repoDir, ".worktrees", "issue-7"));
+    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+  });
+
+  it("accepts an exact owner/repo match in ssh and https shapes, case-insensitively", async () => {
+    for (const remoteUrl of [
+      "git@github.com:o/r.git",
+      "https://github.com/o/r.git",
+      "https://github.com/O/R",
+    ]) {
+      const { deps } = fakeDeps({
+        env: { COMBO_CHEN_HOME: home() },
+        git: (args) =>
+          args[0] === "remote"
+            ? { status: 0, stdout: `${remoteUrl}\n`, stderr: "" }
+            : { status: 0, stdout: "", stderr: "" },
+      });
+
+      await expect(
+        exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
+      ).resolves.toBeUndefined();
+    }
+  });
 });

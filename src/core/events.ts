@@ -9,16 +9,15 @@ export class ComboEventError extends Error {}
 
 export const EVENT_TYPES = {
   combo_created: { required: ["issue_url"] },
-  phase_changed: { required: ["from", "to"] },
   rower_started: { required: [] },
   rower_done: { required: [] },
   rower_failed: { required: ["exit_code"] },
   hodor_started: { required: [] },
-  hodor_status: { required: ["raw"] },
   hodor_failed: { required: ["exit_code"] },
   pr_opened: { required: ["url"] },
   needs_human: { required: ["reason"] },
   stopped: { required: ["by"] },
+  // phase_changed and hodor_status return when the runner emits them (v1).
 } as const satisfies Record<string, { required: readonly string[] }>;
 
 export type EventName = keyof typeof EVENT_TYPES;

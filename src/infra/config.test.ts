@@ -25,8 +25,9 @@ describe("loadConfig", () => {
     expect(config.roles.merge).toBe("human");
     expect(config.limits.babysitPollSeconds).toBe(120);
     expect(config.limits.rowerTimeoutMinutes).toBe(180);
-    expect(config.rowerCommand).toContain("gnhf");
-    expect(config.rowerCommand).toContain("{prompt}");
+    // No quotes around {prompt}: renderCommand substitutes values as
+    // already-quoted shell tokens.
+    expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
   });
 
   it("lets the user config override defaults", () => {
@@ -62,6 +63,14 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/);
   });
 
+  it("rejects an empty gordon (it would silently disable judgment)", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[roles]\ngordon = []\n");
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/);
+  });
+
   it("accepts gordon as a single string and still validates against the rower", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", '[roles]\nrower = "codex"\ngordon = "codex"\n');
@@ -85,7 +94,7 @@ describe("loadConfig", () => {
 });
 
 describe("renderCommand", () => {
-  it("interpolates the documented placeholders", () => {
+  it("interpolates the documented placeholders as single-quoted shell tokens", () => {
     const rendered = renderCommand("gnhf --x {issue_url} in {worktree} for {repo} on {branch}: {prompt}", {
       issue_url: "https://github.com/o/r/issues/7",
       worktree: "/tmp/wt",
@@ -94,7 +103,17 @@ describe("renderCommand", () => {
       prompt: "do it",
     });
 
-    expect(rendered).toBe("gnhf --x https://github.com/o/r/issues/7 in /tmp/wt for o/r on combo/issue-7: do it");
+    expect(rendered).toBe(
+      "gnhf --x 'https://github.com/o/r/issues/7' in '/tmp/wt' for 'o/r' on 'combo/issue-7': 'do it'",
+    );
+  });
+
+  it("keeps a prompt with a double-quote and a semicolon one single literal token", () => {
+    const rendered = renderCommand("npx -y gnhf --agent codex --current-branch {prompt}", {
+      prompt: 'say "done"; echo extra',
+    });
+
+    expect(rendered).toBe(`npx -y gnhf --agent codex --current-branch 'say "done"; echo extra'`);
   });
 
   it("throws on unknown placeholders so typos never reach a shell", () => {
