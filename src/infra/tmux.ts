@@ -30,6 +30,18 @@ export function renameWindowArgs(session: string, windowName: string, title: str
   return ["rename-window", "-t", `${session}:${windowName}`, title];
 }
 
+export function nudgeWindowArgs(
+  session: string,
+  windowName: string,
+  prompt: string,
+): string[][] {
+  const target = `${session}:${windowName}`;
+  return [
+    ["send-keys", "-l", "-t", target, prompt],
+    ["send-keys", "-t", target, "Enter"],
+  ];
+}
+
 export interface TmuxResult {
   status: number;
   stdout: string;
