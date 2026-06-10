@@ -79,6 +79,57 @@ describe("emit", () => {
     expect(events[0]?.["exit_code"]).toBe(3);
   });
 
+  it("accepts post-PR event vocabulary with its required fields", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, [
+      "emit",
+      "-n",
+      "o-r-7",
+      "review_comment",
+      "--field",
+      "author=gordon",
+      "--field",
+      "kind=judge",
+      "--field",
+      "url=https://github.com/o/r/pull/7#discussion_r1",
+    ]);
+    await exec(deps, ["emit", "-n", "o-r-7", "lgtm", "--field", "sha=abc123"]);
+    await exec(deps, [
+      "emit",
+      "-n",
+      "o-r-7",
+      "lgtm_stale",
+      "--field",
+      "old_sha=abc123",
+      "--field",
+      "new_sha=def456",
+    ]);
+    await exec(deps, ["emit", "-n", "o-r-7", "merged", "--field", "sha=def456", "--field", "by=javi"]);
+    await exec(deps, ["emit", "-n", "o-r-7", "combo_closed"]);
+    await exec(deps, ["emit", "-n", "o-r-7", "rower_retry"]);
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual([
+      "review_comment",
+      "lgtm",
+      "lgtm_stale",
+      "merged",
+      "combo_closed",
+      "rower_retry",
+    ]);
+  });
+
   it("surfaces emitting to a combo that was never created (caller bug)", async () => {
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: home() } });
     await expect(exec(deps, ["emit", "-n", "ghost", "rower_started"])).rejects.toThrow(/ENOENT/);
@@ -147,6 +198,40 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("ROWING");
     expect(text).toContain("gate_decision");
+  });
+});
+
+describe("events", () => {
+  it("renders post-PR events through --follow", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "merged", { sha: "def456", by: "javi" });
+
+    const stop = new Error("observed followed event");
+    const out: string[] = [];
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h, COMBO_CHEN_POLL_MS: "1" },
+      out: (line) => {
+        out.push(line);
+        if (line.includes('"event":"merged"')) throw stop;
+      },
+    });
+
+    await expect(exec(deps, ["events", "-n", "o-r-7", "--follow"])).rejects.toBe(stop);
+    expect(JSON.parse(out[0] ?? "{}")).toMatchObject({
+      event: "merged",
+      sha: "def456",
+      by: "javi",
+    });
   });
 });
 
