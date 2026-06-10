@@ -255,7 +255,7 @@ describe("run ordering and safety", () => {
     ).rejects.toThrow(/origin/i);
   });
 
-  it("rolls back the run dir and the worktree when tmux fails to start the session", async () => {
+  it("rolls back the run dir, the worktree, and the branch when tmux fails to start the session", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const { deps, calls } = fakeDeps({
@@ -268,11 +268,25 @@ describe("run ordering and safety", () => {
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/tmux/i);
 
-    const worktreeRemove = calls.find((c) => c[0] === "git" && c.includes("remove"));
+    const worktreeRemoveIndex = calls.findIndex((c) => c[0] === "git" && c.includes("remove"));
+    const worktreeRemove = calls[worktreeRemoveIndex];
     expect(worktreeRemove).toBeDefined();
     expect(worktreeRemove).toContain("worktree");
     expect(worktreeRemove).toContain("--force");
     expect(worktreeRemove).toContain(join(repoDir, ".worktrees", "issue-7"));
+
+    // Retry after a tmux failure must be idempotent: the branch created by
+    // `worktree add -b` has to go too, and only after the worktree (a branch
+    // checked out in a worktree can't be deleted).
+    const branchDeleteIndex = calls.findIndex(
+      (c) => c[0] === "git" && c.includes("branch") && c.includes("-D"),
+    );
+    const branchDelete = calls[branchDeleteIndex];
+    expect(branchDelete).toBeDefined();
+    expect(branchDelete).toContain(`cwd=${repoDir}`);
+    expect(branchDelete).toContain("combo/issue-7");
+    expect(worktreeRemoveIndex).toBeLessThan(branchDeleteIndex);
+
     expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
   });
 

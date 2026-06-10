@@ -191,9 +191,12 @@ export function createProgram(deps: Deps): Command {
       const created = deps.tmux(newSessionArgs(session, "rower", `sh "${runnerPath}"`));
       if (created.status !== 0) {
         // A combo that never started must not leave orphans behind: undo the
-        // run dir and the worktree before surfacing the failure.
+        // run dir, the worktree, and the branch `worktree add -b` created, so
+        // a retry is idempotent. Worktree first — a branch checked out in a
+        // worktree can't be deleted.
         rmSync(runDir, { recursive: true, force: true });
         deps.git(["worktree", "remove", "--force", worktree], options.repo);
+        deps.git(["branch", "-D", branch], options.repo);
         throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
       }
       deps.tmux(newWindowArgs(session, "watch", `${cliInvocation()} events --follow -n ${id}`));
