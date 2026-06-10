@@ -55,6 +55,13 @@ moments.
   `codex resume <id>`, `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with issue + PR diff + the comment. Degraded, never blocking.
+- Two-bucket policy per comment (mirrors no-mistakes findings): mechanical
+  addresses (rename, guard, doc, test tweak) are handled and answered
+  autonomously; intent-touching comments emit `needs_human` and pause that
+  thread until the human rules.
+- Context discipline (empirical, from no-mistakes' design): resumed context
+  is for WRITING (addressing with intent memory); fresh context is for
+  JUDGING (the reviewer is never the resumed thread).
 
 ## 5. Review state
 
@@ -69,9 +76,12 @@ moments.
 
 - Default: human merges. Always.
 - Every run records the counterfactual: would this combo have automerged
-  (PR type, signals, timestamp)? After enough runs, per-PR-type automerge can
-  be enabled where the counterfactual matches human decisions — trust earned
-  with data.
+  (PR type, gate risk assessment, signals, timestamp)? After enough runs,
+  per-risk-tier automerge can be enabled where the counterfactual matches
+  human decisions — trust earned with data, low-risk tier first. The gate
+  already emits a risk assessment in the PR body; the log keys on it.
+- The READY report links evidence (gate test artifacts, screenshots, CI
+  runs), not just green booleans: humans merge on evidence.
 
 ## 7. Capacity and rate limits
 
@@ -92,8 +102,26 @@ moments.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.
+- Attention surface: tmux window titles + `combo-chen status` always answer
+  "which combos need a human RIGHT NOW" (phase + needs_human flag). Five
+  combos = five status lines, zero attaching until escalation.
+- The director consumes events, never logs: deep dives (why did the coder
+  stall?) go to a subagent that reports back a conclusion, protecting the
+  director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
+
+## 8b. Preflight
+
+- The issue is the combo's spec: plan quality buys autonomous runtime.
+  `combo-chen preflight --issue <url>` grades the issue (requirements,
+  acceptance criteria, measurable goal) and warns before launch; it also
+  warns when the target repo's AGENTS.md lacks testing instructions
+  (predictor of weak validation).
+- combo-chen carries no testing knowledge of its own: the target repo's
+  AGENTS.md is the testing brain.
+- Anti-scope: combos are for issue-sized work. Typo-sized changes belong in
+  direct sessions, not pipelines.
 
 ## 9. Inherited hard limits
 
