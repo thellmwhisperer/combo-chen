@@ -39,9 +39,21 @@ export interface ComboConfig {
   threadSitterWindowName: string;
   /** tmux window name for the review-comment watcher. */
   threadSitterWatchWindowName: string;
+  /** First configured gordon with an executable command template. */
+  judgeAgent: string;
+  /** Command template for the judge loop, with {placeholders}. */
+  judgeCommand: string;
+  /** Review protocol reference injected into the judge prompt. */
+  judgeProtocol: string;
 }
 
 const ROLE_NAMES = new Set(["rower", "hodor", "gordon", "merge"]);
+const DEFAULT_GORDON_PROTOCOL = "La Roca review protocol 7989 + project overlay";
+const DEFAULT_GORDON_TEMPLATES: Record<string, { command?: string }> = {
+  claude: {
+    command: "claude {prompt}",
+  },
+};
 
 const DEFAULTS = {
   roles: {
@@ -157,6 +169,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   };
   let hodorCommand = DEFAULTS.hodor.command;
   let threadSitterTable: TomlTable = { ...DEFAULTS.thread_sitter };
+  let gordonTemplates: Record<string, { command?: string }> = { ...DEFAULT_GORDON_TEMPLATES };
+  let judgeProtocol = DEFAULT_GORDON_PROTOCOL;
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
@@ -184,6 +198,19 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         ...asTable(layer.table["thread_sitter"], `[thread_sitter] in ${layer.source}`),
       };
     }
+    if (layer.table["gordon"] !== undefined) {
+      const gordonTable = asTable(layer.table["gordon"], `[gordon] in ${layer.source}`);
+      if (gordonTable["protocol"] !== undefined) {
+        judgeProtocol = String(gordonTable["protocol"]);
+      }
+      for (const [name, entry] of Object.entries(gordonTable)) {
+        if (name === "protocol") continue;
+        gordonTemplates = {
+          ...gordonTemplates,
+          [name]: { ...gordonTemplates[name], ...asTable(entry, `[gordon.${name}] in ${layer.source}`) },
+        };
+      }
+    }
   }
 
   if (roles.gordon.length === 0) {
@@ -207,6 +234,15 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     `resume command template for rower "${roles.rower}"`,
   );
 
+  const judgeAgent = roles.gordon.find((agent) => gordonTemplates[agent]?.command);
+  const judgeCommand = judgeAgent === undefined ? undefined : gordonTemplates[judgeAgent]?.command;
+  if (!judgeAgent || !judgeCommand) {
+    throw new ComboConfigError(
+      `No command template for gordon ${roles.gordon.map((agent) => `"${agent}"`).join(", ")}. ` +
+        `Add [gordon."<name>"] command = "..." to your config.`,
+    );
+  }
+
   return {
     roles,
     limits: {
@@ -219,6 +255,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewNudgePrompt: String(threadSitterTable["review_nudge_prompt"]),
     threadSitterWindowName: String(threadSitterTable["window_name"]),
     threadSitterWatchWindowName: String(threadSitterTable["watch_window_name"]),
+    judgeAgent,
+    judgeCommand,
+    judgeProtocol,
   };
 }
 
