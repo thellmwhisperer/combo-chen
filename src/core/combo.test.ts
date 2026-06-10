@@ -75,6 +75,20 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("cd '/repos/r/.worktrees/issue-7'");
   });
 
+  it("denies the rower a TTY on stdin so interactive UIs exit on their own with code 0", () => {
+    const rowerLine = script.split("\n").find((l) => l.startsWith("if ") && l.includes("gnhf"));
+    expect(rowerLine).toContain("< /dev/null");
+  });
+
+  it("captures the base commit before rowing and reports commit evidence on rower failure", () => {
+    const base = script.indexOf("base_sha=$(git rev-parse HEAD)");
+    const rower = script.indexOf("gnhf");
+    expect(base).toBeGreaterThan(-1);
+    expect(base).toBeLessThan(rower);
+    expect(script).toContain('new_commits=$(git rev-list --count "$base_sha"..HEAD 2>/dev/null || echo 0)');
+    expect(script).toContain("rower_failed --field exit_code=$code --field new_commits=$new_commits");
+  });
+
   it("sequences rower, hodor, pr detection, and the final handoff to humans", () => {
     const rower = script.indexOf("gnhf");
     const hodor = script.indexOf("no-mistakes axi run");

@@ -96,13 +96,19 @@ set -u
 
 cd ${shellQuote(combo.worktree)}
 
+base_sha=$(git rev-parse HEAD)
+
 ${emit} rower_started
 
-if ${rowerCommand}; then
+# stdin from /dev/null: interactive rower UIs key their keep-alive on a TTY
+# (gnhf's final "ctrl+c to exit" screen). Without one, the rower finishes its
+# work and exits with code 0 on its own, so the pipeline advances unattended.
+if ${rowerCommand} < /dev/null; then
   ${emit} rower_done
 else
   code=$?
-  ${emit} rower_failed --field exit_code=$code
+  new_commits=$(git rev-list --count "$base_sha"..HEAD 2>/dev/null || echo 0)
+  ${emit} rower_failed --field exit_code=$code --field new_commits=$new_commits
   exit $code
 fi
 
