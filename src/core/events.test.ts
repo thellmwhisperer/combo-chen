@@ -38,6 +38,12 @@ describe("event schema", () => {
         "hodor_failed",
         "pr_opened",
         "needs_human",
+        "review_comment",
+        "lgtm",
+        "lgtm_stale",
+        "merged",
+        "combo_closed",
+        "rower_retry",
         "stopped",
       ].sort(),
     );
@@ -48,6 +54,12 @@ describe("event schema", () => {
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
     expect(EVENT_TYPES.rower_failed.required).toEqual(["exit_code"]);
+    expect(EVENT_TYPES.review_comment.required).toEqual(["author", "kind", "url"]);
+    expect(EVENT_TYPES.lgtm.required).toEqual(["sha"]);
+    expect(EVENT_TYPES.lgtm_stale.required).toEqual(["old_sha", "new_sha"]);
+    expect(EVENT_TYPES.merged.required).toEqual(["sha", "by"]);
+    expect(EVENT_TYPES.combo_closed.required).toEqual([]);
+    expect(EVENT_TYPES.rower_retry.required).toEqual([]);
   });
 
   it("rejects unknown event names", () => {
@@ -72,6 +84,29 @@ describe("journal", () => {
     expect(events[1]?.reason).toBe("gate_decision");
     expect(typeof events[0]?.t).toBe("string");
     expect(Number.isNaN(Date.parse(events[0]!.t))).toBe(false);
+  });
+
+  it("appends the post-PR event vocabulary with its documented fields", () => {
+    const dir = runDir();
+    appendEvent(dir, "review_comment", {
+      author: "gordon",
+      kind: "judge",
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+    });
+    appendEvent(dir, "lgtm", { sha: "abc123" });
+    appendEvent(dir, "lgtm_stale", { old_sha: "abc123", new_sha: "def456" });
+    appendEvent(dir, "merged", { sha: "def456", by: "javi" });
+    appendEvent(dir, "combo_closed", {});
+    appendEvent(dir, "rower_retry", {});
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual([
+      "review_comment",
+      "lgtm",
+      "lgtm_stale",
+      "merged",
+      "combo_closed",
+      "rower_retry",
+    ]);
   });
 
   it("reads an empty list when no journal exists yet", () => {
