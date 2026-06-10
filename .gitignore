@@ -1,0 +1,9 @@
+# lavish artifacts are working surfaces, not repo content
+.lavish/
+
+node_modules/
+dist/
+*.log
+.DS_Store
+# local config (the example ships, the real one doesn't)
+combo-chen.toml
