@@ -1,6 +1,9 @@
 # lavish artifacts are working surfaces, not repo content
 .lavish/
 
+# the user's global gitignore excludes AGENTS.md; this repo ships its charter
+!AGENTS.md
+
 node_modules/
 dist/
 *.log
