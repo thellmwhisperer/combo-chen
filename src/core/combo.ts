@@ -52,6 +52,8 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         reason = typeof event["reason"] === "string" ? (event["reason"] as string) : undefined;
         break;
       case "stopped":
+      case "merged":
+      case "combo_closed":
         phase = "STOPPED";
         needsHuman = false;
         break;
@@ -76,6 +78,8 @@ export interface RunnerInput {
   activateThreadSitter: string;
   /** Full invocation prefix for emitting events, e.g. "node /x/cli.mjs emit -n <id>". */
   emit: string;
+  /** Full invocation for starting the judge loop after a PR has been journaled. */
+  activateJudge: string;
 }
 
 /**
@@ -90,7 +94,7 @@ export function shellQuote(value: string): string {
 }
 
 export function buildRunnerScript(input: RunnerInput): string {
-  const { combo, rowerCommand, hodorCommand, activateThreadSitter, emit } = input;
+  const { combo, rowerCommand, hodorCommand, emit, activateThreadSitter, activateJudge } = input;
   return `#!/bin/sh
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
@@ -122,6 +126,7 @@ pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url
 if [ -n "\${pr_url:-}" ]; then
   ${emit} pr_opened --field url="$pr_url"
   ${activateThreadSitter}
+  ${activateJudge}
   ${emit} needs_human --field reason=pr_ready
 else
   ${emit} needs_human --field reason=pr_missing

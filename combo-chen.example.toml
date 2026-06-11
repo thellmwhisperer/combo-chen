@@ -13,8 +13,8 @@ rower = "codex"                   # who rows (implements); needs a [rower.<name>
 # acp:hermes-deepseek | ...). Non-interactive agents are fine there: the
 # gate drives them headlessly through its own agent interface.
 hodor = "no-mistakes"
-# gordon runs post-PR, judging the result (automated gordon is v1+). Today
-# this names who SHOULD judge, and validates nobody judges their own work.
+# gordon runs post-PR, judging the result. The first gordon with a command
+# template becomes the active judge; coderabbit remains an ambient reviewer.
 gordon = ["claude", "coderabbit"] # validated: gordon != rower
 merge = "human"                   # hard default: earn automerge with data first
 
@@ -45,6 +45,15 @@ New review comment for the thread-sitter:
 Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.
 Before pushing, check the hodor push semaphore.
 '''
+
+[gordon]
+# Protocol content stays in config. Keep this as a reference to the current
+# La Roca review protocol and project overlay rather than copying them here.
+protocol = "La Roca review protocol 7989 + project overlay"
+
+[gordon.claude]
+# {placeholders}: issue_url, pr_url, worktree, repo, branch, protocol, prompt.
+command = "claude {prompt}"
 
 [limits]
 babysit_poll_seconds = 120  # thread-sitter review-comment poll interval
