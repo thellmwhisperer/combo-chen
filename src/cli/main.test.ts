@@ -554,6 +554,27 @@ describe("run", () => {
     expect(events[0]?.event).toBe("combo_created");
   });
 
+  it("uses configured hodor attach retry settings in the hodor tmux window", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[hodor]\nattach_timeout_seconds = 45\nattach_retry_interval_seconds = 15\n",
+    );
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const hodorWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    );
+    const command = hodorWindow?.at(-1) ?? "";
+    expect(command).toContain('if [ "$attempt" -gt 3 ]; then');
+    expect(command).toContain('echo "hodor-attach: timed out after 45 seconds" >&2');
+    expect(command).toContain('echo "hodor-attach: waiting for hodor (attempt $attempt/3)..." >&2');
+    expect(command).toContain("sleep 15");
+  });
+
   it("does not delete run state or worktree when journal-pane rollback cannot kill tmux", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
