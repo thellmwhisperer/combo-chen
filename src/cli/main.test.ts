@@ -301,9 +301,70 @@ describe("activate-thread-sitter", () => {
 });
 
 describe("nudge-review-comments", () => {
-  it("routes a fetched PR comment once using read-only GitHub calls and no repo writes", async () => {
+  it("fast-forwards the no-mistakes mirror from origin before routing comments", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const originSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const mirrorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote") {
+          return { status: 0, stdout: "/Users/javi/.no-mistakes/repos/o-r.git\n", stderr: "" };
+        }
+        if (args[0] === "fetch") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "rev-parse") {
+          return { status: 0, stdout: `${originSha}\n`, stderr: "" };
+        }
+        if (args[0] === "ls-remote") {
+          return {
+            status: 0,
+            stdout: `${mirrorSha}\trefs/heads/combo/issue-7\n`,
+            stderr: "",
+          };
+        }
+        if (args[0] === "push") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${worktree}`,
+      "push",
+      "no-mistakes",
+      "refs/remotes/origin/combo/issue-7:refs/heads/combo/issue-7",
+    ]);
+    const pushIndex = calls.findIndex((call) => call[0] === "git" && call[2] === "push");
+    const firstGhIndex = calls.findIndex((call) => call[0] === "gh");
+    expect(pushIndex).toBeGreaterThan(-1);
+    expect(firstGhIndex).toBeGreaterThan(pushIndex);
+  });
+
+  it("routes a fetched PR comment once and skips repo writes when no mirror remote exists", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
@@ -313,7 +374,7 @@ describe("nudge-review-comments", () => {
       id: "o-r-7",
       issueUrl: ISSUE,
       repoDir,
-      worktree: join(repoDir, ".worktrees", "issue-7"),
+      worktree,
       branch: "combo/issue-7",
       tmuxSession: "combo-chen-owned-session",
       createdAt: new Date().toISOString(),
@@ -339,6 +400,13 @@ describe("nudge-review-comments", () => {
         }
         return { status: 0, stdout: "[]", stderr: "" };
       },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+          return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
     });
 
     await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
@@ -352,29 +420,14 @@ describe("nudge-review-comments", () => {
       url: "https://github.com/o/r/pull/7#issuecomment-1",
     });
 
-    const tmuxCalls = calls.filter(
-      (call) => call[0] === "tmux" && ["set-buffer", "paste-buffer", "send-keys"].includes(call[1] ?? ""),
-    );
-    expect(tmuxCalls).toEqual([
-      [
-        "tmux",
-        "set-buffer",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
-        "Please address 'https://github.com/o/r/pull/7#issuecomment-1'",
-      ],
-      [
-        "tmux",
-        "paste-buffer",
-        "-d",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
-        "-t",
-        "combo-chen-owned-session:sitter",
-      ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
+    const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
+    expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls[0]).toContain("combo-chen-o-r-7:sitter");
+    expect(tmuxCalls[0]?.at(-1)).toBe("Please address 'https://github.com/o/r/pull/7#issuecomment-1'");
+    expect(calls.filter((call) => call[0] === "git")).toEqual([
+      ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
+      ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
     ]);
-    expect(calls.some((call) => call[0] === "git")).toBe(false);
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
     expect(ghCalls.every((call) => call[1] === "api" && !call.includes("--method"))).toBe(true);
