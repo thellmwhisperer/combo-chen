@@ -256,6 +256,8 @@ interface PrView {
   headSha: string;
   state: string;
   mergedBy?: string;
+  baseRefName?: string;
+  mergeSha?: string;
 }
 
 function parsePrView(stdout: string): PrView {
@@ -274,10 +276,23 @@ function parsePrView(stdout: string): PrView {
   ) {
     const state = (parsed as { state?: unknown }).state;
     const mergedBy = (parsed as { mergedBy?: unknown }).mergedBy;
+    const baseRefName = (parsed as { baseRefName?: unknown }).baseRefName;
+    const mergeCommit = (parsed as { mergeCommit?: unknown }).mergeCommit;
     const view: PrView = {
       headSha: (parsed as { headRefOid: string }).headRefOid,
       state: typeof state === "string" && state.length > 0 ? state : "OPEN",
     };
+    if (typeof baseRefName === "string" && baseRefName.length > 0) {
+      view.baseRefName = baseRefName;
+    }
+    if (
+      typeof mergeCommit === "object" &&
+      mergeCommit !== null &&
+      typeof (mergeCommit as { oid?: unknown }).oid === "string" &&
+      (mergeCommit as { oid: string }).oid.length > 0
+    ) {
+      view.mergeSha = (mergeCommit as { oid: string }).oid;
+    }
     if (
       typeof mergedBy === "object" &&
       mergedBy !== null &&
@@ -295,19 +310,56 @@ function parsePrView(stdout: string): PrView {
 function terminalJudgeEvent(events: ComboEvent[]): ComboEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
-    if (event.event === "merged" || event.event === "combo_closed") return event;
+    if (event.event === "combo_closed") return event;
   }
   return undefined;
 }
 
-function stopGordonWindow(deps: Deps, combo: ComboRecord): void {
-  const killed = deps.tmux(killWindowArgs(combo.tmuxSession, "gordon"));
+function hasMergedEvent(events: ComboEvent[], sha: string): boolean {
+  return events.some((event) => event.event === "merged" && event["sha"] === sha);
+}
+
+function requireGit(deps: Deps, args: string[], cwd: string, description: string): void {
+  const result = deps.git(args, cwd);
+  if (result.status !== 0) {
+    throw new Error(`${description} failed: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
+  }
+}
+
+function teardownMergedCombo(input: {
+  deps: Deps;
+  combo: ComboRecord;
+  mergeSha: string;
+  baseRefName: string;
+}): void {
+  const killed = input.deps.tmux(killSessionArgs(input.combo.tmuxSession));
   if (killed.status !== 0) {
     throw new Error(
-      `tmux failed to stop gordon judge in "${combo.tmuxSession}": ` +
+      `tmux kill-session failed for "${input.combo.tmuxSession}": ` +
         `${killed.stderr.trim() || "unknown error"}`,
     );
   }
+
+  const baseRef = `origin/${input.baseRefName}`;
+  requireGit(input.deps, ["fetch", "origin", input.baseRefName], input.combo.repoDir, "git fetch base branch");
+  requireGit(
+    input.deps,
+    ["merge-base", "--is-ancestor", input.mergeSha, baseRef],
+    input.combo.repoDir,
+    `merge verification for ${input.mergeSha} in ${baseRef}`,
+  );
+  requireGit(
+    input.deps,
+    ["worktree", "remove", "--force", input.combo.worktree],
+    input.combo.repoDir,
+    `git worktree remove ${input.combo.worktree}`,
+  );
+  requireGit(
+    input.deps,
+    ["branch", "-D", input.combo.branch],
+    input.combo.repoDir,
+    `git branch delete ${input.combo.branch}`,
+  );
 }
 
 function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string): void {
@@ -638,7 +690,7 @@ export function createProgram(deps: Deps): Command {
         return;
       }
 
-      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy"]);
+      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy,baseRefName,mergeCommit"]);
       if (pr.status !== 0) {
         deps.out(`gordon: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
         return;
@@ -657,13 +709,20 @@ export function createProgram(deps: Deps): Command {
 
       if (prView.state === "MERGED") {
         const by = prView.mergedBy ?? "unknown";
-        appendEvent(runDir, "merged", { sha: headSha, by });
-        deps.out(`gordon: merged ${headSha} by ${by}`);
-        try {
-          stopGordonWindow(deps, combo);
-        } catch {
-          // window already dead — event is already journaled
+        const mergeSha = prView.mergeSha;
+        if (!mergeSha) {
+          throw new Error(`Cannot tear down ${combo.id}: merged PR did not report mergeCommit.oid`);
         }
+        const baseRefName = prView.baseRefName;
+        if (!baseRefName) {
+          throw new Error(`Cannot tear down ${combo.id}: merged PR did not report baseRefName`);
+        }
+        if (!hasMergedEvent(events, mergeSha)) {
+          appendEvent(runDir, "merged", { sha: mergeSha, by });
+        }
+        deps.out(`gordon: merged ${mergeSha} by ${by}`);
+        teardownMergedCombo({ deps, combo, mergeSha, baseRefName });
+        appendEvent(runDir, "combo_closed", {});
         return;
       }
 
