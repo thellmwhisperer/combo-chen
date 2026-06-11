@@ -22,14 +22,30 @@ merge = "human"                   # hard default: earn automerge with data first
 # {placeholders}: issue_url, worktree, repo, branch, prompt. Each value is
 # substituted as a single-quoted shell token; don't add quotes around them.
 command = 'npx -y gnhf --agent codex --current-branch {prompt}'
+# {placeholders}: thread_id. Used by the thread-sitter to resume the same
+# implementing context after PR review comments land.
+resume_command = 'codex resume {thread_id}'
 
 # A hermes example (DeepSeek/Gemini/... via the Hermes harness):
 # [rower."hermes:deepseek"]
 # command = 'hermes -z {prompt}'
+# resume_command = 'hermes --resume {thread_id}'
 
 [hodor]
 command = "no-mistakes axi run"
 
+[thread_sitter]
+window_name = "thread-sitter"
+watch_window_name = "thread-sitter-watch"
+# {placeholders}: author, kind, url.
+review_nudge_prompt = '''
+New review comment for the thread-sitter:
+{url}
+
+Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.
+Before pushing, check the hodor push semaphore.
+'''
+
 [limits]
-babysit_poll_seconds = 120
+babysit_poll_seconds = 120  # thread-sitter review-comment poll interval
 rower_timeout_minutes = 180

@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
+import { ROWER_THREAD_ARTIFACT } from "../roles/rower.js";
 import { createProgram, type Deps } from "./main.js";
 
 function home(): string {
@@ -33,6 +34,10 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
       calls.push(["git", `cwd=${cwd}`, ...args]);
       return { status: 0, stdout: "", stderr: "" };
     },
+    gh: (args) => {
+      calls.push(["gh", ...args]);
+      return { status: 0, stdout: "[]", stderr: "" };
+    },
     issueExists: () => true,
     ...overrides,
   };
@@ -40,19 +45,187 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
 }
 
 const ISSUE = "https://github.com/o/r/issues/7";
+const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
 
 async function exec(deps: Deps, argv: string[]): Promise<void> {
   const program = createProgram(deps);
   await program.parseAsync(["node", "combo-chen", ...argv]);
 }
 
+function seedCodexGnhfRun(worktree: string): void {
+  const gnhfRun = join(worktree, ".gnhf", "runs", "implement-github-iss-e6510c");
+  mkdirSync(gnhfRun, { recursive: true });
+  writeFileSync(
+    join(gnhfRun, "iteration-1.jsonl"),
+    `${JSON.stringify({ type: "thread.started", thread_id: CODEX_THREAD_ID })}\n`,
+  );
+}
+
 describe("command surface", () => {
-  it("exposes exactly the v0 commands", () => {
+  it("exposes the v0 commands and hidden runner helpers", () => {
     const { deps } = fakeDeps();
     const names = createProgram(deps)
       .commands.map((c) => c.name())
       .sort();
-    expect(names).toEqual(["emit", "events", "run", "status", "stop"].sort());
+    expect(names).toEqual(
+      [
+        "activate-thread-sitter",
+        "emit",
+        "events",
+        "nudge-review-comments",
+        "run",
+        "status",
+        "stop",
+      ].sort(),
+    );
+  });
+});
+
+describe("activate-thread-sitter", () => {
+  it("starts the resumed sitter window and the review-comment watcher from the rower thread artifact", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeFileSync(
+      join(dir, ROWER_THREAD_ARTIFACT),
+      `${JSON.stringify({
+        agent: "codex",
+        thread_id: CODEX_THREAD_ID,
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      })}\n`,
+    );
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["activate-thread-sitter", "-n", "o-r-7"]);
+
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows).toHaveLength(2);
+    expect(newWindows[0]).toContain("sitter");
+    expect(newWindows[0]?.at(-1)).toBe(`codex --profile sitter resume '${CODEX_THREAD_ID}'`);
+    expect(newWindows[1]).toContain("sitter-watch");
+    expect(newWindows[1]?.at(-1)).toContain("nudge-review-comments -n 'o-r-7'");
+    expect(newWindows[1]?.at(-1)).toContain("sleep 7");
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    expect(calls.some((call) => call[0] === "gh")).toBe(false);
+  });
+
+  it("kills the sitter window when the watcher window fails to start", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeFileSync(
+      join(dir, ROWER_THREAD_ARTIFACT),
+      `${JSON.stringify({
+        agent: "codex",
+        thread_id: CODEX_THREAD_ID,
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      })}\n`,
+    );
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "new-window" && args.includes("sitter-watch")) {
+          return { status: 1, stdout: "", stderr: "duplicate window" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["activate-thread-sitter", "-n", "o-r-7"])).rejects.toThrow(
+      /tmux failed to start sitter-watch: duplicate window/,
+    );
+
+    expect(calls).toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:sitter"]);
+  });
+});
+
+describe("nudge-review-comments", () => {
+  it("routes a fetched PR comment once using read-only GitHub calls and no repo writes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        const endpoint = args.at(-1);
+        if (endpoint === "repos/o/r/issues/7/comments") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                user: { login: "coderabbitai" },
+                body: "Please handle this.",
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    const events = readEvents(dir).filter((event) => event.event === "review_comment");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      author: "coderabbitai",
+      kind: "pr_comment",
+      url: "https://github.com/o/r/pull/7#issuecomment-1",
+    });
+
+    const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
+    expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls[0]).toContain("combo-chen-o-r-7:sitter");
+    expect(tmuxCalls[0]?.at(-1)).toBe("Please address 'https://github.com/o/r/pull/7#issuecomment-1'");
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    const ghCalls = calls.filter((call) => call[0] === "gh");
+    expect(ghCalls).not.toHaveLength(0);
+    expect(ghCalls.every((call) => call[1] === "api" && !call.includes("--method"))).toBe(true);
   });
 });
 
@@ -133,6 +306,32 @@ describe("emit", () => {
   it("surfaces emitting to a combo that was never created (caller bug)", async () => {
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: home() } });
     await expect(exec(deps, ["emit", "-n", "ghost", "rower_started"])).rejects.toThrow(/ENOENT/);
+  });
+
+  it("persists the codex thread artifact when rower_done is emitted", async () => {
+    const h = home();
+    const worktree = mkdtempSync(join(tmpdir(), "combo-chen-worktree-"));
+    seedCodexGnhfRun(worktree);
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "rower_done"]);
+
+    expect(JSON.parse(readFileSync(join(dir, ROWER_THREAD_ARTIFACT), "utf8"))).toEqual({
+      agent: "codex",
+      thread_id: CODEX_THREAD_ID,
+      source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+    });
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["rower_done"]);
   });
 });
 

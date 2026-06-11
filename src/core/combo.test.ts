@@ -69,6 +69,7 @@ describe("buildRunnerScript", () => {
     rowerCommand: 'npx -y gnhf --agent codex --current-branch "Implement issue 7"',
     hodorCommand: "no-mistakes axi run",
     emit: "node /opt/combo/dist/cli.mjs emit -n o-r-7",
+    activateThreadSitter: "node /opt/combo/dist/cli.mjs activate-thread-sitter -n o-r-7",
   });
 
   it("runs inside the worktree", () => {
@@ -79,11 +80,13 @@ describe("buildRunnerScript", () => {
     const rower = script.indexOf("gnhf");
     const hodor = script.indexOf("no-mistakes axi run");
     const pr = script.indexOf("gh pr list");
+    const threadSitter = script.indexOf("activate-thread-sitter");
     const handoff = script.indexOf("pr_ready");
     expect(rower).toBeGreaterThan(-1);
     expect(hodor).toBeGreaterThan(rower);
     expect(pr).toBeGreaterThan(hodor);
-    expect(handoff).toBeGreaterThan(pr);
+    expect(threadSitter).toBeGreaterThan(pr);
+    expect(handoff).toBeGreaterThan(threadSitter);
   });
 
   it("emits lifecycle events with captured exit codes on failure", () => {
@@ -101,13 +104,18 @@ describe("buildRunnerScript", () => {
   it("hands off as pr_ready only when a PR exists, pr_missing otherwise", () => {
     const prReady = script.indexOf("reason=pr_ready");
     const prMissing = script.indexOf("reason=pr_missing");
+    const prUrlBranch = script.indexOf('if [ -n "${pr_url:-}" ]');
+    const prMissingElse = script.lastIndexOf("else");
+    const threadSitter = script.indexOf("activate-thread-sitter");
     expect(prReady).toBeGreaterThan(-1);
     expect(prMissing).toBeGreaterThan(-1);
     // pr_ready lives inside the if-branch that saw a URL; pr_missing in the
     // final else (lastIndexOf: earlier elses belong to rower/hodor failure).
-    expect(script.indexOf('if [ -n "${pr_url:-}" ]')).toBeLessThan(prReady);
-    expect(prReady).toBeLessThan(script.lastIndexOf("else"));
-    expect(prMissing).toBeGreaterThan(script.lastIndexOf("else"));
+    expect(prUrlBranch).toBeLessThan(prReady);
+    expect(prReady).toBeLessThan(prMissingElse);
+    expect(prMissing).toBeGreaterThan(prMissingElse);
+    expect(threadSitter).toBeGreaterThan(prUrlBranch);
+    expect(threadSitter).toBeLessThan(prMissingElse);
   });
 
   it("single-quotes derived values so paths with spaces or metacharacters stay literal", () => {
@@ -116,6 +124,7 @@ describe("buildRunnerScript", () => {
       rowerCommand: "gnhf",
       hodorCommand: "no-mistakes axi run",
       emit: "emit",
+      activateThreadSitter: "activate-thread-sitter",
     });
     expect(spaced).toContain("cd '/repos/my repo/.worktrees/issue-7'");
     expect(spaced).toContain("--head 'combo/it'\\''s-7'");

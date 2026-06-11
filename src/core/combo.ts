@@ -72,6 +72,8 @@ export interface RunnerInput {
   combo: ComboRecord;
   rowerCommand: string;
   hodorCommand: string;
+  /** Full invocation for creating the resumed sitter and its comment watcher. */
+  activateThreadSitter: string;
   /** Full invocation prefix for emitting events, e.g. "node /x/cli.mjs emit -n <id>". */
   emit: string;
 }
@@ -88,7 +90,7 @@ export function shellQuote(value: string): string {
 }
 
 export function buildRunnerScript(input: RunnerInput): string {
-  const { combo, rowerCommand, hodorCommand, emit } = input;
+  const { combo, rowerCommand, hodorCommand, activateThreadSitter, emit } = input;
   return `#!/bin/sh
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
@@ -119,6 +121,7 @@ fi
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
   ${emit} pr_opened --field url="$pr_url"
+  ${activateThreadSitter}
   ${emit} needs_human --field reason=pr_ready
 else
   ${emit} needs_human --field reason=pr_missing
