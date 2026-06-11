@@ -167,10 +167,10 @@ function buildJudgeWatchCommand(input: {
   return [
     "while :; do",
     `  output=$(${env} ${input.cli} judge-tick -n ${shellQuote(input.comboId)} 2>&1)`,
-    "  status=$?",
+    "  rc=$?",
     '  printf "%s\\n" "$output"',
     `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("gordon: (merged|closed|already terminal)")} && exit 0`,
-    '  [ "$status" -eq 0 ] || exit "$status"',
+    '  [ "$rc" -eq 0 ] || exit "$rc"',
     `  sleep ${input.pollSeconds}`,
     "done",
   ].join("\n");
