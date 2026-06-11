@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 
-import { buildRunnerScript, deriveStatus } from "../core/combo.js";
+import { buildRunnerScript, deriveStatus, shellQuote } from "../core/combo.js";
 import { appendEvent, followEvents, readEvents, type ComboEvent, type EventName } from "../core/events.js";
 import {
   comboHome,
@@ -115,6 +115,25 @@ export function resolvePollMs(env: Record<string, string | undefined>): number |
   if (!raw) return undefined;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function buildJudgeWatchCommand(input: {
+  cli: string;
+  comboHome: string;
+  comboId: string;
+  pollSeconds: number;
+}): string {
+  const env = `COMBO_CHEN_HOME=${shellQuote(input.comboHome)}`;
+  return [
+    "while :; do",
+    `  output=$(${env} ${input.cli} judge-tick -n ${shellQuote(input.comboId)} 2>&1)`,
+    "  status=$?",
+    '  printf "%s\\n" "$output"',
+    `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("gordon: (merged|closed|already terminal)")} && exit 0`,
+    '  [ "$status" -eq 0 ] || exit "$status"',
+    `  sleep ${input.pollSeconds}`,
+    "done",
+  ].join("\n");
 }
 
 function latestOpenedPrUrl(runDir: string): string | undefined {
@@ -311,7 +330,8 @@ export function createProgram(deps: Deps): Command {
     .description("Start the configured gordon judge window for an opened PR")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
-      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const home = comboHome(deps.env);
+      const runDir = runDirFor(home, options.name);
       const combo = readCombo(runDir);
       const prUrl = latestOpenedPrUrl(runDir);
       if (!prUrl) {
@@ -334,7 +354,27 @@ export function createProgram(deps: Deps): Command {
         );
       }
 
+      const watcher = deps.tmux(
+        newWindowArgs(
+          combo.tmuxSession,
+          "gordon-watch",
+          buildJudgeWatchCommand({
+            cli: cliInvocation(),
+            comboHome: home,
+            comboId: combo.id,
+            pollSeconds: config.limits.babysitPollSeconds,
+          }),
+        ),
+      );
+      if (watcher.status !== 0) {
+        throw new Error(
+          `tmux failed to start gordon watcher in "${combo.tmuxSession}": ` +
+            `${watcher.stderr.trim() || "unknown error"}`,
+        );
+      }
+
       deps.out(`gordon: ${config.judgeAgent} judging ${prUrl} in ${combo.tmuxSession}:gordon`);
+      deps.out(`gordon-watch: polling judge hard signals every ${config.limits.babysitPollSeconds}s`);
     });
 
   program
