@@ -35,7 +35,7 @@ import {
   type TmuxResult,
 } from "../infra/tmux.js";
 import { buildHodorInvocation } from "../roles/hodor.js";
-import { buildRowerInvocation } from "../roles/rower.js";
+import { buildRowerInvocation, persistRowerThreadArtifact } from "../roles/rower.js";
 
 export interface Deps {
   env: Record<string, string | undefined>;
@@ -271,6 +271,10 @@ export function createProgram(deps: Deps): Command {
     .option("--field <key=value...>", "Payload fields", (value: string, prev: string[]) => [...prev, value], [])
     .action(async (event: string, options: { name: string; field: string[] }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
+      if (event === "rower_done") {
+        const combo = readCombo(runDir);
+        persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
+      }
       appendEvent(runDir, event as EventName, parseFields(options.field));
     });
 

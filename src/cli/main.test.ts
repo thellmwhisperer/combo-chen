@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
+import { ROWER_THREAD_ARTIFACT } from "../roles/rower.js";
 import { createProgram, type Deps } from "./main.js";
 
 function home(): string {
@@ -40,10 +41,20 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
 }
 
 const ISSUE = "https://github.com/o/r/issues/7";
+const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
 
 async function exec(deps: Deps, argv: string[]): Promise<void> {
   const program = createProgram(deps);
   await program.parseAsync(["node", "combo-chen", ...argv]);
+}
+
+function seedCodexGnhfRun(worktree: string): void {
+  const gnhfRun = join(worktree, ".gnhf", "runs", "implement-github-iss-e6510c");
+  mkdirSync(gnhfRun, { recursive: true });
+  writeFileSync(
+    join(gnhfRun, "iteration-1.jsonl"),
+    `${JSON.stringify({ type: "thread.started", thread_id: CODEX_THREAD_ID })}\n`,
+  );
 }
 
 describe("command surface", () => {
@@ -133,6 +144,32 @@ describe("emit", () => {
   it("surfaces emitting to a combo that was never created (caller bug)", async () => {
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: home() } });
     await expect(exec(deps, ["emit", "-n", "ghost", "rower_started"])).rejects.toThrow(/ENOENT/);
+  });
+
+  it("persists the codex thread artifact when rower_done is emitted", async () => {
+    const h = home();
+    const worktree = mkdtempSync(join(tmpdir(), "combo-chen-worktree-"));
+    seedCodexGnhfRun(worktree);
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "rower_done"]);
+
+    expect(JSON.parse(readFileSync(join(dir, ROWER_THREAD_ARTIFACT), "utf8"))).toEqual({
+      agent: "codex",
+      thread_id: CODEX_THREAD_ID,
+      source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+    });
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["rower_done"]);
   });
 });
 
