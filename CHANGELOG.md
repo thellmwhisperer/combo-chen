@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.6](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.5...combo-chen-v0.0.6) (2026-06-11)
+
+
+### Features
+
+* **core:** log rower output and enrich failure events with commit evidence ([4a7fd74](https://github.com/thellmwhisperer/combo-chen/commit/4a7fd74500d1b155c5c05d96aecf91d24019fc4e))
+
+
+### Bug Fixes
+
+* **runner:** Implemented issue [#5](https://github.com/thellmwhisperer/combo-chen/issues/5) AC3 by enriching `rower_failed` journal events with branch-vs-base commit evidence and verified the full suite is green. ([d9e7f25](https://github.com/thellmwhisperer/combo-chen/commit/d9e7f25747c3cb8958ef3894f9f0f462c9e9e937))
+* **runner:** Implemented the issue [#5](https://github.com/thellmwhisperer/combo-chen/issues/5) AC1 slice by redirecting the generated runner’s rower stdout/stderr to `rower.log` and pinning it with a red-first test. ([7bf0214](https://github.com/thellmwhisperer/combo-chen/commit/7bf0214f3a1ae9e3a3117819fc210f8477d1f8da))
+
 ## [0.0.5](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.4...combo-chen-v0.0.5) (2026-06-11)
 
 
