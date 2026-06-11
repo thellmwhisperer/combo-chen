@@ -3,11 +3,17 @@
  * out. This module does not mutate GitHub or the repo; it only writes the
  * combo journal and sends keys to the already-owned sitter window.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { shellQuote } from "../core/combo.js";
 import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { ROWER_THREAD_ARTIFACT, type RowerThreadArtifact } from "./rower.js";
 
 export const THREAD_SITTER_WINDOW = "thread-sitter";
+export const THREAD_SITTER_WATCH_WINDOW = "thread-sitter-watch";
 
 export interface CommandResult {
   status: number;
@@ -35,6 +41,36 @@ export function buildReviewNudgePrompt(comment: ReviewCommentSignal): string {
     "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
     "Before pushing, check the hodor push semaphore.",
   ].join("\n");
+}
+
+export function readRowerThreadArtifact(runDir: string): RowerThreadArtifact {
+  const parsed = JSON.parse(readFileSync(join(runDir, ROWER_THREAD_ARTIFACT), "utf8")) as unknown;
+  if (
+    !isRecord(parsed) ||
+    parsed["agent"] !== "codex" ||
+    typeof parsed["thread_id"] !== "string" ||
+    parsed["thread_id"].trim() === "" ||
+    typeof parsed["source"] !== "string"
+  ) {
+    throw new Error(`${ROWER_THREAD_ARTIFACT} is not a valid Codex rower thread artifact`);
+  }
+  return {
+    agent: parsed["agent"],
+    thread_id: parsed["thread_id"],
+    source: parsed["source"],
+  };
+}
+
+export function buildThreadSitterResumeCommand(artifact: RowerThreadArtifact): string {
+  return `codex resume ${shellQuote(artifact.thread_id)}`;
+}
+
+export function buildReviewWatchCommand(input: {
+  cli: string;
+  comboId: string;
+  pollSeconds: number;
+}): string {
+  return `while :; do ${input.cli} nudge-review-comments -n ${shellQuote(input.comboId)}; sleep ${input.pollSeconds}; done`;
 }
 
 export function routeReviewComments(input: {
