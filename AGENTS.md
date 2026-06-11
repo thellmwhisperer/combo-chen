@@ -91,7 +91,6 @@ trio of mechanics: interactive tmux session + resume + ACP.
 
 ## Status
 
-Spec v1 frozen (see `docs/spec.md` §10 for the decided vetoes). Next: event
-schema + role-config schema, then v0 implementation — Claude, TDD, scope:
-`run`/`status`/`stop`/`events` with rower (codex+gnhf) and hodor
-(no-mistakes).
+Spec v1 frozen (see `docs/spec.md` §10 for the decided vetoes). v0
+implemented: `run`/`status`/`stop`/`events` with rower (codex+gnhf), hodor
+(no-mistakes), and thread-sitter (resumed codex watching review comments).
