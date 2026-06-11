@@ -421,9 +421,9 @@ describe("nudge-review-comments", () => {
     });
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
-    expect(tmuxCalls).toHaveLength(2);
-    expect(tmuxCalls[0]).toContain("combo-chen-o-r-7:sitter");
-    expect(tmuxCalls[0]?.at(-1)).toBe("Please address 'https://github.com/o/r/pull/7#issuecomment-1'");
+    expect(tmuxCalls).toHaveLength(1);
+    expect(tmuxCalls[0]).toContain("combo-chen-owned-session:sitter");
+    expect(tmuxCalls[0]?.at(-1)).toBe("C-m");
     expect(calls.filter((call) => call[0] === "git")).toEqual([
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
