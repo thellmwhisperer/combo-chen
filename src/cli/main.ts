@@ -347,6 +347,17 @@ export function createProgram(deps: Deps): Command {
         judgeCommand: config.judgeCommand,
       });
 
+      try {
+        deps.tmux(killWindowArgs(combo.tmuxSession, "gordon"));
+      } catch {
+        // window may not exist
+      }
+      try {
+        deps.tmux(killWindowArgs(combo.tmuxSession, "gordon-watch"));
+      } catch {
+        // window may not exist
+      }
+
       const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
       if (created.status !== 0) {
         throw new Error(
@@ -399,24 +410,41 @@ export function createProgram(deps: Deps): Command {
 
       const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy"]);
       if (pr.status !== 0) {
-        throw new Error(`gh pr view failed for ${prUrl}: ${pr.stderr.trim() || "unknown error"}`);
+        deps.out(`gordon: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
+        return;
       }
 
-      const prView = parsePrView(pr.stdout);
+      let prView: PrView;
+      try {
+        prView = parsePrView(pr.stdout);
+      } catch (error) {
+        deps.out(
+          `gordon: failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return;
+      }
       const headSha = prView.headSha;
 
       if (prView.state === "MERGED") {
-        stopGordonWindow(deps, combo);
         const by = prView.mergedBy ?? "unknown";
         appendEvent(runDir, "merged", { sha: headSha, by });
-        deps.out(`gordon: merged ${headSha} by ${by}; stopped ${combo.tmuxSession}:gordon`);
+        deps.out(`gordon: merged ${headSha} by ${by}`);
+        try {
+          stopGordonWindow(deps, combo);
+        } catch {
+          // window already dead — event is already journaled
+        }
         return;
       }
 
       if (prView.state === "CLOSED") {
-        stopGordonWindow(deps, combo);
         appendEvent(runDir, "combo_closed", {});
-        deps.out(`gordon: closed; stopped ${combo.tmuxSession}:gordon`);
+        deps.out(`gordon: closed`);
+        try {
+          stopGordonWindow(deps, combo);
+        } catch {
+          // window already dead — event is already journaled
+        }
         return;
       }
 
@@ -446,6 +474,12 @@ export function createProgram(deps: Deps): Command {
           newSha: headSha,
         }),
       });
+
+      try {
+        deps.tmux(killWindowArgs(combo.tmuxSession, "gordon"));
+      } catch {
+        // window may already be dead
+      }
 
       const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
       if (created.status !== 0) {
