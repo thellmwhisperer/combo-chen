@@ -668,13 +668,16 @@ export function createProgram(deps: Deps): Command {
       }
 
       if (prView.state === "CLOSED") {
+        appendEvent(runDir, "needs_human", { reason: "pr_closed" });
+        const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
+        if (killed.status !== 0) {
+          throw new Error(
+            `tmux kill-session failed for "${combo.tmuxSession}": ` +
+              `${killed.stderr.trim() || "unknown error"}`,
+          );
+        }
         appendEvent(runDir, "combo_closed", {});
         deps.out(`gordon: closed`);
-        try {
-          stopGordonWindow(deps, combo);
-        } catch {
-          // window already dead — event is already journaled
-        }
         return;
       }
 
