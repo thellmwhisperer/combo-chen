@@ -77,10 +77,23 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     ]);
   });
 
-  it("nudges an interactive sitter with literal text and a separate bare Enter", () => {
+  it("nudges an interactive sitter with pasted text and a separate raw Enter", () => {
     expect(nudgeWindowArgs("combo-chen-o-r-7", "thread-sitter", "Review https://x/y#z")).toEqual([
-      ["send-keys", "-l", "-t", "combo-chen-o-r-7:thread-sitter", "Review https://x/y#z"],
-      ["send-keys", "-t", "combo-chen-o-r-7:thread-sitter", "Enter"],
+      [
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
+        "Review https://x/y#z",
+      ],
+      [
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
+        "-t",
+        "combo-chen-o-r-7:thread-sitter",
+      ],
+      ["send-keys", "-t", "combo-chen-o-r-7:thread-sitter", "C-m"],
     ]);
   });
 });

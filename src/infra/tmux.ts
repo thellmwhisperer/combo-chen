@@ -67,10 +67,16 @@ export function nudgeWindowArgs(
   prompt: string,
 ): string[][] {
   const target = `${session}:${windowName}`;
+  const buffer = nudgeBufferName(session, windowName);
   return [
-    ["send-keys", "-l", "-t", target, prompt],
-    ["send-keys", "-t", target, "Enter"],
+    ["set-buffer", "-b", buffer, prompt],
+    ["paste-buffer", "-d", "-b", buffer, "-t", target],
+    ["send-keys", "-t", target, "C-m"],
   ];
+}
+
+function nudgeBufferName(session: string, windowName: string): string {
+  return `combo-chen-nudge-${`${session}-${windowName}`.replace(/[^A-Za-z0-9_.-]/g, "_")}`;
 }
 
 export interface TmuxResult {
