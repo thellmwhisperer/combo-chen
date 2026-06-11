@@ -85,6 +85,7 @@ describe("buildRunnerScript", () => {
     hodorCommand: "no-mistakes axi run",
     emit: "node /opt/combo/dist/cli.mjs emit -n o-r-7",
     activateThreadSitter: "node /opt/combo/dist/cli.mjs activate-thread-sitter -n o-r-7",
+    activateJudge: "node /opt/combo/dist/cli.mjs activate-judge -n o-r-7",
   });
 
   it("runs inside the worktree", () => {
@@ -133,6 +134,15 @@ describe("buildRunnerScript", () => {
     expect(threadSitter).toBeLessThan(prMissingElse);
   });
 
+  it("activates the judge after journaling the opened PR and before human handoff", () => {
+    const prOpened = script.indexOf('pr_opened --field url="$pr_url"');
+    const activateJudge = script.indexOf("activate-judge -n o-r-7");
+    const handoff = script.indexOf("reason=pr_ready");
+    expect(prOpened).toBeGreaterThan(-1);
+    expect(activateJudge).toBeGreaterThan(prOpened);
+    expect(activateJudge).toBeLessThan(handoff);
+  });
+
   it("single-quotes derived values so paths with spaces or metacharacters stay literal", () => {
     const spaced = buildRunnerScript({
       combo: { ...combo, worktree: "/repos/my repo/.worktrees/issue-7", branch: "combo/it's-7" },
@@ -140,6 +150,7 @@ describe("buildRunnerScript", () => {
       hodorCommand: "no-mistakes axi run",
       emit: "emit",
       activateThreadSitter: "activate-thread-sitter",
+      activateJudge: "activate-judge -n o-r-7",
     });
     expect(spaced).toContain("cd '/repos/my repo/.worktrees/issue-7'");
     expect(spaced).toContain("--head 'combo/it'\\''s-7'");
