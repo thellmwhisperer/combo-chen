@@ -2,6 +2,11 @@
  * The hodor adapter: he holds the door. v0 invokes no-mistakes' blocking
  * agent interface and reads its TOON outcome tolerantly — we never parse
  * more of another product's output than we need.
+ *
+ * Hodor commands may contain {placeholders} (issue_url, issue_title,
+ * issue_body, branch) that are expanded with safely quoted values at
+ * runner generation time. Commands without placeholders are passed
+ * through byte-identically.
  */
 import type { ComboRecord } from "../core/state.js";
 import { shellQuote } from "../core/combo.js";

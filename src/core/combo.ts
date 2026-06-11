@@ -85,9 +85,11 @@ export interface RunnerInput {
 /**
  * Single-quote a value for POSIX shell so it stays a literal: paths with
  * spaces, branch names with apostrophes, anything. Trust boundary note:
- * rowerCommand/hodorCommand are operator-written config (they ARE shell,
- * like a Makefile recipe) and are inserted verbatim by design; every value
- * combo-chen derives itself (worktree, branch) goes through this.
+ * rowerCommand and hodorCommand are operator-written config (they ARE
+ * shell, like a Makefile recipe). Hodor commands with {placeholders}
+ * are expanded with shell-quoted values at generation time; commands
+ * without placeholders stay verbatim. Every value combo-chen derives
+ * itself (worktree, branch) goes through this.
  */
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
