@@ -68,8 +68,55 @@ describe("command surface", () => {
       .commands.map((c) => c.name())
       .sort();
     expect(names).toEqual(
-      ["emit", "events", "nudge-review-comments", "run", "status", "stop"].sort(),
+      [
+        "activate-thread-sitter",
+        "emit",
+        "events",
+        "nudge-review-comments",
+        "run",
+        "status",
+        "stop",
+      ].sort(),
     );
+  });
+});
+
+describe("activate-thread-sitter", () => {
+  it("starts the resumed sitter window and the review-comment watcher from the rower thread artifact", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nbabysit_poll_seconds = 7\n");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeFileSync(
+      join(dir, ROWER_THREAD_ARTIFACT),
+      `${JSON.stringify({
+        agent: "codex",
+        thread_id: CODEX_THREAD_ID,
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      })}\n`,
+    );
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["activate-thread-sitter", "-n", "o-r-7"]);
+
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows).toHaveLength(2);
+    expect(newWindows[0]).toContain("thread-sitter");
+    expect(newWindows[0]?.at(-1)).toBe(`codex resume '${CODEX_THREAD_ID}'`);
+    expect(newWindows[1]).toContain("thread-sitter-watch");
+    expect(newWindows[1]?.at(-1)).toContain("nudge-review-comments -n 'o-r-7'");
+    expect(newWindows[1]?.at(-1)).toContain("sleep 7");
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    expect(calls.some((call) => call[0] === "gh")).toBe(false);
   });
 });
 

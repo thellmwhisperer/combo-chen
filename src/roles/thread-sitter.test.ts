@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { readEvents } from "../core/events.js";
 import {
   buildReviewNudgePrompt,
+  buildReviewWatchCommand,
+  buildThreadSitterResumeCommand,
   routeReviewComments,
   type ReviewCommentSignal,
 } from "./thread-sitter.js";
@@ -28,6 +30,30 @@ describe("buildReviewNudgePrompt", () => {
     expect(prompt).toContain("mechanical");
     expect(prompt).toContain("intent-touching");
     expect(prompt).toContain("needs_human");
+  });
+});
+
+describe("thread-sitter activation commands", () => {
+  it("resumes the implementing Codex thread from the persisted rower artifact", () => {
+    expect(
+      buildThreadSitterResumeCommand({
+        agent: "codex",
+        thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      }),
+    ).toBe("codex resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
+  });
+
+  it("builds a small polling watcher around the read-only nudge helper", () => {
+    expect(
+      buildReviewWatchCommand({
+        cli: '"node" "/opt/combo/dist/cli.mjs"',
+        comboId: "o-r-7",
+        pollSeconds: 7,
+      }),
+    ).toBe(
+      'while :; do "node" "/opt/combo/dist/cli.mjs" nudge-review-comments -n \'o-r-7\'; sleep 7; done',
+    );
   });
 });
 
