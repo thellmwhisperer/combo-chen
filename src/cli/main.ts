@@ -164,6 +164,10 @@ function hasJournaledLgtm(events: ComboEvent[], sha: string): boolean {
   return events.some((event) => event.event === "lgtm" && event["sha"] === sha);
 }
 
+function canonicalLgtmShaForHead(pinSha: string, headSha: string): string {
+  return headSha.toLowerCase().startsWith(pinSha.toLowerCase()) ? headSha : pinSha;
+}
+
 interface PullRequestRef {
   owner: string;
   repo: string;
@@ -552,9 +556,12 @@ export function createProgram(deps: Deps): Command {
         );
         return;
       }
-      if (githubPinnedSha && !hasJournaledLgtm(events, githubPinnedSha)) {
-        appendEvent(runDir, "lgtm", { sha: githubPinnedSha });
-        events = readEvents(runDir);
+      if (githubPinnedSha) {
+        const canonicalPinnedSha = canonicalLgtmShaForHead(githubPinnedSha, headSha);
+        if (!hasJournaledLgtm(events, canonicalPinnedSha)) {
+          appendEvent(runDir, "lgtm", { sha: canonicalPinnedSha });
+          events = readEvents(runDir);
+        }
       }
 
       const pinnedSha = livePinnedLgtmSha(events);
