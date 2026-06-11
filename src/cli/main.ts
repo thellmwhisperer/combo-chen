@@ -29,19 +29,29 @@ import { loadConfig } from "../infra/config.js";
 import {
   hasSessionArgs,
   killSessionArgs,
+  killWindowArgs,
   newSessionArgs,
   newWindowArgs,
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
 import { buildHodorInvocation } from "../roles/hodor.js";
-import { buildRowerInvocation } from "../roles/rower.js";
+import { buildRowerInvocation, persistRowerThreadArtifact } from "../roles/rower.js";
+import {
+  buildReviewWatchCommand,
+  buildThreadSitterResumeCommand,
+  fetchReviewCommentSignals,
+  latestPrUrl,
+  readRowerThreadArtifact,
+  routeReviewComments,
+} from "../roles/thread-sitter.js";
 
 export interface Deps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
-  git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  git: (args: string[], cwd: string) => TmuxResult;
+  gh: (args: string[]) => TmuxResult;
   issueExists: (issueUrl: string) => boolean;
 }
 
@@ -52,6 +62,10 @@ export function defaultDeps(): Deps {
     tmux: realTmux,
     git: (args, cwd) => {
       const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    },
+    gh: (args) => {
+      const result = spawnSync("gh", args, { encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
     issueExists: (issueUrl) => {
@@ -172,6 +186,7 @@ export function createProgram(deps: Deps): Command {
         combo,
         rowerCommand: buildRowerInvocation(rowerInput),
         hodorCommand: buildHodorInvocation({ hodorCommand: config.hodorCommand }),
+        activateThreadSitter: `${cliInvocation()} activate-thread-sitter -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
       });
       const runnerPath = join(runDir, "runner.sh");
@@ -271,7 +286,81 @@ export function createProgram(deps: Deps): Command {
     .option("--field <key=value...>", "Payload fields", (value: string, prev: string[]) => [...prev, value], [])
     .action(async (event: string, options: { name: string; field: string[] }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
+      if (event === "rower_done") {
+        const combo = readCombo(runDir);
+        persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
+      }
       appendEvent(runDir, event as EventName, parseFields(options.field));
+    });
+
+  program
+    .command("activate-thread-sitter", { hidden: true })
+    .description("Start the resumed thread-sitter and its review-comment watcher")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const config = loadConfig({ repoDir: combo.repoDir });
+      const artifact = readRowerThreadArtifact(runDir);
+      const sitter = deps.tmux(
+        newWindowArgs(
+          combo.tmuxSession,
+          config.threadSitterWindowName,
+          buildThreadSitterResumeCommand(artifact, config.rowerResumeCommand),
+        ),
+      );
+      if (sitter.status !== 0) {
+        throw new Error(
+          `tmux failed to start ${config.threadSitterWindowName}: ${sitter.stderr.trim() || "unknown error"}`,
+        );
+      }
+      const watcher = deps.tmux(
+        newWindowArgs(
+          combo.tmuxSession,
+          config.threadSitterWatchWindowName,
+          buildReviewWatchCommand({
+            cli: cliInvocation(),
+            comboId: combo.id,
+            pollSeconds: config.limits.babysitPollSeconds,
+          }),
+        ),
+      );
+      if (watcher.status !== 0) {
+        try {
+          deps.tmux(killWindowArgs(combo.tmuxSession, config.threadSitterWindowName));
+        } catch {
+          // Preserve the watcher startup failure; cleanup errors are secondary.
+        }
+        throw new Error(
+          `tmux failed to start ${config.threadSitterWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
+        );
+      }
+      deps.out(`thread-sitter active for ${combo.id}`);
+    });
+
+  program
+    .command("nudge-review-comments", { hidden: true })
+    .description("One-shot sweep: route new PR comments to the thread-sitter window")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const prUrl = latestPrUrl(readEvents(runDir));
+      if (prUrl === undefined) {
+        throw new Error(`No pr_opened event for combo "${options.name}"`);
+      }
+      const config = loadConfig({ repoDir: combo.repoDir });
+      const routed = routeReviewComments({
+        runDir,
+        tmuxSession: combo.tmuxSession,
+        comments: fetchReviewCommentSignals(prUrl, deps.gh),
+        reviewNudgePrompt: config.reviewNudgePrompt,
+        windowName: config.threadSitterWindowName,
+        tmux: deps.tmux,
+      });
+      for (const comment of routed) {
+        deps.out(`nudged ${comment.url}`);
+      }
     });
 
   return program;

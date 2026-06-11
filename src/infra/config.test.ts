@@ -28,6 +28,11 @@ describe("loadConfig", () => {
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
+    expect(config.rowerResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.reviewNudgePrompt).toContain("{url}");
+    expect(config.reviewNudgePrompt).toContain("two-bucket contract");
+    expect(config.threadSitterWindowName).toBe("thread-sitter");
+    expect(config.threadSitterWatchWindowName).toBe("thread-sitter-watch");
   });
 
   it("lets the user config override defaults", () => {
@@ -35,13 +40,17 @@ describe("loadConfig", () => {
     const userConfig = writeToml(
       userDir,
       "config.toml",
-      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\n',
+      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n\n[thread_sitter]\nreview_nudge_prompt = "Please inspect {url}"\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
     );
 
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
 
     expect(config.roles.rower).toBe("hermes:deepseek");
     expect(config.rowerCommand).toBe('hermes -z "{prompt}"');
+    expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
+    expect(config.threadSitterWindowName).toBe("sitter");
+    expect(config.threadSitterWatchWindowName).toBe("sitter-watch");
   });
 
   it("repo config wins over user config (repo owns policy)", () => {
@@ -90,6 +99,41 @@ describe("loadConfig", () => {
     writeToml(repoDir, "combo-chen.toml", '[roles]\nrower = "my-exotic-agent"\n');
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/my-exotic-agent/);
+  });
+
+  it("rejects a non-string rower command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[rower.codex]\ncommand = 123\nresume_command = "codex resume {thread_id}"\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
+  });
+
+  it("requires a resume command template for a custom rower", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[roles]\nrower = "my-exotic-agent"\n\n[rower."my-exotic-agent"]\ncommand = "agent run {prompt}"\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume/i);
+  });
+
+  it("rejects a non-string rower resume command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[rower.codex]\ncommand = "codex run {prompt}"\nresume_command = 123\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume command template/);
   });
 });
 

@@ -1,6 +1,16 @@
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { buildRowerInvocation, defaultPrompt } from "./rower.js";
+import {
+  ROWER_THREAD_ARTIFACT,
+  buildRowerInvocation,
+  defaultPrompt,
+  extractCodexThreadIdFromJsonl,
+  persistRowerThreadArtifact,
+} from "./rower.js";
 
 const combo = {
   id: "o-r-7",
@@ -11,6 +21,19 @@ const combo = {
   tmuxSession: "combo-chen-o-r-7",
   createdAt: "2026-06-10T00:00:00.000Z",
 };
+
+const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+const codexJsonlFixture = join(fixtureDir, "codex-iteration-1.jsonl");
+
+function tempDir(prefix: string): string {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
+function seedGnhfRun(worktree: string): void {
+  const runDir = join(worktree, ".gnhf", "runs", "implement-github-iss-e6510c");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "iteration-1.jsonl"), readFileSync(codexJsonlFixture, "utf8"));
+}
 
 describe("defaultPrompt", () => {
   it("tells the rower which issue to row and to work test-first", () => {
@@ -39,5 +62,87 @@ describe("buildRowerInvocation", () => {
       prompt: "fix the flaky test only",
     });
     expect(command).toBe("gnhf 'fix the flaky test only'");
+  });
+});
+
+describe("extractCodexThreadIdFromJsonl", () => {
+  it("returns the thread_id from a thread.started event", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "test.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `{"type":"thread.started","thread_id":"abc-123"}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("abc-123");
+  });
+
+  it("returns undefined for an empty file", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "empty.jsonl");
+    writeFileSync(jsonlPath, "");
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
+  });
+
+  it("returns undefined when no thread.started event is present", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "no-thread.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `{"type":"tool.call","foo":"bar"}\n{"type":"tool.result","baz":1}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
+  });
+
+  it("returns undefined when thread.started has an empty thread_id", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "empty-thread.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `{"type":"thread.started","thread_id":""}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
+  });
+
+  it("skips lines with invalid JSON", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "bad.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `not valid json\n{"type":"thread.started","thread_id":"abc-123"}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("abc-123");
+  });
+
+  it("returns the most recent thread.started thread_id", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "multiple.jsonl");
+    writeFileSync(
+      jsonlPath,
+      [
+        JSON.stringify({ type: "thread.started", thread_id: "old-thread" }),
+        JSON.stringify({ type: "other", thread_id: "ignored-thread" }),
+        JSON.stringify({ type: "thread.started", thread_id: "new-thread" }),
+      ].join("\n"),
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("new-thread");
+  });
+});
+
+describe("rower thread artifact", () => {
+  it("persists the codex thread id from a gnhf iteration JSONL fixture", () => {
+    const runDir = tempDir("combo-chen-run-");
+    const worktree = tempDir("combo-chen-worktree-");
+    seedGnhfRun(worktree);
+
+    const artifact = persistRowerThreadArtifact({ runDir, worktree });
+
+    expect(artifact).toEqual({
+      agent: "codex",
+      thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
+      source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+    });
+    expect(JSON.parse(readFileSync(join(runDir, ROWER_THREAD_ARTIFACT), "utf8"))).toEqual(
+      artifact,
+    );
   });
 });

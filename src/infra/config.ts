@@ -29,8 +29,16 @@ export interface ComboConfig {
   limits: ComboLimits;
   /** Command template for the configured rower, with {placeholders}. */
   rowerCommand: string;
+  /** Resume command template for the configured rower, with {thread_id}. */
+  rowerResumeCommand: string;
   /** Command template for hodor's blocking gate run. */
   hodorCommand: string;
+  /** Prompt template sent to the thread-sitter for each routed review signal. */
+  reviewNudgePrompt: string;
+  /** tmux window name for the resumed thread-sitter. */
+  threadSitterWindowName: string;
+  /** tmux window name for the review-comment watcher. */
+  threadSitterWatchWindowName: string;
 }
 
 const ROLE_NAMES = new Set(["rower", "hodor", "gordon", "merge"]);
@@ -49,10 +57,22 @@ const DEFAULTS = {
   rower: {
     codex: {
       command: "npx -y gnhf --agent codex --current-branch {prompt}",
+      resume_command: "codex resume {thread_id}",
     },
-  } as Record<string, { command?: string }>,
+  } as Record<string, { command?: unknown; resume_command?: unknown }>,
   hodor: {
     command: "no-mistakes axi run",
+  },
+  thread_sitter: {
+    window_name: "thread-sitter",
+    watch_window_name: "thread-sitter-watch",
+    review_nudge_prompt: [
+      "New review comment for the thread-sitter:",
+      "{url}",
+      "",
+      "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
+      "Before pushing, check the hodor push semaphore.",
+    ].join("\n"),
   },
 };
 
@@ -111,6 +131,13 @@ function pickNumber(table: TomlTable, key: string, fallback: number): number {
   return parsed;
 }
 
+function pickNonEmptyString(value: unknown, description: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ComboConfigError(`${description} must be a non-empty string`);
+  }
+  return value;
+}
+
 export function loadConfig(options: LoadOptions): ComboConfig {
   const userPath = options.userConfigPath ?? defaultUserConfigPath();
   const repoPath = join(options.repoDir, "combo-chen.toml");
@@ -125,8 +152,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     gordon: [...DEFAULTS.roles.gordon],
   };
   let limitsTable: TomlTable = { ...DEFAULTS.limits };
-  let rowerTemplates: Record<string, { command?: string }> = { ...DEFAULTS.rower };
+  let rowerTemplates: Record<string, { command?: unknown; resume_command?: unknown }> = {
+    ...DEFAULTS.rower,
+  };
   let hodorCommand = DEFAULTS.hodor.command;
+  let threadSitterTable: TomlTable = { ...DEFAULTS.thread_sitter };
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
@@ -148,6 +178,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       const hodorTable = asTable(layer.table["hodor"], `[hodor] in ${layer.source}`);
       if (hodorTable["command"] !== undefined) hodorCommand = String(hodorTable["command"]);
     }
+    if (layer.table["thread_sitter"] !== undefined) {
+      threadSitterTable = {
+        ...threadSitterTable,
+        ...asTable(layer.table["thread_sitter"], `[thread_sitter] in ${layer.source}`),
+      };
+    }
   }
 
   if (roles.gordon.length === 0) {
@@ -162,12 +198,14 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     );
   }
 
-  const rowerCommand = rowerTemplates[roles.rower]?.command;
-  if (!rowerCommand) {
-    throw new ComboConfigError(
-      `No command template for rower "${roles.rower}". Add [rower."${roles.rower}"] command = "..." to your config.`,
-    );
-  }
+  const rowerCommand = pickNonEmptyString(
+    rowerTemplates[roles.rower]?.command,
+    `command template for rower "${roles.rower}"`,
+  );
+  const rowerResumeCommand = pickNonEmptyString(
+    rowerTemplates[roles.rower]?.resume_command,
+    `resume command template for rower "${roles.rower}"`,
+  );
 
   return {
     roles,
@@ -176,7 +214,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       rowerTimeoutMinutes: pickNumber(limitsTable, "rower_timeout_minutes", DEFAULTS.limits.rower_timeout_minutes),
     },
     rowerCommand,
+    rowerResumeCommand,
     hodorCommand,
+    reviewNudgePrompt: String(threadSitterTable["review_nudge_prompt"]),
+    threadSitterWindowName: String(threadSitterTable["window_name"]),
+    threadSitterWatchWindowName: String(threadSitterTable["watch_window_name"]),
   };
 }
 
