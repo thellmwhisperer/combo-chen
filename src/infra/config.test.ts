@@ -101,6 +101,18 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/my-exotic-agent/);
   });
 
+  it("rejects a non-string rower command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[rower.codex]\ncommand = 123\nresume_command = "codex resume {thread_id}"\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
+  });
+
   it("requires a resume command template for a custom rower", () => {
     const repoDir = tempDir();
     writeToml(
@@ -110,6 +122,18 @@ describe("loadConfig", () => {
     );
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume/i);
+  });
+
+  it("rejects a non-string rower resume command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[rower.codex]\ncommand = "codex run {prompt}"\nresume_command = 123\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume command template/);
   });
 });
 
