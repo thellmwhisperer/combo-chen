@@ -32,7 +32,10 @@ resume_command = 'codex resume {thread_id}'
 # resume_command = 'hermes --resume {thread_id}'
 
 [hodor]
-command = "no-mistakes axi run"
+# The default command pushes to the no-mistakes remote (if one exists)
+# before running the gate, so no-mistakes can associate the branch.
+# Override this to use a custom hodor pipeline.
+command = "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run; else no-mistakes axi run; fi"
 
 [thread_sitter]
 window_name = "thread-sitter"
