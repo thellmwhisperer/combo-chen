@@ -23,7 +23,7 @@ Validation at launch (hard failures, the combo refuses to start):
 ```
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
   └─▶ ROWING     gnhf loop; ends with rower_done + captured thread_id
-        └─▶ GATING     pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened (or hodor_failed with exit_code)
+        └─▶ GATING     pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, hodor_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
               └─▶ JUDGING    gordon loop + thread-sitter + hodor ci-step in parallel
                     └─▶ READY      lgtm_current ∧ rabbit_clean ∧ checks_passed
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
@@ -41,6 +41,12 @@ before and after the rower run: `base_sha`, `head_sha`, and
 `new_commit_count` quantify what — if anything — the rower committed before
 failing. `rower_failed` transitions the combo immediately to `STALLED`.
 
+When no-mistakes detects that the gate requires approval (the
+`outcome: awaiting_approval` pattern in its output), the runner emits
+`hodor_status` with `state=awaiting_approval` and `needs_human` with
+`reason=gate_waiting`, then exits 0. The combo stays in `GATING` until a
+human resolves the gate.
+
 ## 3. The two babysitters and their boundary
 
 - **hodor** (no-mistakes ci-step): machine signals only. Watches the PR
@@ -55,6 +61,11 @@ fix in flight (hodor force-pushes). Before pushing: check hodor state
 (`no-mistakes axi status` or `hodor_status` with `state=fix_inflight`).
 Hodor needs no symmetric check — he owns CI-red moments; the thread-sitter owns CI-green
 moments.
+
+The `hodor_status` event records hodor's lifecycle: `fix_inflight` (hodor
+started and no-mistakes is running), `awaiting_approval` (gate requires
+human sign-off), `failed` (non-zero exit), or `idle` (hodor completed
+successfully, awaiting PR detection).
 
 ## 4. Thread-sitter resume contract
 

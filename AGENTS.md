@@ -34,7 +34,8 @@ Hard rules:
 - Thread-sitter = the SAME thread that implemented, resumed (`codex resume`,
   `hermes --resume`, stateful ACP session). Fallback: fresh instance + diff.
 - Push semaphore: the rower never pushes while a hodor CI fix is in flight
-  (no-mistakes force-pushes; check its state before pushing).
+  (no-mistakes force-pushes; check `hodor_status` with `state=fix_inflight`
+  before pushing).
 - LGTM is pinned to a SHA: it expires on every push; merging requires a
   current LGTM on HEAD ∧ clean CodeRabbit ∧ hodor checks-passed.
 - Rate limits are system events, not failures: the role pauses and resumes

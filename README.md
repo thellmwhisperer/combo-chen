@@ -34,13 +34,15 @@ combo-chen stop -n you-repo-128
 `run` validates the issue, creates an isolated git worktree and a tmux
 session, and starts the combo's **runner**: a generated script that rows
 (gnhf), then gates (pre-pushes to the `no-mistakes` remote if one exists,
-then runs `no-mistakes axi run`), detects the PR, activates the
+then runs `no-mistakes axi run`), journals `hodor_status` events through
+the hodor lifecycle (fix_inflight → idle / failed / awaiting_approval),
+detects the PR (or gate_waiting for manual approval), activates the
 judge, and journals every milestone as JSONL events. The CLI is setup and
 introspection; the runner is the spine; the judge polls for merge signals
 and re-reviews on push.
 
 State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
-`journal.jsonl`, `rower-thread.json`, `rower.log`, `runner.sh`). No daemon.
+`journal.jsonl`, `rower-thread.json`, `rower.log`, `hodor.log`, `runner.sh`). No daemon.
 
 ## Configuration
 

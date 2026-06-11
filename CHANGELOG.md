@@ -69,6 +69,9 @@
 * **attach:** `combo-chen attach` command for attaching to a running combo's tmux session, with auto-resolution when only one combo is running and journal pane recreation on attach.
 * **cli:** journal pane in rower window replaces the separate watch window; cleanup on failure.
 * **hodor:** gate pre-push to `no-mistakes` remote before pipeline ([#8](https://github.com/thellmwhisperer/combo-chen/issues/8))
+* **hodor:** `hodor_status` event journals hodor lifecycle (fix_inflight, awaiting_approval, failed, idle) with head_sha ([#24](https://github.com/thellmwhisperer/combo-chen/issues/24))
+* **hodor:** hodor output captured to `hodor.log`; runner detects `outcome: awaiting_approval` and emits `needs_human reason=gate_waiting` ([#24](https://github.com/thellmwhisperer/combo-chen/issues/24))
+* **hodor:** hodor tmux watcher window with retry loop attaches to the active no-mistakes run ([#24](https://github.com/thellmwhisperer/combo-chen/issues/24))
 * **judge:** gordon judge loop (activate-judge, judge-tick), incremental re-review on LGTM staleness, and merge/close detection
 
 ## [0.0.3](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.2...combo-chen-v0.0.3) (2026-06-11)
