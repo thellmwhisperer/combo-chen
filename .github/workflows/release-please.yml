@@ -12,10 +12,27 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate RELEASE_PLEASE_TOKEN is set
+        env:
+          TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::RELEASE_PLEASE_TOKEN secret is not set. Create a fine-grained PAT scoped to this repository with Contents and Pull requests set to read and write, then add it to this repository's secrets."
+            exit 1
+          fi
+
       - uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Enable auto-merge for release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+        run: gh pr merge --merge --auto "$RELEASE_PR_NUMBER"
 
       # npm publish lands together with the OSS flip: the package is not on
       # the registry while this repo is private. Releases + changelog work now.
