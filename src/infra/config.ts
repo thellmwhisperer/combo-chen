@@ -73,7 +73,7 @@ const DEFAULTS = {
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   hodor: {
-    command: "git push no-mistakes HEAD && no-mistakes axi run",
+    command: "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run; else no-mistakes axi run; fi",
   },
   thread_sitter: {
     window_name: "thread-sitter",
