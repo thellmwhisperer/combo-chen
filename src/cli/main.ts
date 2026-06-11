@@ -28,7 +28,6 @@ import {
 import { loadConfig } from "../infra/config.js";
 import {
   hasSessionArgs,
-  killWindowArgs,
   killSessionArgs,
   killWindowArgs,
   newSessionArgs,

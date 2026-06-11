@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   captureWindowArgs,
   hasSessionArgs,
-  killWindowArgs,
   killSessionArgs,
   killWindowArgs,
   newSessionArgs,
