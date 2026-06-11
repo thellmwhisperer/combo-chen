@@ -33,6 +33,9 @@ describe("loadConfig", () => {
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
     expect(config.threadSitterWindowName).toBe("thread-sitter");
     expect(config.threadSitterWatchWindowName).toBe("thread-sitter-watch");
+    expect(config.judgeAgent).toBe("claude");
+    expect(config.judgeCommand).toBe("claude {prompt}");
+    expect(config.judgeProtocol).toContain("7989");
   });
 
   it("lets the user config override defaults", () => {
@@ -134,6 +137,39 @@ describe("loadConfig", () => {
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume command template/);
+  });
+
+  it("resolves the first configured gordon command and protocol", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'gordon = ["coderabbit", "hermes:gemini"]',
+        "",
+        "[gordon]",
+        'protocol = "project review protocol 1234"',
+        "",
+        '[gordon."hermes:gemini"]',
+        'command = "hermes judge {pr_url} {prompt}"',
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.judgeAgent).toBe("hermes:gemini");
+    expect(config.judgeCommand).toBe("hermes judge {pr_url} {prompt}");
+    expect(config.judgeProtocol).toBe("project review protocol 1234");
+  });
+
+  it("requires at least one configured gordon command", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", '[roles]\ngordon = ["coderabbit"]\n');
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/i);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command/i);
   });
 });
 

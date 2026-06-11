@@ -62,16 +62,18 @@ function seedCodexGnhfRun(worktree: string): void {
 }
 
 describe("command surface", () => {
-  it("exposes the v0 commands and hidden runner helpers", () => {
+  it("exposes the configured command surface", () => {
     const { deps } = fakeDeps();
     const names = createProgram(deps)
       .commands.map((c) => c.name())
       .sort();
     expect(names).toEqual(
       [
+        "activate-judge",
         "activate-thread-sitter",
         "emit",
         "events",
+        "judge-tick",
         "nudge-review-comments",
         "run",
         "status",
@@ -348,6 +350,7 @@ describe("run", () => {
     const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
     expect(runner).toContain("gnhf");
     expect(runner).toContain("no-mistakes axi run");
+    expect(runner).toContain("activate-judge -n o-r-7");
 
     const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
     expect(gitCall).toBeDefined();
@@ -397,6 +400,492 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("ROWING");
     expect(text).toContain("gate_decision");
+  });
+});
+
+describe("activate-judge", () => {
+  it("opens a gordon tmux window with the configured judge command for the opened PR", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon]',
+        'protocol = "Protocol 7989 + overlay 8034"',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --protocol {protocol} --prompt {prompt}"',
+        '',
+        '[limits]',
+        'babysit_poll_seconds = 17',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["activate-judge", "-n", "o-r-7"]);
+
+    const judgeWindow = calls.find(
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon"),
+    );
+    expect(judgeWindow).toBeDefined();
+    expect(judgeWindow).toContain("combo-chen-o-r-7");
+
+    const command = judgeWindow?.at(-1) ?? "";
+    expect(command).toContain("judge-bot");
+    expect(command).toContain("'https://github.com/o/r/pull/7'");
+    expect(command).toContain("'Protocol 7989 + overlay 8034'");
+    expect(command).toContain("COMMENT reviews");
+    expect(command).toContain("lgtm @ <sha>");
+
+    const watchWindow = calls.find(
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon-watch"),
+    );
+    expect(watchWindow).toBeDefined();
+    expect(watchWindow).toContain("combo-chen-o-r-7");
+
+    const watchCommand = watchWindow?.at(-1) ?? "";
+    expect(watchCommand).toContain(`COMBO_CHEN_HOME='${h}'`);
+    expect(watchCommand).toContain("judge-tick -n 'o-r-7'");
+    expect(watchCommand).toContain("gordon: (merged|closed|already terminal)");
+    expect(watchCommand).toContain("sleep 17");
+    expect(out.join("\n")).toContain("gordon");
+    expect(out.join("\n")).toContain("gordon-watch");
+  });
+
+  it("refuses activation before the combo has an opened PR in the journal", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await expect(exec(deps, ["activate-judge", "-n", "o-r-7"])).rejects.toThrow(/pr_opened/);
+  });
+
+  it("checks for existing gordon windows before replacing them", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: "rower\ngordon\ngordon-watch\n", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["activate-judge", "-n", "o-r-7"]);
+
+    const listIndex = calls.findIndex((c) => c[1] === "list-windows");
+    const killGordonIndex = calls.findIndex((c) => c.join(" ") === "tmux kill-window -t combo-chen-o-r-7:gordon");
+    const newGordonIndex = calls.findIndex(
+      (c) => c[1] === "new-window" && c.includes("gordon"),
+    );
+    expect(listIndex).toBeGreaterThan(-1);
+    expect(killGordonIndex).toBeGreaterThan(listIndex);
+    expect(killGordonIndex).toBeLessThan(newGordonIndex);
+  });
+});
+
+describe("judge-tick", () => {
+  it("journals a merged PR and stops the gordon window", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: '{"headRefOid":"def456","state":"MERGED","mergedBy":{"login":"javi"}}',
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    const merged = readEvents(dir).at(-1);
+    expect(merged).toMatchObject({
+      event: "merged",
+      sha: "def456",
+      by: "javi",
+    });
+
+    const killWindow = calls.find((c) => c[0] === "tmux" && c[1] === "kill-window");
+    expect(killWindow).toEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:gordon"]);
+
+    const prView = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
+    expect(prView).toContain("--json");
+    expect(prView).toContain("headRefOid,state,mergedBy");
+    expect(out.join("\n")).toContain("merged def456 by javi");
+  });
+
+  it("journals a closed PR and stops the gordon window", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: '{"headRefOid":"def456","state":"CLOSED","mergedBy":null}',
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).at(-1)).toMatchObject({ event: "combo_closed" });
+
+    const killWindow = calls.find((c) => c[0] === "tmux" && c[1] === "kill-window");
+    expect(killWindow).toEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:gordon"]);
+    expect(out.join("\n")).toContain("closed");
+  });
+
+  it("stales a pinned LGTM on a new PR head and starts an incremental re-review", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon]',
+        'protocol = "Protocol 7989 + overlay 8034"',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "lgtm", { sha: "abc123" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    const stale = readEvents(dir).at(-1);
+    expect(stale).toMatchObject({
+      event: "lgtm_stale",
+      old_sha: "abc123",
+      new_sha: "def456",
+    });
+
+    const judgeWindow = calls.find(
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon"),
+    );
+    expect(judgeWindow).toBeDefined();
+
+    const command = judgeWindow?.at(-1) ?? "";
+    expect(command).toContain("judge-bot");
+    expect(command).toContain("abc123..def456");
+    expect(command).toContain("lgtm @ def456");
+    expect(command).toContain("COMMENT reviews");
+    expect(out.join("\n")).toContain("lgtm_stale abc123 -> def456");
+  });
+
+  it("derives a pinned LGTM from GitHub comments and stales it on a new PR head", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr") {
+          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+        }
+        if (args.join(" ").includes("issues/7/comments")) {
+          return {
+            status: 0,
+            stdout: '[{"body":"lgtm @ abc123","created_at":"2026-06-11T00:00:00Z"}]',
+            stderr: "",
+          };
+        }
+        if (args.join(" ").includes("pulls/7/reviews")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual([
+      "pr_opened",
+      "lgtm",
+      "lgtm_stale",
+    ]);
+    expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc123" });
+    expect(readEvents(dir)[2]).toMatchObject({
+      event: "lgtm_stale",
+      old_sha: "abc123",
+      new_sha: "def456",
+    });
+    expect(calls.some((c) => c.join(" ").includes("issues/7/comments"))).toBe(true);
+    expect(calls.some((c) => c.join(" ").includes("pulls/7/reviews"))).toBe(true);
+  });
+
+  it("finds a GitHub LGTM pin from paginated comment arrays", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr") {
+          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+        }
+        if (args.join(" ").includes("issues/7/comments")) {
+          return {
+            status: 0,
+            stdout:
+              '[]\n[{"body":"lgtm @ abc123","created_at":"2026-06-11T00:01:00Z"}]',
+            stderr: "",
+          };
+        }
+        if (args.join(" ").includes("pulls/7/reviews")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc123" });
+  });
+
+  it("treats a short GitHub LGTM pin as current when it prefixes the full PR head", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const fullSha = "e4e7dd43c6cc0d5f1234567890abcdef12345678";
+    const shortSha = fullSha.slice(0, 7);
+    expect(fullSha).toHaveLength(40);
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr") {
+          return { status: 0, stdout: `{"headRefOid":"${fullSha}"}`, stderr: "" };
+        }
+        if (args.join(" ").includes("issues/7/comments")) {
+          return {
+            status: 0,
+            stdout: `[{"body":"lgtm @ ${shortSha}","created_at":"2026-06-11T00:00:00Z"}]`,
+            stderr: "",
+          };
+        }
+        if (args.join(" ").includes("pulls/7/reviews")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(out.join("\n")).toContain(`gordon: lgtm current at ${fullSha}`);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
+
+    const events = readEvents(dir);
+    expect(events.filter((event) => event.event === "lgtm_stale")).toHaveLength(0);
+    const lgtms = events.filter((event) => event.event === "lgtm");
+    expect(lgtms).toHaveLength(1);
+    expect(lgtms[0]).toMatchObject({ sha: fullSha });
+  });
+
+  it("does not consume a pinned LGTM when the incremental re-review window fails to start", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "lgtm", { sha: "abc123" });
+
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) =>
+        args[0] === "pr"
+          ? { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" }
+          : { status: 0, stdout: "[]", stderr: "" },
+      tmux: (args) =>
+        args[0] === "new-window"
+          ? { status: 1, stdout: "", stderr: "window limit reached" }
+          : { status: 0, stdout: "", stderr: "" },
+    });
+
+    await expect(exec(deps, ["judge-tick", "-n", "o-r-7"])).rejects.toThrow(/re-review/);
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "lgtm"]);
   });
 });
 
