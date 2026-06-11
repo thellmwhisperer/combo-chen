@@ -23,7 +23,7 @@ Validation at launch (hard failures, the combo refuses to start):
 ```
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
   └─▶ ROWING     gnhf loop; ends with rower_done + captured thread_id
-        └─▶ GATING     no-mistakes pipeline; ends with pr_opened (or hodor_failed)
+        └─▶ GATING     pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened (or hodor_failed with exit_code)
               └─▶ JUDGING    gordon loop + thread-sitter + hodor ci-step in parallel
                     └─▶ READY      lgtm_current ∧ rabbit_clean ∧ checks_passed
                           └─▶ MERGED | CLOSED   (human, or earned automerge)

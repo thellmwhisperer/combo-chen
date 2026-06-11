@@ -33,7 +33,8 @@ combo-chen stop -n you-repo-128
 
 `run` validates the issue, creates an isolated git worktree and a tmux
 session, and starts the combo's **runner**: a generated script that rows
-(gnhf), then gates (`no-mistakes axi run`), detects the PR, activates the
+(gnhf), then gates (pre-pushes to the `no-mistakes` remote if one exists,
+then runs `no-mistakes axi run`), detects the PR, activates the
 judge, and journals every milestone as JSONL events. The CLI is setup and
 introspection; the runner is the spine; the judge polls for merge signals
 and re-reviews on push.

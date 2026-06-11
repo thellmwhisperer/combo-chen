@@ -16,7 +16,8 @@ a human merge decision.
 DIRECTOR  (orchestrates and watches; NEVER touches code)   [tmux: combo-chen-N]
    │
    ├─ PHASE 1 · ROWER     gnhf in a worktree (treehouse)   → thread_id captured
-   ├─ PHASE 2 · HODOR     no-mistakes: pipeline → PR       (agent from .no-mistakes.yaml)
+   ├─ PHASE 2 · HODOR     git push to no-mistakes remote (if exists);
+   │                      then no-mistakes pipeline → PR       (agent from .no-mistakes.yaml)
    ├─ PHASE 3 · JUDGING   gordon on /loop (+ coderabbit)  ⇄  RESUMED rower addresses
    │                      hodor ci-step in parallel (CI/conflicts, force-push)
    └─ MERGE               human (hard default); per-type automerge once the
