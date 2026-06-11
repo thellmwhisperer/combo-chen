@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.11](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.10...combo-chen-v0.0.11) (2026-06-11)
+
+
+### Features
+
+* **hodor:** Implemented the AC1 slice for issue [#12](https://github.com/thellmwhisperer/combo-chen/issues/12): hodor placeholders now render into runner.sh with safely quoted issue facts. ([9865786](https://github.com/thellmwhisperer/combo-chen/commit/98657864fdb32f7c3f7e29a46d9c97d4f01b0324))
+* **hodor:** placeholder substitution in hodor commands with safe shell quoting ([a474e8b](https://github.com/thellmwhisperer/combo-chen/commit/a474e8bae87ac1ee61152bf6fb0785966a983a38))
+
+
+### Bug Fixes
+
+* **hodor:** Completed the final issue [#12](https://github.com/thellmwhisperer/combo-chen/issues/12) AC2 slice by preserving no-placeholder hodor commands byte-identically when they contain shell `${...}` variables, with the full suite green. ([12c9d7b](https://github.com/thellmwhisperer/combo-chen/commit/12c9d7bf436c892a1d87319890e9e9a1d6ce74ce))
+* **hodor:** Implemented and validated the first issue [#12](https://github.com/thellmwhisperer/combo-chen/issues/12) slice: unknown hodor command placeholders now fail during runner generation instead of leaking into runner.sh. ([85c6521](https://github.com/thellmwhisperer/combo-chen/commit/85c6521581c98d30c0dbcd0fdacfb01d84e8e31c))
+
 ## [0.0.10](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.9...combo-chen-v0.0.10) (2026-06-11)
 
 
