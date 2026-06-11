@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attachSessionArgs,
   captureWindowArgs,
   hasSessionArgs,
+  JOURNAL_PANE_HEIGHT,
   killSessionArgs,
   killWindowArgs,
+  listPanesArgs,
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
   nudgeWindowArgs,
   renameWindowArgs,
+  splitWindowArgs,
 } from "./tmux.js";
 
 describe("tmux argument builders (pure: what we ask tmux to do is contract)", () => {
@@ -36,12 +40,34 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     ]);
   });
 
+  it("splits a detached short journal pane below the rower window", () => {
+    expect(JOURNAL_PANE_HEIGHT).toBe(12);
+    expect(splitWindowArgs("combo-chen-o-r-7", "rower", "combo-chen events --follow")).toEqual([
+      "split-window",
+      "-d",
+      "-v",
+      "-l",
+      "12",
+      "-t",
+      "combo-chen-o-r-7:rower",
+      "combo-chen events --follow",
+    ]);
+  });
+
   it("checks, kills, captures, and renames by session target", () => {
+    expect(attachSessionArgs("s")).toEqual(["attach", "-t", "s"]);
     expect(hasSessionArgs("s")).toEqual(["has-session", "-t", "s"]);
     expect(killSessionArgs("s")).toEqual(["kill-session", "-t", "s"]);
     expect(killWindowArgs("s", "thread-sitter")).toEqual(["kill-window", "-t", "s:thread-sitter"]);
     expect(killWindowArgs("s", "gordon")).toEqual(["kill-window", "-t", "s:gordon"]);
     expect(listWindowsArgs("s")).toEqual(["list-windows", "-t", "s", "-F", "#{window_name}"]);
+    expect(listPanesArgs("s", "rower")).toEqual([
+      "list-panes",
+      "-t",
+      "s:rower",
+      "-F",
+      "#{pane_index}",
+    ]);
     expect(captureWindowArgs("s", "rower")).toEqual(["capture-pane", "-p", "-t", "s:rower"]);
     expect(renameWindowArgs("s", "rower", "rower:RUNNING")).toEqual([
       "rename-window",

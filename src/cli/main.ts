@@ -2,10 +2,10 @@
 /**
  * combo-chen — conductor for autonomous issue → PR pipelines.
  *
- * v0 surface: run | status | stop | events (+ emit, the runner's pen).
+ * v0 surface: run | attach | status | stop | events (+ emit, the runner's pen).
  * The CLI is setup and introspection; the generated runner script inside
  * tmux is the combo's spine. The director — human or agent — drives with
- * these four commands.
+ * these five commands.
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -27,12 +27,15 @@ import {
 } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import {
+  attachSessionArgs,
   hasSessionArgs,
   killSessionArgs,
   killWindowArgs,
+  listPanesArgs,
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
+  splitWindowArgs,
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
@@ -327,6 +330,63 @@ function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string)
   }
 }
 
+function resolveAttachCombo(
+  deps: Deps,
+  home: string,
+  name: string | undefined,
+): ComboRecord {
+  const combos = listCombos(home);
+  if (name !== undefined) {
+    const combo = combos.find((candidate) => candidate.id === name);
+    if (!combo) throw new Error(`No combo named "${name}"`);
+    if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status !== 0) {
+      throw new Error(
+        `Combo "${combo.id}" is not running: tmux session "${combo.tmuxSession}" does not exist`,
+      );
+    }
+    return combo;
+  }
+
+  const running = combos.filter((combo) => deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0);
+  if (running.length === 0) {
+    throw new Error("No running combos. Start one: combo-chen run --issue <url>");
+  }
+  if (running.length > 1) {
+    throw new Error(
+      `Several combos are running (${running.map((combo) => combo.id).join(", ")}); pass --name <comboId>`,
+    );
+  }
+  return running[0]!;
+}
+
+function paneCount(stdout: string): number {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean).length;
+}
+
+function ensureJournalPane(deps: Deps, combo: ComboRecord): void {
+  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, "rower"));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to inspect rower panes in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  if (paneCount(listed.stdout) >= 2) return;
+
+  const split = deps.tmux(
+    splitWindowArgs(combo.tmuxSession, "rower", `${cliInvocation()} events --follow -n ${combo.id}`),
+  );
+  if (split.status !== 0) {
+    throw new Error(
+      `tmux failed to recreate the journal pane in "${combo.tmuxSession}": ` +
+        `${split.stderr.trim() || "unknown error"}`,
+    );
+  }
+}
+
 export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
@@ -427,12 +487,41 @@ export function createProgram(deps: Deps): Command {
         deps.git(["branch", "-D", branch], options.repo);
         throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
       }
-      deps.tmux(newWindowArgs(session, "watch", `${cliInvocation()} events --follow -n ${id}`));
+      try {
+        ensureJournalPane(deps, combo);
+      } catch (error) {
+        const killed = deps.tmux(killSessionArgs(session));
+        if (killed.status !== 0) {
+          throw new Error(
+            `tmux rollback failed for "${session}": ${killed.stderr.trim() || "unknown error"}`,
+          );
+        }
+        rmSync(runDir, { recursive: true, force: true });
+        deps.git(["worktree", "remove", "--force", worktree], options.repo);
+        deps.git(["branch", "-D", branch], options.repo);
+        throw error;
+      }
 
       deps.out(`🥢 ${session}`);
       deps.out(`   worktree ${worktree} · branch ${branch}`);
       deps.out(`   rower: ${config.roles.rower} · hodor: ${config.roles.hodor}`);
-      deps.out(`   watch: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
+      deps.out(`   journal: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
+    });
+
+  program
+    .command("attach")
+    .description("Attach to a running combo tmux session")
+    .option("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name?: string }) => {
+      const combo = resolveAttachCombo(deps, comboHome(deps.env), options.name);
+      ensureJournalPane(deps, combo);
+      const attached = deps.tmux(attachSessionArgs(combo.tmuxSession));
+      if (attached.status !== 0) {
+        throw new Error(
+          `tmux attach failed for "${combo.tmuxSession}" (the tmux error was sent to your terminal above)` +
+            `${attached.stderr.trim() ? `: ${attached.stderr.trim()}` : ""}`,
+        );
+      }
     });
 
   program
