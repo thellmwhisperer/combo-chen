@@ -102,6 +102,7 @@ set -u
 rower_log="$(dirname "$0")/rower.log"
 
 cd ${shellQuote(combo.worktree)}
+rower_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 ${emit} rower_started
 
@@ -111,7 +112,20 @@ if (
   ${emit} rower_done
 else
   code=$?
-  ${emit} rower_failed --field exit_code=$code
+  rower_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  new_commit_count=0
+  if [ -n "$rower_base_sha" ] && [ -n "$rower_head_sha" ]; then
+    new_commit_count=$(git rev-list --count "$rower_base_sha..$rower_head_sha" 2>/dev/null || printf '0')
+  fi
+  case "$new_commit_count" in
+    ""|*[!0-9]*) new_commit_count=0 ;;
+  esac
+  if [ "$new_commit_count" -gt 0 ]; then
+    has_new_commits=true
+  else
+    has_new_commits=false
+  fi
+  ${emit} rower_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$rower_base_sha --field head_sha=$rower_head_sha --field new_commit_count=$new_commit_count
   exit $code
 fi
 
