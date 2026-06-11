@@ -8,7 +8,11 @@ import {
   buildReviewNudgePrompt,
   buildReviewWatchCommand,
   buildThreadSitterResumeCommand,
+  parsePullRequestUrl,
+  readGhArray,
   routeReviewComments,
+  signalFromComment,
+  signalFromReview,
   type ReviewCommentSignal,
 } from "./thread-sitter.js";
 
@@ -99,5 +103,173 @@ describe("routeReviewComments", () => {
     ]);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["review_comment"]);
     expect(readEvents(dir)[0]).toMatchObject(comment);
+  });
+});
+
+describe("parsePullRequestUrl", () => {
+  it("parses a standard GitHub PR URL", () => {
+    const pr = parsePullRequestUrl("https://github.com/o/r/pull/7");
+    expect(pr).toEqual({ owner: "o", repo: "r", number: 7 });
+  });
+
+  it("parses a URL with trailing fragment", () => {
+    const pr = parsePullRequestUrl("https://github.com/o/r/pull/7#discussion_r1");
+    expect(pr.owner).toBe("o");
+    expect(pr.number).toBe(7);
+  });
+
+  it("parses a URL with trailing slash and query", () => {
+    const pr = parsePullRequestUrl("https://github.com/o/r/pull/7/?tab=commits");
+    expect(pr).toEqual({ owner: "o", repo: "r", number: 7 });
+  });
+
+  it("throws for a non-GitHub URL", () => {
+    expect(() => parsePullRequestUrl("https://gitlab.com/o/r/pull/7")).toThrow(
+      "Not a GitHub pull request URL",
+    );
+  });
+
+  it("throws for a non-PR GitHub URL", () => {
+    expect(() =>
+      parsePullRequestUrl("https://github.com/o/r/issues/7"),
+    ).toThrow("Not a GitHub pull request URL");
+  });
+
+  it("throws for GitHub Enterprise URLs because the regex is scoped to github.com", () => {
+    expect(() =>
+      parsePullRequestUrl(
+        "https://github.mycompany.com/org/repo/pull/42",
+      ),
+    ).toThrow("Not a GitHub pull request URL");
+  });
+});
+
+describe("readGhArray", () => {
+  it("returns parsed array on success", () => {
+    const gh = () => ({ status: 0, stdout: '[{"a":1}]', stderr: "" });
+    expect(readGhArray(gh, "repos/a")).toEqual([{ a: 1 }]);
+  });
+
+  it("throws when gh returns non-zero status", () => {
+    const gh = () => ({ status: 1, stdout: "", stderr: "not found" });
+    expect(() => readGhArray(gh, "repos/x")).toThrow("gh api failed");
+  });
+
+  it("throws when gh returns invalid JSON", () => {
+    const gh = () => ({ status: 0, stdout: "not json", stderr: "" });
+    expect(() => readGhArray(gh, "repos/x")).toThrow("invalid JSON");
+  });
+
+  it("throws when gh returns non-array JSON", () => {
+    const gh = () => ({ status: 0, stdout: '{"x":1}', stderr: "" });
+    expect(() => readGhArray(gh, "repos/x")).toThrow("non-array");
+  });
+
+  it("passes --paginate to gh api", () => {
+    const calls: string[][] = [];
+    const gh = (args: string[]) => {
+      calls.push(args);
+      return { status: 0, stdout: "[]", stderr: "" };
+    };
+    readGhArray(gh, "repos/o/r/pulls/1/comments");
+    expect(calls[0]).toEqual(["api", "--paginate", "repos/o/r/pulls/1/comments"]);
+  });
+});
+
+describe("signalFromComment", () => {
+  it("extracts author, kind, and url from a valid comment", () => {
+    const signal = signalFromComment(
+      {
+        body: "Looks good",
+        html_url: "https://github.com/o/r/pull/7#discussion_r1",
+        user: { login: "reviewer" },
+      },
+      "pr_comment",
+    );
+    expect(signal).toEqual({
+      author: "reviewer",
+      kind: "pr_comment",
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+    });
+  });
+
+  it("returns undefined when body is missing", () => {
+    expect(
+      signalFromComment({ html_url: "a", user: { login: "x" } }, "pr_comment"),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when body is empty string", () => {
+    expect(
+      signalFromComment(
+        { body: "", html_url: "a", user: { login: "x" } },
+        "pr_comment",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when html_url is missing", () => {
+    expect(
+      signalFromComment({ body: "ok", user: { login: "x" } }, "pr_comment"),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when user.login is missing", () => {
+    expect(
+      signalFromComment({ body: "ok", html_url: "a", user: {} }, "pr_comment"),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for non-object input", () => {
+    expect(signalFromComment(null, "pr_comment")).toBeUndefined();
+    expect(signalFromComment(42, "pr_comment")).toBeUndefined();
+  });
+});
+
+describe("signalFromReview", () => {
+  it("returns a signal for a CHANGES_REQUESTED review", () => {
+    const signal = signalFromReview({
+      state: "CHANGES_REQUESTED",
+      body: "Needs work",
+      html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+      user: { login: "reviewer" },
+    });
+    expect(signal).toMatchObject({ author: "reviewer", kind: "review" });
+  });
+
+  it("returns a signal for a PENDING review with body", () => {
+    const signal = signalFromReview({
+      state: "PENDING",
+      body: "Looking",
+      html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+      user: { login: "reviewer" },
+    });
+    expect(signal).toMatchObject({ author: "reviewer", kind: "review" });
+  });
+
+  it("returns undefined for an APPROVED review", () => {
+    expect(
+      signalFromReview({
+        state: "APPROVED",
+        body: "LGTM",
+        html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+        user: { login: "reviewer" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a review with empty body", () => {
+    expect(
+      signalFromReview({
+        state: "CHANGES_REQUESTED",
+        body: "",
+        html_url: "a",
+        user: { login: "x" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for non-object input", () => {
+    expect(signalFromReview(null)).toBeUndefined();
   });
 });

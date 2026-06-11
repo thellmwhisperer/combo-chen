@@ -15,12 +15,6 @@ import { ROWER_THREAD_ARTIFACT, type RowerThreadArtifact } from "./rower.js";
 export const THREAD_SITTER_WINDOW = "thread-sitter";
 export const THREAD_SITTER_WATCH_WINDOW = "thread-sitter-watch";
 
-export interface CommandResult {
-  status: number;
-  stdout: string;
-  stderr: string;
-}
-
 export interface ReviewCommentSignal {
   author: string;
   kind: string;
@@ -44,7 +38,14 @@ export function buildReviewNudgePrompt(comment: ReviewCommentSignal): string {
 }
 
 export function readRowerThreadArtifact(runDir: string): RowerThreadArtifact {
-  const parsed = JSON.parse(readFileSync(join(runDir, ROWER_THREAD_ARTIFACT), "utf8")) as unknown;
+  const artifactPath = join(runDir, ROWER_THREAD_ARTIFACT);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(artifactPath, "utf8"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${ROWER_THREAD_ARTIFACT} is not valid JSON: ${message}`);
+  }
   if (
     !isRecord(parsed) ||
     parsed["agent"] !== "codex" ||
@@ -117,7 +118,7 @@ export function latestPrUrl(events: ComboEvent[]): string | undefined {
 
 export function fetchReviewCommentSignals(
   prUrl: string,
-  gh: (args: string[]) => CommandResult,
+  gh: (args: string[]) => TmuxResult,
 ): ReviewCommentSignal[] {
   const pr = parsePullRequestUrl(prUrl);
   const endpoints = [
@@ -153,7 +154,7 @@ function routedReviewCommentUrls(runDir: string): Set<string> {
   return urls;
 }
 
-function parsePullRequestUrl(url: string): PullRef {
+export function parsePullRequestUrl(url: string): PullRef {
   const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(
     url.trim(),
   );
@@ -163,8 +164,8 @@ function parsePullRequestUrl(url: string): PullRef {
   return { owner: match[1]!, repo: match[2]!, number: Number(match[3]!) };
 }
 
-function readGhArray(gh: (args: string[]) => CommandResult, endpoint: string): unknown[] {
-  const result = gh(["api", endpoint]);
+export function readGhArray(gh: (args: string[]) => TmuxResult, endpoint: string): unknown[] {
+  const result = gh(["api", "--paginate", endpoint]);
   if (result.status !== 0) {
     throw new Error(`gh api failed for ${endpoint}: ${result.stderr.trim() || "unknown error"}`);
   }
@@ -181,7 +182,7 @@ function readGhArray(gh: (args: string[]) => CommandResult, endpoint: string): u
   return parsed;
 }
 
-function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | undefined {
+export function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | undefined {
   if (!isRecord(item) || !hasNonEmptyBody(item)) return undefined;
   const url = item["html_url"];
   const user = item["user"];
@@ -192,7 +193,7 @@ function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | u
   return { author: user["login"], kind, url };
 }
 
-function signalFromReview(item: unknown): ReviewCommentSignal | undefined {
+export function signalFromReview(item: unknown): ReviewCommentSignal | undefined {
   if (!isRecord(item) || item["state"] === "APPROVED") return undefined;
   return signalFromComment(item, "review");
 }

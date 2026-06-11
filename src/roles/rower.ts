@@ -76,11 +76,17 @@ export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undef
 export function persistRowerThreadArtifact(input: {
   runDir: string;
   worktree: string;
-}): RowerThreadArtifact | undefined {
+}): RowerThreadArtifact {
   const jsonlPath = latestGnhfIterationJsonl(input.worktree);
-  if (jsonlPath === undefined) return undefined;
+  if (jsonlPath === undefined) {
+    throw new Error(
+      `No gnhf JSONL found in ${input.worktree}/.gnhf/runs`,
+    );
+  }
   const threadId = extractCodexThreadIdFromJsonl(jsonlPath);
-  if (threadId === undefined) return undefined;
+  if (threadId === undefined) {
+    throw new Error(`No thread.started event found in ${jsonlPath}`);
+  }
 
   const artifact: RowerThreadArtifact = {
     agent: "codex",

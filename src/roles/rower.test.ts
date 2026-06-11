@@ -8,6 +8,7 @@ import {
   ROWER_THREAD_ARTIFACT,
   buildRowerInvocation,
   defaultPrompt,
+  extractCodexThreadIdFromJsonl,
   persistRowerThreadArtifact,
 } from "./rower.js";
 
@@ -61,6 +62,55 @@ describe("buildRowerInvocation", () => {
       prompt: "fix the flaky test only",
     });
     expect(command).toBe("gnhf 'fix the flaky test only'");
+  });
+});
+
+describe("extractCodexThreadIdFromJsonl", () => {
+  it("returns the thread_id from a thread.started event", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "test.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `{"type":"thread.started","thread_id":"abc-123"}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("abc-123");
+  });
+
+  it("returns undefined for an empty file", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "empty.jsonl");
+    writeFileSync(jsonlPath, "");
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
+  });
+
+  it("returns undefined when no thread.started event is present", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "no-thread.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `{"type":"tool.call","foo":"bar"}\n{"type":"tool.result","baz":1}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
+  });
+
+  it("returns undefined when thread.started has an empty thread_id", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "empty-thread.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `{"type":"thread.started","thread_id":""}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
+  });
+
+  it("skips lines with invalid JSON", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "bad.jsonl");
+    writeFileSync(
+      jsonlPath,
+      `not valid json\n{"type":"thread.started","thread_id":"abc-123"}\n`,
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("abc-123");
   });
 });
 
