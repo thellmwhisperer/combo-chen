@@ -61,6 +61,11 @@ export interface Deps {
   issueExists: (issueUrl: string) => boolean;
 }
 
+interface IssueDetails {
+  title: string;
+  body: string;
+}
+
 export function defaultDeps(): Deps {
   return {
     env: process.env,
@@ -114,6 +119,34 @@ function cliInvocation(): string {
 function remoteSlug(remoteUrl: string): string | undefined {
   const match = /^(?:git@[^:/]+:|https:\/\/[^/]+\/)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(remoteUrl);
   return match?.[1];
+}
+
+function fetchIssueDetails(deps: Deps, issueUrl: string): IssueDetails {
+  const result = deps.gh(["issue", "view", issueUrl, "--json", "title,body"]);
+  if (result.status !== 0) {
+    throw new Error(`Issue details not reachable: ${issueUrl} (gh issue view failed)`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new Error(`Issue details not readable: ${issueUrl} (gh issue view returned invalid JSON)`);
+  }
+
+  if (parsed === null || typeof parsed !== "object") {
+    throw new Error(`Issue details not readable: ${issueUrl} (gh issue view returned invalid JSON)`);
+  }
+
+  const title = "title" in parsed ? parsed.title : undefined;
+  const body = "body" in parsed ? parsed.body : undefined;
+  if (typeof title !== "string") {
+    throw new Error(`Issue details not readable: ${issueUrl} (missing title)`);
+  }
+  if (body !== undefined && body !== null && typeof body !== "string") {
+    throw new Error(`Issue details not readable: ${issueUrl} (invalid body)`);
+  }
+  return { title, body: body ?? "" };
 }
 
 /** Poll cadence cascade: COMBO_CHEN_POLL_MS env → core's in-code fallback. */
@@ -518,6 +551,7 @@ export function createProgram(deps: Deps): Command {
       if (!deps.issueExists(options.issue)) {
         throw new Error(`Issue not reachable: ${options.issue} (gh issue view failed)`);
       }
+      const issueDetails = fetchIssueDetails(deps, options.issue);
 
       // The wrong cwd must not silently row on unrelated code: when the
       // target repo has an origin, its slug has to equal the issue's
@@ -572,7 +606,12 @@ export function createProgram(deps: Deps): Command {
       const runner = buildRunnerScript({
         combo,
         rowerCommand: buildRowerInvocation(rowerInput),
-        hodorCommand: buildHodorInvocation({ hodorCommand: config.hodorCommand }),
+        hodorCommand: buildHodorInvocation({
+          hodorCommand: config.hodorCommand,
+          combo,
+          issueTitle: issueDetails.title,
+          issueBody: issueDetails.body,
+        }),
         activateThreadSitter: `${cliInvocation()} activate-thread-sitter -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
         activateJudge: `${cliInvocation()} activate-judge -n ${id}`,

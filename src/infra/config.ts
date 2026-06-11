@@ -33,7 +33,7 @@ export interface ComboConfig {
   rowerCommand: string;
   /** Resume command template for the configured rower, with {thread_id}. */
   rowerResumeCommand: string;
-  /** Command template for hodor's blocking gate run. */
+  /** Command template for hodor's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, branch. */
   hodorCommand: string;
   /** How long the hodor tmux window waits for no-mistakes' active run. */
   hodorAttachTimeoutSeconds: number;
