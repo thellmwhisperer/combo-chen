@@ -4,7 +4,8 @@
  * more of another product's output than we need.
  */
 import type { ComboRecord } from "../core/state.js";
-import { ComboConfigError, renderCommand } from "../infra/config.js";
+import { shellQuote } from "../core/combo.js";
+import { ComboConfigError } from "../infra/config.js";
 
 export interface HodorInput {
   hodorCommand: string;
@@ -13,7 +14,7 @@ export interface HodorInput {
   issueBody?: string;
 }
 
-const PLACEHOLDER = /\{([a-z_]+)\}/g;
+const PLACEHOLDER = /(?<!\$)\{([a-z_]+)\}/g;
 const KNOWN_HODOR_PLACEHOLDERS = new Set(["issue_url", "issue_title", "issue_body", "branch"]);
 
 export function buildHodorInvocation(input: HodorInput): string {
@@ -29,12 +30,13 @@ export function buildHodorInvocation(input: HodorInput): string {
   if (input.combo === undefined || input.issueTitle === undefined || input.issueBody === undefined) {
     throw new ComboConfigError("Hodor command placeholders require issue facts during runner generation");
   }
-  return renderCommand(input.hodorCommand, {
+  const vars: Record<string, string> = {
     issue_url: input.combo.issueUrl,
     issue_title: input.issueTitle,
     issue_body: input.issueBody,
     branch: input.combo.branch,
-  });
+  };
+  return input.hodorCommand.replace(PLACEHOLDER, (_match, name: string) => shellQuote(vars[name]!));
 }
 
 const OUTCOME = /^outcome:\s*(.+)\s*$/m;
