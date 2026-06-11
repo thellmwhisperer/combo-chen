@@ -12,10 +12,26 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate RELEASE_PLEASE_TOKEN is set
+        env:
+          TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::RELEASE_PLEASE_TOKEN secret is not set. Create a PAT with 'repo' scope at https://github.com/settings/tokens and add it to this repository's secrets."
+            exit 1
+          fi
+
       - uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Approve release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+        run: gh pr review --approve "$RELEASE_PR_NUMBER"
 
       - name: Enable auto-merge for release PR
         if: ${{ steps.release.outputs.pr }}
