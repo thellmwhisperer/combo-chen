@@ -52,8 +52,8 @@ failing. `rower_failed` transitions the combo immediately to `STALLED`.
 
 **Push semaphore:** the thread-sitter must not push while hodor has a CI
 fix in flight (hodor force-pushes). Before pushing: check hodor state
-(`no-mistakes axi status` or the `hodor_fix_inflight` event). Hodor needs no
-symmetric check — he owns CI-red moments; the thread-sitter owns CI-green
+(`no-mistakes axi status` or `hodor_status` with `state=fix_inflight`).
+Hodor needs no symmetric check — he owns CI-red moments; the thread-sitter owns CI-green
 moments.
 
 ## 4. Thread-sitter resume contract

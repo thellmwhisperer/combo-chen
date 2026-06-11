@@ -198,6 +198,8 @@ exit 0
       "rower_started",
       "rower_done",
       "hodor_started",
+      "hodor_status --field state=fix_inflight --field head_sha=",
+      "hodor_status --field state=idle --field head_sha=",
       "needs_human --field reason=pr_missing",
     ]);
     expect(readFileSync(join(dir, "rower.log"), "utf8")).toBe(
@@ -286,6 +288,8 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       "rower_started",
       "rower_done",
       "hodor_started",
+      "hodor_status --field state=fix_inflight --field head_sha=fake-head",
+      "hodor_status --field state=failed --field head_sha=fake-head",
       "hodor_failed --field exit_code=17",
     ]);
     expect(readFileSync(hodorLog, "utf8")).toBe(
@@ -378,6 +382,8 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       "rower_started",
       "rower_done",
       "hodor_started",
+      "hodor_status --field state=fix_inflight --field head_sha=fake-head",
+      "hodor_status --field state=idle --field head_sha=fake-head",
       "needs_human --field reason=pr_missing",
     ]);
     expect(readFileSync(hodorLog, "utf8")).toBe(
@@ -486,6 +492,8 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
       "rower_started",
       "rower_done",
       "hodor_started",
+      `hodor_status --field state=fix_inflight --field head_sha=${headSha}`,
+      `hodor_status --field state=awaiting_approval --field head_sha=${headSha}`,
       "needs_human --field reason=gate_waiting",
     ]);
     expect(readFileSync(join(dir, "hodor.log"), "utf8")).toBe(gateToon);
