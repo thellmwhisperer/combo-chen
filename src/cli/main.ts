@@ -495,27 +495,20 @@ export function createProgram(deps: Deps): Command {
         deps.git(["branch", "-D", branch], options.repo);
         throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
       }
-      const split = deps.tmux(
-        splitWindowArgs(session, "rower", `${cliInvocation()} events --follow -n ${id}`),
-      );
-      if (split.status !== 0) {
-        throw new Error(
-          `tmux failed to create the journal pane in "${session}": ` +
-            `${split.stderr.trim() || "unknown error"}`,
-        );
-      }
-      const focused = deps.tmux(selectPaneArgs(session, "rower", 0));
-      if (focused.status !== 0) {
-        throw new Error(
-          `tmux failed to focus the rower pane in "${session}": ` +
-            `${focused.stderr.trim() || "unknown error"}`,
-        );
+      try {
+        ensureJournalPane(deps, combo);
+      } catch (error) {
+        deps.tmux(killSessionArgs(session));
+        rmSync(runDir, { recursive: true, force: true });
+        deps.git(["worktree", "remove", "--force", worktree], options.repo);
+        deps.git(["branch", "-D", branch], options.repo);
+        throw error;
       }
 
       deps.out(`🥢 ${session}`);
       deps.out(`   worktree ${worktree} · branch ${branch}`);
       deps.out(`   rower: ${config.roles.rower} · hodor: ${config.roles.hodor}`);
-      deps.out(`   watch: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
+      deps.out(`   journal: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
     });
 
   program
@@ -528,7 +521,8 @@ export function createProgram(deps: Deps): Command {
       const attached = deps.tmux(attachSessionArgs(combo.tmuxSession));
       if (attached.status !== 0) {
         throw new Error(
-          `tmux attach failed for "${combo.tmuxSession}": ${attached.stderr.trim() || "unknown error"}`,
+          `tmux attach failed for "${combo.tmuxSession}" (the tmux error was sent to your terminal above)` +
+            `${attached.stderr.trim() ? `: ${attached.stderr.trim()}` : ""}`,
         );
       }
     });
