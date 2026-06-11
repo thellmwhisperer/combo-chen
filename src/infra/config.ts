@@ -29,8 +29,12 @@ export interface ComboConfig {
   limits: ComboLimits;
   /** Command template for the configured rower, with {placeholders}. */
   rowerCommand: string;
+  /** Resume command template for the configured rower, with {thread_id}. */
+  rowerResumeCommand: string;
   /** Command template for hodor's blocking gate run. */
   hodorCommand: string;
+  /** Prompt template sent to the thread-sitter for each routed review signal. */
+  reviewNudgePrompt: string;
 }
 
 const ROLE_NAMES = new Set(["rower", "hodor", "gordon", "merge"]);
@@ -49,10 +53,20 @@ const DEFAULTS = {
   rower: {
     codex: {
       command: "npx -y gnhf --agent codex --current-branch {prompt}",
+      resume_command: "codex resume {thread_id}",
     },
-  } as Record<string, { command?: string }>,
+  } as Record<string, { command?: string; resume_command?: string }>,
   hodor: {
     command: "no-mistakes axi run",
+  },
+  thread_sitter: {
+    review_nudge_prompt: [
+      "New review comment for the thread-sitter:",
+      "{url}",
+      "",
+      "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
+      "Before pushing, check the hodor push semaphore.",
+    ].join("\n"),
   },
 };
 
@@ -125,8 +139,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     gordon: [...DEFAULTS.roles.gordon],
   };
   let limitsTable: TomlTable = { ...DEFAULTS.limits };
-  let rowerTemplates: Record<string, { command?: string }> = { ...DEFAULTS.rower };
+  let rowerTemplates: Record<string, { command?: string; resume_command?: string }> = {
+    ...DEFAULTS.rower,
+  };
   let hodorCommand = DEFAULTS.hodor.command;
+  let threadSitterTable: TomlTable = { ...DEFAULTS.thread_sitter };
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
@@ -148,6 +165,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       const hodorTable = asTable(layer.table["hodor"], `[hodor] in ${layer.source}`);
       if (hodorTable["command"] !== undefined) hodorCommand = String(hodorTable["command"]);
     }
+    if (layer.table["thread_sitter"] !== undefined) {
+      threadSitterTable = {
+        ...threadSitterTable,
+        ...asTable(layer.table["thread_sitter"], `[thread_sitter] in ${layer.source}`),
+      };
+    }
   }
 
   if (roles.gordon.length === 0) {
@@ -168,6 +191,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       `No command template for rower "${roles.rower}". Add [rower."${roles.rower}"] command = "..." to your config.`,
     );
   }
+  const rowerResumeCommand = rowerTemplates[roles.rower]?.resume_command;
+  if (!rowerResumeCommand) {
+    throw new ComboConfigError(
+      `No resume command template for rower "${roles.rower}". Add [rower."${roles.rower}"] resume_command = "..." to your config.`,
+    );
+  }
 
   return {
     roles,
@@ -176,7 +205,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       rowerTimeoutMinutes: pickNumber(limitsTable, "rower_timeout_minutes", DEFAULTS.limits.rower_timeout_minutes),
     },
     rowerCommand,
+    rowerResumeCommand,
     hodorCommand,
+    reviewNudgePrompt: String(threadSitterTable["review_nudge_prompt"]),
   };
 }
 

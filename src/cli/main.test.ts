@@ -85,7 +85,10 @@ describe("activate-thread-sitter", () => {
   it("starts the resumed sitter window and the review-comment watcher from the rower thread artifact", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nbabysit_poll_seconds = 7\n");
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n",
+    );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
       id: "o-r-7",
@@ -111,7 +114,7 @@ describe("activate-thread-sitter", () => {
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows).toHaveLength(2);
     expect(newWindows[0]).toContain("thread-sitter");
-    expect(newWindows[0]?.at(-1)).toBe(`codex resume '${CODEX_THREAD_ID}'`);
+    expect(newWindows[0]?.at(-1)).toBe(`codex --profile sitter resume '${CODEX_THREAD_ID}'`);
     expect(newWindows[1]).toContain("thread-sitter-watch");
     expect(newWindows[1]?.at(-1)).toContain("nudge-review-comments -n 'o-r-7'");
     expect(newWindows[1]?.at(-1)).toContain("sleep 7");
@@ -123,12 +126,17 @@ describe("activate-thread-sitter", () => {
 describe("nudge-review-comments", () => {
   it("routes a fetched PR comment once using read-only GitHub calls and no repo writes", async () => {
     const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\n',
+    );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
       id: "o-r-7",
       issueUrl: ISSUE,
-      repoDir: "/repos/r",
-      worktree: "/repos/r/.worktrees/issue-7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
       branch: "combo/issue-7",
       tmuxSession: "combo-chen-o-r-7",
       createdAt: new Date().toISOString(),
@@ -169,6 +177,7 @@ describe("nudge-review-comments", () => {
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
     expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls[0]?.at(-1)).toBe("Please address 'https://github.com/o/r/pull/7#issuecomment-1'");
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);

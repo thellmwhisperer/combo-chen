@@ -307,7 +307,7 @@ export function createProgram(deps: Deps): Command {
         newWindowArgs(
           combo.tmuxSession,
           THREAD_SITTER_WINDOW,
-          buildThreadSitterResumeCommand(artifact),
+          buildThreadSitterResumeCommand(artifact, config.rowerResumeCommand),
         ),
       );
       if (sitter.status !== 0) {
@@ -345,10 +345,12 @@ export function createProgram(deps: Deps): Command {
       if (prUrl === undefined) {
         throw new Error(`No pr_opened event for combo "${options.name}"`);
       }
+      const config = loadConfig({ repoDir: combo.repoDir });
       const routed = routeReviewComments({
         runDir,
         tmuxSession: combo.tmuxSession,
         comments: fetchReviewCommentSignals(prUrl, deps.gh),
+        reviewNudgePrompt: config.reviewNudgePrompt,
         tmux: deps.tmux,
       });
       for (const comment of routed) {
