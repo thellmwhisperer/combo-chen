@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.8](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.7...combo-chen-v0.0.8) (2026-06-11)
+
+
+### Bug Fixes
+
+* **hodor:** Implemented the first issue [#8](https://github.com/thellmwhisperer/combo-chen/issues/8) slice by making the stock generated hodor command pre-push to the no-mistakes gate before `axi run`. ([177e638](https://github.com/thellmwhisperer/combo-chen/commit/177e638889e674a9c686c5dd11c25ac5fc059661))
+
 ## [0.0.7](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.6...combo-chen-v0.0.7) (2026-06-11)
 
 
