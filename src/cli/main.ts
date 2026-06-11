@@ -333,7 +333,7 @@ function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string)
 function buildHodorAttachCommand(combo: ComboRecord): string {
   // The no-mistakes run id does not exist until the runner reaches hodor.
   // Without --run, attach follows the active run for this worktree.
-  return `cd ${shellQuote(combo.worktree)} && while ! no-mistakes attach; do sleep 10; done`;
+  return `cd ${shellQuote(combo.worktree)} && attempt=0 && while ! no-mistakes attach; do attempt=$((attempt + 1)); if [ "$attempt" -gt 180 ]; then echo "hodor-attach: timed out after 30 minutes" >&2; exit 1; fi; echo "hodor-attach: waiting for hodor (attempt $attempt/180)..." >&2; sleep 10; done`;
 }
 
 function startHodorWindow(deps: Deps, combo: ComboRecord): void {
