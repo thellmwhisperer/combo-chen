@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.5](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.4...combo-chen-v0.0.5) (2026-06-11)
+
+
+### Bug Fixes
+
+* **release-please:** parse pr number in shell, not env fromJSON ([073e308](https://github.com/thellmwhisperer/combo-chen/commit/073e3080d67cb2c2ead971e330c3132a8aac5836))
+* **release-please:** parse pr number in shell, not env fromJSON ([3379535](https://github.com/thellmwhisperer/combo-chen/commit/3379535cf648511b049eb114861bb6d398fdef64))
+
 ## [0.0.4](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.3...combo-chen-v0.0.4) (2026-06-11)
 
 
