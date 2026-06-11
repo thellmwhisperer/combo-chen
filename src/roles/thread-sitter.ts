@@ -1,7 +1,8 @@
 /**
  * Thread-sitter nudges: hard review signals in, interactive rower attention
  * out. This module does not mutate GitHub or the repo; it only writes the
- * combo journal and sends keys to the already-owned sitter window.
+ * combo journal and delivers prompts to the already-owned sitter window
+ * via paste-buffer (set-buffer, paste-buffer, send-keys C-m).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
