@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.13](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.12...combo-chen-v0.0.13) (2026-06-11)
+
+
+### Bug Fixes
+
+* **judge-watch:** Fixed issue [#37](https://github.com/thellmwhisperer/combo-chen/issues/37) by making the generated gordon-watch script zsh-safe and validating it with tests plus a real tmux smoke run. ([ed18e91](https://github.com/thellmwhisperer/combo-chen/commit/ed18e91c008edf05307b0286a966b25d78baee02))
+* **judge-watch:** use rc instead of status for exit code in generated gordon-watch script ([8204b6e](https://github.com/thellmwhisperer/combo-chen/commit/8204b6ee669c7a8d710bd8ddbd061f05ba4fdfd9))
+
 ## [0.0.12](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.11...combo-chen-v0.0.12) (2026-06-11)
 
 
