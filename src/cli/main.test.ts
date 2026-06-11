@@ -350,6 +350,7 @@ describe("run", () => {
     const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
     expect(runner).toContain("gnhf");
     expect(runner).toContain("no-mistakes axi run");
+    expect(runner).toContain("activate-judge -n o-r-7");
 
     const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
     expect(gitCall).toBeDefined();

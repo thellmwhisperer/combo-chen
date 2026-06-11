@@ -291,6 +291,7 @@ export function createProgram(deps: Deps): Command {
         hodorCommand: buildHodorInvocation({ hodorCommand: config.hodorCommand }),
         activateThreadSitter: `${cliInvocation()} activate-thread-sitter -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
+        activateJudge: `${cliInvocation()} activate-judge -n ${id}`,
       });
       const runnerPath = join(runDir, "runner.sh");
       writeFileSync(runnerPath, runner);
