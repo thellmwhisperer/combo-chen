@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.10](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.9...combo-chen-v0.0.10) (2026-06-11)
+
+
+### Features
+
+* **teardown:** auto-teardown combos on terminal PR states ([d1dcf57](https://github.com/thellmwhisperer/combo-chen/commit/d1dcf570fd0186be19b430850be542cb83317cd2))
+
+
+### Bug Fixes
+
+* **teardown:** harden terminal cleanup retry ([15c042d](https://github.com/thellmwhisperer/combo-chen/commit/15c042d6b89225e9c3cbf068dcbffc7b6b42b50e))
+* **teardown:** Implemented and validated the merged-PR teardown path for issue [#11](https://github.com/thellmwhisperer/combo-chen/issues/11), completing the remaining acceptance criteria with the full suite green. ([a81c9d2](https://github.com/thellmwhisperer/combo-chen/commit/a81c9d24c2b2c658292401cb1408b521e04aaa4a))
+* **teardown:** Implemented the closed-without-merge teardown slice for issue [#11](https://github.com/thellmwhisperer/combo-chen/issues/11) and validated it end to end. ([1ec466e](https://github.com/thellmwhisperer/combo-chen/commit/1ec466e8b76dec22f4bb4a5586c6e68874b37b2e))
+
 ## [0.0.9](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.8...combo-chen-v0.0.9) (2026-06-11)
 
 
