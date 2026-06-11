@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.7](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.6...combo-chen-v0.0.7) (2026-06-11)
+
+
+### Features
+
+* **attach:** Implemented and verified the remaining issue [#3](https://github.com/thellmwhisperer/combo-chen/issues/3) attach command scope, completing the tmux layout/attach acceptance criteria. ([140ec85](https://github.com/thellmwhisperer/combo-chen/commit/140ec857c52461f408424ae140c1b4bea8662032))
+* **tmux:** Implemented the first issue [#3](https://github.com/thellmwhisperer/combo-chen/issues/3) slice: `combo-chen run` now creates a one-window rower layout with a 12-line journal pane and focused main pane. ([30c5d54](https://github.com/thellmwhisperer/combo-chen/commit/30c5d54f49ba5bde0e99397fe5ab2b4260a5ae4b))
+
+
+### Bug Fixes
+
+* **tmux:** keep journal pane focus stable ([3c29063](https://github.com/thellmwhisperer/combo-chen/commit/3c290637ce9f13514c6ef451f7662e6880a0ba09))
+
 ## [0.0.6](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.5...combo-chen-v0.0.6) (2026-06-11)
 
 
