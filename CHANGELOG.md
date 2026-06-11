@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.12](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.11...combo-chen-v0.0.12) (2026-06-11)
+
+
+### Bug Fixes
+
+* **judge:** Fixed issue [#38](https://github.com/thellmwhisperer/combo-chen/issues/38) by preventing negated GitHub LGTM text from being journaled as a valid pinned LGTM, with full validation green. ([b4b9c54](https://github.com/thellmwhisperer/combo-chen/commit/b4b9c54c94705557dde48f3dc0854829878ab44a))
+* **judge:** handle punctuated lgtm negation ([fcb65d6](https://github.com/thellmwhisperer/combo-chen/commit/fcb65d6f0e6e5bd85e9347372726f712bebfe2ff))
+* **judge:** prevent negated LGTM comments from being journaled as valid pins ([72ff41a](https://github.com/thellmwhisperer/combo-chen/commit/72ff41a3ff2cd076cb7cb590cee72f638f2f48b1))
+
 ## [0.0.11](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.10...combo-chen-v0.0.11) (2026-06-11)
 
 
