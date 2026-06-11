@@ -51,6 +51,8 @@ State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
 Copy [`combo-chen.example.toml`](combo-chen.example.toml) to
 `combo-chen.toml` (repo) or `~/.config/combo-chen/config.toml` (user).
 Cascade: defaults ← user ← repo. Zero hardcoded operational values.
+The hodor command supports `{issue_url}`, `{issue_title}`, `{issue_body}`,
+and `{branch}` placeholders that are shell-quoted at runner generation time.
 
 Required judge config: `[roles].gordon` must be non-empty, and at least one
 listed gordon agent must have a `[gordon.<agent>]` `command` template. The
