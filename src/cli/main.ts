@@ -36,6 +36,7 @@ import {
   type TmuxResult,
 } from "../infra/tmux.js";
 import { buildHodorInvocation } from "../roles/hodor.js";
+import { buildJudgeInvocation } from "../roles/judge.js";
 import { buildRowerInvocation, persistRowerThreadArtifact } from "../roles/rower.js";
 import {
   buildReviewWatchCommand,
@@ -113,6 +114,17 @@ export function resolvePollMs(env: Record<string, string | undefined>): number |
   if (!raw) return undefined;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function latestOpenedPrUrl(runDir: string): string | undefined {
+  const events = readEvents(runDir);
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "pr_opened" && typeof event["url"] === "string") {
+      return event["url"];
+    }
+  }
+  return undefined;
 }
 
 export function createProgram(deps: Deps): Command {
@@ -220,6 +232,37 @@ export function createProgram(deps: Deps): Command {
       deps.out(`   worktree ${worktree} · branch ${branch}`);
       deps.out(`   rower: ${config.roles.rower} · hodor: ${config.roles.hodor}`);
       deps.out(`   watch: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
+    });
+
+  program
+    .command("activate-judge")
+    .description("Start the configured gordon judge window for an opened PR")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const prUrl = latestOpenedPrUrl(runDir);
+      if (!prUrl) {
+        throw new Error(`Cannot activate judge for ${combo.id}: no pr_opened event in the journal`);
+      }
+
+      const config = loadConfig({ repoDir: combo.repoDir });
+      const judgeCommand = buildJudgeInvocation({
+        combo,
+        prUrl,
+        protocol: config.judgeProtocol,
+        judgeCommand: config.judgeCommand,
+      });
+
+      const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
+      if (created.status !== 0) {
+        throw new Error(
+          `tmux failed to start gordon judge in "${combo.tmuxSession}": ` +
+            `${created.stderr.trim() || "unknown error"}`,
+        );
+      }
+
+      deps.out(`gordon: ${config.judgeAgent} judging ${prUrl} in ${combo.tmuxSession}:gordon`);
     });
 
   program
