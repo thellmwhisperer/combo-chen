@@ -36,8 +36,10 @@ session, and starts the combo's **runner**: a generated script that rows
 (gnhf), then gates (pre-pushes to the `no-mistakes` remote if one exists,
 then runs `no-mistakes axi run`), journals `hodor_status` events through
 the hodor lifecycle (fix_inflight → idle / failed / awaiting_approval),
-detects the PR (or gate_waiting for manual approval), activates the
-judge, and journals every milestone as JSONL events. The CLI is setup and
+and journals every milestone as JSONL events. If the gate opens and
+`pr_opened` is detected, the runner activates the judge; if no-mistakes is
+`awaiting_approval`, the combo remains in `GATING` with `gate_waiting`
+until a human resolves the gate. The CLI is setup and
 introspection; the runner is the spine; the judge polls for merge signals
 and re-reviews on push.
 

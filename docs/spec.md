@@ -47,6 +47,11 @@ When no-mistakes detects that the gate requires approval (the
 `reason=gate_waiting`, then exits 0. The combo stays in `GATING` until a
 human resolves the gate.
 
+Note: this path does not emit `pr_opened`; downstream automations that
+depend on `pr_opened` (judge activation, thread-sitter nudging, status PR
+updates) do not start until the gate is resolved or the PR is journaled by
+another path.
+
 ## 3. The two babysitters and their boundary
 
 - **hodor** (no-mistakes ci-step): machine signals only. Watches the PR

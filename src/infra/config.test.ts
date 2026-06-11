@@ -25,6 +25,8 @@ describe("loadConfig", () => {
     expect(config.roles.merge).toBe("human");
     expect(config.limits.babysitPollSeconds).toBe(120);
     expect(config.limits.rowerTimeoutMinutes).toBe(180);
+    expect(config.hodorAttachTimeoutSeconds).toBe(1800);
+    expect(config.hodorAttachRetryIntervalSeconds).toBe(10);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
@@ -65,6 +67,36 @@ describe("loadConfig", () => {
     const config = loadConfig({ repoDir, userConfigPath: userConfig });
 
     expect(config.roles.rower).toBe("codex");
+  });
+
+  it("loads hodor attach retry settings through env, repo, user, fallback order", () => {
+    const userDir = tempDir();
+    const userConfig = writeToml(
+      userDir,
+      "config.toml",
+      "[hodor]\nattach_timeout_seconds = 900\nattach_retry_interval_seconds = 30\n",
+    );
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      "[hodor]\nattach_timeout_seconds = 600\nattach_retry_interval_seconds = 20\n",
+    );
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: userConfig, env: {} });
+    expect(repoConfig.hodorAttachTimeoutSeconds).toBe(600);
+    expect(repoConfig.hodorAttachRetryIntervalSeconds).toBe(20);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: userConfig,
+      env: {
+        COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS: "75",
+        COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS: "15",
+      },
+    });
+    expect(envConfig.hodorAttachTimeoutSeconds).toBe(75);
+    expect(envConfig.hodorAttachRetryIntervalSeconds).toBe(15);
   });
 
   it("refuses to launch when gordon would judge their own cooking", () => {

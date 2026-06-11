@@ -36,6 +36,11 @@ resume_command = 'codex resume {thread_id}'
 # before running the gate, so no-mistakes can associate the branch.
 # Override this to use a custom hodor pipeline.
 command = "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run; else no-mistakes axi run; fi"
+# The hodor tmux window retries until no-mistakes has an active run to attach.
+# Environment overrides: COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS,
+# COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS.
+attach_timeout_seconds = 1800
+attach_retry_interval_seconds = 10
 
 [thread_sitter]
 window_name = "thread-sitter"

@@ -33,6 +33,10 @@ export interface ComboConfig {
   rowerResumeCommand: string;
   /** Command template for hodor's blocking gate run. */
   hodorCommand: string;
+  /** How long the hodor tmux window waits for no-mistakes' active run. */
+  hodorAttachTimeoutSeconds: number;
+  /** How often the hodor tmux window retries no-mistakes attach. */
+  hodorAttachRetryIntervalSeconds: number;
   /** Prompt template sent to the thread-sitter for each routed review signal. */
   reviewNudgePrompt: string;
   /** tmux window name for the resumed thread-sitter. */
@@ -76,6 +80,8 @@ const DEFAULTS = {
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   hodor: {
     command: DEFAULT_HODOR_COMMAND,
+    attach_timeout_seconds: 1800,
+    attach_retry_interval_seconds: 10,
   },
   thread_sitter: {
     window_name: "thread-sitter",
@@ -99,6 +105,7 @@ export function defaultUserConfigPath(): string {
 interface LoadOptions {
   repoDir: string;
   userConfigPath?: string;
+  env?: Record<string, string | undefined>;
 }
 
 type TomlTable = Record<string, unknown>;
@@ -135,12 +142,12 @@ function mergeRoles(base: ComboRoles, raw: unknown, source: string): ComboRoles 
   return merged;
 }
 
-function pickNumber(table: TomlTable, key: string, fallback: number): number {
+function pickNumber(table: TomlTable, key: string, fallback: number, where = "[limits]"): number {
   const value = table[key];
   if (value === undefined) return fallback;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new ComboConfigError(`[limits] ${key} must be a positive number`);
+    throw new ComboConfigError(`${where} ${key} must be a positive number`);
   }
   return parsed;
 }
@@ -169,7 +176,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let rowerTemplates: Record<string, { command?: unknown; resume_command?: unknown }> = {
     ...DEFAULTS.rower,
   };
-  let hodorCommand = DEFAULTS.hodor.command;
+  let hodorTable: TomlTable = { ...DEFAULTS.hodor };
   let threadSitterTable: TomlTable = { ...DEFAULTS.thread_sitter };
   let gordonTemplates: Record<string, { command?: string }> = { ...DEFAULT_GORDON_TEMPLATES };
   let judgeProtocol = DEFAULT_GORDON_PROTOCOL;
@@ -191,8 +198,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       }
     }
     if (layer.table["hodor"] !== undefined) {
-      const hodorTable = asTable(layer.table["hodor"], `[hodor] in ${layer.source}`);
-      if (hodorTable["command"] !== undefined) hodorCommand = String(hodorTable["command"]);
+      hodorTable = {
+        ...hodorTable,
+        ...asTable(layer.table["hodor"], `[hodor] in ${layer.source}`),
+      };
     }
     if (layer.table["thread_sitter"] !== undefined) {
       threadSitterTable = {
@@ -213,6 +222,15 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         };
       }
     }
+  }
+
+  const env = options.env ?? {};
+  if (env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"] !== undefined) {
+    hodorTable["attach_timeout_seconds"] = env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"];
+  }
+  if (env["COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS"] !== undefined) {
+    hodorTable["attach_retry_interval_seconds"] =
+      env["COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS"];
   }
 
   if (roles.gordon.length === 0) {
@@ -253,7 +271,19 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     },
     rowerCommand,
     rowerResumeCommand,
-    hodorCommand,
+    hodorCommand: String(hodorTable["command"]),
+    hodorAttachTimeoutSeconds: pickNumber(
+      hodorTable,
+      "attach_timeout_seconds",
+      DEFAULTS.hodor.attach_timeout_seconds,
+      "[hodor]",
+    ),
+    hodorAttachRetryIntervalSeconds: pickNumber(
+      hodorTable,
+      "attach_retry_interval_seconds",
+      DEFAULTS.hodor.attach_retry_interval_seconds,
+      "[hodor]",
+    ),
     reviewNudgePrompt: String(threadSitterTable["review_nudge_prompt"]),
     threadSitterWindowName: String(threadSitterTable["window_name"]),
     threadSitterWatchWindowName: String(threadSitterTable["watch_window_name"]),
