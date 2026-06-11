@@ -14,6 +14,7 @@ export const EVENT_TYPES = {
   rower_failed: { required: ["exit_code", "has_new_commits"] },
   hodor_started: { required: [] },
   hodor_failed: { required: ["exit_code"] },
+  hodor_status: { required: ["state"] },
   pr_opened: { required: ["url"] },
   needs_human: { required: ["reason"] },
   review_comment: { required: ["author", "kind", "url"] },
@@ -23,7 +24,6 @@ export const EVENT_TYPES = {
   combo_closed: { required: [] },
   rower_retry: { required: [] },
   stopped: { required: ["by"] },
-  // phase_changed and hodor_status return when the runner emits them (v1).
 } as const satisfies Record<string, { required: readonly string[] }>;
 
 export type EventName = keyof typeof EVENT_TYPES;
