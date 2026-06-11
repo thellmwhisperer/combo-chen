@@ -225,7 +225,17 @@ interface GitHubPin {
   t: number;
 }
 
-const LGTM_PIN = /\blgtm\s*@\s*([0-9a-f]{6,40})\b/i;
+const LGTM_PIN = /\blgtm\s*@\s*([0-9a-f]{6,40})\b/gi;
+const LGTM_NEGATION_PREFIX = /\b(?:no|not|sin)\s+$/i;
+
+function lgtmPinFromBody(body: string): string | undefined {
+  for (const match of body.matchAll(LGTM_PIN)) {
+    const start = match.index ?? 0;
+    if (LGTM_NEGATION_PREFIX.test(body.slice(0, start))) continue;
+    return match[1]!;
+  }
+  return undefined;
+}
 
 function pinsFromPayload(stdout: string): GitHubPin[] {
   let parsed: unknown[];
@@ -245,8 +255,8 @@ function pinsFromPayload(stdout: string): GitHubPin[] {
     if (typeof entry !== "object" || entry === null) continue;
     const body = (entry as { body?: unknown }).body;
     if (typeof body !== "string") continue;
-    const match = LGTM_PIN.exec(body);
-    if (!match) continue;
+    const sha = lgtmPinFromBody(body);
+    if (!sha) continue;
     const rawTime =
       (entry as { submitted_at?: unknown }).submitted_at ??
       (entry as { submittedAt?: unknown }).submittedAt ??
@@ -255,7 +265,7 @@ function pinsFromPayload(stdout: string): GitHubPin[] {
       (entry as { updated_at?: unknown }).updated_at ??
       (entry as { updatedAt?: unknown }).updatedAt;
     const t = typeof rawTime === "string" ? Date.parse(rawTime) : Number.NaN;
-    pins.push({ sha: match[1]!, t: Number.isNaN(t) ? 0 : t });
+    pins.push({ sha, t: Number.isNaN(t) ? 0 : t });
   }
   return pins;
 }
