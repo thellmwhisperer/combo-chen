@@ -653,6 +653,17 @@ describe("run", () => {
     expect(runner).not.toContain("git push no-mistakes HEAD");
   });
 
+  it("rejects unknown hodor command placeholders during runner generation", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[hodor]\ncommand = "no-mistakes axi run {isue_url}"\n');
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /Unknown hodor placeholder \{isue_url\}/,
+    );
+  });
+
   it("refuses to run when the issue does not exist", async () => {
     const { deps } = fakeDeps({ issueExists: () => false });
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", home()])).rejects.toThrow(/issue/i);
