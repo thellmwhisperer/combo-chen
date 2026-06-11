@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 
 import { buildRunnerScript, deriveStatus } from "../core/combo.js";
-import { appendEvent, followEvents, readEvents, type EventName } from "../core/events.js";
+import { appendEvent, followEvents, readEvents, type ComboEvent, type EventName } from "../core/events.js";
 import {
   comboHome,
   comboIdFromIssueUrl,
@@ -36,7 +36,7 @@ import {
   type TmuxResult,
 } from "../infra/tmux.js";
 import { buildHodorInvocation } from "../roles/hodor.js";
-import { buildJudgeInvocation } from "../roles/judge.js";
+import { buildJudgeInvocation, incrementalJudgePrompt } from "../roles/judge.js";
 import { buildRowerInvocation, persistRowerThreadArtifact } from "../roles/rower.js";
 import {
   buildReviewWatchCommand,
@@ -51,8 +51,8 @@ export interface Deps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
-  git: (args: string[], cwd: string) => TmuxResult;
-  gh: (args: string[]) => TmuxResult;
+  git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  gh: (args: string[]) => { status: number; stdout: string; stderr: string };
   issueExists: (issueUrl: string) => boolean;
 }
 
@@ -125,6 +125,39 @@ function latestOpenedPrUrl(runDir: string): string | undefined {
     }
   }
   return undefined;
+}
+
+function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
+  let sha: string | undefined;
+  for (const event of events) {
+    if (event.event === "lgtm" && typeof event["sha"] === "string") {
+      sha = event["sha"];
+    }
+    if (event.event === "lgtm_stale" && event["old_sha"] === sha) {
+      sha = undefined;
+    }
+  }
+  return sha;
+}
+
+function parsePrHeadSha(stdout: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`gh pr view returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (
+    typeof parsed === "object" &&
+    parsed !== null &&
+    typeof (parsed as { headRefOid?: unknown }).headRefOid === "string" &&
+    (parsed as { headRefOid: string }).headRefOid.length > 0
+  ) {
+    return (parsed as { headRefOid: string }).headRefOid;
+  }
+
+  throw new Error("gh pr view did not return headRefOid");
 }
 
 export function createProgram(deps: Deps): Command {
@@ -263,6 +296,63 @@ export function createProgram(deps: Deps): Command {
       }
 
       deps.out(`gordon: ${config.judgeAgent} judging ${prUrl} in ${combo.tmuxSession}:gordon`);
+    });
+
+  program
+    .command("judge-tick", { hidden: true })
+    .description("Poll judge hard signals once")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const prUrl = latestOpenedPrUrl(runDir);
+      if (!prUrl) {
+        throw new Error(`Cannot tick judge for ${combo.id}: no pr_opened event in the journal`);
+      }
+
+      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid"]);
+      if (pr.status !== 0) {
+        throw new Error(`gh pr view failed for ${prUrl}: ${pr.stderr.trim() || "unknown error"}`);
+      }
+
+      const headSha = parsePrHeadSha(pr.stdout);
+      const events = readEvents(runDir);
+      const pinnedSha = livePinnedLgtmSha(events);
+      if (!pinnedSha) {
+        deps.out(`gordon: no pinned lgtm for ${combo.id}`);
+        return;
+      }
+      if (pinnedSha === headSha) {
+        deps.out(`gordon: lgtm current at ${headSha}`);
+        return;
+      }
+
+      appendEvent(runDir, "lgtm_stale", { old_sha: pinnedSha, new_sha: headSha });
+
+      const config = loadConfig({ repoDir: combo.repoDir });
+      const judgeCommand = buildJudgeInvocation({
+        combo,
+        prUrl,
+        protocol: config.judgeProtocol,
+        judgeCommand: config.judgeCommand,
+        prompt: incrementalJudgePrompt({
+          combo,
+          prUrl,
+          protocol: config.judgeProtocol,
+          oldSha: pinnedSha,
+          newSha: headSha,
+        }),
+      });
+
+      const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
+      if (created.status !== 0) {
+        throw new Error(
+          `tmux failed to start gordon re-review in "${combo.tmuxSession}": ` +
+            `${created.stderr.trim() || "unknown error"}`,
+        );
+      }
+
+      deps.out(`gordon: lgtm_stale ${pinnedSha} -> ${headSha}; re-reviewing ${prUrl}`);
     });
 
   program

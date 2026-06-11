@@ -24,6 +24,20 @@ export function defaultJudgePrompt(input: JudgePromptInput): string {
   ].join(" ");
 }
 
+export interface IncrementalJudgePromptInput extends JudgePromptInput {
+  oldSha: string;
+  newSha: string;
+}
+
+export function incrementalJudgePrompt(input: IncrementalJudgePromptInput): string {
+  return [
+    defaultJudgePrompt(input),
+    `Previous LGTM at ${input.oldSha} is stale because the PR head is now ${input.newSha}.`,
+    `Review only the incremental delta ${input.oldSha}..${input.newSha}.`,
+    `If the new head is acceptable, pin the verdict exactly as "lgtm @ ${input.newSha}".`,
+  ].join(" ");
+}
+
 export interface JudgeInput extends JudgePromptInput {
   judgeCommand: string;
   prompt?: string;
