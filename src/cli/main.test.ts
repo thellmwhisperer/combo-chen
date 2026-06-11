@@ -38,6 +38,10 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
       calls.push(["gh", ...args]);
       return { status: 0, stdout: "[]", stderr: "" };
     },
+    sleep: (ms) => {
+      calls.push(["sleep", String(ms)]);
+      return Promise.resolve();
+    },
     issueExists: () => true,
     ...overrides,
   };
@@ -874,6 +878,7 @@ describe("judge-tick", () => {
     expect(mergedIndex).toBeLessThan(closedIndex);
 
     const killSessionIndex = calls.findIndex((c) => c[0] === "tmux" && c[1] === "kill-session");
+    const fetchIndex = calls.findIndex((c) => c[0] === "git" && c.includes("fetch"));
     const verifyIndex = calls.findIndex(
       (c) => c[0] === "git" && c.includes("merge-base") && c.includes("--is-ancestor"),
     );
@@ -901,15 +906,17 @@ describe("judge-tick", () => {
     ]);
     expect(calls[branchDeleteIndex]).toEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
     expect(killSessionIndex).toBeGreaterThan(-1);
-    expect(verifyIndex).toBeGreaterThan(killSessionIndex);
+    expect(fetchIndex).toBeGreaterThan(-1);
+    expect(verifyIndex).toBeGreaterThan(fetchIndex);
     expect(worktreeRemoveIndex).toBeGreaterThan(verifyIndex);
     expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(killSessionIndex).toBeGreaterThan(branchDeleteIndex);
     expect(teardownSnapshots).toEqual([
+      { step: "fetch", events: ["pr_opened", "merged"] },
+      { step: "verify", events: ["pr_opened", "merged"] },
+      { step: "worktree-remove", events: ["pr_opened", "merged"] },
+      { step: "branch-delete", events: ["pr_opened", "merged"] },
       { step: "kill-session", events: ["pr_opened", "merged", "combo_closed"] },
-      { step: "fetch", events: ["pr_opened", "merged", "combo_closed"] },
-      { step: "verify", events: ["pr_opened", "merged", "combo_closed"] },
-      { step: "worktree-remove", events: ["pr_opened", "merged", "combo_closed"] },
-      { step: "branch-delete", events: ["pr_opened", "merged", "combo_closed"] },
     ]);
     expect(calls.some((c) => c[0] === "git" && c.includes("push") && c.includes("--delete"))).toBe(false);
 
@@ -954,6 +961,139 @@ describe("judge-tick", () => {
     expect(calls.some((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view")).toBe(true);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "kill-session")).toBe(true);
     expect(out.join("\n")).not.toContain("already terminal");
+  });
+
+  it("does not duplicate a legacy merged event that used the PR head sha", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "merged", { sha: "head456", by: "javi" });
+
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: () => ({
+        status: 0,
+        stdout:
+          '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+        stderr: "",
+      }),
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged", "combo_closed"]);
+    expect(readEvents(dir).filter((event) => event.event === "merged")).toHaveLength(1);
+  });
+
+  it("keeps merged teardown retryable when local cleanup fails", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nteardown_git_retries = 0\n");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    let cleanupCanSucceed = false;
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (!cleanupCanSucceed && args[0] === "merge-base") {
+          return { status: 1, stdout: "", stderr: "not propagated yet" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout:
+            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged"]);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "kill-session")).toBe(false);
+    expect(out.join("\n")).toContain("teardown pending");
+
+    cleanupCanSucceed = true;
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged", "combo_closed"]);
+    expect(calls.filter((c) => c[0] === "tmux" && c[1] === "kill-session")).toHaveLength(1);
+  });
+
+  it("retries merge verification with configured backoff before closing the combo", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[limits]\nteardown_git_retries = 2\nteardown_git_backoff_seconds = 3\n",
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    let verifyAttempts = 0;
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "merge-base") {
+          verifyAttempts += 1;
+          if (verifyAttempts < 3) return { status: 1, stdout: "", stderr: "stale base ref" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout:
+            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(verifyAttempts).toBe(3);
+    expect(calls.filter((c) => c[0] === "sleep")).toEqual([
+      ["sleep", "3000"],
+      ["sleep", "6000"],
+    ]);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged", "combo_closed"]);
   });
 
   it("journals a closed PR for human salvage, stops the combo, and keeps local work", async () => {
