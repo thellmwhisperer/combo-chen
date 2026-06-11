@@ -62,13 +62,14 @@ function seedCodexGnhfRun(worktree: string): void {
 }
 
 describe("command surface", () => {
-  it("exposes the v0 commands and hidden runner helpers", () => {
+  it("exposes the configured command surface", () => {
     const { deps } = fakeDeps();
     const names = createProgram(deps)
       .commands.map((c) => c.name())
       .sort();
     expect(names).toEqual(
       [
+        "activate-judge",
         "activate-thread-sitter",
         "emit",
         "events",
@@ -397,6 +398,72 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("ROWING");
     expect(text).toContain("gate_decision");
+  });
+});
+
+describe("activate-judge", () => {
+  it("opens a gordon tmux window with the configured judge command for the opened PR", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon]',
+        'protocol = "Protocol 7989 + overlay 8034"',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --protocol {protocol} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["activate-judge", "-n", "o-r-7"]);
+
+    const judgeWindow = calls.find(
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon"),
+    );
+    expect(judgeWindow).toBeDefined();
+    expect(judgeWindow).toContain("combo-chen-o-r-7");
+
+    const command = judgeWindow?.at(-1) ?? "";
+    expect(command).toContain("judge-bot");
+    expect(command).toContain("'https://github.com/o/r/pull/7'");
+    expect(command).toContain("'Protocol 7989 + overlay 8034'");
+    expect(command).toContain("COMMENT reviews");
+    expect(command).toContain("lgtm @ <sha>");
+    expect(out.join("\n")).toContain("gordon");
+  });
+
+  it("refuses activation before the combo has an opened PR in the journal", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await expect(exec(deps, ["activate-judge", "-n", "o-r-7"])).rejects.toThrow(/pr_opened/);
   });
 });
 
