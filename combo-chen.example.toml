@@ -35,6 +35,8 @@ resume_command = 'codex resume {thread_id}'
 command = "no-mistakes axi run"
 
 [thread_sitter]
+window_name = "thread-sitter"
+watch_window_name = "thread-sitter-watch"
 # {placeholders}: author, kind, url.
 review_nudge_prompt = '''
 New review comment for the thread-sitter:

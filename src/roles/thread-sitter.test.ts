@@ -106,6 +106,7 @@ describe("routeReviewComments", () => {
         comments: [comment],
         reviewNudgePrompt,
         tmux,
+        windowName: "thread-sitter",
       }),
     ).toEqual([comment]);
     expect(
@@ -115,6 +116,7 @@ describe("routeReviewComments", () => {
         comments: [comment],
         reviewNudgePrompt,
         tmux,
+        windowName: "thread-sitter",
       }),
     ).toEqual([]);
 

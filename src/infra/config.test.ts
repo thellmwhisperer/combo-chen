@@ -31,6 +31,8 @@ describe("loadConfig", () => {
     expect(config.rowerResumeCommand).toBe("codex resume {thread_id}");
     expect(config.reviewNudgePrompt).toContain("{url}");
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
+    expect(config.threadSitterWindowName).toBe("thread-sitter");
+    expect(config.threadSitterWatchWindowName).toBe("thread-sitter-watch");
   });
 
   it("lets the user config override defaults", () => {
@@ -38,7 +40,7 @@ describe("loadConfig", () => {
     const userConfig = writeToml(
       userDir,
       "config.toml",
-      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n\n[thread_sitter]\nreview_nudge_prompt = "Please inspect {url}"\n',
+      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n\n[thread_sitter]\nreview_nudge_prompt = "Please inspect {url}"\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
     );
 
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
@@ -47,6 +49,8 @@ describe("loadConfig", () => {
     expect(config.rowerCommand).toBe('hermes -z "{prompt}"');
     expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
+    expect(config.threadSitterWindowName).toBe("sitter");
+    expect(config.threadSitterWatchWindowName).toBe("sitter-watch");
   });
 
   it("repo config wins over user config (repo owns policy)", () => {

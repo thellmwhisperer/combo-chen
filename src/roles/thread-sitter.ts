@@ -13,9 +13,6 @@ import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { ROWER_THREAD_ARTIFACT, type RowerThreadArtifact } from "./rower.js";
 
-export const THREAD_SITTER_WINDOW = "thread-sitter";
-export const THREAD_SITTER_WATCH_WINDOW = "thread-sitter-watch";
-
 export interface ReviewCommentSignal {
   author: string;
   kind: string;
@@ -85,16 +82,15 @@ export function routeReviewComments(input: {
   comments: ReviewCommentSignal[];
   reviewNudgePrompt: string;
   tmux: (args: string[]) => TmuxResult;
-  windowName?: string;
+  windowName: string;
 }): ReviewCommentSignal[] {
   const seen = routedReviewCommentUrls(input.runDir);
   const routed: ReviewCommentSignal[] = [];
-  const windowName = input.windowName ?? THREAD_SITTER_WINDOW;
 
   for (const comment of input.comments) {
     if (seen.has(comment.url)) continue;
     const prompt = buildReviewNudgePrompt(comment, input.reviewNudgePrompt);
-    for (const args of nudgeWindowArgs(input.tmuxSession, windowName, prompt)) {
+    for (const args of nudgeWindowArgs(input.tmuxSession, input.windowName, prompt)) {
       const result = input.tmux(args);
       if (result.status !== 0) {
         throw new Error(`tmux nudge failed: ${result.stderr.trim() || "unknown error"}`);
