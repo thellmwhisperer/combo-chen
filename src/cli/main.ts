@@ -33,6 +33,8 @@ import {
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
+  selectPaneArgs,
+  splitWindowArgs,
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
@@ -427,7 +429,22 @@ export function createProgram(deps: Deps): Command {
         deps.git(["branch", "-D", branch], options.repo);
         throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
       }
-      deps.tmux(newWindowArgs(session, "watch", `${cliInvocation()} events --follow -n ${id}`));
+      const split = deps.tmux(
+        splitWindowArgs(session, "rower", `${cliInvocation()} events --follow -n ${id}`),
+      );
+      if (split.status !== 0) {
+        throw new Error(
+          `tmux failed to create the journal pane in "${session}": ` +
+            `${split.stderr.trim() || "unknown error"}`,
+        );
+      }
+      const focused = deps.tmux(selectPaneArgs(session, "rower", 0));
+      if (focused.status !== 0) {
+        throw new Error(
+          `tmux failed to focus the rower pane in "${session}": ` +
+            `${focused.stderr.trim() || "unknown error"}`,
+        );
+      }
 
       deps.out(`🥢 ${session}`);
       deps.out(`   worktree ${worktree} · branch ${branch}`);
