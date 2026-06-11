@@ -52,6 +52,8 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         reason = typeof event["reason"] === "string" ? (event["reason"] as string) : undefined;
         break;
       case "stopped":
+      case "merged":
+      case "combo_closed":
         phase = "STOPPED";
         needsHuman = false;
         break;
