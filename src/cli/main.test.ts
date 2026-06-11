@@ -246,12 +246,22 @@ describe("emit", () => {
     });
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-    await exec(deps, ["emit", "-n", "o-r-7", "rower_failed", "--field", "exit_code=3"]);
+    await exec(deps, [
+      "emit",
+      "-n",
+      "o-r-7",
+      "rower_failed",
+      "--field",
+      "exit_code=3",
+      "--field",
+      "has_new_commits=true",
+    ]);
 
     const events = readEvents(dir);
     expect(events).toHaveLength(1);
     expect(events[0]?.event).toBe("rower_failed");
     expect(events[0]?.["exit_code"]).toBe(3);
+    expect(events[0]?.["has_new_commits"]).toBe(true);
   });
 
   it("accepts post-PR event vocabulary with its required fields", async () => {

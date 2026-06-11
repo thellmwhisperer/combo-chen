@@ -1,7 +1,11 @@
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { ComboEvent } from "./events.js";
-import { buildRunnerScript, deriveStatus } from "./combo.js";
+import { buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
 
 function ev(event: ComboEvent["event"], extra: Record<string, unknown> = {}): ComboEvent {
   return { t: new Date().toISOString(), event, ...extra };
@@ -37,7 +41,7 @@ describe("deriveStatus", () => {
   });
 
   it("marks failures as STALLED and needing a human", () => {
-    const status = deriveStatus([ev("rower_started"), ev("rower_failed", { exit_code: 1 })]);
+    const status = deriveStatus([ev("rower_started"), ev("rower_failed", { exit_code: 1, has_new_commits: false })]);
     expect(status.phase).toBe("STALLED");
     expect(status.needsHuman).toBe(true);
   });
@@ -111,6 +115,188 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("rower_failed");
     expect(script).toContain("hodor_failed");
     expect(script).toContain("exit_code=$code");
+  });
+
+  it("runs the rower with stdout and stderr redirected to rower.log beside the runner", () => {
+    expect(script).toContain('rower_log="$(dirname "$0")/rower.log"');
+    expect(script).toContain(') > "$rower_log" 2>&1; then');
+
+    const rower = script.indexOf("gnhf");
+    const redirected = script.indexOf(') > "$rower_log" 2>&1; then');
+    const rowerDone = script.indexOf("emit -n o-r-7 rower_done");
+    expect(rower).toBeGreaterThan(-1);
+    expect(redirected).toBeGreaterThan(rower);
+    expect(rowerDone).toBeGreaterThan(redirected);
+  });
+
+  it("emits rower_done when a fake rower exits after seeing non-TTY stdout", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeRower = join(bin, "fake-rower");
+    writeFileSync(
+      fakeRower,
+      `#!/bin/sh
+if [ -t 1 ]; then
+  echo "interactive final screen" >&2
+  exit 91
+fi
+echo "fake rower completed"
+echo "fake rower stderr" >&2
+exit 0
+`,
+    );
+    chmodSync(fakeRower, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        rowerCommand: shellQuote(fakeRower),
+        hodorCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateThreadSitter: ":",
+        activateJudge: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "rower_started",
+      "rower_done",
+      "hodor_started",
+      "needs_human --field reason=pr_missing",
+    ]);
+    expect(readFileSync(join(dir, "rower.log"), "utf8")).toBe(
+      "fake rower completed\nfake rower stderr\n",
+    );
+  });
+
+  it("emits rower_failed with branch-vs-base commit evidence when a rower commits then exits nonzero", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    for (const args of [
+      ["init"],
+      ["config", "user.email", "codex@example.com"],
+      ["config", "user.name", "Codex"],
+    ]) {
+      const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
+      expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+    }
+    writeFileSync(join(worktree, "README.md"), "base\n");
+    for (const args of [
+      ["add", "README.md"],
+      ["commit", "-m", "base"],
+    ]) {
+      const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
+      expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+    }
+    const baseSha = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: worktree,
+      encoding: "utf8",
+    }).stdout.trim();
+
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeRower = join(bin, "fake-rower");
+    writeFileSync(
+      fakeRower,
+      `#!/bin/sh
+printf 'rower change\\n' > rower.txt
+git add rower.txt
+git commit -m 'rower change'
+exit 130
+`,
+    );
+    chmodSync(fakeRower, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        rowerCommand: shellQuote(fakeRower),
+        hodorCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateThreadSitter: ":",
+        activateJudge: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+    const headSha = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: worktree,
+      encoding: "utf8",
+    }).stdout.trim();
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 130,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "rower_started",
+      [
+        "rower_failed",
+        "--field exit_code=130",
+        "--field has_new_commits=true",
+        `--field base_sha=${baseSha}`,
+        `--field head_sha=${headSha}`,
+        "--field new_commit_count=1",
+      ].join(" "),
+    ]);
   });
 
   it("detects the PR by branch", () => {

@@ -53,7 +53,7 @@ describe("event schema", () => {
     expect(EVENT_TYPES.combo_created.required).toEqual(["issue_url"]);
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
-    expect(EVENT_TYPES.rower_failed.required).toEqual(["exit_code"]);
+    expect(EVENT_TYPES.rower_failed.required).toEqual(["exit_code", "has_new_commits"]);
     expect(EVENT_TYPES.review_comment.required).toEqual(["author", "kind", "url"]);
     expect(EVENT_TYPES.lgtm.required).toEqual(["sha"]);
     expect(EVENT_TYPES.lgtm_stale.required).toEqual(["old_sha", "new_sha"]);
