@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { DEFAULT_HODOR_COMMAND } from "../infra/config.js";
 import type { ComboEvent } from "./events.js";
 import { buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
 
@@ -201,6 +202,186 @@ exit 0
     ]);
     expect(readFileSync(join(dir, "rower.log"), "utf8")).toBe(
       "fake rower completed\nfake rower stderr\n",
+    );
+  });
+
+  it("emits hodor_failed with the gate push exit code when the default pre-push fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const hodorLog = join(dir, "hodor.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "push" ]; then
+  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  exit 17
+fi
+if [ "$1" = "remote" ]; then
+  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  exit 0
+fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        rowerCommand: "true",
+        hodorCommand: DEFAULT_HODOR_COMMAND,
+        emit: shellQuote(fakeEmit),
+        activateThreadSitter: ":",
+        activateJudge: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        HODOR_LOG: hodorLog,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 17,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "rower_started",
+      "rower_done",
+      "hodor_started",
+      "hodor_failed --field exit_code=17",
+    ]);
+    expect(readFileSync(hodorLog, "utf8")).toBe(
+      "git remote get-url no-mistakes\ngit push no-mistakes HEAD\n",
+    );
+  });
+
+  it("runs the default axi command without a gate push when the no-mistakes remote is absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const hodorLog = join(dir, "hodor.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "remote" ]; then
+  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  exit 2
+fi
+if [ "$1" = "push" ]; then
+  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  exit 17
+fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        rowerCommand: "true",
+        hodorCommand: DEFAULT_HODOR_COMMAND,
+        emit: shellQuote(fakeEmit),
+        activateThreadSitter: ":",
+        activateJudge: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        HODOR_LOG: hodorLog,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "rower_started",
+      "rower_done",
+      "hodor_started",
+      "needs_human --field reason=pr_missing",
+    ]);
+    expect(readFileSync(hodorLog, "utf8")).toBe(
+      "git remote get-url no-mistakes\nno-mistakes axi run\n",
     );
   });
 

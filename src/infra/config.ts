@@ -49,6 +49,8 @@ export interface ComboConfig {
 
 const ROLE_NAMES = new Set(["rower", "hodor", "gordon", "merge"]);
 const DEFAULT_GORDON_PROTOCOL = "La Roca review protocol 7989 + project overlay";
+export const DEFAULT_HODOR_COMMAND =
+  "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run; else no-mistakes axi run; fi";
 const DEFAULT_GORDON_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
@@ -73,7 +75,7 @@ const DEFAULTS = {
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   hodor: {
-    command: "no-mistakes axi run",
+    command: DEFAULT_HODOR_COMMAND,
   },
   thread_sitter: {
     window_name: "thread-sitter",

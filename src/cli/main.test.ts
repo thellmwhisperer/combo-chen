@@ -479,7 +479,10 @@ describe("run", () => {
     expect(existsSync(join(runDir, "combo.json"))).toBe(true);
     const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
     expect(runner).toContain("gnhf");
-    expect(runner).toContain("no-mistakes axi run");
+    const gatePush = runner.indexOf("git push no-mistakes HEAD");
+    const axiRun = runner.indexOf("no-mistakes axi run");
+    expect(gatePush).toBeGreaterThan(-1);
+    expect(axiRun).toBeGreaterThan(gatePush);
     expect(runner).toContain("activate-judge -n o-r-7");
 
     const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
@@ -564,6 +567,20 @@ describe("run", () => {
     expect(worktreeRemoveIndex).toBeGreaterThan(killIndex);
     expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
+  });
+
+  it("keeps a repo-level hodor command override verbatim in the runner", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const customHodor = "custom-hodor --gate local && no-mistakes axi run --yes";
+    writeFileSync(join(repoDir, "combo-chen.toml"), `[hodor]\ncommand = "${customHodor}"\n`);
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const runner = readFileSync(join(runDirFor(h, "o-r-7"), "runner.sh"), "utf8");
+    expect(runner).toContain(customHodor);
+    expect(runner).not.toContain("git push no-mistakes HEAD");
   });
 
   it("refuses to run when the issue does not exist", async () => {
