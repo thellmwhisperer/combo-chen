@@ -27,6 +27,7 @@ combo-chen run --issue https://github.com/you/repo/issues/128
 
 combo-chen status            # which combos need a human RIGHT NOW
 combo-chen events --follow -n you-repo-128
+combo-chen attach             # tmux into the running combo (--name when several)
 combo-chen stop -n you-repo-128
 ```
 

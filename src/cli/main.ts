@@ -5,7 +5,7 @@
  * v0 surface: run | attach | status | stop | events (+ emit, the runner's pen).
  * The CLI is setup and introspection; the generated runner script inside
  * tmux is the combo's spine. The director — human or agent — drives with
- * these four commands.
+ * these five commands.
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
