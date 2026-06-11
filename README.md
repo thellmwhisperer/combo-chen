@@ -38,7 +38,7 @@ introspection; the runner is the spine; the judge polls for merge signals
 and re-reviews on push.
 
 State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
-`journal.jsonl`, `rower-thread.json`, `runner.sh`). No daemon.
+`journal.jsonl`, `rower-thread.json`, `rower.log`, `runner.sh`). No daemon.
 
 ## Configuration
 
