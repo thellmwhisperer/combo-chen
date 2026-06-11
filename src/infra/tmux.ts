@@ -8,6 +8,10 @@ export class TmuxError extends Error {}
 
 export const JOURNAL_PANE_HEIGHT = 12;
 
+export function attachSessionArgs(session: string): string[] {
+  return ["attach", "-t", session];
+}
+
 export function newSessionArgs(session: string, windowName: string, command: string): string[] {
   return ["new-session", "-d", "-s", session, "-n", windowName, command];
 }
@@ -48,6 +52,10 @@ export function listWindowsArgs(session: string): string[] {
   return ["list-windows", "-t", session, "-F", "#{window_name}"];
 }
 
+export function listPanesArgs(session: string, windowName: string): string[] {
+  return ["list-panes", "-t", `${session}:${windowName}`, "-F", "#{pane_index}"];
+}
+
 export function captureWindowArgs(session: string, windowName: string): string[] {
   return ["capture-pane", "-p", "-t", `${session}:${windowName}`];
 }
@@ -75,14 +83,17 @@ export interface TmuxResult {
 }
 
 export function tmux(args: string[]): TmuxResult {
-  const result = spawnSync("tmux", args, { encoding: "utf8" });
+  const result =
+    args[0] === "attach"
+      ? spawnSync("tmux", args, { stdio: "inherit" })
+      : spawnSync("tmux", args, { encoding: "utf8" });
   if (result.error) {
     throw new TmuxError(`tmux not available: ${result.error.message}`);
   }
   return {
     status: result.status ?? 1,
-    stdout: result.stdout ?? "",
-    stderr: result.stderr ?? "",
+    stdout: typeof result.stdout === "string" ? result.stdout : "",
+    stderr: typeof result.stderr === "string" ? result.stderr : "",
   };
 }
 
