@@ -120,19 +120,26 @@ describe("routeReviewComments", () => {
       }),
     ).toEqual([]);
 
-    expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls).toHaveLength(3);
     expect(tmuxCalls[0]).toEqual([
-      "send-keys",
-      "-l",
-      "-t",
-      "combo-chen-o-r-7:thread-sitter",
+      "set-buffer",
+      "-b",
+      "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
       buildReviewNudgePrompt(comment, reviewNudgePrompt),
     ]);
     expect(tmuxCalls[1]).toEqual([
+      "paste-buffer",
+      "-d",
+      "-b",
+      "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
+      "-t",
+      "combo-chen-o-r-7:thread-sitter",
+    ]);
+    expect(tmuxCalls[2]).toEqual([
       "send-keys",
       "-t",
       "combo-chen-o-r-7:thread-sitter",
-      "Enter",
+      "C-m",
     ]);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["review_comment"]);
     expect(readEvents(dir)[0]).toMatchObject(comment);
