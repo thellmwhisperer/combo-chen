@@ -99,12 +99,15 @@ export function buildRunnerScript(input: RunnerInput): string {
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
+rower_log="$(dirname "$0")/rower.log"
 
 cd ${shellQuote(combo.worktree)}
 
 ${emit} rower_started
 
-if ${rowerCommand}; then
+if (
+  ${rowerCommand}
+) > "$rower_log" 2>&1; then
   ${emit} rower_done
 else
   code=$?

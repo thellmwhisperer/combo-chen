@@ -113,6 +113,18 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("exit_code=$code");
   });
 
+  it("runs the rower with stdout and stderr redirected to rower.log beside the runner", () => {
+    expect(script).toContain('rower_log="$(dirname "$0")/rower.log"');
+    expect(script).toContain(') > "$rower_log" 2>&1; then');
+
+    const rower = script.indexOf("gnhf");
+    const redirected = script.indexOf(') > "$rower_log" 2>&1; then');
+    const rowerDone = script.indexOf("emit -n o-r-7 rower_done");
+    expect(rower).toBeGreaterThan(-1);
+    expect(redirected).toBeGreaterThan(rower);
+    expect(rowerDone).toBeGreaterThan(redirected);
+  });
+
   it("detects the PR by branch", () => {
     expect(script).toContain("--head 'combo/issue-7'");
   });
