@@ -353,12 +353,74 @@ describe("nudge-review-comments", () => {
       `cwd=${worktree}`,
       "push",
       "no-mistakes",
+      `--force-with-lease=refs/heads/combo/issue-7:${mirrorSha}`,
       "refs/remotes/origin/combo/issue-7:refs/heads/combo/issue-7",
     ]);
     const pushIndex = calls.findIndex((call) => call[0] === "git" && call[2] === "push");
     const firstGhIndex = calls.findIndex((call) => call[0] === "gh");
     expect(pushIndex).toBeGreaterThan(-1);
     expect(firstGhIndex).toBeGreaterThan(pushIndex);
+  });
+
+  it("reconciles a divergent mirror with a lease against the observed mirror SHA", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const originSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const mirrorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const expectedLease = `--force-with-lease=refs/heads/combo/issue-7:${mirrorSha}`;
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote") {
+          return { status: 0, stdout: "/home/user/.no-mistakes/repos/o-r.git\n", stderr: "" };
+        }
+        if (args[0] === "fetch") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "rev-parse") {
+          return { status: 0, stdout: `${originSha}\n`, stderr: "" };
+        }
+        if (args[0] === "ls-remote") {
+          return {
+            status: 0,
+            stdout: `${mirrorSha}\trefs/heads/combo/issue-7\n`,
+            stderr: "",
+          };
+        }
+        if (args[0] === "push" && args.includes(expectedLease)) {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "push") {
+          return { status: 1, stdout: "", stderr: "! [rejected] non-fast-forward" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${worktree}`,
+      "push",
+      "no-mistakes",
+      expectedLease,
+      "refs/remotes/origin/combo/issue-7:refs/heads/combo/issue-7",
+    ]);
   });
 
   it("routes a fetched PR comment once and skips repo writes when no mirror remote exists", async () => {
@@ -420,10 +482,26 @@ describe("nudge-review-comments", () => {
       url: "https://github.com/o/r/pull/7#issuecomment-1",
     });
 
-    const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
-    expect(tmuxCalls).toHaveLength(1);
-    expect(tmuxCalls[0]).toContain("combo-chen-owned-session:sitter");
-    expect(tmuxCalls[0]?.at(-1)).toBe("C-m");
+    const tmuxCalls = calls.filter((call) => call[0] === "tmux");
+    expect(tmuxCalls).toEqual([
+      [
+        "tmux",
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "Please address 'https://github.com/o/r/pull/7#issuecomment-1'",
+      ],
+      [
+        "tmux",
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "-t",
+        "combo-chen-owned-session:sitter",
+      ],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
+    ]);
     expect(calls.filter((call) => call[0] === "git")).toEqual([
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],

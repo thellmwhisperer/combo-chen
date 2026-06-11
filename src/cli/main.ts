@@ -240,10 +240,15 @@ function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): b
     return false;
   }
 
+  const pushArgs = ["push", "no-mistakes"];
+  if (mirrorSha !== undefined) {
+    pushArgs.push(`--force-with-lease=${mirrorRef}:${mirrorSha}`);
+  }
+  pushArgs.push(`${originRef}:${mirrorRef}`);
   requireComboGit(
     deps,
     combo,
-    ["push", "no-mistakes", `${originRef}:${mirrorRef}`],
+    pushArgs,
     "git push no-mistakes mirror",
   );
   return true;
