@@ -1364,6 +1364,57 @@ describe("judge-tick", () => {
     expect(out.join("\n")).toContain("gordon: no pinned lgtm for o-r-7");
   });
 
+  it("skips punctuated negated pins before accepting a later current LGTM", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr") {
+          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+        }
+        if (args.join(" ").includes("issues/7/comments")) {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              { body: "no, lgtm @ aa11bb", created_at: "2026-06-11T00:00:00Z" },
+              { body: "lgtm @ def456", created_at: "2026-06-11T00:01:00Z" },
+              { body: "no. lgtm @ bb22cc", created_at: "2026-06-11T00:02:00Z" },
+              { body: "no! lgtm @ cc33dd", created_at: "2026-06-11T00:03:00Z" },
+              { body: "no - lgtm @ dd44ee", created_at: "2026-06-11T00:04:00Z" },
+              { body: "no: lgtm @ ee55ff", created_at: "2026-06-11T00:05:00Z" },
+              { body: "no; lgtm @ ff66aa", created_at: "2026-06-11T00:06:00Z" },
+            ]),
+            stderr: "",
+          };
+        }
+        if (args.join(" ").includes("pulls/7/reviews")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(out.join("\n")).toContain("gordon: lgtm current at def456");
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "lgtm"]);
+    expect(readEvents(dir)[1]).toMatchObject({ sha: "def456" });
+  });
+
   it("finds a GitHub LGTM pin from paginated comment arrays", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

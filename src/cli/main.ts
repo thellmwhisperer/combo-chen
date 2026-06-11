@@ -226,7 +226,7 @@ interface GitHubPin {
 }
 
 const LGTM_PIN = /\blgtm\s*@\s*([0-9a-f]{6,40})\b/gi;
-const LGTM_NEGATION_PREFIX = /\b(?:no|not|sin)\s+$/i;
+const LGTM_NEGATION_PREFIX = /\b(?:no|not|sin)[\s,!.:;-]+$/i;
 
 function lgtmPinFromBody(body: string): string | undefined {
   for (const match of body.matchAll(LGTM_PIN)) {
