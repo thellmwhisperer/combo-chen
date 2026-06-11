@@ -176,6 +176,64 @@ function buildJudgeWatchCommand(input: {
   ].join("\n");
 }
 
+function firstRemoteSha(stdout: string): string | undefined {
+  const trimmed = stdout.trim();
+  if (trimmed === "") return undefined;
+  return trimmed.split(/\s+/)[0];
+}
+
+function requireComboGit(
+  deps: Deps,
+  combo: ComboRecord,
+  args: string[],
+  description: string,
+): { stdout: string } {
+  const result = deps.git(args, combo.worktree);
+  if (result.status !== 0) {
+    throw new Error(
+      `${description} failed for ${combo.id}: ${result.stderr.trim() || "unknown error"}`,
+    );
+  }
+  return { stdout: result.stdout };
+}
+
+function syncNoMistakesMirror(deps: Deps, combo: ComboRecord): boolean {
+  const remote = deps.git(["remote", "get-url", "no-mistakes"], combo.worktree);
+  if (remote.status !== 0) return false;
+
+  const originRef = `refs/remotes/origin/${combo.branch}`;
+  const mirrorRef = `refs/heads/${combo.branch}`;
+  requireComboGit(
+    deps,
+    combo,
+    ["fetch", "origin", `${combo.branch}:${originRef}`],
+    "git fetch origin branch",
+  );
+  const origin = requireComboGit(
+    deps,
+    combo,
+    ["rev-parse", originRef],
+    "git rev-parse origin branch",
+  ).stdout.trim();
+  const mirrorSha = firstRemoteSha(
+    requireComboGit(
+      deps,
+      combo,
+      ["ls-remote", "--heads", "no-mistakes", combo.branch],
+      "git ls-remote no-mistakes branch",
+    ).stdout,
+  );
+
+  if (origin === mirrorSha) return false;
+  requireComboGit(
+    deps,
+    combo,
+    ["push", "no-mistakes", `${originRef}:${mirrorRef}`],
+    "git push no-mistakes mirror",
+  );
+  return true;
+}
+
 function latestOpenedPrUrl(runDir: string): string | undefined {
   const events = readEvents(runDir);
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -1011,6 +1069,7 @@ export function createProgram(deps: Deps): Command {
         throw new Error(`No pr_opened event for combo "${options.name}"`);
       }
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+      syncNoMistakesMirror(deps, combo);
       const routed = routeReviewComments({
         runDir,
         tmuxSession: combo.tmuxSession,
