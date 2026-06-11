@@ -80,6 +80,8 @@ export function defaultDeps(): Deps {
 }
 
 function coerce(value: string): unknown {
+  if (value === "true") return true;
+  if (value === "false") return false;
   if (/^-?\d+$/.test(value)) return Number(value);
   return value;
 }

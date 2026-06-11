@@ -11,7 +11,7 @@ export const EVENT_TYPES = {
   combo_created: { required: ["issue_url"] },
   rower_started: { required: [] },
   rower_done: { required: [] },
-  rower_failed: { required: ["exit_code"] },
+  rower_failed: { required: ["exit_code", "has_new_commits"] },
   hodor_started: { required: [] },
   hodor_failed: { required: ["exit_code"] },
   pr_opened: { required: ["url"] },

@@ -35,6 +35,12 @@ a director concern, never a silent state.
 A recoverable rower failure journals `rower_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.
 
+A terminal rower failure (non-zero exit) journals `rower_failed` (required
+fields: `exit_code`, `has_new_commits`). The runner captures the git HEAD
+before and after the rower run: `base_sha`, `head_sha`, and
+`new_commit_count` quantify what — if anything — the rower committed before
+failing. `rower_failed` transitions the combo immediately to `STALLED`.
+
 ## 3. The two babysitters and their boundary
 
 - **hodor** (no-mistakes ci-step): machine signals only. Watches the PR
