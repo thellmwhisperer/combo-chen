@@ -199,7 +199,14 @@ function requireComboGit(
 
 function syncNoMistakesMirror(deps: Deps, combo: ComboRecord): boolean {
   const remote = deps.git(["remote", "get-url", "no-mistakes"], combo.worktree);
-  if (remote.status !== 0) return false;
+  if (remote.status !== 0) {
+    if (remote.status !== 2) {
+      deps.out(
+        `mirror sync: git remote get-url no-mistakes failed for ${combo.id}: ${remote.stderr.trim() || `exit code ${remote.status}`}`,
+      );
+    }
+    return false;
+  }
 
   const originRef = `refs/remotes/origin/${combo.branch}`;
   const mirrorRef = `refs/heads/${combo.branch}`;
@@ -1069,7 +1076,16 @@ export function createProgram(deps: Deps): Command {
         throw new Error(`No pr_opened event for combo "${options.name}"`);
       }
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      syncNoMistakesMirror(deps, combo);
+      try {
+        const synced = syncNoMistakesMirror(deps, combo);
+        if (synced) {
+          deps.out(`mirror synced for ${combo.id}`);
+        }
+      } catch (err) {
+        deps.out(
+          `mirror sync failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       const routed = routeReviewComments({
         runDir,
         tmuxSession: combo.tmuxSession,
