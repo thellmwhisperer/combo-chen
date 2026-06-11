@@ -35,6 +35,10 @@ export interface ComboConfig {
   hodorCommand: string;
   /** Prompt template sent to the thread-sitter for each routed review signal. */
   reviewNudgePrompt: string;
+  /** tmux window name for the resumed thread-sitter. */
+  threadSitterWindowName: string;
+  /** tmux window name for the review-comment watcher. */
+  threadSitterWatchWindowName: string;
 }
 
 const ROLE_NAMES = new Set(["rower", "hodor", "gordon", "merge"]);
@@ -60,6 +64,8 @@ const DEFAULTS = {
     command: "no-mistakes axi run",
   },
   thread_sitter: {
+    window_name: "thread-sitter",
+    watch_window_name: "thread-sitter-watch",
     review_nudge_prompt: [
       "New review comment for the thread-sitter:",
       "{url}",
@@ -208,6 +214,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     rowerResumeCommand,
     hodorCommand,
     reviewNudgePrompt: String(threadSitterTable["review_nudge_prompt"]),
+    threadSitterWindowName: String(threadSitterTable["window_name"]),
+    threadSitterWatchWindowName: String(threadSitterTable["watch_window_name"]),
   };
 }
 

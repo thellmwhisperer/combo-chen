@@ -43,8 +43,6 @@ import {
   latestPrUrl,
   readRowerThreadArtifact,
   routeReviewComments,
-  THREAD_SITTER_WATCH_WINDOW,
-  THREAD_SITTER_WINDOW,
 } from "../roles/thread-sitter.js";
 
 export interface Deps {
@@ -306,19 +304,19 @@ export function createProgram(deps: Deps): Command {
       const sitter = deps.tmux(
         newWindowArgs(
           combo.tmuxSession,
-          THREAD_SITTER_WINDOW,
+          config.threadSitterWindowName,
           buildThreadSitterResumeCommand(artifact, config.rowerResumeCommand),
         ),
       );
       if (sitter.status !== 0) {
         throw new Error(
-          `tmux failed to start ${THREAD_SITTER_WINDOW}: ${sitter.stderr.trim() || "unknown error"}`,
+          `tmux failed to start ${config.threadSitterWindowName}: ${sitter.stderr.trim() || "unknown error"}`,
         );
       }
       const watcher = deps.tmux(
         newWindowArgs(
           combo.tmuxSession,
-          THREAD_SITTER_WATCH_WINDOW,
+          config.threadSitterWatchWindowName,
           buildReviewWatchCommand({
             cli: cliInvocation(),
             comboId: combo.id,
@@ -328,7 +326,7 @@ export function createProgram(deps: Deps): Command {
       );
       if (watcher.status !== 0) {
         throw new Error(
-          `tmux failed to start ${THREAD_SITTER_WATCH_WINDOW}: ${watcher.stderr.trim() || "unknown error"}`,
+          `tmux failed to start ${config.threadSitterWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
         );
       }
       deps.out(`thread-sitter active for ${combo.id}`);
@@ -351,6 +349,7 @@ export function createProgram(deps: Deps): Command {
         tmuxSession: combo.tmuxSession,
         comments: fetchReviewCommentSignals(prUrl, deps.gh),
         reviewNudgePrompt: config.reviewNudgePrompt,
+        windowName: config.threadSitterWindowName,
         tmux: deps.tmux,
       });
       for (const comment of routed) {

@@ -87,7 +87,7 @@ describe("activate-thread-sitter", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n",
+      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -113,9 +113,9 @@ describe("activate-thread-sitter", () => {
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows).toHaveLength(2);
-    expect(newWindows[0]).toContain("thread-sitter");
+    expect(newWindows[0]).toContain("sitter");
     expect(newWindows[0]?.at(-1)).toBe(`codex --profile sitter resume '${CODEX_THREAD_ID}'`);
-    expect(newWindows[1]).toContain("thread-sitter-watch");
+    expect(newWindows[1]).toContain("sitter-watch");
     expect(newWindows[1]?.at(-1)).toContain("nudge-review-comments -n 'o-r-7'");
     expect(newWindows[1]?.at(-1)).toContain("sleep 7");
     expect(calls.some((call) => call[0] === "git")).toBe(false);
@@ -129,7 +129,7 @@ describe("nudge-review-comments", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\n',
+      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -177,6 +177,7 @@ describe("nudge-review-comments", () => {
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
     expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls[0]).toContain("combo-chen-o-r-7:sitter");
     expect(tmuxCalls[0]?.at(-1)).toBe("Please address 'https://github.com/o/r/pull/7#issuecomment-1'");
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     const ghCalls = calls.filter((call) => call[0] === "gh");

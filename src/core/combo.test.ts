@@ -104,13 +104,18 @@ describe("buildRunnerScript", () => {
   it("hands off as pr_ready only when a PR exists, pr_missing otherwise", () => {
     const prReady = script.indexOf("reason=pr_ready");
     const prMissing = script.indexOf("reason=pr_missing");
+    const prUrlBranch = script.indexOf('if [ -n "${pr_url:-}" ]');
+    const prMissingElse = script.lastIndexOf("else");
+    const threadSitter = script.indexOf("activate-thread-sitter");
     expect(prReady).toBeGreaterThan(-1);
     expect(prMissing).toBeGreaterThan(-1);
     // pr_ready lives inside the if-branch that saw a URL; pr_missing in the
     // final else (lastIndexOf: earlier elses belong to rower/hodor failure).
-    expect(script.indexOf('if [ -n "${pr_url:-}" ]')).toBeLessThan(prReady);
-    expect(prReady).toBeLessThan(script.lastIndexOf("else"));
-    expect(prMissing).toBeGreaterThan(script.lastIndexOf("else"));
+    expect(prUrlBranch).toBeLessThan(prReady);
+    expect(prReady).toBeLessThan(prMissingElse);
+    expect(prMissing).toBeGreaterThan(prMissingElse);
+    expect(threadSitter).toBeGreaterThan(prUrlBranch);
+    expect(threadSitter).toBeLessThan(prMissingElse);
   });
 
   it("single-quotes derived values so paths with spaces or metacharacters stay literal", () => {
