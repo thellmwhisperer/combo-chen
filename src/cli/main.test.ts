@@ -73,6 +73,7 @@ describe("command surface", () => {
         "activate-thread-sitter",
         "emit",
         "events",
+        "judge-tick",
         "nudge-review-comments",
         "run",
         "status",
@@ -464,6 +465,68 @@ describe("activate-judge", () => {
 
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
     await expect(exec(deps, ["activate-judge", "-n", "o-r-7"])).rejects.toThrow(/pr_opened/);
+  });
+});
+
+describe("judge-tick", () => {
+  it("stales a pinned LGTM on a new PR head and starts an incremental re-review", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon]',
+        'protocol = "Protocol 7989 + overlay 8034"',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "lgtm", { sha: "abc123" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    const stale = readEvents(dir).at(-1);
+    expect(stale).toMatchObject({
+      event: "lgtm_stale",
+      old_sha: "abc123",
+      new_sha: "def456",
+    });
+
+    const judgeWindow = calls.find(
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon"),
+    );
+    expect(judgeWindow).toBeDefined();
+
+    const command = judgeWindow?.at(-1) ?? "";
+    expect(command).toContain("judge-bot");
+    expect(command).toContain("abc123..def456");
+    expect(command).toContain("lgtm @ def456");
+    expect(command).toContain("COMMENT reviews");
+    expect(out.join("\n")).toContain("lgtm_stale abc123 -> def456");
   });
 });
 
