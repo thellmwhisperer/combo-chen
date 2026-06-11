@@ -352,17 +352,27 @@ describe("nudge-review-comments", () => {
       url: "https://github.com/o/r/pull/7#issuecomment-1",
     });
 
-    const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
+    const tmuxCalls = calls.filter(
+      (call) => call[0] === "tmux" && ["set-buffer", "paste-buffer", "send-keys"].includes(call[1] ?? ""),
+    );
     expect(tmuxCalls).toEqual([
       [
         "tmux",
-        "send-keys",
-        "-l",
-        "-t",
-        "combo-chen-owned-session:sitter",
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
         "Please address 'https://github.com/o/r/pull/7#issuecomment-1'",
       ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "Enter"],
+      [
+        "tmux",
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "-t",
+        "combo-chen-owned-session:sitter",
+      ],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
     ]);
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     const ghCalls = calls.filter((call) => call[0] === "gh");
