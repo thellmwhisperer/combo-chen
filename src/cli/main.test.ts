@@ -905,11 +905,11 @@ describe("judge-tick", () => {
     expect(worktreeRemoveIndex).toBeGreaterThan(verifyIndex);
     expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
     expect(teardownSnapshots).toEqual([
-      { step: "kill-session", events: ["pr_opened", "merged"] },
-      { step: "fetch", events: ["pr_opened", "merged"] },
-      { step: "verify", events: ["pr_opened", "merged"] },
-      { step: "worktree-remove", events: ["pr_opened", "merged"] },
-      { step: "branch-delete", events: ["pr_opened", "merged"] },
+      { step: "kill-session", events: ["pr_opened", "merged", "combo_closed"] },
+      { step: "fetch", events: ["pr_opened", "merged", "combo_closed"] },
+      { step: "verify", events: ["pr_opened", "merged", "combo_closed"] },
+      { step: "worktree-remove", events: ["pr_opened", "merged", "combo_closed"] },
+      { step: "branch-delete", events: ["pr_opened", "merged", "combo_closed"] },
     ]);
     expect(calls.some((c) => c[0] === "git" && c.includes("push") && c.includes("--delete"))).toBe(false);
 

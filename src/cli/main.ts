@@ -319,8 +319,12 @@ function hasMergedEvent(events: ComboEvent[], sha: string): boolean {
   return events.some((event) => event.event === "merged" && event["sha"] === sha);
 }
 
-function requireGit(deps: Deps, args: string[], cwd: string, description: string): void {
-  const result = deps.git(args, cwd);
+function requireGit(deps: Deps, args: string[], cwd: string, description: string, retries = 0): void {
+  let result = deps.git(args, cwd);
+  for (let attempt = 0; attempt < retries && result.status !== 0; attempt += 1) {
+    spawnSync("sleep", [String((attempt + 1) * 2)]);
+    result = deps.git(args, cwd);
+  }
   if (result.status !== 0) {
     throw new Error(`${description} failed: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
   }
@@ -341,25 +345,29 @@ function teardownMergedCombo(input: {
   }
 
   const baseRef = `origin/${input.baseRefName}`;
-  requireGit(input.deps, ["fetch", "origin", input.baseRefName], input.combo.repoDir, "git fetch base branch");
-  requireGit(
-    input.deps,
-    ["merge-base", "--is-ancestor", input.mergeSha, baseRef],
-    input.combo.repoDir,
-    `merge verification for ${input.mergeSha} in ${baseRef}`,
-  );
-  requireGit(
-    input.deps,
-    ["worktree", "remove", "--force", input.combo.worktree],
-    input.combo.repoDir,
-    `git worktree remove ${input.combo.worktree}`,
-  );
-  requireGit(
-    input.deps,
-    ["branch", "-D", input.combo.branch],
-    input.combo.repoDir,
-    `git branch delete ${input.combo.branch}`,
-  );
+  try {
+    requireGit(input.deps, ["fetch", "origin", input.baseRefName], input.combo.repoDir, "git fetch base branch", 2);
+    requireGit(
+      input.deps,
+      ["merge-base", "--is-ancestor", input.mergeSha, baseRef],
+      input.combo.repoDir,
+      `merge verification for ${input.mergeSha} in ${baseRef}`,
+    );
+    requireGit(
+      input.deps,
+      ["worktree", "remove", "--force", input.combo.worktree],
+      input.combo.repoDir,
+      `git worktree remove ${input.combo.worktree}`,
+    );
+    requireGit(
+      input.deps,
+      ["branch", "-D", input.combo.branch],
+      input.combo.repoDir,
+      `git branch delete ${input.combo.branch}`,
+    );
+  } catch {
+    // combo_closed is already journaled; cleanup failures are recoverable
+  }
 }
 
 function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string): void {
@@ -720,14 +728,16 @@ export function createProgram(deps: Deps): Command {
         if (!hasMergedEvent(events, mergeSha)) {
           appendEvent(runDir, "merged", { sha: mergeSha, by });
         }
-        deps.out(`gordon: merged ${mergeSha} by ${by}`);
-        teardownMergedCombo({ deps, combo, mergeSha, baseRefName });
         appendEvent(runDir, "combo_closed", {});
+        teardownMergedCombo({ deps, combo, mergeSha, baseRefName });
+        deps.out(`gordon: merged ${mergeSha} by ${by}`);
         return;
       }
 
       if (prView.state === "CLOSED") {
         appendEvent(runDir, "needs_human", { reason: "pr_closed" });
+        appendEvent(runDir, "combo_closed", {});
+        deps.out(`gordon: closed`);
         const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
         if (killed.status !== 0) {
           throw new Error(
@@ -735,8 +745,6 @@ export function createProgram(deps: Deps): Command {
               `${killed.stderr.trim() || "unknown error"}`,
           );
         }
-        appendEvent(runDir, "combo_closed", {});
-        deps.out(`gordon: closed`);
         return;
       }
 
