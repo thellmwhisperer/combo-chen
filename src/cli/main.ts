@@ -57,6 +57,7 @@ export interface Deps {
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
 }
 
@@ -73,6 +74,7 @@ export function defaultDeps(): Deps {
       const result = spawnSync("gh", args, { encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     issueExists: (issueUrl) => {
       const result = spawnSync("gh", ["issue", "view", issueUrl, "--json", "number"], {
         encoding: "utf8",
@@ -256,6 +258,8 @@ interface PrView {
   headSha: string;
   state: string;
   mergedBy?: string;
+  baseRefName?: string;
+  mergeSha?: string;
 }
 
 function parsePrView(stdout: string): PrView {
@@ -274,10 +278,23 @@ function parsePrView(stdout: string): PrView {
   ) {
     const state = (parsed as { state?: unknown }).state;
     const mergedBy = (parsed as { mergedBy?: unknown }).mergedBy;
+    const baseRefName = (parsed as { baseRefName?: unknown }).baseRefName;
+    const mergeCommit = (parsed as { mergeCommit?: unknown }).mergeCommit;
     const view: PrView = {
       headSha: (parsed as { headRefOid: string }).headRefOid,
       state: typeof state === "string" && state.length > 0 ? state : "OPEN",
     };
+    if (typeof baseRefName === "string" && baseRefName.length > 0) {
+      view.baseRefName = baseRefName;
+    }
+    if (
+      typeof mergeCommit === "object" &&
+      mergeCommit !== null &&
+      typeof (mergeCommit as { oid?: unknown }).oid === "string" &&
+      (mergeCommit as { oid: string }).oid.length > 0
+    ) {
+      view.mergeSha = (mergeCommit as { oid: string }).oid;
+    }
     if (
       typeof mergedBy === "object" &&
       mergedBy !== null &&
@@ -295,16 +312,78 @@ function parsePrView(stdout: string): PrView {
 function terminalJudgeEvent(events: ComboEvent[]): ComboEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
-    if (event.event === "merged" || event.event === "combo_closed") return event;
+    if (event.event === "combo_closed") return event;
   }
   return undefined;
 }
 
-function stopGordonWindow(deps: Deps, combo: ComboRecord): void {
-  const killed = deps.tmux(killWindowArgs(combo.tmuxSession, "gordon"));
+function hasMergedEvent(events: ComboEvent[], shas: string[]): boolean {
+  const accepted = new Set(shas);
+  return events.some((event) => event.event === "merged" && accepted.has(String(event["sha"])));
+}
+
+async function requireGit(
+  deps: Deps,
+  args: string[],
+  cwd: string,
+  description: string,
+  options: { retries: number; backoffSeconds: number },
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    const result = deps.git(args, cwd);
+    if (result.status === 0) return;
+    if (attempt >= options.retries) {
+      throw new Error(`${description} failed: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
+    }
+    await deps.sleep(options.backoffSeconds * 1000 * (attempt + 1));
+  }
+}
+
+async function teardownMergedCombo(input: {
+  deps: Deps;
+  combo: ComboRecord;
+  mergeSha: string;
+  baseRefName: string;
+  retries: number;
+  backoffSeconds: number;
+}): Promise<void> {
+  const retryOptions = { retries: input.retries, backoffSeconds: input.backoffSeconds };
+  const baseRef = `origin/${input.baseRefName}`;
+  await requireGit(
+    input.deps,
+    ["fetch", "origin", input.baseRefName],
+    input.combo.repoDir,
+    "git fetch base branch",
+    retryOptions,
+  );
+  await requireGit(
+    input.deps,
+    ["merge-base", "--is-ancestor", input.mergeSha, baseRef],
+    input.combo.repoDir,
+    `merge verification for ${input.mergeSha} in ${baseRef}`,
+    retryOptions,
+  );
+  await requireGit(
+    input.deps,
+    ["worktree", "remove", "--force", input.combo.worktree],
+    input.combo.repoDir,
+    `git worktree remove ${input.combo.worktree}`,
+    retryOptions,
+  );
+  await requireGit(
+    input.deps,
+    ["branch", "-D", input.combo.branch],
+    input.combo.repoDir,
+    `git branch delete ${input.combo.branch}`,
+    retryOptions,
+  );
+}
+
+function killComboSession(deps: Deps, combo: ComboRecord): void {
+  const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
   if (killed.status !== 0) {
     throw new Error(
-      `tmux failed to stop gordon judge in "${combo.tmuxSession}": ` +
+      `tmux kill-session failed for "${combo.tmuxSession}": ` +
         `${killed.stderr.trim() || "unknown error"}`,
     );
   }
@@ -638,7 +717,7 @@ export function createProgram(deps: Deps): Command {
         return;
       }
 
-      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy"]);
+      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy,baseRefName,mergeCommit"]);
       if (pr.status !== 0) {
         deps.out(`gordon: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
         return;
@@ -657,24 +736,45 @@ export function createProgram(deps: Deps): Command {
 
       if (prView.state === "MERGED") {
         const by = prView.mergedBy ?? "unknown";
-        appendEvent(runDir, "merged", { sha: headSha, by });
-        deps.out(`gordon: merged ${headSha} by ${by}`);
-        try {
-          stopGordonWindow(deps, combo);
-        } catch {
-          // window already dead — event is already journaled
+        const mergeSha = prView.mergeSha;
+        if (!mergeSha) {
+          throw new Error(`Cannot tear down ${combo.id}: merged PR did not report mergeCommit.oid`);
         }
+        const baseRefName = prView.baseRefName;
+        if (!baseRefName) {
+          throw new Error(`Cannot tear down ${combo.id}: merged PR did not report baseRefName`);
+        }
+        if (!hasMergedEvent(events, [mergeSha, headSha])) {
+          appendEvent(runDir, "merged", { sha: mergeSha, by });
+        }
+        const config = loadConfig({ repoDir: combo.repoDir });
+        try {
+          await teardownMergedCombo({
+            deps,
+            combo,
+            mergeSha,
+            baseRefName,
+            retries: config.limits.teardownGitRetries,
+            backoffSeconds: config.limits.teardownGitBackoffSeconds,
+          });
+        } catch (error) {
+          deps.out(
+            `gordon: teardown pending for ${combo.id}: ` +
+              `${error instanceof Error ? error.message : String(error)}`,
+          );
+          return;
+        }
+        appendEvent(runDir, "combo_closed", {});
+        deps.out(`gordon: merged ${mergeSha} by ${by}`);
+        killComboSession(deps, combo);
         return;
       }
 
       if (prView.state === "CLOSED") {
+        appendEvent(runDir, "needs_human", { reason: "pr_closed" });
         appendEvent(runDir, "combo_closed", {});
         deps.out(`gordon: closed`);
-        try {
-          stopGordonWindow(deps, combo);
-        } catch {
-          // window already dead — event is already journaled
-        }
+        killComboSession(deps, combo);
         return;
       }
 
