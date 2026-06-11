@@ -330,6 +330,22 @@ function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string)
   }
 }
 
+function buildHodorAttachCommand(combo: ComboRecord): string {
+  // The no-mistakes run id does not exist until the runner reaches hodor.
+  // Without --run, attach follows the active run for this worktree.
+  return `cd ${shellQuote(combo.worktree)} && while ! no-mistakes attach; do sleep 10; done`;
+}
+
+function startHodorWindow(deps: Deps, combo: ComboRecord): void {
+  const created = deps.tmux(newWindowArgs(combo.tmuxSession, "hodor", buildHodorAttachCommand(combo)));
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to start hodor watcher in "${combo.tmuxSession}": ` +
+        `${created.stderr.trim() || "unknown error"}`,
+    );
+  }
+}
+
 function resolveAttachCombo(
   deps: Deps,
   home: string,
@@ -489,6 +505,7 @@ export function createProgram(deps: Deps): Command {
       }
       try {
         ensureJournalPane(deps, combo);
+        startHodorWindow(deps, combo);
       } catch (error) {
         const killed = deps.tmux(killSessionArgs(session));
         if (killed.status !== 0) {

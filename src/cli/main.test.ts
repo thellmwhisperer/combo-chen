@@ -525,6 +525,17 @@ describe("run", () => {
     const tmuxNewSession = calls.find((c) => c[0] === "tmux" && c[1] === "new-session");
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
     const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
+    const hodorWindow = tmuxNewWindows.find((call) => call.includes("hodor"));
+    expect(hodorWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "hodor",
+      expect.stringContaining("no-mistakes attach"),
+    ]);
+    expect(hodorWindow?.at(-1)).toContain(join(repoDir, ".worktrees", "issue-7"));
     expect(tmuxNewWindows.some((call) => call.includes("watch"))).toBe(false);
     expect(calls).toContainEqual([
       "tmux",
