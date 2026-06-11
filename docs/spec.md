@@ -10,7 +10,7 @@ schema, and the config schema must conform to it, not the other way around.
 |---|---|---|---|
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **rower** | the one who rows: implements the issue (phase 1); resumed, addresses review comments (phase 3) | merge, deploy | codex via gnhf |
-| **hodor** | holds the door: no-mistakes pipeline review→test→docs→lint→push→PR; then ci-step: watch CI, auto-fix failures/conflicts | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
+| **hodor** | holds the door: no-mistakes pipeline review→test→docs→lint→push→PR; then ci-step: watch CI, auto-fix failures/conflicts. The hodor command supports {issue_url}, {issue_title}, {issue_body}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
 | **gordon** | the judge: reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own cooking | claude (+ coderabbit as ambient reviewer) |
 | **merge** | the decision slot | — | human (hard default) |
 

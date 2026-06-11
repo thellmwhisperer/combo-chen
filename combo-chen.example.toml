@@ -35,6 +35,11 @@ resume_command = 'codex resume {thread_id}'
 # The default command pushes to the no-mistakes remote (if one exists)
 # before running the gate, so no-mistakes can associate the branch.
 # Override this to use a custom hodor pipeline.
+# {placeholders}: issue_url, issue_title, issue_body, branch. Each value
+# is substituted as a single-quoted shell token; don't add quotes around
+# them. Unknown placeholders cause run to fail with a config error.
+# Example with placeholders:
+# command = "no-mistakes axi run --yes --url {issue_url} --title {issue_title} --branch {branch}"
 command = "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run; else no-mistakes axi run; fi"
 # The hodor tmux window retries until no-mistakes has an active run to attach.
 # Environment overrides: COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS,
