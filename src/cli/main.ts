@@ -28,6 +28,7 @@ import {
 import { loadConfig } from "../infra/config.js";
 import {
   hasSessionArgs,
+  killWindowArgs,
   killSessionArgs,
   killWindowArgs,
   newSessionArgs,
@@ -140,7 +141,13 @@ function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
   return sha;
 }
 
-function parsePrHeadSha(stdout: string): string {
+interface PrView {
+  headSha: string;
+  state: string;
+  mergedBy?: string;
+}
+
+function parsePrView(stdout: string): PrView {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
@@ -154,10 +161,42 @@ function parsePrHeadSha(stdout: string): string {
     typeof (parsed as { headRefOid?: unknown }).headRefOid === "string" &&
     (parsed as { headRefOid: string }).headRefOid.length > 0
   ) {
-    return (parsed as { headRefOid: string }).headRefOid;
+    const state = (parsed as { state?: unknown }).state;
+    const mergedBy = (parsed as { mergedBy?: unknown }).mergedBy;
+    const view: PrView = {
+      headSha: (parsed as { headRefOid: string }).headRefOid,
+      state: typeof state === "string" && state.length > 0 ? state : "OPEN",
+    };
+    if (
+      typeof mergedBy === "object" &&
+      mergedBy !== null &&
+      typeof (mergedBy as { login?: unknown }).login === "string" &&
+      (mergedBy as { login: string }).login.length > 0
+    ) {
+      view.mergedBy = (mergedBy as { login: string }).login;
+    }
+    return view;
   }
 
   throw new Error("gh pr view did not return headRefOid");
+}
+
+function terminalJudgeEvent(events: ComboEvent[]): ComboEvent | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "merged" || event.event === "combo_closed") return event;
+  }
+  return undefined;
+}
+
+function stopGordonWindow(deps: Deps, combo: ComboRecord): void {
+  const killed = deps.tmux(killWindowArgs(combo.tmuxSession, "gordon"));
+  if (killed.status !== 0) {
+    throw new Error(
+      `tmux failed to stop gordon judge in "${combo.tmuxSession}": ` +
+        `${killed.stderr.trim() || "unknown error"}`,
+    );
+  }
 }
 
 export function createProgram(deps: Deps): Command {
@@ -310,13 +349,36 @@ export function createProgram(deps: Deps): Command {
         throw new Error(`Cannot tick judge for ${combo.id}: no pr_opened event in the journal`);
       }
 
-      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid"]);
+      const events = readEvents(runDir);
+      const terminalEvent = terminalJudgeEvent(events);
+      if (terminalEvent) {
+        deps.out(`gordon: already terminal at ${terminalEvent.event}`);
+        return;
+      }
+
+      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy"]);
       if (pr.status !== 0) {
         throw new Error(`gh pr view failed for ${prUrl}: ${pr.stderr.trim() || "unknown error"}`);
       }
 
-      const headSha = parsePrHeadSha(pr.stdout);
-      const events = readEvents(runDir);
+      const prView = parsePrView(pr.stdout);
+      const headSha = prView.headSha;
+
+      if (prView.state === "MERGED") {
+        stopGordonWindow(deps, combo);
+        const by = prView.mergedBy ?? "unknown";
+        appendEvent(runDir, "merged", { sha: headSha, by });
+        deps.out(`gordon: merged ${headSha} by ${by}; stopped ${combo.tmuxSession}:gordon`);
+        return;
+      }
+
+      if (prView.state === "CLOSED") {
+        stopGordonWindow(deps, combo);
+        appendEvent(runDir, "combo_closed", {});
+        deps.out(`gordon: closed; stopped ${combo.tmuxSession}:gordon`);
+        return;
+      }
+
       const pinnedSha = livePinnedLgtmSha(events);
       if (!pinnedSha) {
         deps.out(`gordon: no pinned lgtm for ${combo.id}`);

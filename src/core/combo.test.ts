@@ -51,6 +51,21 @@ describe("deriveStatus", () => {
     expect(status.phase).toBe("STOPPED");
     expect(status.needsHuman).toBe(false);
   });
+
+  it("treats merged and closed PR events as terminal", () => {
+    for (const terminal of [
+      ev("merged", { sha: "def456", by: "javi" }),
+      ev("combo_closed"),
+    ]) {
+      const status = deriveStatus([
+        ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+        ev("needs_human", { reason: "pr_ready" }),
+        terminal,
+      ]);
+      expect(status.phase).toBe("STOPPED");
+      expect(status.needsHuman).toBe(false);
+    }
+  });
 });
 
 describe("buildRunnerScript", () => {

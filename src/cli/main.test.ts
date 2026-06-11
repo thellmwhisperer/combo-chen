@@ -469,6 +469,87 @@ describe("activate-judge", () => {
 });
 
 describe("judge-tick", () => {
+  it("journals a merged PR and stops the gordon window", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: '{"headRefOid":"def456","state":"MERGED","mergedBy":{"login":"javi"}}',
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    const merged = readEvents(dir).at(-1);
+    expect(merged).toMatchObject({
+      event: "merged",
+      sha: "def456",
+      by: "javi",
+    });
+
+    const killWindow = calls.find((c) => c[0] === "tmux" && c[1] === "kill-window");
+    expect(killWindow).toEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:gordon"]);
+
+    const prView = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
+    expect(prView).toContain("--json");
+    expect(prView).toContain("headRefOid,state,mergedBy");
+    expect(out.join("\n")).toContain("merged def456 by javi");
+  });
+
+  it("journals a closed PR and stops the gordon window", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: '{"headRefOid":"def456","state":"CLOSED","mergedBy":null}',
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).at(-1)).toMatchObject({ event: "combo_closed" });
+
+    const killWindow = calls.find((c) => c[0] === "tmux" && c[1] === "kill-window");
+    expect(killWindow).toEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:gordon"]);
+    expect(out.join("\n")).toContain("closed");
+  });
+
   it("stales a pinned LGTM on a new PR head and starts an incremental re-review", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

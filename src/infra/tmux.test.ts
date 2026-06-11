@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   captureWindowArgs,
   hasSessionArgs,
+  killWindowArgs,
   killSessionArgs,
   killWindowArgs,
   newSessionArgs,
@@ -39,6 +40,7 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     expect(hasSessionArgs("s")).toEqual(["has-session", "-t", "s"]);
     expect(killSessionArgs("s")).toEqual(["kill-session", "-t", "s"]);
     expect(killWindowArgs("s", "thread-sitter")).toEqual(["kill-window", "-t", "s:thread-sitter"]);
+    expect(killWindowArgs("s", "gordon")).toEqual(["kill-window", "-t", "s:gordon"]);
     expect(captureWindowArgs("s", "rower")).toEqual(["capture-pane", "-p", "-t", "s:rower"]);
     expect(renameWindowArgs("s", "rower", "rower:RUNNING")).toEqual([
       "rename-window",
