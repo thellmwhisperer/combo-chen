@@ -134,27 +134,23 @@ ${emit} hodor_started
 hodor_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
 ${emit} hodor_status --field state=fix_inflight --field head_sha="$hodor_start_sha"
 
-if (
+hodor_code=0
+(
   ${hodorCommand}
-) > "$hodor_log" 2>&1; then
-  if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
-    hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-    ${emit} hodor_status --field state=awaiting_approval --field head_sha="$hodor_head_sha"
-    ${emit} needs_human --field reason=gate_waiting
-    exit 0
-  fi
-else
-  code=$?
-  if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
-    hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-    ${emit} hodor_status --field state=awaiting_approval --field head_sha="$hodor_head_sha"
-    ${emit} needs_human --field reason=gate_waiting
-    exit 0
-  fi
+) > "$hodor_log" 2>&1 || hodor_code=$?
+
+if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
+  hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  ${emit} hodor_status --field state=awaiting_approval --field head_sha="$hodor_head_sha"
+  ${emit} needs_human --field reason=gate_waiting
+  exit 0
+fi
+
+if [ "$hodor_code" -ne 0 ]; then
   hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
   ${emit} hodor_status --field state=failed --field head_sha="$hodor_head_sha"
-  ${emit} hodor_failed --field exit_code=$code
-  exit $code
+  ${emit} hodor_failed --field exit_code=$hodor_code
+  exit $hodor_code
 fi
 
 hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
