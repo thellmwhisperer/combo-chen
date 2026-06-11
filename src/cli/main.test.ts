@@ -121,6 +121,49 @@ describe("activate-thread-sitter", () => {
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "gh")).toBe(false);
   });
+
+  it("kills the sitter window when the watcher window fails to start", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeFileSync(
+      join(dir, ROWER_THREAD_ARTIFACT),
+      `${JSON.stringify({
+        agent: "codex",
+        thread_id: CODEX_THREAD_ID,
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      })}\n`,
+    );
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "new-window" && args.includes("sitter-watch")) {
+          return { status: 1, stdout: "", stderr: "duplicate window" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["activate-thread-sitter", "-n", "o-r-7"])).rejects.toThrow(
+      /tmux failed to start sitter-watch: duplicate window/,
+    );
+
+    expect(calls).toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:sitter"]);
+  });
 });
 
 describe("nudge-review-comments", () => {

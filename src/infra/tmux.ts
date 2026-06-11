@@ -22,6 +22,10 @@ export function killSessionArgs(session: string): string[] {
   return ["kill-session", "-t", session];
 }
 
+export function killWindowArgs(session: string, windowName: string): string[] {
+  return ["kill-window", "-t", `${session}:${windowName}`];
+}
+
 export function captureWindowArgs(session: string, windowName: string): string[] {
   return ["capture-pane", "-p", "-t", `${session}:${windowName}`];
 }

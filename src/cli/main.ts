@@ -29,6 +29,7 @@ import { loadConfig } from "../infra/config.js";
 import {
   hasSessionArgs,
   killSessionArgs,
+  killWindowArgs,
   newSessionArgs,
   newWindowArgs,
   tmux as realTmux,
@@ -325,6 +326,11 @@ export function createProgram(deps: Deps): Command {
         ),
       );
       if (watcher.status !== 0) {
+        try {
+          deps.tmux(killWindowArgs(combo.tmuxSession, config.threadSitterWindowName));
+        } catch {
+          // Preserve the watcher startup failure; cleanup errors are secondary.
+        }
         throw new Error(
           `tmux failed to start ${config.threadSitterWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
         );

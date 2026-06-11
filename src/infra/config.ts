@@ -59,7 +59,7 @@ const DEFAULTS = {
       command: "npx -y gnhf --agent codex --current-branch {prompt}",
       resume_command: "codex resume {thread_id}",
     },
-  } as Record<string, { command?: string; resume_command?: string }>,
+  } as Record<string, { command?: unknown; resume_command?: unknown }>,
   hodor: {
     command: "no-mistakes axi run",
   },
@@ -131,6 +131,13 @@ function pickNumber(table: TomlTable, key: string, fallback: number): number {
   return parsed;
 }
 
+function pickNonEmptyString(value: unknown, description: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ComboConfigError(`${description} must be a non-empty string`);
+  }
+  return value;
+}
+
 export function loadConfig(options: LoadOptions): ComboConfig {
   const userPath = options.userConfigPath ?? defaultUserConfigPath();
   const repoPath = join(options.repoDir, "combo-chen.toml");
@@ -145,7 +152,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     gordon: [...DEFAULTS.roles.gordon],
   };
   let limitsTable: TomlTable = { ...DEFAULTS.limits };
-  let rowerTemplates: Record<string, { command?: string; resume_command?: string }> = {
+  let rowerTemplates: Record<string, { command?: unknown; resume_command?: unknown }> = {
     ...DEFAULTS.rower,
   };
   let hodorCommand = DEFAULTS.hodor.command;
@@ -191,18 +198,14 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     );
   }
 
-  const rowerCommand = rowerTemplates[roles.rower]?.command;
-  if (!rowerCommand) {
-    throw new ComboConfigError(
-      `No command template for rower "${roles.rower}". Add [rower."${roles.rower}"] command = "..." to your config.`,
-    );
-  }
-  const rowerResumeCommand = rowerTemplates[roles.rower]?.resume_command;
-  if (!rowerResumeCommand) {
-    throw new ComboConfigError(
-      `No resume command template for rower "${roles.rower}". Add [rower."${roles.rower}"] resume_command = "..." to your config.`,
-    );
-  }
+  const rowerCommand = pickNonEmptyString(
+    rowerTemplates[roles.rower]?.command,
+    `command template for rower "${roles.rower}"`,
+  );
+  const rowerResumeCommand = pickNonEmptyString(
+    rowerTemplates[roles.rower]?.resume_command,
+    `resume command template for rower "${roles.rower}"`,
+  );
 
   return {
     roles,
