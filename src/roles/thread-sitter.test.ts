@@ -27,25 +27,53 @@ const comment: ReviewCommentSignal = {
 };
 
 describe("buildReviewNudgePrompt", () => {
-  it("includes the comment URL and the sitter's two-bucket contract", () => {
-    const prompt = buildReviewNudgePrompt(comment);
+  const promptTemplate = [
+    "New review comment for the thread-sitter:",
+    "{url}",
+    "",
+    "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
+    "Before pushing, check the hodor push semaphore.",
+  ].join("\n");
 
-    expect(prompt).toContain(comment.url);
+  it("renders the configured prompt template with the comment URL and two-bucket contract", () => {
+    const prompt = buildReviewNudgePrompt(comment, promptTemplate);
+
+    expect(prompt).toContain(`'${comment.url}'`);
     expect(prompt).toContain("mechanical");
     expect(prompt).toContain("intent-touching");
     expect(prompt).toContain("needs_human");
   });
+
+  it("lets config replace the whole nudge prompt while still rendering placeholders", () => {
+    expect(buildReviewNudgePrompt(comment, "Handle {kind} at {url} from {author}")).toBe(
+      "Handle 'review_comment' at 'https://github.com/o/r/pull/7#discussion_r1' from 'coderabbitai'",
+    );
+  });
 });
 
 describe("thread-sitter activation commands", () => {
-  it("resumes the implementing Codex thread from the persisted rower artifact", () => {
+  it("resumes the implementing thread with the configured command template", () => {
     expect(
-      buildThreadSitterResumeCommand({
-        agent: "codex",
-        thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
-        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
-      }),
+      buildThreadSitterResumeCommand(
+        {
+          agent: "codex",
+          thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
+          source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+        },
+        "codex resume {thread_id}",
+      ),
     ).toBe("codex resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
+
+    expect(
+      buildThreadSitterResumeCommand(
+        {
+          agent: "codex",
+          thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
+          source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+        },
+        "hermes --resume {thread_id}",
+      ),
+    ).toBe("hermes --resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
   });
 
   it("builds a small polling watcher around the read-only nudge helper", () => {
@@ -65,6 +93,7 @@ describe("routeReviewComments", () => {
   it("sends exactly one nudge for a new comment and stays idempotent on re-read", () => {
     const dir = runDir();
     const tmuxCalls: string[][] = [];
+    const reviewNudgePrompt = "Review {url}";
     const tmux = (args: string[]) => {
       tmuxCalls.push(args);
       return { status: 0, stdout: "", stderr: "" };
@@ -75,6 +104,7 @@ describe("routeReviewComments", () => {
         runDir: dir,
         tmuxSession: "combo-chen-o-r-7",
         comments: [comment],
+        reviewNudgePrompt,
         tmux,
       }),
     ).toEqual([comment]);
@@ -83,6 +113,7 @@ describe("routeReviewComments", () => {
         runDir: dir,
         tmuxSession: "combo-chen-o-r-7",
         comments: [comment],
+        reviewNudgePrompt,
         tmux,
       }),
     ).toEqual([]);
@@ -93,7 +124,7 @@ describe("routeReviewComments", () => {
       "-l",
       "-t",
       "combo-chen-o-r-7:thread-sitter",
-      buildReviewNudgePrompt(comment),
+      buildReviewNudgePrompt(comment, reviewNudgePrompt),
     ]);
     expect(tmuxCalls[1]).toEqual([
       "send-keys",
@@ -160,8 +191,13 @@ describe("readGhArray", () => {
     expect(() => readGhArray(gh, "repos/x")).toThrow("invalid JSON");
   });
 
-  it("throws when gh returns non-array JSON", () => {
+  it("accepts an object page by wrapping it into the aggregate result", () => {
     const gh = () => ({ status: 0, stdout: '{"x":1}', stderr: "" });
+    expect(readGhArray(gh, "repos/x")).toEqual([{ x: 1 }]);
+  });
+
+  it("throws when gh returns scalar JSON", () => {
+    const gh = () => ({ status: 0, stdout: "7", stderr: "" });
     expect(() => readGhArray(gh, "repos/x")).toThrow("non-array");
   });
 
@@ -173,6 +209,20 @@ describe("readGhArray", () => {
     };
     readGhArray(gh, "repos/o/r/pulls/1/comments");
     expect(calls[0]).toEqual(["api", "--paginate", "repos/o/r/pulls/1/comments"]);
+  });
+
+  it("aggregates multiple JSON payloads emitted by gh api --paginate", () => {
+    const gh = () => ({
+      status: 0,
+      stdout: '[{"a":1}]\n[{"b":2}]\n{"c":3}\n',
+      stderr: "",
+    });
+
+    expect(readGhArray(gh, "repos/o/r/pulls/1/comments")).toEqual([
+      { a: 1 },
+      { b: 2 },
+      { c: 3 },
+    ]);
   });
 });
 

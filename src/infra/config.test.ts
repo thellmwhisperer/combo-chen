@@ -28,6 +28,9 @@ describe("loadConfig", () => {
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
+    expect(config.rowerResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.reviewNudgePrompt).toContain("{url}");
+    expect(config.reviewNudgePrompt).toContain("two-bucket contract");
   });
 
   it("lets the user config override defaults", () => {
@@ -35,13 +38,15 @@ describe("loadConfig", () => {
     const userConfig = writeToml(
       userDir,
       "config.toml",
-      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\n',
+      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n\n[thread_sitter]\nreview_nudge_prompt = "Please inspect {url}"\n',
     );
 
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
 
     expect(config.roles.rower).toBe("hermes:deepseek");
     expect(config.rowerCommand).toBe('hermes -z "{prompt}"');
+    expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
   });
 
   it("repo config wins over user config (repo owns policy)", () => {
@@ -90,6 +95,17 @@ describe("loadConfig", () => {
     writeToml(repoDir, "combo-chen.toml", '[roles]\nrower = "my-exotic-agent"\n');
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/my-exotic-agent/);
+  });
+
+  it("requires a resume command template for a custom rower", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[roles]\nrower = "my-exotic-agent"\n\n[rower."my-exotic-agent"]\ncommand = "agent run {prompt}"\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume/i);
   });
 });
 

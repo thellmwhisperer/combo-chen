@@ -50,6 +50,7 @@ export function buildRowerInvocation(input: RowerInput): string {
 }
 
 export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undefined {
+  let latestThreadId: string | undefined;
   for (const line of readFileSync(jsonlPath, "utf8").split(/\r?\n/)) {
     if (line.trim() === "") continue;
     let event: unknown;
@@ -67,10 +68,10 @@ export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undef
       typeof event.thread_id === "string" &&
       event.thread_id.trim() !== ""
     ) {
-      return event.thread_id;
+      latestThreadId = event.thread_id;
     }
   }
-  return undefined;
+  return latestThreadId;
 }
 
 export function persistRowerThreadArtifact(input: {

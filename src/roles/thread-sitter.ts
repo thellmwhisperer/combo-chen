@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { shellQuote } from "../core/combo.js";
 import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
+import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { ROWER_THREAD_ARTIFACT, type RowerThreadArtifact } from "./rower.js";
 
@@ -27,14 +28,15 @@ interface PullRef {
   number: number;
 }
 
-export function buildReviewNudgePrompt(comment: ReviewCommentSignal): string {
-  return [
-    "New review comment for the thread-sitter:",
-    comment.url,
-    "",
-    "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-    "Before pushing, check the hodor push semaphore.",
-  ].join("\n");
+export function buildReviewNudgePrompt(
+  comment: ReviewCommentSignal,
+  template: string,
+): string {
+  return renderCommand(template, {
+    author: comment.author,
+    kind: comment.kind,
+    url: comment.url,
+  });
 }
 
 export function readRowerThreadArtifact(runDir: string): RowerThreadArtifact {
@@ -62,8 +64,11 @@ export function readRowerThreadArtifact(runDir: string): RowerThreadArtifact {
   };
 }
 
-export function buildThreadSitterResumeCommand(artifact: RowerThreadArtifact): string {
-  return `codex resume ${shellQuote(artifact.thread_id)}`;
+export function buildThreadSitterResumeCommand(
+  artifact: RowerThreadArtifact,
+  resumeCommand: string,
+): string {
+  return renderCommand(resumeCommand, { thread_id: artifact.thread_id });
 }
 
 export function buildReviewWatchCommand(input: {
@@ -78,6 +83,7 @@ export function routeReviewComments(input: {
   runDir: string;
   tmuxSession: string;
   comments: ReviewCommentSignal[];
+  reviewNudgePrompt: string;
   tmux: (args: string[]) => TmuxResult;
   windowName?: string;
 }): ReviewCommentSignal[] {
@@ -87,7 +93,7 @@ export function routeReviewComments(input: {
 
   for (const comment of input.comments) {
     if (seen.has(comment.url)) continue;
-    const prompt = buildReviewNudgePrompt(comment);
+    const prompt = buildReviewNudgePrompt(comment, input.reviewNudgePrompt);
     for (const args of nudgeWindowArgs(input.tmuxSession, windowName, prompt)) {
       const result = input.tmux(args);
       if (result.status !== 0) {
@@ -169,17 +175,30 @@ export function readGhArray(gh: (args: string[]) => TmuxResult, endpoint: string
   if (result.status !== 0) {
     throw new Error(`gh api failed for ${endpoint}: ${result.stderr.trim() || "unknown error"}`);
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`gh api returned invalid JSON for ${endpoint}: ${message}`);
+  const chunks = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+  if (chunks.length === 0) return [];
+
+  const values: unknown[] = [];
+  for (const chunk of chunks) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(chunk);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`gh api returned invalid JSON for ${endpoint}: ${message}`);
+    }
+    if (Array.isArray(parsed)) {
+      values.push(...parsed);
+    } else if (isRecord(parsed)) {
+      values.push(parsed);
+    } else {
+      throw new Error(`gh api returned non-array JSON for ${endpoint}`);
+    }
   }
-  if (!Array.isArray(parsed)) {
-    throw new Error(`gh api returned non-array JSON for ${endpoint}`);
-  }
-  return parsed;
+  return values;
 }
 
 export function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | undefined {

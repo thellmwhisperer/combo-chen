@@ -112,6 +112,20 @@ describe("extractCodexThreadIdFromJsonl", () => {
     );
     expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("abc-123");
   });
+
+  it("returns the most recent thread.started thread_id", () => {
+    const dir = tempDir("rower-extract-");
+    const jsonlPath = join(dir, "multiple.jsonl");
+    writeFileSync(
+      jsonlPath,
+      [
+        JSON.stringify({ type: "thread.started", thread_id: "old-thread" }),
+        JSON.stringify({ type: "other", thread_id: "ignored-thread" }),
+        JSON.stringify({ type: "thread.started", thread_id: "new-thread" }),
+      ].join("\n"),
+    );
+    expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("new-thread");
+  });
 });
 
 describe("rower thread artifact", () => {
