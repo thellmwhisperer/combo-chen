@@ -100,6 +100,7 @@ export function buildRunnerScript(input: RunnerInput): string {
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
 rower_log="$(dirname "$0")/rower.log"
+hodor_log="$(dirname "$0")/hodor.log"
 
 cd ${shellQuote(combo.worktree)}
 rower_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
@@ -131,10 +132,19 @@ fi
 
 ${emit} hodor_started
 
-if ${hodorCommand}; then
-  :
+if (
+  ${hodorCommand}
+) > "$hodor_log" 2>&1; then
+  if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
+    ${emit} needs_human --field reason=gate_waiting
+    exit 0
+  fi
 else
   code=$?
+  if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
+    ${emit} needs_human --field reason=gate_waiting
+    exit 0
+  fi
   ${emit} hodor_failed --field exit_code=$code
   exit $code
 fi
