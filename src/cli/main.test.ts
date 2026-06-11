@@ -479,7 +479,10 @@ describe("run", () => {
     expect(existsSync(join(runDir, "combo.json"))).toBe(true);
     const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
     expect(runner).toContain("gnhf");
-    expect(runner).toContain("no-mistakes axi run");
+    const gatePush = runner.indexOf("git push no-mistakes HEAD");
+    const axiRun = runner.indexOf("no-mistakes axi run");
+    expect(gatePush).toBeGreaterThan(-1);
+    expect(axiRun).toBeGreaterThan(gatePush);
     expect(runner).toContain("activate-judge -n o-r-7");
 
     const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
