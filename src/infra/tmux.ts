@@ -23,6 +23,7 @@ export function newWindowArgs(session: string, windowName: string, command: stri
 export function splitWindowArgs(session: string, windowName: string, command: string): string[] {
   return [
     "split-window",
+    "-d",
     "-v",
     "-l",
     String(JOURNAL_PANE_HEIGHT),
@@ -30,10 +31,6 @@ export function splitWindowArgs(session: string, windowName: string, command: st
     `${session}:${windowName}`,
     command,
   ];
-}
-
-export function selectPaneArgs(session: string, windowName: string, paneIndex: number): string[] {
-  return ["select-pane", "-t", `${session}:${windowName}.${paneIndex}`];
 }
 
 export function hasSessionArgs(session: string): string[] {

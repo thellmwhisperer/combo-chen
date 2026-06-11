@@ -13,7 +13,6 @@ import {
   newWindowArgs,
   nudgeWindowArgs,
   renameWindowArgs,
-  selectPaneArgs,
   splitWindowArgs,
 } from "./tmux.js";
 
@@ -41,21 +40,17 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     ]);
   });
 
-  it("splits a short journal pane below the rower window and refocuses the main pane", () => {
+  it("splits a detached short journal pane below the rower window", () => {
     expect(JOURNAL_PANE_HEIGHT).toBe(12);
     expect(splitWindowArgs("combo-chen-o-r-7", "rower", "combo-chen events --follow")).toEqual([
       "split-window",
+      "-d",
       "-v",
       "-l",
       "12",
       "-t",
       "combo-chen-o-r-7:rower",
       "combo-chen events --follow",
-    ]);
-    expect(selectPaneArgs("combo-chen-o-r-7", "rower", 0)).toEqual([
-      "select-pane",
-      "-t",
-      "combo-chen-o-r-7:rower.0",
     ]);
   });
 

@@ -35,7 +35,6 @@ import {
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
-  selectPaneArgs,
   splitWindowArgs,
   tmux as realTmux,
   type TmuxResult,
@@ -386,13 +385,6 @@ function ensureJournalPane(deps: Deps, combo: ComboRecord): void {
         `${split.stderr.trim() || "unknown error"}`,
     );
   }
-  const focused = deps.tmux(selectPaneArgs(combo.tmuxSession, "rower", 0));
-  if (focused.status !== 0) {
-    throw new Error(
-      `tmux failed to focus the rower pane in "${combo.tmuxSession}": ` +
-        `${focused.stderr.trim() || "unknown error"}`,
-    );
-  }
 }
 
 export function createProgram(deps: Deps): Command {
@@ -498,7 +490,12 @@ export function createProgram(deps: Deps): Command {
       try {
         ensureJournalPane(deps, combo);
       } catch (error) {
-        deps.tmux(killSessionArgs(session));
+        const killed = deps.tmux(killSessionArgs(session));
+        if (killed.status !== 0) {
+          throw new Error(
+            `tmux rollback failed for "${session}": ${killed.stderr.trim() || "unknown error"}`,
+          );
+        }
         rmSync(runDir, { recursive: true, force: true });
         deps.git(["worktree", "remove", "--force", worktree], options.repo);
         deps.git(["branch", "-D", branch], options.repo);
