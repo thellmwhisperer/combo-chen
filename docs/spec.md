@@ -101,9 +101,15 @@ successfully, awaiting PR detection).
 
 ## 6. Merge policy and the counterfactual log
 
-- Default: human merges. Always. When merged, the combo journals `merged`
-  (fields: `sha`, `by`). When the PR is closed without merge, the combo
-  journals `combo_closed` (no required fields).
+- Default: human merges. Always.
+  - **Merged:** The combo journals `merged` (fields: `sha`=merge commit oid,
+    `by`), then `combo_closed`. The judge then tears down local state
+    (tmux session, worktree, local branch), but leaves the remote branch
+    alone — the merge already landed.
+  - **Closed without merge:** The combo journals `needs_human` (fields:
+    `reason`=`"pr_closed"`), then `combo_closed`. The judge stops the tmux
+    session but does NOT remove the worktree or local branch — all local
+    work is preserved for human salvage.
 - Every run records the counterfactual: would this combo have automerged
   (PR type, hodor risk assessment, signals, timestamp)? After enough runs,
   per-risk-tier automerge can be enabled where the counterfactual matches
