@@ -204,6 +204,86 @@ exit 0
     );
   });
 
+  it("emits hodor_failed with the gate push exit code when the default pre-push fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const hodorLog = join(dir, "hodor.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "push" ]; then
+  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  exit 17
+fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+fi
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        rowerCommand: "true",
+        hodorCommand: "git push no-mistakes HEAD && no-mistakes axi run",
+        emit: shellQuote(fakeEmit),
+        activateThreadSitter: ":",
+        activateJudge: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        HODOR_LOG: hodorLog,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 17,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "rower_started",
+      "rower_done",
+      "hodor_started",
+      "hodor_failed --field exit_code=17",
+    ]);
+    expect(readFileSync(hodorLog, "utf8")).toBe("git push no-mistakes HEAD\n");
+  });
+
   it("emits rower_failed with branch-vs-base commit evidence when a rower commits then exits nonzero", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
