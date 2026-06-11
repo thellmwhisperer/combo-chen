@@ -198,6 +198,8 @@ exit 0
       "rower_started",
       "rower_done",
       "hodor_started",
+      "hodor_status --field state=fix_inflight --field head_sha=",
+      "hodor_status --field state=idle --field head_sha=",
       "needs_human --field reason=pr_missing",
     ]);
     expect(readFileSync(join(dir, "rower.log"), "utf8")).toBe(
@@ -286,6 +288,8 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       "rower_started",
       "rower_done",
       "hodor_started",
+      "hodor_status --field state=fix_inflight --field head_sha=fake-head",
+      "hodor_status --field state=failed --field head_sha=fake-head",
       "hodor_failed --field exit_code=17",
     ]);
     expect(readFileSync(hodorLog, "utf8")).toBe(
@@ -378,11 +382,121 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       "rower_started",
       "rower_done",
       "hodor_started",
+      "hodor_status --field state=fix_inflight --field head_sha=fake-head",
+      "hodor_status --field state=idle --field head_sha=fake-head",
       "needs_human --field reason=pr_missing",
     ]);
     expect(readFileSync(hodorLog, "utf8")).toBe(
       "git remote get-url no-mistakes\nno-mistakes axi run\n",
     );
+  });
+
+  it("emits gate_waiting when no-mistakes stops at an axi approval gate", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const headSha = "0123456789abcdef0123456789abcdef01234567";
+    const gateToon = `run:
+  id: "01KTVVPK0VM15NWE7NVF63F9YR"
+  branch: combo/issue-24
+  status: awaiting_approval
+  head: ${headSha}
+  pr: "https://github.com/thellmwhisperer/combo-chen/pull/24"
+  findings[1]{id,step,severity,title}:
+    ci-1,ci,ask-user,"CI monitoring timed out after 4h"
+  steps[4]{step,status,findings,duration_ms}:
+    review,completed,0,367445
+    test,completed,0,240398
+    push,completed,0,1976
+    ci,awaiting_approval,1,14400400
+outcome: awaiting_approval
+next_step: "no-mistakes axi respond --run 01KTVVPK0VM15NWE7NVF63F9YR --yes"
+`;
+
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "rev-parse" ]; then
+  printf '${headSha}\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+cat <<'TOON'
+${gateToon}TOON
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(
+      fakeGh,
+      `#!/bin/sh
+printf 'gh %s\\n' "$*" >> "$GH_LOG"
+printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
+`,
+    );
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree, branch: "combo/issue-24" },
+        rowerCommand: "true",
+        hodorCommand: `${shellQuote(fakeNoMistakes)} axi run --intent ${shellQuote("Implement issue 24")}`,
+        emit: shellQuote(fakeEmit),
+        activateThreadSitter: ":",
+        activateJudge: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        GH_LOG: join(dir, "gh.log"),
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "rower_started",
+      "rower_done",
+      "hodor_started",
+      `hodor_status --field state=fix_inflight --field head_sha=${headSha}`,
+      `hodor_status --field state=awaiting_approval --field head_sha=${headSha}`,
+      "needs_human --field reason=gate_waiting",
+    ]);
+    expect(readFileSync(join(dir, "hodor.log"), "utf8")).toBe(gateToon);
   });
 
   it("emits rower_failed with branch-vs-base commit evidence when a rower commits then exits nonzero", () => {

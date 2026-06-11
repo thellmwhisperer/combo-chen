@@ -330,6 +330,42 @@ function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string)
   }
 }
 
+interface HodorAttachOptions {
+  timeoutSeconds: number;
+  retryIntervalSeconds: number;
+}
+
+function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions): string {
+  // The no-mistakes run id does not exist until the runner reaches hodor.
+  // Without --run, attach follows the active run for this worktree.
+  const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
+  return [
+    `cd ${shellQuote(combo.worktree)}`,
+    "attempt=0",
+    "while ! no-mistakes attach; do",
+    "  attempt=$((attempt + 1))",
+    `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
+    `    echo "hodor-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
+    "    exit 1",
+    "  fi",
+    `  echo "hodor-attach: waiting for hodor (attempt $attempt/${maxAttempts})..." >&2`,
+    `  sleep ${options.retryIntervalSeconds}`,
+    "done",
+  ].join("\n");
+}
+
+function startHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOptions): void {
+  const created = deps.tmux(
+    newWindowArgs(combo.tmuxSession, "hodor", buildHodorAttachCommand(combo, options)),
+  );
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to start hodor watcher in "${combo.tmuxSession}": ` +
+        `${created.stderr.trim() || "unknown error"}`,
+    );
+  }
+}
+
 function resolveAttachCombo(
   deps: Deps,
   home: string,
@@ -419,7 +455,7 @@ export function createProgram(deps: Deps): Command {
         }
       }
 
-      const config = loadConfig({ repoDir: options.repo });
+      const config = loadConfig({ repoDir: options.repo, env: deps.env });
       const id = comboIdFromIssueUrl(options.issue);
       const home = comboHome(deps.env);
       const runDir = runDirFor(home, id);
@@ -489,6 +525,10 @@ export function createProgram(deps: Deps): Command {
       }
       try {
         ensureJournalPane(deps, combo);
+        startHodorWindow(deps, combo, {
+          timeoutSeconds: config.hodorAttachTimeoutSeconds,
+          retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
+        });
       } catch (error) {
         const killed = deps.tmux(killSessionArgs(session));
         if (killed.status !== 0) {
@@ -537,7 +577,7 @@ export function createProgram(deps: Deps): Command {
         throw new Error(`Cannot activate judge for ${combo.id}: no pr_opened event in the journal`);
       }
 
-      const config = loadConfig({ repoDir: combo.repoDir });
+      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
       const judgeCommand = buildJudgeInvocation({
         combo,
         prUrl,
@@ -665,7 +705,7 @@ export function createProgram(deps: Deps): Command {
         return;
       }
 
-      const config = loadConfig({ repoDir: combo.repoDir });
+      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
       const judgeCommand = buildJudgeInvocation({
         combo,
         prUrl,
@@ -772,7 +812,7 @@ export function createProgram(deps: Deps): Command {
     .action(async (options: { name: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
       const combo = readCombo(runDir);
-      const config = loadConfig({ repoDir: combo.repoDir });
+      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
       const artifact = readRowerThreadArtifact(runDir);
       const sitter = deps.tmux(
         newWindowArgs(
@@ -821,7 +861,7 @@ export function createProgram(deps: Deps): Command {
       if (prUrl === undefined) {
         throw new Error(`No pr_opened event for combo "${options.name}"`);
       }
-      const config = loadConfig({ repoDir: combo.repoDir });
+      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
       const routed = routeReviewComments({
         runDir,
         tmuxSession: combo.tmuxSession,
