@@ -197,7 +197,7 @@ function requireComboGit(
   return { stdout: result.stdout };
 }
 
-function syncNoMistakesMirror(deps: Deps, combo: ComboRecord): boolean {
+function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): boolean {
   const remote = deps.git(["remote", "get-url", "no-mistakes"], combo.worktree);
   if (remote.status !== 0) {
     if (remote.status !== 2) {
@@ -232,6 +232,14 @@ function syncNoMistakesMirror(deps: Deps, combo: ComboRecord): boolean {
   );
 
   if (origin === mirrorSha) return false;
+
+  const events = readEvents(runDir);
+  const lastHodorStatus = [...events].reverse().find((e) => e.event === "hodor_status");
+  if (lastHodorStatus?.state === "fix_inflight") {
+    deps.out(`mirror sync: hodor fix in flight, skipping push for ${combo.id}`);
+    return false;
+  }
+
   requireComboGit(
     deps,
     combo,
@@ -1077,7 +1085,7 @@ export function createProgram(deps: Deps): Command {
       }
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
       try {
-        const synced = syncNoMistakesMirror(deps, combo);
+        const synced = syncNoMistakesMirror(deps, combo, runDir);
         if (synced) {
           deps.out(`mirror synced for ${combo.id}`);
         }
