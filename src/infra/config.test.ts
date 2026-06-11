@@ -27,6 +27,8 @@ describe("loadConfig", () => {
     expect(config.limits.rowerTimeoutMinutes).toBe(180);
     expect(config.hodorAttachTimeoutSeconds).toBe(1800);
     expect(config.hodorAttachRetryIntervalSeconds).toBe(10);
+    expect(config.limits.teardownGitRetries).toBe(2);
+    expect(config.limits.teardownGitBackoffSeconds).toBe(2);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
@@ -97,6 +99,22 @@ describe("loadConfig", () => {
     });
     expect(envConfig.hodorAttachTimeoutSeconds).toBe(75);
     expect(envConfig.hodorAttachRetryIntervalSeconds).toBe(15);
+  });
+
+  it("loads teardown retry limits from the standard limits cascade", () => {
+    const userDir = tempDir();
+    const userConfig = writeToml(
+      userDir,
+      "config.toml",
+      "[limits]\nteardown_git_retries = 4\nteardown_git_backoff_seconds = 3\n",
+    );
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[limits]\nteardown_git_retries = 1\n");
+
+    const config = loadConfig({ repoDir, userConfigPath: userConfig });
+
+    expect(config.limits.teardownGitRetries).toBe(1);
+    expect(config.limits.teardownGitBackoffSeconds).toBe(3);
   });
 
   it("refuses to launch when gordon would judge their own cooking", () => {

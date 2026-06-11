@@ -57,6 +57,7 @@ export interface Deps {
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
 }
 
@@ -73,6 +74,7 @@ export function defaultDeps(): Deps {
       const result = spawnSync("gh", args, { encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     issueExists: (issueUrl) => {
       const result = spawnSync("gh", ["issue", "view", issueUrl, "--json", "number"], {
         encoding: "utf8",
@@ -315,58 +317,75 @@ function terminalJudgeEvent(events: ComboEvent[]): ComboEvent | undefined {
   return undefined;
 }
 
-function hasMergedEvent(events: ComboEvent[], sha: string): boolean {
-  return events.some((event) => event.event === "merged" && event["sha"] === sha);
+function hasMergedEvent(events: ComboEvent[], shas: string[]): boolean {
+  const accepted = new Set(shas);
+  return events.some((event) => event.event === "merged" && accepted.has(String(event["sha"])));
 }
 
-function requireGit(deps: Deps, args: string[], cwd: string, description: string, retries = 0): void {
-  let result = deps.git(args, cwd);
-  for (let attempt = 0; attempt < retries && result.status !== 0; attempt += 1) {
-    spawnSync("sleep", [String((attempt + 1) * 2)]);
-    result = deps.git(args, cwd);
-  }
-  if (result.status !== 0) {
-    throw new Error(`${description} failed: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
+async function requireGit(
+  deps: Deps,
+  args: string[],
+  cwd: string,
+  description: string,
+  options: { retries: number; backoffSeconds: number },
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    const result = deps.git(args, cwd);
+    if (result.status === 0) return;
+    if (attempt >= options.retries) {
+      throw new Error(`${description} failed: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
+    }
+    await deps.sleep(options.backoffSeconds * 1000 * (attempt + 1));
   }
 }
 
-function teardownMergedCombo(input: {
+async function teardownMergedCombo(input: {
   deps: Deps;
   combo: ComboRecord;
   mergeSha: string;
   baseRefName: string;
-}): void {
-  const killed = input.deps.tmux(killSessionArgs(input.combo.tmuxSession));
+  retries: number;
+  backoffSeconds: number;
+}): Promise<void> {
+  const retryOptions = { retries: input.retries, backoffSeconds: input.backoffSeconds };
+  const baseRef = `origin/${input.baseRefName}`;
+  await requireGit(
+    input.deps,
+    ["fetch", "origin", input.baseRefName],
+    input.combo.repoDir,
+    "git fetch base branch",
+    retryOptions,
+  );
+  await requireGit(
+    input.deps,
+    ["merge-base", "--is-ancestor", input.mergeSha, baseRef],
+    input.combo.repoDir,
+    `merge verification for ${input.mergeSha} in ${baseRef}`,
+    retryOptions,
+  );
+  await requireGit(
+    input.deps,
+    ["worktree", "remove", "--force", input.combo.worktree],
+    input.combo.repoDir,
+    `git worktree remove ${input.combo.worktree}`,
+    retryOptions,
+  );
+  await requireGit(
+    input.deps,
+    ["branch", "-D", input.combo.branch],
+    input.combo.repoDir,
+    `git branch delete ${input.combo.branch}`,
+    retryOptions,
+  );
+}
+
+function killComboSession(deps: Deps, combo: ComboRecord): void {
+  const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
   if (killed.status !== 0) {
     throw new Error(
-      `tmux kill-session failed for "${input.combo.tmuxSession}": ` +
+      `tmux kill-session failed for "${combo.tmuxSession}": ` +
         `${killed.stderr.trim() || "unknown error"}`,
     );
-  }
-
-  const baseRef = `origin/${input.baseRefName}`;
-  try {
-    requireGit(input.deps, ["fetch", "origin", input.baseRefName], input.combo.repoDir, "git fetch base branch", 2);
-    requireGit(
-      input.deps,
-      ["merge-base", "--is-ancestor", input.mergeSha, baseRef],
-      input.combo.repoDir,
-      `merge verification for ${input.mergeSha} in ${baseRef}`,
-    );
-    requireGit(
-      input.deps,
-      ["worktree", "remove", "--force", input.combo.worktree],
-      input.combo.repoDir,
-      `git worktree remove ${input.combo.worktree}`,
-    );
-    requireGit(
-      input.deps,
-      ["branch", "-D", input.combo.branch],
-      input.combo.repoDir,
-      `git branch delete ${input.combo.branch}`,
-    );
-  } catch {
-    // combo_closed is already journaled; cleanup failures are recoverable
   }
 }
 
@@ -725,12 +744,29 @@ export function createProgram(deps: Deps): Command {
         if (!baseRefName) {
           throw new Error(`Cannot tear down ${combo.id}: merged PR did not report baseRefName`);
         }
-        if (!hasMergedEvent(events, mergeSha)) {
+        if (!hasMergedEvent(events, [mergeSha, headSha])) {
           appendEvent(runDir, "merged", { sha: mergeSha, by });
         }
+        const config = loadConfig({ repoDir: combo.repoDir });
+        try {
+          await teardownMergedCombo({
+            deps,
+            combo,
+            mergeSha,
+            baseRefName,
+            retries: config.limits.teardownGitRetries,
+            backoffSeconds: config.limits.teardownGitBackoffSeconds,
+          });
+        } catch (error) {
+          deps.out(
+            `gordon: teardown pending for ${combo.id}: ` +
+              `${error instanceof Error ? error.message : String(error)}`,
+          );
+          return;
+        }
         appendEvent(runDir, "combo_closed", {});
-        teardownMergedCombo({ deps, combo, mergeSha, baseRefName });
         deps.out(`gordon: merged ${mergeSha} by ${by}`);
+        killComboSession(deps, combo);
         return;
       }
 
@@ -738,13 +774,7 @@ export function createProgram(deps: Deps): Command {
         appendEvent(runDir, "needs_human", { reason: "pr_closed" });
         appendEvent(runDir, "combo_closed", {});
         deps.out(`gordon: closed`);
-        const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
-        if (killed.status !== 0) {
-          throw new Error(
-            `tmux kill-session failed for "${combo.tmuxSession}": ` +
-              `${killed.stderr.trim() || "unknown error"}`,
-          );
-        }
+        killComboSession(deps, combo);
         return;
       }
 

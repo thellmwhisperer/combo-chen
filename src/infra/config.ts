@@ -22,6 +22,8 @@ export interface ComboRoles {
 export interface ComboLimits {
   babysitPollSeconds: number;
   rowerTimeoutMinutes: number;
+  teardownGitRetries: number;
+  teardownGitBackoffSeconds: number;
 }
 
 export interface ComboConfig {
@@ -71,6 +73,8 @@ const DEFAULTS = {
   limits: {
     babysit_poll_seconds: 120,
     rower_timeout_minutes: 180,
+    teardown_git_retries: 2,
+    teardown_git_backoff_seconds: 2,
   },
   rower: {
     codex: {
@@ -148,6 +152,16 @@ function pickNumber(table: TomlTable, key: string, fallback: number, where = "[l
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new ComboConfigError(`${where} ${key} must be a positive number`);
+  }
+  return parsed;
+}
+
+function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number): number {
+  const value = table[key];
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new ComboConfigError(`[limits] ${key} must be a non-negative integer`);
   }
   return parsed;
 }
@@ -268,6 +282,16 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     limits: {
       babysitPollSeconds: pickNumber(limitsTable, "babysit_poll_seconds", DEFAULTS.limits.babysit_poll_seconds),
       rowerTimeoutMinutes: pickNumber(limitsTable, "rower_timeout_minutes", DEFAULTS.limits.rower_timeout_minutes),
+      teardownGitRetries: pickNonNegativeInteger(
+        limitsTable,
+        "teardown_git_retries",
+        DEFAULTS.limits.teardown_git_retries,
+      ),
+      teardownGitBackoffSeconds: pickNumber(
+        limitsTable,
+        "teardown_git_backoff_seconds",
+        DEFAULTS.limits.teardown_git_backoff_seconds,
+      ),
     },
     rowerCommand,
     rowerResumeCommand,
