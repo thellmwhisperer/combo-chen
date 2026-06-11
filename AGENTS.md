@@ -39,6 +39,11 @@ Hard rules:
 - Rate limits are system events, not failures: the role pauses and resumes
   at reset. Priority under scarcity: rower > thread-sitter > gordon >
   sweeps.
+- Parallel combos sharing surface (same files or modules) are sequenced by
+  the director, not run concurrently. When a sibling merges and main moves,
+  the live combo rebases early. Learned from combos 9/10: keep-both
+  conflict resolutions fabricated duplicate identifiers exactly at the
+  collision points the reviews had listed.
 
 ## The two babysitters (an investigated boundary, not an assumed one)
 
@@ -84,6 +89,10 @@ trio of mechanics: interactive tmux session + resume + ACP.
 ## Development conventions
 
 - TDD is mandatory: red test before production code.
+- Fixtures imitate production shapes: 40-char shas, real URLs, paginated
+  payloads. Gordon flags unrealistic fixtures in review. Case study: a
+  short-pin bug survived 80 tests because every fixture used 6-char shas on
+  both sides of a comparison that production performs with 40 vs 7.
 - Zero hardcoded operational values: env → TOML config → fallback cascade.
 - Config: per-repo `combo-chen.toml` + user-level; repo wins on policy,
   user wins on local setup (same model as treehouse/no-mistakes).
