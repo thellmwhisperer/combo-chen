@@ -315,7 +315,7 @@ describe("nudge-review-comments", () => {
       repoDir,
       worktree: join(repoDir, ".worktrees", "issue-7"),
       branch: "combo/issue-7",
-      tmuxSession: "combo-chen-o-r-7",
+      tmuxSession: "combo-chen-owned-session",
       createdAt: new Date().toISOString(),
     });
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -353,9 +353,17 @@ describe("nudge-review-comments", () => {
     });
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
-    expect(tmuxCalls).toHaveLength(2);
-    expect(tmuxCalls[0]).toContain("combo-chen-o-r-7:sitter");
-    expect(tmuxCalls[0]?.at(-1)).toBe("Please address 'https://github.com/o/r/pull/7#issuecomment-1'");
+    expect(tmuxCalls).toEqual([
+      [
+        "tmux",
+        "send-keys",
+        "-l",
+        "-t",
+        "combo-chen-owned-session:sitter",
+        "Please address 'https://github.com/o/r/pull/7#issuecomment-1'",
+      ],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "Enter"],
+    ]);
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
