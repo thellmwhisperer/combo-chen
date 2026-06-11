@@ -384,6 +384,40 @@ describe("emit", () => {
     expect(events[0]?.["has_new_commits"]).toBe(true);
   });
 
+  it("accepts hodor_status from the CLI with its current state", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, [
+      "emit",
+      "-n",
+      "o-r-7",
+      "hodor_status",
+      "--field",
+      "state=fix_inflight",
+      "--field",
+      "head_sha=0123456789abcdef0123456789abcdef01234567",
+    ]);
+
+    const events = readEvents(dir);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      event: "hodor_status",
+      state: "fix_inflight",
+      head_sha: "0123456789abcdef0123456789abcdef01234567",
+    });
+  });
+
   it("accepts post-PR event vocabulary with its required fields", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
