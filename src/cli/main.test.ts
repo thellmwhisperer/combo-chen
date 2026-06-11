@@ -34,6 +34,10 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
       calls.push(["git", `cwd=${cwd}`, ...args]);
       return { status: 0, stdout: "", stderr: "" };
     },
+    gh: (args) => {
+      calls.push(["gh", ...args]);
+      return { status: 0, stdout: "[]", stderr: "" };
+    },
     issueExists: () => true,
     ...overrides,
   };
@@ -58,12 +62,70 @@ function seedCodexGnhfRun(worktree: string): void {
 }
 
 describe("command surface", () => {
-  it("exposes exactly the v0 commands", () => {
+  it("exposes the v0 commands and hidden runner helpers", () => {
     const { deps } = fakeDeps();
     const names = createProgram(deps)
       .commands.map((c) => c.name())
       .sort();
-    expect(names).toEqual(["emit", "events", "run", "status", "stop"].sort());
+    expect(names).toEqual(
+      ["emit", "events", "nudge-review-comments", "run", "status", "stop"].sort(),
+    );
+  });
+});
+
+describe("nudge-review-comments", () => {
+  it("routes a fetched PR comment once using read-only GitHub calls and no repo writes", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        const endpoint = args.at(-1);
+        if (endpoint === "repos/o/r/issues/7/comments") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                user: { login: "coderabbitai" },
+                body: "Please handle this.",
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    const events = readEvents(dir).filter((event) => event.event === "review_comment");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      author: "coderabbitai",
+      kind: "pr_comment",
+      url: "https://github.com/o/r/pull/7#issuecomment-1",
+    });
+
+    const tmuxCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys");
+    expect(tmuxCalls).toHaveLength(2);
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    const ghCalls = calls.filter((call) => call[0] === "gh");
+    expect(ghCalls).not.toHaveLength(0);
+    expect(ghCalls.every((call) => call[1] === "api" && !call.includes("--method"))).toBe(true);
   });
 });
 

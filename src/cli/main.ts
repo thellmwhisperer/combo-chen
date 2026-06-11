@@ -36,12 +36,18 @@ import {
 } from "../infra/tmux.js";
 import { buildHodorInvocation } from "../roles/hodor.js";
 import { buildRowerInvocation, persistRowerThreadArtifact } from "../roles/rower.js";
+import {
+  fetchReviewCommentSignals,
+  latestPrUrl,
+  routeReviewComments,
+} from "../roles/thread-sitter.js";
 
 export interface Deps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  gh: (args: string[]) => { status: number; stdout: string; stderr: string };
   issueExists: (issueUrl: string) => boolean;
 }
 
@@ -52,6 +58,10 @@ export function defaultDeps(): Deps {
     tmux: realTmux,
     git: (args, cwd) => {
       const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    },
+    gh: (args) => {
+      const result = spawnSync("gh", args, { encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
     issueExists: (issueUrl) => {
@@ -276,6 +286,28 @@ export function createProgram(deps: Deps): Command {
         persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
+    });
+
+  program
+    .command("nudge-review-comments", { hidden: true })
+    .description("One-shot sweep: route new PR comments to the thread-sitter window")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const prUrl = latestPrUrl(readEvents(runDir));
+      if (prUrl === undefined) {
+        throw new Error(`No pr_opened event for combo "${options.name}"`);
+      }
+      const routed = routeReviewComments({
+        runDir,
+        tmuxSession: combo.tmuxSession,
+        comments: fetchReviewCommentSignals(prUrl, deps.gh),
+        tmux: deps.tmux,
+      });
+      for (const comment of routed) {
+        deps.out(`nudged ${comment.url}`);
+      }
     });
 
   return program;
