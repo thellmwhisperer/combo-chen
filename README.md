@@ -13,6 +13,7 @@ composes tools you may already use — [gnhf](https://github.com/kunchenguid/gnh
 | **rower** | rows: implements the issue, loops until done | codex via gnhf |
 | **hodor** | holds the door: review→test→docs→lint→push→PR, then watches CI | no-mistakes |
 | **gordon** | judges: reviews the PR, no courtesy LGTMs | claude + coderabbit |
+| **thread-sitter** | the resumed rower: reads review comments, addresses them, pushes replies | codex (resumed thread) |
 | **merge** | the decision | human, always (v0) |
 
 Hard rule, validated at launch: `gordon != rower` — no agent judges its own
@@ -31,12 +32,13 @@ combo-chen stop -n you-repo-128
 
 `run` validates the issue, creates an isolated git worktree and a tmux
 session, and starts the combo's **runner**: a generated script that rows
-(gnhf), then gates (`no-mistakes axi run`), detects the PR, and journals
-every milestone as JSONL events. The CLI is setup and introspection; the
+(gnhf), then gates (`no-mistakes axi run`), detects the PR, activates the
+thread-sitter to watch review comments, and journals every milestone as
+JSONL events. The CLI is setup and introspection; the
 runner is the spine; judgment stays with agents and humans.
 
 State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
-`journal.jsonl`, `runner.sh`). No daemon.
+`journal.jsonl`, `rower-thread.json`, `runner.sh`). No daemon.
 
 ## Configuration
 
@@ -46,10 +48,12 @@ Cascade: defaults ← user ← repo. Zero hardcoded operational values.
 
 ## Status
 
-v0 implemented and test-verified; awaiting its first real combo (the fire
-test). The protocol is in [`docs/spec.md`](docs/spec.md). Deferred to v1+:
-treehouse worktree pools, ACP role driving, automated gordon/director,
-preflight issue grading, the automerge counterfactual log.
+v0 implemented and test-verified: run, status, stop, events, rower (gnhf),
+hodor (no-mistakes), and thread-sitter (resumed codex for review comments).
+Awaiting its first real combo (the fire test). The protocol is in
+[`docs/spec.md`](docs/spec.md). Deferred to v1+: treehouse worktree pools,
+ACP role driving, automated gordon/director, preflight issue grading, the
+automerge counterfactual log.
 
 ## Development
 

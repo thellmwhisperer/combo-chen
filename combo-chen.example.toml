@@ -31,5 +31,5 @@ command = 'npx -y gnhf --agent codex --current-branch {prompt}'
 command = "no-mistakes axi run"
 
 [limits]
-babysit_poll_seconds = 120
+babysit_poll_seconds = 120  # thread-sitter review-comment poll interval
 rower_timeout_minutes = 180
