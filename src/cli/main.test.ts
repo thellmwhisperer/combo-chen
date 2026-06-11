@@ -811,6 +811,8 @@ describe("activate-judge", () => {
     expect(watchCommand).toContain(`COMBO_CHEN_HOME='${h}'`);
     expect(watchCommand).toContain("judge-tick -n 'o-r-7'");
     expect(watchCommand).toContain("gordon: (merged|closed|already terminal)");
+    expect(watchCommand).not.toContain("status=$?");
+    expect(watchCommand).not.toContain('"$status"');
     expect(watchCommand).toContain("sleep 17");
     expect(out.join("\n")).toContain("gordon");
     expect(out.join("\n")).toContain("gordon-watch");
