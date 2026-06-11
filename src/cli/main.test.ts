@@ -1318,6 +1318,52 @@ describe("judge-tick", () => {
     expect(calls.some((c) => c.join(" ").includes("pulls/7/reviews"))).toBe(true);
   });
 
+  it("ignores negated GitHub LGTM pins", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr") {
+          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+        }
+        if (args.join(" ").includes("issues/7/comments")) {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              { body: "no lgtm @ aa11bb", created_at: "2026-06-11T00:00:00Z" },
+              { body: "NO LGTM @ cc22dd", created_at: "2026-06-11T00:01:00Z" },
+              { body: "review result: not lgtm @ ee33ff", created_at: "2026-06-11T00:02:00Z" },
+              { body: "sin lgtm @ 123abc", created_at: "2026-06-11T00:03:00Z" },
+            ]),
+            stderr: "",
+          };
+        }
+        if (args.join(" ").includes("pulls/7/reviews")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened"]);
+    expect(out.join("\n")).toContain("gordon: no pinned lgtm for o-r-7");
+  });
+
   it("finds a GitHub LGTM pin from paginated comment arrays", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
