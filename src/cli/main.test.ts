@@ -781,6 +781,69 @@ describe("judge-tick", () => {
     expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc123" });
   });
 
+  it("treats a short GitHub LGTM pin as current when it prefixes the full PR head", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        '[roles]',
+        'gordon = ["local"]',
+        '',
+        '[gordon.local]',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
+        '',
+      ].join("\n"),
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const fullSha = "e4e7dd43c6cc0d5f1234567890abcdef12345678";
+    const shortSha = fullSha.slice(0, 7);
+    expect(fullSha).toHaveLength(40);
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr") {
+          return { status: 0, stdout: `{"headRefOid":"${fullSha}"}`, stderr: "" };
+        }
+        if (args.join(" ").includes("issues/7/comments")) {
+          return {
+            status: 0,
+            stdout: `[{"body":"lgtm @ ${shortSha}","created_at":"2026-06-11T00:00:00Z"}]`,
+            stderr: "",
+          };
+        }
+        if (args.join(" ").includes("pulls/7/reviews")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+
+    expect(out.join("\n")).toContain(`gordon: lgtm current at ${fullSha}`);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
+
+    const events = readEvents(dir);
+    expect(events.filter((event) => event.event === "lgtm_stale")).toHaveLength(0);
+    const lgtms = events.filter((event) => event.event === "lgtm");
+    expect(lgtms).toHaveLength(1);
+    expect(lgtms[0]).toMatchObject({ sha: fullSha });
+  });
+
   it("does not consume a pinned LGTM when the incremental re-review window fails to start", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
