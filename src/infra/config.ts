@@ -73,7 +73,7 @@ const DEFAULTS = {
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   hodor: {
-    command: "no-mistakes axi run",
+    command: "git push no-mistakes HEAD && no-mistakes axi run",
   },
   thread_sitter: {
     window_name: "thread-sitter",
