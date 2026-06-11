@@ -140,9 +140,10 @@ conversation, nothing else. Lingering processes die with the tmux session.
 1. **Claude codes v0**, TDD — Codex is the rower inside combos and the first
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
-3. **v0 scope as proposed**: `run`/`status`/`stop`/`events`, rower
-   (codex+gnhf), hodor (no-mistakes), manual director; treehouse, ACP,
-   auto-gordon /loop, counterfactual log, preflight and multi-combo
+3. **v0 scope as proposed**: `run`/`status`/`stop`/`events`/`activate-judge`, rower
+   (codex+gnhf), hodor (no-mistakes), gordon judge (tmux poll loop +
+   incremental re-review); manual director; treehouse, ACP,
+   counterfactual log, preflight and multi-combo
    dashboard deferred to v1+.
 
 Role names ruled by the architect: the implementer is the **rower** (the one

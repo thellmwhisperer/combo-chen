@@ -33,9 +33,9 @@ combo-chen stop -n you-repo-128
 `run` validates the issue, creates an isolated git worktree and a tmux
 session, and starts the combo's **runner**: a generated script that rows
 (gnhf), then gates (`no-mistakes axi run`), detects the PR, activates the
-thread-sitter to watch review comments, and journals every milestone as
-JSONL events. The CLI is setup and introspection; the
-runner is the spine; judgment stays with agents and humans.
+judge, and journals every milestone as JSONL events. The CLI is setup and
+introspection; the runner is the spine; the judge polls for merge signals
+and re-reviews on push.
 
 State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
 `journal.jsonl`, `rower-thread.json`, `runner.sh`). No daemon.
@@ -46,14 +46,16 @@ Copy [`combo-chen.example.toml`](combo-chen.example.toml) to
 `combo-chen.toml` (repo) or `~/.config/combo-chen/config.toml` (user).
 Cascade: defaults ← user ← repo. Zero hardcoded operational values.
 
+Required sections: `[roles]` (rower, hodor, gordon agents), `[gordon]`
+(protocol reference), and at least one `[gordon.<agent>]` with a command
+template. See the example config for all placeholders.
+
 ## Status
 
-v0 implemented and test-verified: run, status, stop, events, rower (gnhf),
-hodor (no-mistakes), and thread-sitter (resumed codex for review comments).
-Awaiting its first real combo (the fire test). The protocol is in
-[`docs/spec.md`](docs/spec.md). Deferred to v1+: treehouse worktree pools,
-ACP role driving, automated gordon/director, preflight issue grading, the
-automerge counterfactual log.
+v0 implemented and test-verified; awaiting its first real combo (the fire
+test). The protocol is in [`docs/spec.md`](docs/spec.md). Deferred to v1+:
+treehouse worktree pools, ACP role driving, automated director,
+preflight issue grading, the automerge counterfactual log.
 
 ## Development
 
