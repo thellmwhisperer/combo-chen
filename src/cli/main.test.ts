@@ -418,6 +418,9 @@ describe("activate-judge", () => {
         '[gordon.local]',
         'command = "judge-bot --pr {pr_url} --protocol {protocol} --prompt {prompt}"',
         '',
+        '[limits]',
+        'babysit_poll_seconds = 17',
+        '',
       ].join("\n"),
     );
     const dir = runDirFor(h, "o-r-7");
@@ -447,7 +450,20 @@ describe("activate-judge", () => {
     expect(command).toContain("'Protocol 7989 + overlay 8034'");
     expect(command).toContain("COMMENT reviews");
     expect(command).toContain("lgtm @ <sha>");
+
+    const watchWindow = calls.find(
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon-watch"),
+    );
+    expect(watchWindow).toBeDefined();
+    expect(watchWindow).toContain("combo-chen-o-r-7");
+
+    const watchCommand = watchWindow?.at(-1) ?? "";
+    expect(watchCommand).toContain(`COMBO_CHEN_HOME='${h}'`);
+    expect(watchCommand).toContain("judge-tick -n 'o-r-7'");
+    expect(watchCommand).toContain("gordon: (merged|closed|already terminal)");
+    expect(watchCommand).toContain("sleep 17");
     expect(out.join("\n")).toContain("gordon");
+    expect(out.join("\n")).toContain("gordon-watch");
   });
 
   it("refuses activation before the combo has an opened PR in the journal", async () => {
