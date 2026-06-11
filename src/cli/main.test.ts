@@ -324,7 +324,7 @@ describe("nudge-review-comments", () => {
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
         if (args[0] === "remote") {
-          return { status: 0, stdout: "/Users/javi/.no-mistakes/repos/o-r.git\n", stderr: "" };
+          return { status: 0, stdout: "/home/user/.no-mistakes/repos/o-r.git\n", stderr: "" };
         }
         if (args[0] === "fetch") {
           return { status: 0, stdout: "", stderr: "" };
@@ -431,6 +431,156 @@ describe("nudge-review-comments", () => {
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
     expect(ghCalls.every((call) => call[1] === "api" && !call.includes("--method"))).toBe(true);
+  });
+
+  it("skips the mirror push when origin and mirror SHAs match (no-op)", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const sameSha = "cccccccccccccccccccccccccccccccccccccccc";
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote") {
+          return { status: 0, stdout: "/home/user/.no-mistakes/repos/o-r.git\n", stderr: "" };
+        }
+        if (args[0] === "fetch") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "rev-parse") {
+          return { status: 0, stdout: `${sameSha}\n`, stderr: "" };
+        }
+        if (args[0] === "ls-remote") {
+          return { status: 0, stdout: `${sameSha}\trefs/heads/combo/issue-7\n`, stderr: "" };
+        }
+        if (args[0] === "push") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    const gitCalls = calls.filter((call) => call[0] === "git");
+    expect(gitCalls.some((call) => call[2] === "push")).toBe(false);
+    const ghCalls = calls.filter((call) => call[0] === "gh");
+    expect(ghCalls).not.toHaveLength(0);
+  });
+
+  it("pushes to create the mirror branch when it does not exist yet", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const originSha = "dddddddddddddddddddddddddddddddddddddddd";
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote") {
+          return { status: 0, stdout: "/home/user/.no-mistakes/repos/o-r.git\n", stderr: "" };
+        }
+        if (args[0] === "fetch") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "rev-parse") {
+          return { status: 0, stdout: `${originSha}\n`, stderr: "" };
+        }
+        if (args[0] === "ls-remote") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "push") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${worktree}`,
+      "push",
+      "no-mistakes",
+      "refs/remotes/origin/combo/issue-7:refs/heads/combo/issue-7",
+    ]);
+  });
+
+  it("skips the mirror push when hodor has a CI fix in flight", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "hodor_status", { state: "fix_inflight", head_sha: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" });
+
+    const originSha = "ffffffffffffffffffffffffffffffffffffffff";
+    const mirrorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote") {
+          return { status: 0, stdout: "/home/user/.no-mistakes/repos/o-r.git\n", stderr: "" };
+        }
+        if (args[0] === "fetch") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "rev-parse") {
+          return { status: 0, stdout: `${originSha}\n`, stderr: "" };
+        }
+        if (args[0] === "ls-remote") {
+          return { status: 0, stdout: `${mirrorSha}\trefs/heads/combo/issue-7\n`, stderr: "" };
+        }
+        if (args[0] === "push") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    const gitCalls = calls.filter((call) => call[0] === "git");
+    expect(gitCalls.some((call) => call[2] === "push")).toBe(false);
+    expect(out.some((line) => line.includes("hodor fix in flight"))).toBe(true);
+    const ghCalls = calls.filter((call) => call[0] === "gh");
+    expect(ghCalls).not.toHaveLength(0);
   });
 });
 
