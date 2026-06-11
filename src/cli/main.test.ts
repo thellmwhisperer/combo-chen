@@ -384,6 +384,40 @@ describe("emit", () => {
     expect(events[0]?.["has_new_commits"]).toBe(true);
   });
 
+  it("accepts hodor_status from the CLI with its current state", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, [
+      "emit",
+      "-n",
+      "o-r-7",
+      "hodor_status",
+      "--field",
+      "state=fix_inflight",
+      "--field",
+      "head_sha=0123456789abcdef0123456789abcdef01234567",
+    ]);
+
+    const events = readEvents(dir);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      event: "hodor_status",
+      state: "fix_inflight",
+      head_sha: "0123456789abcdef0123456789abcdef01234567",
+    });
+  });
+
   it("accepts post-PR event vocabulary with its required fields", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
@@ -491,6 +525,17 @@ describe("run", () => {
     const tmuxNewSession = calls.find((c) => c[0] === "tmux" && c[1] === "new-session");
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
     const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
+    const hodorWindow = tmuxNewWindows.find((call) => call.includes("hodor"));
+    expect(hodorWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "hodor",
+      expect.stringContaining("no-mistakes attach"),
+    ]);
+    expect(hodorWindow?.at(-1)).toContain(join(repoDir, ".worktrees", "issue-7"));
     expect(tmuxNewWindows.some((call) => call.includes("watch"))).toBe(false);
     expect(calls).toContainEqual([
       "tmux",
@@ -507,6 +552,27 @@ describe("run", () => {
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
+  });
+
+  it("uses configured hodor attach retry settings in the hodor tmux window", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[hodor]\nattach_timeout_seconds = 45\nattach_retry_interval_seconds = 15\n",
+    );
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const hodorWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    );
+    const command = hodorWindow?.at(-1) ?? "";
+    expect(command).toContain('if [ "$attempt" -gt 3 ]; then');
+    expect(command).toContain('echo "hodor-attach: timed out after 45 seconds" >&2');
+    expect(command).toContain('echo "hodor-attach: waiting for hodor (attempt $attempt/3)..." >&2');
+    expect(command).toContain("sleep 15");
   });
 
   it("does not delete run state or worktree when journal-pane rollback cannot kill tmux", async () => {
