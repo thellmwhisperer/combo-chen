@@ -41,7 +41,7 @@ describe("deriveStatus", () => {
   });
 
   it("marks failures as STALLED and needing a human", () => {
-    const status = deriveStatus([ev("rower_started"), ev("rower_failed", { exit_code: 1 })]);
+    const status = deriveStatus([ev("rower_started"), ev("rower_failed", { exit_code: 1, has_new_commits: false })]);
     expect(status.phase).toBe("STALLED");
     expect(status.needsHuman).toBe(true);
   });
