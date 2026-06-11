@@ -17,7 +17,7 @@ jobs:
           TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::error::RELEASE_PLEASE_TOKEN secret is not set. Create a PAT with 'repo' scope at https://github.com/settings/tokens and add it to this repository's secrets."
+            echo "::error::RELEASE_PLEASE_TOKEN secret is not set. Create a fine-grained PAT scoped to this repository with Contents and Pull requests set to read and write, then add it to this repository's secrets."
             exit 1
           fi
 
@@ -26,17 +26,11 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
-      - name: Approve release PR
-        if: ${{ steps.release.outputs.pr }}
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
-        run: gh pr review --approve "$RELEASE_PR_NUMBER"
-
       - name: Enable auto-merge for release PR
         if: ${{ steps.release.outputs.pr }}
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
         run: gh pr merge --merge --auto "$RELEASE_PR_NUMBER"
 
