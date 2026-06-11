@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.14](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.13...combo-chen-v0.0.14) (2026-06-11)
+
+
+### Bug Fixes
+
+* **thread-sitter:** submit nudges via paste buffer ([facc89f](https://github.com/thellmwhisperer/combo-chen/commit/facc89f4359211ec860f0e39c9d50b587923173c))
+* **thread-sitter:** submit nudges via paste buffer instead of send-keys ([e1846d9](https://github.com/thellmwhisperer/combo-chen/commit/e1846d9a57f96b0ad431c56efb14b2fbc04a6d01))
+
 ## [0.0.13](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.12...combo-chen-v0.0.13) (2026-06-11)
 
 
