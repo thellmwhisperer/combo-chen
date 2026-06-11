@@ -51,8 +51,8 @@ export interface Deps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
-  git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
-  gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  git: (args: string[], cwd: string) => TmuxResult;
+  gh: (args: string[]) => TmuxResult;
   issueExists: (issueUrl: string) => boolean;
 }
 
