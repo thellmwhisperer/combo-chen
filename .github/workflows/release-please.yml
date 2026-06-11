@@ -31,8 +31,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
-        run: gh pr merge --merge --auto "$RELEASE_PR_NUMBER"
+          # Step env is rendered even when the if guard is false, so fromJSON()
+          # here breaks every post-tag run (outputs.pr is empty). Pass the raw
+          # JSON through and parse the number in the shell instead.
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          pr_number=$(jq -r '.number' <<<"$RELEASE_PR")
+          gh pr merge --merge --auto "$pr_number"
 
       # npm publish lands together with the OSS flip: the package is not on
       # the registry while this repo is private. Releases + changelog work now.
