@@ -92,7 +92,7 @@ trio of mechanics: interactive tmux session + resume + ACP.
 ## Status
 
 Spec v1 frozen (see `docs/spec.md` §10 for the decided vetoes). v0 implemented
-with `run`/`status`/`stop`/`events`/`activate-judge` plus the hidden `judge-tick`
+with `run`/`attach`/`status`/`stop`/`events`/`activate-judge` plus the hidden `judge-tick`
 poll loop. Rower (codex+gnhf), hodor (no-mistakes), and gordon judge (tmux
 poll + incremental re-review) are all implemented. Next: preflight,
 counterfactual log, treehouse, ACP role driving.
