@@ -6,12 +6,30 @@ import { spawnSync } from "node:child_process";
 
 export class TmuxError extends Error {}
 
+export const JOURNAL_PANE_HEIGHT = 12;
+
 export function newSessionArgs(session: string, windowName: string, command: string): string[] {
   return ["new-session", "-d", "-s", session, "-n", windowName, command];
 }
 
 export function newWindowArgs(session: string, windowName: string, command: string): string[] {
   return ["new-window", "-t", session, "-n", windowName, command];
+}
+
+export function splitWindowArgs(session: string, windowName: string, command: string): string[] {
+  return [
+    "split-window",
+    "-v",
+    "-l",
+    String(JOURNAL_PANE_HEIGHT),
+    "-t",
+    `${session}:${windowName}`,
+    command,
+  ];
+}
+
+export function selectPaneArgs(session: string, windowName: string, paneIndex: number): string[] {
+  return ["select-pane", "-t", `${session}:${windowName}.${paneIndex}`];
 }
 
 export function hasSessionArgs(session: string): string[] {

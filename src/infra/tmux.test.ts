@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   captureWindowArgs,
   hasSessionArgs,
+  JOURNAL_PANE_HEIGHT,
   killSessionArgs,
   killWindowArgs,
   listWindowsArgs,
@@ -10,6 +11,8 @@ import {
   newWindowArgs,
   nudgeWindowArgs,
   renameWindowArgs,
+  selectPaneArgs,
+  splitWindowArgs,
 } from "./tmux.js";
 
 describe("tmux argument builders (pure: what we ask tmux to do is contract)", () => {
@@ -33,6 +36,24 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
       "-n",
       "watch",
       "combo-chen events --follow",
+    ]);
+  });
+
+  it("splits a short journal pane below the rower window and refocuses the main pane", () => {
+    expect(JOURNAL_PANE_HEIGHT).toBe(12);
+    expect(splitWindowArgs("combo-chen-o-r-7", "rower", "combo-chen events --follow")).toEqual([
+      "split-window",
+      "-v",
+      "-l",
+      "12",
+      "-t",
+      "combo-chen-o-r-7:rower",
+      "combo-chen events --follow",
+    ]);
+    expect(selectPaneArgs("combo-chen-o-r-7", "rower", 0)).toEqual([
+      "select-pane",
+      "-t",
+      "combo-chen-o-r-7:rower.0",
     ]);
   });
 

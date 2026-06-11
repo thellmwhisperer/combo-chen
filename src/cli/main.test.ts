@@ -367,6 +367,24 @@ describe("run", () => {
 
     const tmuxNewSession = calls.find((c) => c[0] === "tmux" && c[1] === "new-session");
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
+    const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
+    expect(tmuxNewWindows.some((call) => call.includes("watch"))).toBe(false);
+    expect(calls).toContainEqual([
+      "tmux",
+      "split-window",
+      "-v",
+      "-l",
+      "12",
+      "-t",
+      "combo-chen-o-r-7:rower",
+      expect.stringContaining("events --follow -n o-r-7"),
+    ]);
+    expect(calls).toContainEqual([
+      "tmux",
+      "select-pane",
+      "-t",
+      "combo-chen-o-r-7:rower.0",
+    ]);
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
