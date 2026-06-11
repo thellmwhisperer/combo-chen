@@ -856,7 +856,7 @@ describe("judge-tick", () => {
     expect(out.join("\n")).toContain("merged def456 by javi");
   });
 
-  it("journals a closed PR and stops the gordon window", async () => {
+  it("journals a closed PR for human salvage, stops the combo, and keeps local work", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
@@ -885,10 +885,14 @@ describe("judge-tick", () => {
 
     await exec(deps, ["judge-tick", "-n", "o-r-7"]);
 
-    expect(readEvents(dir).at(-1)).toMatchObject({ event: "combo_closed" });
+    expect(readEvents(dir).slice(-2)).toMatchObject([
+      { event: "needs_human", reason: "pr_closed" },
+      { event: "combo_closed" },
+    ]);
 
-    const killWindow = calls.find((c) => c[0] === "tmux" && c[1] === "kill-window");
-    expect(killWindow).toEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:gordon"]);
+    const killSession = calls.find((c) => c[0] === "tmux" && c[1] === "kill-session");
+    expect(killSession).toEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    expect(calls.some((c) => c[0] === "git")).toBe(false);
     expect(out.join("\n")).toContain("closed");
   });
 
