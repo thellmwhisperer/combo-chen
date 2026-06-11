@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.9](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.8...combo-chen-v0.0.9) (2026-06-11)
+
+
+### Features
+
+* **events:** Added the first issue [#24](https://github.com/thellmwhisperer/combo-chen/issues/24) observability slice by making `hodor_status` a real journal event accepted through the CLI. ([5e554c8](https://github.com/thellmwhisperer/combo-chen/commit/5e554c89407e2f536a7c3c0a3e20a9789baa45bd))
+* **hodor:** Added the issue [#24](https://github.com/thellmwhisperer/combo-chen/issues/24) hodor layout slice so new combo runs create a watchable hodor tmux window attached via no-mistakes’ active-run fallback. ([c87c7bb](https://github.com/thellmwhisperer/combo-chen/commit/c87c7bbaa71196daba992174c9a984e2a5579960))
+* **hodor:** journal hodor_status events and detect axi approval gates ([afbd709](https://github.com/thellmwhisperer/combo-chen/commit/afbd70922aa1cba8a4ddf0e9a3e453349310eb8c))
+* **runner:** Implemented the runner-side axi gate observability slice so `outcome: awaiting_approval` now journals `needs_human reason=gate_waiting` before PR detection. ([f17499f](https://github.com/thellmwhisperer/combo-chen/commit/f17499fb81b19c6797edd6e01b2ff6b1da1143d3))
+
+
+### Bug Fixes
+
+* **hodor:** Completed the final issue [#24](https://github.com/thellmwhisperer/combo-chen/issues/24) hodor status slice and validated that all acceptance criteria are now met with the full suite green. ([4914cab](https://github.com/thellmwhisperer/combo-chen/commit/4914cabeeedb9370d4d30b9bc1ec6d84070be7ea))
+* **hodor:** configure attach retry loop ([403b9af](https://github.com/thellmwhisperer/combo-chen/commit/403b9afea966906322f6a250fa87988fe738890f))
+
 ## [0.0.8](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.7...combo-chen-v0.0.8) (2026-06-11)
 
 
