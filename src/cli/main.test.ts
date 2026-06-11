@@ -71,6 +71,7 @@ describe("command surface", () => {
       [
         "activate-judge",
         "activate-thread-sitter",
+        "attach",
         "emit",
         "events",
         "judge-tick",
@@ -80,6 +81,125 @@ describe("command surface", () => {
         "stop",
       ].sort(),
     );
+  });
+});
+
+describe("attach", () => {
+  function seedCombo(homeDir: string, id: string, createdAt: string): void {
+    const issueNumber = id.split("-").at(-1) ?? "7";
+    writeCombo(runDirFor(homeDir, id), {
+      id,
+      issueUrl: `https://github.com/o/r/issues/${issueNumber}`,
+      repoDir: "/repos/r",
+      worktree: `/repos/r/.worktrees/issue-${issueNumber}`,
+      branch: `combo/issue-${issueNumber}`,
+      tmuxSession: `combo-chen-${id}`,
+      createdAt,
+    });
+  }
+
+  it("resolves the only running combo without --name and attaches to its session", async () => {
+    const h = home();
+    seedCombo(h, "stale-o-r-6", "2026-06-10T10:00:00.000Z");
+    seedCombo(h, "o-r-7", "2026-06-10T11:00:00.000Z");
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") {
+          return {
+            status: args.at(-1) === "combo-chen-o-r-7" ? 0 : 1,
+            stdout: "",
+            stderr: "no such session",
+          };
+        }
+        if (args[0] === "list-panes") return { status: 0, stdout: "0\n1\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["attach"]);
+
+    expect(calls).toContainEqual(["tmux", "attach", "-t", "combo-chen-o-r-7"]);
+    expect(calls.some((call) => call[1] === "split-window")).toBe(false);
+  });
+
+  it("requires --name when several combos are running", async () => {
+    const h = home();
+    seedCombo(h, "o-r-7", "2026-06-10T10:00:00.000Z");
+    seedCombo(h, "o-r-8", "2026-06-10T11:00:00.000Z");
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["attach"])).rejects.toThrow(/--name/);
+
+    expect(calls.some((call) => call[1] === "attach")).toBe(false);
+  });
+
+  it("uses a friendly error when the named combo's tmux session is gone", async () => {
+    const h = home();
+    seedCombo(h, "o-r-7", "2026-06-10T10:00:00.000Z");
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") {
+          return { status: 1, stdout: "", stderr: "can't find session: combo-chen-o-r-7" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    let message = "";
+    try {
+      await exec(deps, ["attach", "--name", "o-r-7"]);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toMatch(/Combo "o-r-7" is not running/);
+    expect(message).toContain('tmux session "combo-chen-o-r-7" does not exist');
+    expect(message).not.toContain("can't find session");
+    expect(calls.some((call) => call[1] === "attach")).toBe(false);
+  });
+
+  it("recreates a missing journal pane before attaching", async () => {
+    const h = home();
+    seedCombo(h, "o-r-7", "2026-06-10T10:00:00.000Z");
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["attach", "--name", "o-r-7"]);
+
+    const splitIndex = calls.findIndex((call) => call[1] === "split-window");
+    const attachIndex = calls.findIndex((call) => call[1] === "attach");
+    expect(calls[splitIndex]).toEqual([
+      "tmux",
+      "split-window",
+      "-d",
+      "-v",
+      "-l",
+      "12",
+      "-t",
+      "combo-chen-o-r-7:rower",
+      expect.stringContaining("events --follow -n o-r-7"),
+    ]);
+    expect(calls[attachIndex]).toEqual(["tmux", "attach", "-t", "combo-chen-o-r-7"]);
+    expect(splitIndex).toBeLessThan(attachIndex);
+    expect(calls.some((call) => call[1] === "select-pane")).toBe(false);
   });
 });
 
@@ -367,9 +487,83 @@ describe("run", () => {
 
     const tmuxNewSession = calls.find((c) => c[0] === "tmux" && c[1] === "new-session");
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
+    const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
+    expect(tmuxNewWindows.some((call) => call.includes("watch"))).toBe(false);
+    expect(calls).toContainEqual([
+      "tmux",
+      "split-window",
+      "-d",
+      "-v",
+      "-l",
+      "12",
+      "-t",
+      "combo-chen-o-r-7:rower",
+      expect.stringContaining("events --follow -n o-r-7"),
+    ]);
+    expect(calls.some((call) => call[1] === "select-pane")).toBe(false);
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
+  });
+
+  it("does not delete run state or worktree when journal-pane rollback cannot kill tmux", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "" };
+        if (args[0] === "new-session") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+        if (args[0] === "split-window") return { status: 1, stdout: "", stderr: "pane failed" };
+        if (args[0] === "kill-session") return { status: 1, stdout: "", stderr: "server busy" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /tmux rollback failed.*server busy/,
+    );
+
+    const runDir = runDirFor(h, "o-r-7");
+    expect(existsSync(join(runDir, "combo.json"))).toBe(true);
+    const killIndex = calls.findIndex((call) => call[0] === "tmux" && call[1] === "kill-session");
+    expect(killIndex).toBeGreaterThan(-1);
+    expect(calls.some((call) => call[0] === "git" && call.includes("remove"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("-D"))).toBe(false);
+  });
+
+  it("rolls back run state after killing tmux when journal-pane setup fails", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "" };
+        if (args[0] === "new-session") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+        if (args[0] === "split-window") return { status: 1, stdout: "", stderr: "pane failed" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /journal pane.*pane failed/,
+    );
+
+    const splitIndex = calls.findIndex((call) => call[0] === "tmux" && call[1] === "split-window");
+    const killIndex = calls.findIndex((call) => call[0] === "tmux" && call[1] === "kill-session");
+    const worktreeRemoveIndex = calls.findIndex(
+      (call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"),
+    );
+    const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
+    expect(splitIndex).toBeGreaterThan(-1);
+    expect(killIndex).toBeGreaterThan(splitIndex);
+    expect(worktreeRemoveIndex).toBeGreaterThan(killIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
   it("refuses to run when the issue does not exist", async () => {

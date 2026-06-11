@@ -110,8 +110,9 @@ moments.
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo: windows for rower, hodor, watch, and any
-  interactive agent roles (gordon, thread-sitter).
+- One tmux session per combo: windows for rower, hodor, and any
+  interactive agent roles (gordon, thread-sitter). The rower window
+  includes a short (12-line) journal pane showing live events.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.
@@ -146,7 +147,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
 1. **Claude codes v0**, TDD — Codex is the rower inside combos and the first
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
-3. **v0 scope as proposed**: `run`/`status`/`stop`/`events`/`activate-judge`, rower
+3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`activate-judge`, rower
    (codex+gnhf), hodor (no-mistakes), gordon judge (tmux poll loop +
    incremental re-review); manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo
