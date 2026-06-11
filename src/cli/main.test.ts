@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,6 +37,13 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
     },
     gh: (args) => {
       calls.push(["gh", ...args]);
+      if (args[0] === "issue" && args[1] === "view") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({ title: "Issue title", body: "Issue body" }),
+          stderr: "",
+        };
+      }
       return { status: 0, stdout: "[]", stderr: "" };
     },
     sleep: (ms) => {
@@ -651,6 +659,44 @@ describe("run", () => {
     const runner = readFileSync(join(runDirFor(h, "o-r-7"), "runner.sh"), "utf8");
     expect(runner).toContain(customHodor);
     expect(runner).not.toContain("git push no-mistakes HEAD");
+  });
+
+  it("renders hodor command placeholders with safely quoted issue facts in the runner", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const hodorCommand =
+      "no-mistakes axi run --yes --url {issue_url} --title {issue_title} --body {issue_body} --branch {branch}";
+    writeFileSync(join(repoDir, "combo-chen.toml"), `[hodor]\ncommand = ${JSON.stringify(hodorCommand)}\n`);
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              title: `Title "double" and 'single'`,
+              body: `First line
+It's "quoted"; touch /tmp/hodor-owned
+$(echo boom)`,
+            }),
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const runnerPath = join(runDirFor(h, "o-r-7"), "runner.sh");
+    const runner = readFileSync(runnerPath, "utf8");
+    expect(runner).toContain("--url 'https://github.com/o/r/issues/7'");
+    expect(runner).toContain(`--title 'Title "double" and '\\''single'\\'''`);
+    expect(runner).toContain(`--body 'First line
+It'\\''s "quoted"; touch /tmp/hodor-owned
+$(echo boom)'`);
+    expect(runner).toContain("--branch 'combo/issue-7'");
+    expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
   });
 
   it("rejects unknown hodor command placeholders during runner generation", async () => {
