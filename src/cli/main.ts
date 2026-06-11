@@ -30,6 +30,7 @@ import {
   hasSessionArgs,
   killSessionArgs,
   killWindowArgs,
+  listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
   tmux as realTmux,
@@ -159,6 +160,89 @@ function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
   return sha;
 }
 
+function hasJournaledLgtm(events: ComboEvent[], sha: string): boolean {
+  return events.some((event) => event.event === "lgtm" && event["sha"] === sha);
+}
+
+interface PullRequestRef {
+  owner: string;
+  repo: string;
+  number: string;
+}
+
+function parsePullRequestUrl(prUrl: string): PullRequestRef | undefined {
+  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(prUrl);
+  if (!match) return undefined;
+  return { owner: match[1]!, repo: match[2]!, number: match[3]! };
+}
+
+interface GitHubPin {
+  sha: string;
+  t: number;
+}
+
+const LGTM_PIN = /\blgtm\s*@\s*([0-9a-f]{6,40})\b/i;
+
+function pinsFromPayload(stdout: string): GitHubPin[] {
+  let parsed: unknown[];
+  try {
+    parsed = [JSON.parse(stdout)];
+  } catch {
+    parsed = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  }
+
+  const entries = parsed.flatMap((entry) => (Array.isArray(entry) ? entry : [entry]));
+  const pins: GitHubPin[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const body = (entry as { body?: unknown }).body;
+    if (typeof body !== "string") continue;
+    const match = LGTM_PIN.exec(body);
+    if (!match) continue;
+    const rawTime =
+      (entry as { submitted_at?: unknown }).submitted_at ??
+      (entry as { submittedAt?: unknown }).submittedAt ??
+      (entry as { created_at?: unknown }).created_at ??
+      (entry as { createdAt?: unknown }).createdAt ??
+      (entry as { updated_at?: unknown }).updated_at ??
+      (entry as { updatedAt?: unknown }).updatedAt;
+    const t = typeof rawTime === "string" ? Date.parse(rawTime) : Number.NaN;
+    pins.push({ sha: match[1]!, t: Number.isNaN(t) ? 0 : t });
+  }
+  return pins;
+}
+
+function latestGitHubLgtmSha(deps: Deps, prUrl: string): string | undefined {
+  const ref = parsePullRequestUrl(prUrl);
+  if (!ref) return undefined;
+
+  const comments = deps.gh([
+    "api",
+    `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`,
+    "--paginate",
+  ]);
+  if (comments.status !== 0) {
+    throw new Error(`gh issue comments failed for ${prUrl}: ${comments.stderr.trim() || "unknown error"}`);
+  }
+
+  const reviews = deps.gh([
+    "api",
+    `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
+    "--paginate",
+  ]);
+  if (reviews.status !== 0) {
+    throw new Error(`gh pull reviews failed for ${prUrl}: ${reviews.stderr.trim() || "unknown error"}`);
+  }
+
+  const pins = [...pinsFromPayload(comments.stdout), ...pinsFromPayload(reviews.stdout)];
+  pins.sort((a, b) => a.t - b.t);
+  return pins.at(-1)?.sha;
+}
+
 interface PrView {
   headSha: string;
   state: string;
@@ -212,6 +296,26 @@ function stopGordonWindow(deps: Deps, combo: ComboRecord): void {
   if (killed.status !== 0) {
     throw new Error(
       `tmux failed to stop gordon judge in "${combo.tmuxSession}": ` +
+        `${killed.stderr.trim() || "unknown error"}`,
+    );
+  }
+}
+
+function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string): void {
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  const exists = listed.stdout.split(/\r?\n/).includes(windowName);
+  if (!exists) return;
+
+  const killed = deps.tmux(killWindowArgs(combo.tmuxSession, windowName));
+  if (killed.status !== 0) {
+    throw new Error(
+      `tmux failed to replace "${windowName}" in "${combo.tmuxSession}": ` +
         `${killed.stderr.trim() || "unknown error"}`,
     );
   }
@@ -346,16 +450,8 @@ export function createProgram(deps: Deps): Command {
         judgeCommand: config.judgeCommand,
       });
 
-      try {
-        deps.tmux(killWindowArgs(combo.tmuxSession, "gordon"));
-      } catch {
-        // window may not exist
-      }
-      try {
-        deps.tmux(killWindowArgs(combo.tmuxSession, "gordon-watch"));
-      } catch {
-        // window may not exist
-      }
+      killWindowIfPresent(deps, combo, "gordon");
+      killWindowIfPresent(deps, combo, "gordon-watch");
 
       const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
       if (created.status !== 0) {
@@ -400,7 +496,7 @@ export function createProgram(deps: Deps): Command {
         throw new Error(`Cannot tick judge for ${combo.id}: no pr_opened event in the journal`);
       }
 
-      const events = readEvents(runDir);
+      let events = readEvents(runDir);
       const terminalEvent = terminalJudgeEvent(events);
       if (terminalEvent) {
         deps.out(`gordon: already terminal at ${terminalEvent.event}`);
@@ -447,6 +543,20 @@ export function createProgram(deps: Deps): Command {
         return;
       }
 
+      let githubPinnedSha: string | undefined;
+      try {
+        githubPinnedSha = latestGitHubLgtmSha(deps, prUrl);
+      } catch (error) {
+        deps.out(
+          `gordon: failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return;
+      }
+      if (githubPinnedSha && !hasJournaledLgtm(events, githubPinnedSha)) {
+        appendEvent(runDir, "lgtm", { sha: githubPinnedSha });
+        events = readEvents(runDir);
+      }
+
       const pinnedSha = livePinnedLgtmSha(events);
       if (!pinnedSha) {
         deps.out(`gordon: no pinned lgtm for ${combo.id}`);
@@ -456,8 +566,6 @@ export function createProgram(deps: Deps): Command {
         deps.out(`gordon: lgtm current at ${headSha}`);
         return;
       }
-
-      appendEvent(runDir, "lgtm_stale", { old_sha: pinnedSha, new_sha: headSha });
 
       const config = loadConfig({ repoDir: combo.repoDir });
       const judgeCommand = buildJudgeInvocation({
@@ -474,11 +582,7 @@ export function createProgram(deps: Deps): Command {
         }),
       });
 
-      try {
-        deps.tmux(killWindowArgs(combo.tmuxSession, "gordon"));
-      } catch {
-        // window may already be dead
-      }
+      killWindowIfPresent(deps, combo, "gordon");
 
       const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
       if (created.status !== 0) {
@@ -488,6 +592,7 @@ export function createProgram(deps: Deps): Command {
         );
       }
 
+      appendEvent(runDir, "lgtm_stale", { old_sha: pinnedSha, new_sha: headSha });
       deps.out(`gordon: lgtm_stale ${pinnedSha} -> ${headSha}; re-reviewing ${prUrl}`);
     });
 

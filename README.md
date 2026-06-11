@@ -46,9 +46,10 @@ Copy [`combo-chen.example.toml`](combo-chen.example.toml) to
 `combo-chen.toml` (repo) or `~/.config/combo-chen/config.toml` (user).
 Cascade: defaults ← user ← repo. Zero hardcoded operational values.
 
-Required sections: `[roles]` (rower, hodor, gordon agents), `[gordon]`
-(protocol reference), and at least one `[gordon.<agent>]` with a command
-template. See the example config for all placeholders.
+Required judge config: `[roles].gordon` must be non-empty, and at least one
+listed gordon agent must have a `[gordon.<agent>]` `command` template. The
+top-level `[gordon]` protocol reference is optional; it falls back to the
+default protocol reference when omitted.
 
 ## Status
 
