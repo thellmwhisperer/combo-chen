@@ -547,7 +547,10 @@ function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions
   return [
     `cd ${shellQuote(combo.worktree)}`,
     "attempt=0",
-    "while ! no-mistakes attach; do",
+    "while :; do",
+    "  if no-mistakes axi status 2>/dev/null | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
+    "    exec no-mistakes attach",
+    "  fi",
     "  attempt=$((attempt + 1))",
     `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
     `    echo "hodor-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
@@ -569,6 +572,19 @@ function startHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOp
         `${created.stderr.trim() || "unknown error"}`,
     );
   }
+}
+
+function ensureHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOptions): void {
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  if (listed.stdout.split(/\r?\n/).includes("hodor")) return;
+
+  startHodorWindow(deps, combo, options);
 }
 
 function resolveAttachCombo(
@@ -1036,6 +1052,24 @@ export function createProgram(deps: Deps): Command {
         persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
+      if (event === "hodor_started") {
+        // The hodor tmux window runs `no-mistakes attach`, which exits when
+        // no active no-mistakes run exists — often before the runner's hodor
+        // command starts one.  Recreate the window now so the live role
+        // window is visible when the no-mistakes run becomes active.
+        try {
+          const combo = readCombo(runDir);
+          const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+          ensureHodorWindow(deps, combo, {
+            timeoutSeconds: config.hodorAttachTimeoutSeconds,
+            retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
+          });
+        } catch (err) {
+          process.stderr.write(
+            `combo-chen: hodor window recovery failed for ${options.name}: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
+        }
+      }
     });
 
   program

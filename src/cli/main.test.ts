@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
@@ -1077,6 +1077,116 @@ describe("emit", () => {
     });
     expect(readEvents(dir).map((event) => event.event)).toEqual(["rower_done"]);
   });
+
+  it("recreates the hodor tmux window when hodor starts after the early attach watcher exited", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") return { status: 0, stdout: "rower\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "hodor_started"]);
+
+    const hodorWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    );
+    expect(hodorWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "hodor",
+      expect.stringContaining("no-mistakes attach"),
+    ]);
+    expect(hodorWindow?.at(-1)).toContain(worktree);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["hodor_started"]);
+  });
+
+  it("is a no-op when the hodor tmux window already exists", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") return { status: 0, stdout: "hodor\nrower\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "hodor_started"]);
+
+    const hodorWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    );
+    expect(hodorWindow).toBeUndefined();
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["hodor_started"]);
+  });
+
+  it("keeps the hodor_started journal event when window recovery cannot inspect tmux", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") return { status: 1, stdout: "", stderr: "boom" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    try {
+      await exec(deps, ["emit", "-n", "o-r-7", "hodor_started"]);
+      expect(stderr).toHaveBeenCalledWith(
+        expect.stringContaining('tmux failed to list windows in "combo-chen-o-r-7": boom'),
+      );
+    } finally {
+      stderr.mockRestore();
+    }
+
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["hodor_started"]);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+  });
 });
 
 describe("run", () => {
@@ -1151,6 +1261,77 @@ describe("run", () => {
     expect(command).toContain('echo "hodor-attach: timed out after 45 seconds" >&2');
     expect(command).toContain('echo "hodor-attach: waiting for hodor (attempt $attempt/3)..." >&2');
     expect(command).toContain("sleep 15");
+  });
+
+  it("waits for an active no-mistakes run before attaching when attach would exit cleanly", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const hodorWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    );
+    const command = hodorWindow?.at(-1) ?? "";
+    const bin = mkdtempSync(join(tmpdir(), "combo-chen-bin-"));
+    const noMistakesCalls = join(bin, "no-mistakes-calls");
+    const statusAttempts = join(bin, "status-attempts");
+    writeFileSync(
+      join(bin, "no-mistakes"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$NO_MISTAKES_CALLS"
+if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  count=0
+  if [ -f "$NO_MISTAKES_STATUS_ATTEMPTS" ]; then
+    count=$(cat "$NO_MISTAKES_STATUS_ATTEMPTS")
+  fi
+  count=$((count + 1))
+  printf '%s\\n' "$count" > "$NO_MISTAKES_STATUS_ATTEMPTS"
+  if [ "$count" -lt 2 ]; then
+    printf 'No active run.\\n'
+  else
+    printf 'run:\\n  status: running\\n'
+  fi
+  exit 0
+fi
+if [ "$1" = "attach" ]; then
+  printf 'attached\\n'
+  exit 0
+fi
+exit 64
+`,
+    );
+    writeFileSync(
+      join(bin, "sleep"),
+      `#!/bin/sh
+printf 'sleep %s\\n' "$*" >> "$NO_MISTAKES_CALLS"
+exit 0
+`,
+    );
+    chmodSync(join(bin, "no-mistakes"), 0o755);
+    chmodSync(join(bin, "sleep"), 0o755);
+
+    const result = spawnSync("sh", ["-c", command], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NO_MISTAKES_CALLS: noMistakesCalls,
+        NO_MISTAKES_STATUS_ATTEMPTS: statusAttempts,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("attached");
+    expect(readFileSync(noMistakesCalls, "utf8").trim().split(/\r?\n/)).toEqual([
+      "axi status",
+      "sleep 10",
+      "axi status",
+      "attach",
+    ]);
   });
 
   it("does not delete run state or worktree when journal-pane rollback cannot kill tmux", async () => {
