@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_HODOR_COMMAND } from "../infra/config.js";
+import { buildHodorInvocation } from "../roles/hodor.js";
 import type { ComboEvent } from "./events.js";
 import { buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
 
@@ -83,6 +84,12 @@ describe("buildRunnerScript", () => {
     tmuxSession: "combo-chen-o-r-7",
     createdAt: "2026-06-10T00:00:00.000Z",
   };
+  const renderedDefaultHodorCommand = buildHodorInvocation({
+    hodorCommand: DEFAULT_HODOR_COMMAND,
+    combo,
+    issueTitle: "Issue title",
+    issueBody: "Issue body",
+  });
 
   const script = buildRunnerScript({
     combo,
@@ -261,7 +268,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       buildRunnerScript({
         combo: { ...combo, worktree },
         rowerCommand: "true",
-        hodorCommand: DEFAULT_HODOR_COMMAND,
+        hodorCommand: renderedDefaultHodorCommand,
         emit: shellQuote(fakeEmit),
         activateThreadSitter: ":",
         activateJudge: ":",
@@ -355,7 +362,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       buildRunnerScript({
         combo: { ...combo, worktree },
         rowerCommand: "true",
-        hodorCommand: DEFAULT_HODOR_COMMAND,
+        hodorCommand: renderedDefaultHodorCommand,
         emit: shellQuote(fakeEmit),
         activateThreadSitter: ":",
         activateJudge: ":",
@@ -386,9 +393,10 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       "hodor_status --field state=idle --field head_sha=fake-head",
       "needs_human --field reason=pr_missing",
     ]);
-    expect(readFileSync(hodorLog, "utf8")).toBe(
-      "git remote get-url no-mistakes\nno-mistakes axi run\n",
-    );
+    const hodorOutput = readFileSync(hodorLog, "utf8");
+    expect(hodorOutput).toContain("git remote get-url no-mistakes\nno-mistakes axi run --intent");
+    expect(hodorOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
+    expect(hodorOutput).toContain("Fixes #7");
   });
 
   it("emits gate_waiting when no-mistakes stops at an axi approval gate", () => {

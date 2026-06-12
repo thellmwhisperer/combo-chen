@@ -34,7 +34,8 @@ combo-chen stop -n you-repo-128
 `run` validates the issue, creates an isolated git worktree and a tmux
 session, and starts the combo's **runner**: a generated script that rows
 (gnhf), then gates (pre-pushes to the `no-mistakes` remote if one exists,
-then runs `no-mistakes axi run`), journals `hodor_status` events through
+then runs `no-mistakes axi run --intent` with the source issue contract),
+journals `hodor_status` events through
 the hodor lifecycle (fix_inflight → idle / failed / awaiting_approval),
 and journals every milestone as JSONL events. If the gate opens and
 `pr_opened` is detected, the runner activates the judge; if no-mistakes is
@@ -51,8 +52,16 @@ State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
 Copy [`combo-chen.example.toml`](combo-chen.example.toml) to
 `combo-chen.toml` (repo) or `~/.config/combo-chen/config.toml` (user).
 Cascade: defaults ← user ← repo. Zero hardcoded operational values.
+The default hodor command passes an issue-derived intent to no-mistakes that
+ends with `Fixes #N`, where `N` comes from the source issue URL. That explicit
+GitHub autoclose keyword is the PR/body contract for normal issue combos:
+merging the generated PR should close the source issue automatically.
+
 The hodor command supports `{issue_url}`, `{issue_title}`, `{issue_body}`,
-and `{branch}` placeholders that are shell-quoted at runner generation time.
+`{issue_pr_intent}`, and `{branch}` placeholders that are shell-quoted at
+runner generation time. Custom commands that still create issue-closing PRs
+should pass `{issue_pr_intent}` or include an equivalent autoclose keyword;
+free-form text such as `issue #N` is not sufficient for GitHub autoclose.
 
 Required judge config: `[roles].gordon` must be non-empty, and at least one
 listed gordon agent must have a `[gordon.<agent>]` `command` template. The

@@ -33,7 +33,7 @@ export interface ComboConfig {
   rowerCommand: string;
   /** Resume command template for the configured rower, with {thread_id}. */
   rowerResumeCommand: string;
-  /** Command template for hodor's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, branch. */
+  /** Command template for hodor's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
   hodorCommand: string;
   /** How long the hodor tmux window waits for no-mistakes' active run. */
   hodorAttachTimeoutSeconds: number;
@@ -56,7 +56,7 @@ export interface ComboConfig {
 const ROLE_NAMES = new Set(["rower", "hodor", "gordon", "merge"]);
 const DEFAULT_GORDON_PROTOCOL = "La Roca review protocol 7989 + project overlay";
 export const DEFAULT_HODOR_COMMAND =
-  "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run; else no-mistakes axi run; fi";
+  "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi";
 const DEFAULT_GORDON_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
