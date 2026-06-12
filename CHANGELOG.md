@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.18](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.17...combo-chen-v0.0.18) (2026-06-12)
+
+
+### Bug Fixes
+
+* **hodor:** Implemented and verified the hodor tmux-window recovery path for issue [#62](https://github.com/thellmwhisperer/combo-chen/issues/62) so `hodor_started` recreates a missing visible attach watcher. ([24ea198](https://github.com/thellmwhisperer/combo-chen/commit/24ea198f4e955604614ff679516997631c05219a))
+* **hodor:** recover tmux window on hodor_started and poll for active run before attach ([31f6328](https://github.com/thellmwhisperer/combo-chen/commit/31f63282ead6995fd74b379a981e2a2755ea9233))
+* **hodor:** wait for active run before attach ([95dfd55](https://github.com/thellmwhisperer/combo-chen/commit/95dfd55c88e65de05a195e2e50261130d3bde6b9))
+
 ## [0.0.17](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.16...combo-chen-v0.0.17) (2026-06-12)
 
 
