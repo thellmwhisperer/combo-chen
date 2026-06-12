@@ -148,7 +148,7 @@ successfully, awaiting PR detection).
   `no-mistakes attach`, which exits when no active run exists — often
   before the hodor command starts one. On `hodor_started` the emit
   handler recreates the hodor window so the live role window is visible
-  for the rest of the combo lifecycle. The rower window
+  when the no-mistakes run becomes active. The rower window
   includes a short (12-line) journal pane showing live events.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
