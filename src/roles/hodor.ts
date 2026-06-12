@@ -58,6 +58,7 @@ function visiblePrBodyMarkdown(body: string): string {
   const visible: string[] = [];
   let inFence = false;
   let detailsDepth = 0;
+  let inHtmlComment = false;
 
   for (const line of body.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -67,11 +68,39 @@ function visiblePrBodyMarkdown(body: string): string {
     }
     if (inFence) continue;
 
-    const opensDetails = /<details\b/i.test(line);
-    const closesDetails = /<\/details>/i.test(line);
+    let remaining = line;
+    while (inHtmlComment) {
+      const close = remaining.indexOf("-->");
+      if (close === -1) {
+        remaining = "";
+        break;
+      }
+      remaining = remaining.slice(close + 3);
+      inHtmlComment = false;
+    }
+
+    let withoutComments = "";
+    while (remaining !== "") {
+      const open = remaining.indexOf("<!--");
+      if (open === -1) {
+        withoutComments += remaining;
+        break;
+      }
+      withoutComments += remaining.slice(0, open);
+      const afterOpen = remaining.slice(open + 4);
+      const close = afterOpen.indexOf("-->");
+      if (close === -1) {
+        inHtmlComment = true;
+        break;
+      }
+      remaining = afterOpen.slice(close + 3);
+    }
+
+    const opensDetails = /<details\b/i.test(withoutComments);
+    const closesDetails = /<\/details>/i.test(withoutComments);
     if (opensDetails) detailsDepth += 1;
 
-    if (detailsDepth === 0) visible.push(line);
+    if (detailsDepth === 0) visible.push(withoutComments);
 
     if (closesDetails && detailsDepth > 0) detailsDepth -= 1;
   }
