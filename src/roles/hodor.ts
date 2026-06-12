@@ -32,6 +32,10 @@ const KNOWN_HODOR_PLACEHOLDERS = new Set([
 const MAX_INTENT_BODY_LENGTH = 8000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function buildIssuePrIntent(input: {
   combo: Pick<ComboRecord, "issueUrl">;
   issueTitle: string;
@@ -96,11 +100,13 @@ function visiblePrBodyMarkdown(body: string): string {
       remaining = afterOpen.slice(close + 3);
     }
 
-    const opensDetails = /<details\b/i.test(withoutComments);
-    const closesDetails = /<\/details>/i.test(withoutComments);
+    const withoutInlineCode = withoutComments.replace(/`[^`]*`/g, "");
+
+    const opensDetails = /<details\b/i.test(withoutInlineCode);
+    const closesDetails = /<\/details>/i.test(withoutInlineCode);
     if (opensDetails) detailsDepth += 1;
 
-    if (detailsDepth === 0) visible.push(withoutComments);
+    if (detailsDepth === 0) visible.push(withoutInlineCode);
 
     if (closesDetails && detailsDepth > 0) detailsDepth -= 1;
   }
@@ -114,7 +120,8 @@ export function hasIssueAutocloseInPrBody(
 ): boolean {
   const issue = parseIssueUrl(combo.issueUrl);
   const visible = visiblePrBodyMarkdown(body);
-  const issueRef = `(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#${issue.number}`;
+  const sameRepo = escapeRegExp(`${issue.owner}/${issue.repo}`);
+  const issueRef = `(?:#${issue.number}|${sameRepo}#${issue.number})`;
   return new RegExp(`\\b${AUTOCLOSE_KEYWORDS}\\s+${issueRef}\\b`, "i").test(visible);
 }
 

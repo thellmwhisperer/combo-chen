@@ -113,6 +113,7 @@ export function buildRunnerScript(input: RunnerInput): string {
 set -u
 rower_log="$(dirname "$0")/rower.log"
 hodor_log="$(dirname "$0")/hodor.log"
+autoclose_log="$(dirname "$0")/autoclose.log"
 
 cd ${shellQuote(combo.worktree)}
 rower_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
@@ -170,7 +171,12 @@ ${emit} hodor_status --field state=idle --field head_sha="$hodor_head_sha"
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
-  ${ensurePrAutoclose} "$pr_url"
+  if ${ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then
+    :
+  else
+    autoclose_code=$?
+    printf '%s\\n' "autoclose guard skipped with exit code $autoclose_code" >> "$autoclose_log"
+  fi
   ${emit} pr_opened --field url="$pr_url"
   ${activateThreadSitter}
   ${activateJudge}
