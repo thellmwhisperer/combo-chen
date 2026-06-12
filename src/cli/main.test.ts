@@ -1099,6 +1099,36 @@ describe("run", () => {
     expect(runner).not.toContain("git push no-mistakes HEAD");
   });
 
+  it("renders the default hodor intent with an explicit issue autoclose keyword", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              title: "Autoclose source issue",
+              body: "This only mentions issue #7 without a closing keyword.",
+            }),
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const runnerPath = join(runDirFor(h, "o-r-7"), "runner.sh");
+    const runner = readFileSync(runnerPath, "utf8");
+    expect(runner).toContain("no-mistakes axi run --intent");
+    expect(runner).toContain("This only mentions issue #7 without a closing keyword.");
+    expect(runner).toContain("Fixes #7");
+    expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
+  });
+
   it("renders hodor command placeholders with safely quoted issue facts in the runner", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
