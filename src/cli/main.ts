@@ -200,6 +200,8 @@ function requireComboGit(
 function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): boolean {
   const remote = deps.git(["remote", "get-url", "no-mistakes"], combo.worktree);
   if (remote.status !== 0) {
+    // git exits 2 when the named remote is absent; that is expected for combos
+    // whose repo has no no-mistakes mirror configured.
     if (remote.status !== 2) {
       deps.out(
         `mirror sync: git remote get-url no-mistakes failed for ${combo.id}: ${remote.stderr.trim() || `exit code ${remote.status}`}`,

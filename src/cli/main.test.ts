@@ -301,7 +301,7 @@ describe("activate-thread-sitter", () => {
 });
 
 describe("nudge-review-comments", () => {
-  it("fast-forwards the no-mistakes mirror from origin before routing comments", async () => {
+  it("syncs a stale no-mistakes mirror from origin before routing comments", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -509,6 +509,71 @@ describe("nudge-review-comments", () => {
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
     expect(ghCalls.every((call) => call[1] === "api" && !call.includes("--method"))).toBe(true);
+  });
+
+  it("routes a fetched PR comment even when mirror git commands fail", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-owned-session",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        const endpoint = args.at(-1);
+        if (endpoint === "repos/o/r/issues/7/comments") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                user: { login: "coderabbitai" },
+                body: "Please handle this.",
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote") {
+          return { status: 0, stdout: "/home/user/.no-mistakes/repos/o-r.git\n", stderr: "" };
+        }
+        if (args[0] === "fetch") {
+          return { status: 128, stdout: "", stderr: "network down" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["nudge-review-comments", "-n", "o-r-7"]);
+
+    const events = readEvents(dir).filter((event) => event.event === "review_comment");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      author: "coderabbitai",
+      kind: "pr_comment",
+      url: "https://github.com/o/r/pull/7#issuecomment-1",
+    });
+    expect(out.some((line) => line.includes("mirror sync failed"))).toBe(true);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "paste-buffer")).toBe(true);
+    expect(calls.some((call) => call[0] === "gh")).toBe(true);
   });
 
   it("skips the mirror push when origin and mirror SHAs match (no-op)", async () => {
