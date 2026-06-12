@@ -80,6 +80,8 @@ export interface RunnerInput {
   emit: string;
   /** Full invocation for starting the judge loop after a PR has been journaled. */
   activateJudge: string;
+  /** Full invocation prefix for ensuring the PR body visibly autocloses the source issue. */
+  ensurePrAutoclose?: string;
 }
 
 /**
@@ -96,7 +98,15 @@ export function shellQuote(value: string): string {
 }
 
 export function buildRunnerScript(input: RunnerInput): string {
-  const { combo, rowerCommand, hodorCommand, emit, activateThreadSitter, activateJudge } = input;
+  const {
+    combo,
+    rowerCommand,
+    hodorCommand,
+    emit,
+    activateThreadSitter,
+    activateJudge,
+    ensurePrAutoclose = ":",
+  } = input;
   return `#!/bin/sh
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
@@ -160,6 +170,7 @@ ${emit} hodor_status --field state=idle --field head_sha="$hodor_head_sha"
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
+  ${ensurePrAutoclose} "$pr_url"
   ${emit} pr_opened --field url="$pr_url"
   ${activateThreadSitter}
   ${activateJudge}

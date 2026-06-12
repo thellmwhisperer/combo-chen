@@ -98,6 +98,7 @@ describe("buildRunnerScript", () => {
     emit: "node /opt/combo/dist/cli.mjs emit -n o-r-7",
     activateThreadSitter: "node /opt/combo/dist/cli.mjs activate-thread-sitter -n o-r-7",
     activateJudge: "node /opt/combo/dist/cli.mjs activate-judge -n o-r-7",
+    ensurePrAutoclose: "node /opt/combo/dist/cli.mjs ensure-pr-autoclose -n o-r-7 --pr-url",
   });
 
   it("runs inside the worktree", () => {
@@ -607,6 +608,7 @@ exit 130
   });
 
   it("hands off as pr_ready only when a PR exists, pr_missing otherwise", () => {
+    const autoclose = script.indexOf("ensure-pr-autoclose");
     const prReady = script.indexOf("reason=pr_ready");
     const prMissing = script.indexOf("reason=pr_missing");
     const prUrlBranch = script.indexOf('if [ -n "${pr_url:-}" ]');
@@ -617,6 +619,8 @@ exit 130
     // pr_ready lives inside the if-branch that saw a URL; pr_missing in the
     // final else (lastIndexOf: earlier elses belong to rower/hodor failure).
     expect(prUrlBranch).toBeLessThan(prReady);
+    expect(autoclose).toBeGreaterThan(prUrlBranch);
+    expect(autoclose).toBeLessThan(threadSitter);
     expect(prReady).toBeLessThan(prMissingElse);
     expect(prMissing).toBeGreaterThan(prMissingElse);
     expect(threadSitter).toBeGreaterThan(prUrlBranch);

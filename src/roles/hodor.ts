@@ -30,6 +30,7 @@ const KNOWN_HODOR_PLACEHOLDERS = new Set([
 ]);
 
 const MAX_INTENT_BODY_LENGTH = 8000;
+const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
 
 export function buildIssuePrIntent(input: {
   combo: Pick<ComboRecord, "issueUrl">;
@@ -51,6 +52,51 @@ export function buildIssuePrIntent(input: {
   }
   intent.push("", `Fixes #${issue.number}`);
   return intent.join("\n");
+}
+
+function visiblePrBodyMarkdown(body: string): string {
+  const visible: string[] = [];
+  let inFence = false;
+  let detailsDepth = 0;
+
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^(```|~~~)/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+
+    const opensDetails = /<details\b/i.test(line);
+    const closesDetails = /<\/details>/i.test(line);
+    if (opensDetails) detailsDepth += 1;
+
+    if (detailsDepth === 0) visible.push(line);
+
+    if (closesDetails && detailsDepth > 0) detailsDepth -= 1;
+  }
+
+  return visible.join("\n");
+}
+
+export function hasIssueAutocloseInPrBody(
+  body: string,
+  combo: Pick<ComboRecord, "issueUrl">,
+): boolean {
+  const issue = parseIssueUrl(combo.issueUrl);
+  const visible = visiblePrBodyMarkdown(body);
+  const issueRef = `(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#${issue.number}`;
+  return new RegExp(`\\b${AUTOCLOSE_KEYWORDS}\\s+${issueRef}\\b`, "i").test(visible);
+}
+
+export function ensureIssueAutocloseInPrBody(
+  body: string,
+  combo: Pick<ComboRecord, "issueUrl">,
+): string {
+  if (hasIssueAutocloseInPrBody(body, combo)) return body;
+  const issue = parseIssueUrl(combo.issueUrl);
+  const line = `Fixes #${issue.number}`;
+  return body.trim() === "" ? `${line}\n` : `${line}\n\n${body}`;
 }
 
 export function buildHodorInvocation(input: HodorInput): string {
