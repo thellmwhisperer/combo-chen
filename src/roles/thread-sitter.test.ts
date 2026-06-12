@@ -76,7 +76,7 @@ describe("thread-sitter activation commands", () => {
     ).toBe("hermes --resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
   });
 
-  it("builds a small polling watcher around the read-only nudge helper", () => {
+  it("builds a small polling watcher around the nudge helper", () => {
     expect(
       buildReviewWatchCommand({
         cli: '"node" "/opt/combo/dist/cli.mjs"',
