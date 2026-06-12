@@ -30,6 +30,11 @@ const KNOWN_HODOR_PLACEHOLDERS = new Set([
 ]);
 
 const MAX_INTENT_BODY_LENGTH = 8000;
+const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export function buildIssuePrIntent(input: {
   combo: Pick<ComboRecord, "issueUrl">;
@@ -51,6 +56,83 @@ export function buildIssuePrIntent(input: {
   }
   intent.push("", `Fixes #${issue.number}`);
   return intent.join("\n");
+}
+
+function visiblePrBodyMarkdown(body: string): string {
+  const visible: string[] = [];
+  let inFence = false;
+  let detailsDepth = 0;
+  let inHtmlComment = false;
+
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^(```|~~~)/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+
+    let remaining = line;
+    while (inHtmlComment) {
+      const close = remaining.indexOf("-->");
+      if (close === -1) {
+        remaining = "";
+        break;
+      }
+      remaining = remaining.slice(close + 3);
+      inHtmlComment = false;
+    }
+
+    let withoutComments = "";
+    while (remaining !== "") {
+      const open = remaining.indexOf("<!--");
+      if (open === -1) {
+        withoutComments += remaining;
+        break;
+      }
+      withoutComments += remaining.slice(0, open);
+      const afterOpen = remaining.slice(open + 4);
+      const close = afterOpen.indexOf("-->");
+      if (close === -1) {
+        inHtmlComment = true;
+        break;
+      }
+      remaining = afterOpen.slice(close + 3);
+    }
+
+    const withoutInlineCode = withoutComments.replace(/`[^`]*`/g, "");
+
+    const opensDetails = /<details\b/i.test(withoutInlineCode);
+    const closesDetails = /<\/details>/i.test(withoutInlineCode);
+    if (opensDetails) detailsDepth += 1;
+
+    if (detailsDepth === 0) visible.push(withoutInlineCode);
+
+    if (closesDetails && detailsDepth > 0) detailsDepth -= 1;
+  }
+
+  return visible.join("\n");
+}
+
+export function hasIssueAutocloseInPrBody(
+  body: string,
+  combo: Pick<ComboRecord, "issueUrl">,
+): boolean {
+  const issue = parseIssueUrl(combo.issueUrl);
+  const visible = visiblePrBodyMarkdown(body);
+  const sameRepo = escapeRegExp(`${issue.owner}/${issue.repo}`);
+  const issueRef = `(?:#${issue.number}|${sameRepo}#${issue.number})`;
+  return new RegExp(`\\b${AUTOCLOSE_KEYWORDS}\\s+${issueRef}\\b`, "i").test(visible);
+}
+
+export function ensureIssueAutocloseInPrBody(
+  body: string,
+  combo: Pick<ComboRecord, "issueUrl">,
+): string {
+  if (hasIssueAutocloseInPrBody(body, combo)) return body;
+  const issue = parseIssueUrl(combo.issueUrl);
+  const line = `Fixes #${issue.number}`;
+  return body.trim() === "" ? `${line}\n` : `${line}\n\n${body}`;
 }
 
 export function buildHodorInvocation(input: HodorInput): string {

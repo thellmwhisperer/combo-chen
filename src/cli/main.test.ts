@@ -85,6 +85,7 @@ describe("command surface", () => {
         "activate-thread-sitter",
         "attach",
         "emit",
+        "ensure-pr-autoclose",
         "events",
         "judge-tick",
         "nudge-review-comments",
@@ -93,6 +94,134 @@ describe("command surface", () => {
         "stop",
       ].sort(),
     );
+  });
+
+  it("ensures a generated PR body has a visible source issue autoclose line", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: "## Intent\n\nThis mentions issue #7.\n\n```text\nFixes #7\n```\n",
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["ensure-pr-autoclose", "-n", "o-r-7", "--pr-url", "https://github.com/o/r/pull/9"]);
+
+    expect(ghCalls[0]).toEqual([
+      "gh",
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/9",
+      "--json",
+      "body",
+      "--jq",
+      ".body",
+    ]);
+    expect(ghCalls[1]?.slice(0, 5)).toEqual([
+      "gh",
+      "pr",
+      "edit",
+      "https://github.com/o/r/pull/9",
+      "--body-file",
+    ]);
+    const bodyPath = ghCalls[1]?.[5];
+    expect(bodyPath).toBe(join(dir, "pr-body.autoclose.md"));
+    expect(readFileSync(bodyPath!, "utf8")).toBe(
+      "Fixes #7\n\n## Intent\n\nThis mentions issue #7.\n\n```text\nFixes #7\n```\n",
+    );
+    expect(out).toEqual(["pr autoclose ensured for o-r-7"]);
+  });
+
+  it("leaves a PR body unchanged when a visible autoclose line already exists", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        return { status: 0, stdout: "## Intent\n\nFixes #7\n", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["ensure-pr-autoclose", "-n", "o-r-7", "--pr-url", "https://github.com/o/r/pull/9"]);
+
+    expect(ghCalls).toHaveLength(1);
+    expect(out).toEqual(["pr autoclose already present for o-r-7"]);
+  });
+
+  it("reports a gh pr view failure while ensuring PR autoclose", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: () => ({ status: 1, stdout: "", stderr: "no pr" }),
+    });
+
+    await expect(
+      exec(deps, ["ensure-pr-autoclose", "-n", "o-r-7", "--pr-url", "https://github.com/o/r/pull/9"]),
+    ).rejects.toThrow("gh pr view failed for https://github.com/o/r/pull/9: no pr");
+  });
+
+  it("reports a gh pr edit failure while ensuring PR autoclose", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return { status: 0, stdout: "## Intent\n\nmentions issue #7\n", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: "edit rejected" };
+      },
+    });
+
+    await expect(
+      exec(deps, ["ensure-pr-autoclose", "-n", "o-r-7", "--pr-url", "https://github.com/o/r/pull/9"]),
+    ).rejects.toThrow("gh pr edit failed for https://github.com/o/r/pull/9: edit rejected");
   });
 });
 
