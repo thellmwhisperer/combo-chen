@@ -80,6 +80,8 @@ describe("PR body issue autoclose contract", () => {
       "## What Changed",
       "This addresses issue #53.",
       "Closes #N",
+      "Fixes other/repo#53",
+      "The literal code span `Fixes #53` should not count.",
       "<!-- Fixes #53 -->",
       "",
       "```text",
