@@ -547,7 +547,10 @@ function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions
   return [
     `cd ${shellQuote(combo.worktree)}`,
     "attempt=0",
-    "while ! no-mistakes attach; do",
+    "while :; do",
+    "  if no-mistakes axi status 2>/dev/null | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
+    "    exec no-mistakes attach",
+    "  fi",
     "  attempt=$((attempt + 1))",
     `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
     `    echo "hodor-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
@@ -1053,7 +1056,7 @@ export function createProgram(deps: Deps): Command {
         // The hodor tmux window runs `no-mistakes attach`, which exits when
         // no active no-mistakes run exists — often before the runner's hodor
         // command starts one.  Recreate the window now so the live role
-        // window is visible for the rest of the combo lifecycle.
+        // window is visible when the no-mistakes run becomes active.
         try {
           const combo = readCombo(runDir);
           const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
