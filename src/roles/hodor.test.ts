@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildHodorInvocation, buildIssuePrIntent, parseAxiOutcome } from "./hodor.js";
+import {
+  buildHodorInvocation,
+  buildIssuePrIntent,
+  ensureIssueAutocloseInPrBody,
+  hasIssueAutocloseInPrBody,
+  parseAxiOutcome,
+} from "./hodor.js";
 
 describe("buildHodorInvocation", () => {
   it("uses the configured gate command", () => {
@@ -58,5 +64,50 @@ describe("parseAxiOutcome", () => {
 
   it("returns undefined when no outcome is present (tolerant by design)", () => {
     expect(parseAxiOutcome("run:\n  step: review")).toBeUndefined();
+  });
+});
+
+describe("PR body issue autoclose contract", () => {
+  const combo = { issueUrl: "https://github.com/o/r/issues/53" };
+
+  it("accepts a concrete visible GitHub autoclose keyword for the source issue", () => {
+    expect(hasIssueAutocloseInPrBody("Summary\n\nFixes #53\n", combo)).toBe(true);
+    expect(hasIssueAutocloseInPrBody("Summary\n\nCloses o/r#53\n", combo)).toBe(true);
+  });
+
+  it("rejects free-form mentions, generic placeholders, and hidden-only autoclose lines", () => {
+    const body = [
+      "## What Changed",
+      "This addresses issue #53.",
+      "Closes #N",
+      "Fixes other/repo#53",
+      "The literal code span `Fixes #53` should not count.",
+      "<!-- Fixes #53 -->",
+      "",
+      "```text",
+      "Fixes #53",
+      "```",
+      "",
+      "<details>",
+      "<summary>Evidence</summary>",
+      "Resolves #53",
+      "</details>",
+    ].join("\n");
+
+    expect(hasIssueAutocloseInPrBody(body, combo)).toBe(false);
+  });
+
+  it("prefixes a missing visible autoclose line derived from the source issue URL", () => {
+    const body = "## What Changed\n\nThis addresses issue #53.\n\n```text\nFixes #53\n```";
+
+    expect(ensureIssueAutocloseInPrBody(body, combo)).toBe(
+      "Fixes #53\n\n## What Changed\n\nThis addresses issue #53.\n\n```text\nFixes #53\n```",
+    );
+  });
+
+  it("leaves an existing visible concrete autoclose line unchanged", () => {
+    const body = "## Intent\n\nResolves #53\n\n## Testing\n\npassed";
+
+    expect(ensureIssueAutocloseInPrBody(body, combo)).toBe(body);
   });
 });
