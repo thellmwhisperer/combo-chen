@@ -571,6 +571,19 @@ function startHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOp
   }
 }
 
+function ensureHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOptions): void {
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  if (listed.stdout.split(/\r?\n/).includes("hodor")) return;
+
+  startHodorWindow(deps, combo, options);
+}
+
 function resolveAttachCombo(
   deps: Deps,
   home: string,
@@ -1036,6 +1049,14 @@ export function createProgram(deps: Deps): Command {
         persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
+      if (event === "hodor_started") {
+        const combo = readCombo(runDir);
+        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+        ensureHodorWindow(deps, combo, {
+          timeoutSeconds: config.hodorAttachTimeoutSeconds,
+          retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
+        });
+      }
     });
 
   program
