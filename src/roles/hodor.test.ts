@@ -1,12 +1,52 @@
 import { describe, expect, it } from "vitest";
 
-import { buildHodorInvocation, parseAxiOutcome } from "./hodor.js";
+import { buildHodorInvocation, buildIssuePrIntent, parseAxiOutcome } from "./hodor.js";
 
 describe("buildHodorInvocation", () => {
   it("uses the configured gate command", () => {
     expect(buildHodorInvocation({ hodorCommand: "no-mistakes axi run" })).toBe(
       "no-mistakes axi run",
     );
+  });
+
+  it("builds an issue-derived PR intent with an autoclose keyword", () => {
+    const intent = buildIssuePrIntent({
+      combo: { issueUrl: "https://github.com/o/r/issues/53" },
+      issueTitle: "Include GitHub autoclose keywords",
+      issueBody: "This mentions issue #53 but not as a close directive.",
+    });
+
+    expect(intent).toContain("Implement GitHub issue https://github.com/o/r/issues/53.");
+    expect(intent).toContain("Title: Include GitHub autoclose keywords");
+    expect(intent).toContain("This mentions issue #53 but not as a close directive.");
+    expect(intent).toContain("Fixes #53");
+  });
+
+  it("produces a valid intent with an empty issue body", () => {
+    const intent = buildIssuePrIntent({
+      combo: { issueUrl: "https://github.com/o/r/issues/53" },
+      issueTitle: "Include GitHub autoclose keywords",
+      issueBody: "",
+    });
+
+    expect(intent).toContain("Implement GitHub issue https://github.com/o/r/issues/53.");
+    expect(intent).toContain("Title: Include GitHub autoclose keywords");
+    expect(intent).not.toContain("Issue body:");
+    expect(intent).toContain("Fixes #53");
+  });
+
+  it("truncates issue body when it exceeds the max length", () => {
+    const body = "x".repeat(9000);
+    const intent = buildIssuePrIntent({
+      combo: { issueUrl: "https://github.com/o/r/issues/53" },
+      issueTitle: "Title",
+      issueBody: body,
+    });
+
+    expect(intent).toContain("Issue body:");
+    expect(intent).toContain("...");
+    expect(intent).toContain("Fixes #53");
+    expect(intent.length).toBeLessThan(body.length + 200);
   });
 });
 
