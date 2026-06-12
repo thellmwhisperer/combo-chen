@@ -23,7 +23,7 @@ Validation at launch (hard failures, the combo refuses to start):
 ```
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
   └─▶ ROWING     gnhf loop; ends with rower_done + captured thread_id
-        └─▶ GATING     pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, hodor_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
+        └─▶ GATING     hodor_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, hodor_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
               └─▶ JUDGING    gordon loop + thread-sitter + hodor ci-step in parallel
                     └─▶ READY      lgtm_current ∧ rabbit_clean ∧ checks_passed
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
@@ -77,7 +77,8 @@ with the `no-mistakes` mirror and syncs the mirror when it is stale, using
 Hodor needs no symmetric check — he owns CI-red moments; the thread-sitter owns CI-green
 moments.
 
-The `hodor_status` event records hodor's lifecycle: `fix_inflight` (hodor
+`hodor_started` marks the beginning of hodor's lifecycle.  The
+`hodor_status` event records hodor's ongoing lifecycle: `fix_inflight` (hodor
 started and no-mistakes is running), `awaiting_approval` (gate requires
 human sign-off), `failed` (non-zero exit), or `idle` (hodor completed
 successfully, awaiting PR detection).
@@ -143,7 +144,11 @@ successfully, awaiting PR detection).
 ## 8. Director mechanics (v0)
 
 - One tmux session per combo: windows for rower, hodor, and any
-  interactive agent roles (gordon, thread-sitter). The rower window
+  interactive agent roles (gordon, thread-sitter). The hodor window runs
+  `no-mistakes attach`, which exits when no active run exists — often
+  before the hodor command starts one. On `hodor_started` the emit
+  handler recreates the hodor window so the live role window is visible
+  for the rest of the combo lifecycle. The rower window
   includes a short (12-line) journal pane showing live events.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
