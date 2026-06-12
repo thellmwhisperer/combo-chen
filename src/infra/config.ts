@@ -37,7 +37,7 @@ export interface ComboConfig {
   hodorCommand: string;
   /** How long the hodor tmux window waits for no-mistakes' active run. */
   hodorAttachTimeoutSeconds: number;
-  /** How often the hodor tmux window retries no-mistakes attach. */
+  /** How often the hodor tmux window polls for no-mistakes' active run. */
   hodorAttachRetryIntervalSeconds: number;
   /** Prompt template sent to the thread-sitter for each routed review signal. */
   reviewNudgePrompt: string;
