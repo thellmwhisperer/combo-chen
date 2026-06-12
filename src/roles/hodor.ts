@@ -29,6 +29,8 @@ const KNOWN_HODOR_PLACEHOLDERS = new Set([
   "branch",
 ]);
 
+const MAX_INTENT_BODY_LENGTH = 8000;
+
 export function buildIssuePrIntent(input: {
   combo: Pick<ComboRecord, "issueUrl">;
   issueTitle: string;
@@ -41,7 +43,12 @@ export function buildIssuePrIntent(input: {
     `Title: ${input.issueTitle}`,
   ];
   const body = input.issueBody.trim();
-  if (body !== "") intent.push("", "Issue body:", body);
+  if (body !== "") {
+    const truncated = body.length > MAX_INTENT_BODY_LENGTH
+      ? `${body.slice(0, MAX_INTENT_BODY_LENGTH)}\n...`
+      : body;
+    intent.push("", "Issue body:", truncated);
+  }
   intent.push("", `Fixes #${issue.number}`);
   return intent.join("\n");
 }
