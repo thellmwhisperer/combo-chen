@@ -1050,6 +1050,10 @@ export function createProgram(deps: Deps): Command {
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
       if (event === "hodor_started") {
+        // The hodor tmux window runs `no-mistakes attach`, which exits when
+        // no active no-mistakes run exists — often before the runner's hodor
+        // command starts one.  Recreate the window now so the live role
+        // window is visible for the rest of the combo lifecycle.
         const combo = readCombo(runDir);
         const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
         ensureHodorWindow(deps, combo, {
