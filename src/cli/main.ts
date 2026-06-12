@@ -39,7 +39,7 @@ import {
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
-import { buildHodorInvocation } from "../roles/hodor.js";
+import { buildHodorInvocation, ensureIssueAutocloseInPrBody } from "../roles/hodor.js";
 import { buildJudgeInvocation, incrementalJudgePrompt } from "../roles/judge.js";
 import { buildRowerInvocation, persistRowerThreadArtifact } from "../roles/rower.js";
 import {
@@ -708,6 +708,7 @@ export function createProgram(deps: Deps): Command {
         activateThreadSitter: `${cliInvocation()} activate-thread-sitter -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
         activateJudge: `${cliInvocation()} activate-judge -n ${id}`,
+        ensurePrAutoclose: `${cliInvocation()} ensure-pr-autoclose -n ${shellQuote(id)} --pr-url`,
       });
       const runnerPath = join(runDir, "runner.sh");
       writeFileSync(runnerPath, runner);
@@ -1035,6 +1036,34 @@ export function createProgram(deps: Deps): Command {
         persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
+    });
+
+  program
+    .command("ensure-pr-autoclose", { hidden: true })
+    .description("Ensure the PR body visibly autocloses the combo source issue")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .requiredOption("--pr-url <url>", "Pull request URL")
+    .action(async (options: { name: string; prUrl: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const viewed = deps.gh(["pr", "view", options.prUrl, "--json", "body", "--jq", ".body"]);
+      if (viewed.status !== 0) {
+        throw new Error(`gh pr view failed for ${options.prUrl}: ${viewed.stderr.trim() || "unknown error"}`);
+      }
+
+      const nextBody = ensureIssueAutocloseInPrBody(viewed.stdout, combo);
+      if (nextBody === viewed.stdout) {
+        deps.out(`pr autoclose already present for ${combo.id}`);
+        return;
+      }
+
+      const bodyPath = join(runDir, "pr-body.autoclose.md");
+      writeFileSync(bodyPath, nextBody);
+      const edited = deps.gh(["pr", "edit", options.prUrl, "--body-file", bodyPath]);
+      if (edited.status !== 0) {
+        throw new Error(`gh pr edit failed for ${options.prUrl}: ${edited.stderr.trim() || "unknown error"}`);
+      }
+      deps.out(`pr autoclose ensured for ${combo.id}`);
     });
 
   program
