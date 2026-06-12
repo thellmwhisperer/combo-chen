@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.17](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.16...combo-chen-v0.0.17) (2026-06-12)
+
+
+### Bug Fixes
+
+* **hodor:** ensure PR body autocloses issue ([0726c7c](https://github.com/thellmwhisperer/combo-chen/commit/0726c7c429edfebe924c4aecebb514f65e9dbc1a))
+* **hodor:** ensure PR body autocloses issue ([35e3751](https://github.com/thellmwhisperer/combo-chen/commit/35e375166f00eec1cf9f3189486d9d00a9d69f2b))
+* **hodor:** reject hidden autoclose false positives ([f04066b](https://github.com/thellmwhisperer/combo-chen/commit/f04066bda3c5ea30816b38fb439a9af5763e55b7))
+
 ## [0.0.16](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.15...combo-chen-v0.0.16) (2026-06-12)
 
 
