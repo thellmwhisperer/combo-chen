@@ -135,6 +135,7 @@
 
 ### Features
 
+* **sitter:** no-mistakes mirror freshness guard — the review-comment watcher fast-forwards a stale `no-mistakes` mirror from `origin` before each polling cycle, gated on the hodor `fix_inflight` semaphore ([#40](https://github.com/thellmwhisperer/combo-chen/issues/40))
 * **attach:** `combo-chen attach` command for attaching to a running combo's tmux session, with auto-resolution when only one combo is running and journal pane recreation on attach.
 * **cli:** journal pane in rower window replaces the separate watch window; cleanup on failure.
 * **hodor:** gate pre-push to `no-mistakes` remote before pipeline ([#8](https://github.com/thellmwhisperer/combo-chen/issues/8))

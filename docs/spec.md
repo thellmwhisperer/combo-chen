@@ -64,6 +64,9 @@ another path.
 **Push semaphore:** the thread-sitter must not push while hodor has a CI
 fix in flight (hodor force-pushes). Before pushing: check hodor state
 (`no-mistakes axi status` or `hodor_status` with `state=fix_inflight`).
+On every review-comment watcher cycle, combo-chen also compares `origin/<branch>`
+with the `no-mistakes` mirror and syncs the mirror when it is stale, using
+`--force-with-lease` when reconciling an existing mirror branch.
 Hodor needs no symmetric check — he owns CI-red moments; the thread-sitter owns CI-green
 moments.
 
