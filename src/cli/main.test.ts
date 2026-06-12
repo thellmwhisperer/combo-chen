@@ -1077,6 +1077,47 @@ describe("emit", () => {
     });
     expect(readEvents(dir).map((event) => event.event)).toEqual(["rower_done"]);
   });
+
+  it("recreates the hodor tmux window when hodor starts after the early attach watcher exited", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") return { status: 0, stdout: "rower\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "hodor_started"]);
+
+    const hodorWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    );
+    expect(hodorWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "hodor",
+      expect.stringContaining("no-mistakes attach"),
+    ]);
+    expect(hodorWindow?.at(-1)).toContain(worktree);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["hodor_started"]);
+  });
 });
 
 describe("run", () => {
