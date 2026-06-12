@@ -176,10 +176,12 @@ function buildJudgeWatchCommand(input: {
   ].join("\n");
 }
 
-function firstRemoteSha(stdout: string): string | undefined {
-  const trimmed = stdout.trim();
-  if (trimmed === "") return undefined;
-  return trimmed.split(/\s+/)[0];
+function remoteShaForRef(stdout: string, ref: string): string | undefined {
+  for (const line of stdout.split(/\r?\n/)) {
+    const [sha, candidate] = line.trim().split(/\s+/, 2);
+    if (candidate === ref && sha !== undefined && sha !== "") return sha;
+  }
+  return undefined;
 }
 
 function requireComboGit(
@@ -215,7 +217,7 @@ function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): b
   requireComboGit(
     deps,
     combo,
-    ["fetch", "origin", `${combo.branch}:${originRef}`],
+    ["fetch", "origin", `+${combo.branch}:${originRef}`],
     "git fetch origin branch",
   );
   const origin = requireComboGit(
@@ -224,13 +226,14 @@ function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): b
     ["rev-parse", originRef],
     "git rev-parse origin branch",
   ).stdout.trim();
-  const mirrorSha = firstRemoteSha(
+  const mirrorSha = remoteShaForRef(
     requireComboGit(
       deps,
       combo,
       ["ls-remote", "--heads", "no-mistakes", combo.branch],
       "git ls-remote no-mistakes branch",
     ).stdout,
+    mirrorRef,
   );
 
   if (origin === mirrorSha) return false;
