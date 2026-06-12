@@ -1054,12 +1054,18 @@ export function createProgram(deps: Deps): Command {
         // no active no-mistakes run exists — often before the runner's hodor
         // command starts one.  Recreate the window now so the live role
         // window is visible for the rest of the combo lifecycle.
-        const combo = readCombo(runDir);
-        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-        ensureHodorWindow(deps, combo, {
-          timeoutSeconds: config.hodorAttachTimeoutSeconds,
-          retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
-        });
+        try {
+          const combo = readCombo(runDir);
+          const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+          ensureHodorWindow(deps, combo, {
+            timeoutSeconds: config.hodorAttachTimeoutSeconds,
+            retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
+          });
+        } catch (err) {
+          process.stderr.write(
+            `combo-chen: hodor window recovery failed for ${options.name}: ${err instanceof Error ? err.message : String(err)}\n`,
+          );
+        }
       }
     });
 
