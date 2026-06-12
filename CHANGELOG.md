@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.16](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.15...combo-chen-v0.0.16) (2026-06-12)
+
+
+### Bug Fixes
+
+* **hodor:** implement issue-derived autoclose contract and truncate intent at 8KB ([76255ec](https://github.com/thellmwhisperer/combo-chen/commit/76255ecb28cc896bb60e65c0542fc6563f461c97))
+* **hodor:** Implemented the issue-derived GitHub autoclose contract for default combo PR generation and validated the full suite green. ([ef2d9d9](https://github.com/thellmwhisperer/combo-chen/commit/ef2d9d97b424c19fe70998f529a41a7d5a9d0e93))
+
 ## [0.0.15](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.14...combo-chen-v0.0.15) (2026-06-12)
 
 
