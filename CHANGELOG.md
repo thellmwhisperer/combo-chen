@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.15](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.14...combo-chen-v0.0.15) (2026-06-12)
+
+
+### Bug Fixes
+
+* **sitter:** defend mirror freshness against stale-reconciliation data loss ([21fc843](https://github.com/thellmwhisperer/combo-chen/commit/21fc8432fb470c0a866e60ee37242a9514f7d019))
+* **sitter:** force-refresh origin mirror ref ([d406bac](https://github.com/thellmwhisperer/combo-chen/commit/d406bac803dba1c078a6847d2c345cc51793caf8))
+* **sitter:** harden mirror sync after rebase ([c5c21d2](https://github.com/thellmwhisperer/combo-chen/commit/c5c21d2869464c89d2acb12e129d0e01a69252bf))
+* **sitter:** Implemented issue [#40](https://github.com/thellmwhisperer/combo-chen/issues/40) by making the sitter watcher fast-forward a stale no-mistakes mirror from origin before each review-comment polling cycle, with full validation green. ([61bd0a2](https://github.com/thellmwhisperer/combo-chen/commit/61bd0a27927faa060700e959819c83406ec7143e))
+
 ## [0.0.14](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.13...combo-chen-v0.0.14) (2026-06-11)
 
 
