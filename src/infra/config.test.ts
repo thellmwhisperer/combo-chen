@@ -19,10 +19,13 @@ describe("loadConfig", () => {
   it("returns the documented defaults when no config exists", () => {
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: join(tempDir(), "missing.toml") });
 
-    expect(config.roles.rower).toBe("codex");
-    expect(config.roles.hodor).toBe("no-mistakes");
-    expect(config.roles.gordon).toEqual(["claude", "coderabbit"]);
+    expect(config.roles.coder).toBe("codex");
+    expect(config.roles.gatekeeper).toBe("no-mistakes");
+    expect(config.roles.reviewer).toEqual(["claude", "coderabbit"]);
     expect(config.roles.merge).toBe("human");
+    expect(config.roles).not.toHaveProperty("rower");
+    expect(config.roles).not.toHaveProperty("hodor");
+    expect(config.roles).not.toHaveProperty("gordon");
     expect(config.limits.babysitPollSeconds).toBe(120);
     expect(config.limits.coderTimeoutMinutes).toBe(180);
     expect(config.hodorAttachTimeoutSeconds).toBe(1800);
@@ -53,7 +56,7 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
 
-    expect(config.roles.rower).toBe("hermes:deepseek");
+    expect(config.roles.coder).toBe("hermes:deepseek");
     expect(config.rowerCommand).toBe('hermes -z "{prompt}"');
     expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
@@ -69,7 +72,7 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir, userConfigPath: userConfig });
 
-    expect(config.roles.rower).toBe("codex");
+    expect(config.roles.coder).toBe("codex");
   });
 
   it("loads gatekeeper attach retry settings through env, repo, user, fallback order", () => {
@@ -185,9 +188,9 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("hermes:deepseek");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["coderabbit", "hermes:gemini"]);
-    expect(config.roles.rower).toBe("hermes:deepseek");
-    expect(config.roles.hodor).toBe("no-mistakes");
-    expect(config.roles.gordon).toEqual(["coderabbit", "hermes:gemini"]);
+    expect(config.roles).not.toHaveProperty("rower");
+    expect(config.roles).not.toHaveProperty("hodor");
+    expect(config.roles).not.toHaveProperty("gordon");
     expect(config.rowerCommand).toBe("hermes -z {prompt}");
     expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.hodorCommand).toBe("gate --intent {issue_pr_intent}");
