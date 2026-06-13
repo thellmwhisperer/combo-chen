@@ -44,8 +44,10 @@ describe("loadConfig", () => {
     expect(config.reviewNudgePrompt).toContain("coder responding mode");
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
     expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
-    expect(config.threadSitterWindowName).toBe("coder-responding");
-    expect(config.threadSitterWatchWindowName).toBe("comment-watch");
+    expect(config.coderRespondingWindowName).toBe("coder-responding");
+    expect(config.coderRespondingWatchWindowName).toBe("comment-watch");
+    expect(config).not.toHaveProperty("threadSitterWindowName");
+    expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
     expect(config.reviewerProtocol).toContain("7989");
@@ -65,8 +67,8 @@ describe("loadConfig", () => {
     expect(config.coderCommand).toBe('hermes -z "{prompt}"');
     expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
-    expect(config.threadSitterWindowName).toBe("sitter");
-    expect(config.threadSitterWatchWindowName).toBe("sitter-watch");
+    expect(config.coderRespondingWindowName).toBe("sitter");
+    expect(config.coderRespondingWatchWindowName).toBe("sitter-watch");
   });
 
   it("repo config wins over user config (repo owns policy)", () => {
@@ -210,8 +212,10 @@ describe("loadConfig", () => {
     expect(config.reviewerCommand).toBe("hermes review {pr_url} {prompt}");
     expect(config.reviewerProtocol).toBe("project review protocol 1234");
     expect(config.reviewNudgePrompt).toBe("Please review {url}");
-    expect(config.threadSitterWindowName).toBe("coder-reply");
-    expect(config.threadSitterWatchWindowName).toBe("comment-watch-local");
+    expect(config.coderRespondingWindowName).toBe("coder-reply");
+    expect(config.coderRespondingWatchWindowName).toBe("comment-watch-local");
+    expect(config).not.toHaveProperty("threadSitterWindowName");
+    expect(config).not.toHaveProperty("threadSitterWatchWindowName");
   });
 
   it("refuses to launch when gordon would judge their own cooking", () => {

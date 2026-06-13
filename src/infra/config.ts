@@ -42,9 +42,9 @@ export interface ComboConfig {
   /** Prompt template sent to the coder responding mode for each routed review signal. */
   reviewNudgePrompt: string;
   /** tmux window name for the resumed coder responding mode. */
-  threadSitterWindowName: string;
+  coderRespondingWindowName: string;
   /** tmux window name for the review-comment watcher. */
-  threadSitterWatchWindowName: string;
+  coderRespondingWatchWindowName: string;
   /** First configured reviewer with an executable command template. */
   reviewerAgent: string;
   /** Command template for the reviewer loop, with {placeholders}. */
@@ -355,8 +355,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "[gatekeeper]",
     ),
     reviewNudgePrompt: String(coderRespondingTable["review_nudge_prompt"]),
-    threadSitterWindowName: String(coderRespondingTable["window_name"]),
-    threadSitterWatchWindowName: String(coderRespondingTable["watch_window_name"]),
+    coderRespondingWindowName: String(coderRespondingTable["window_name"]),
+    coderRespondingWatchWindowName: String(coderRespondingTable["watch_window_name"]),
     reviewerAgent,
     reviewerCommand,
     reviewerProtocol,
