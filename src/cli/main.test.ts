@@ -877,7 +877,7 @@ describe("nudge-review-comments", () => {
     ]);
   });
 
-  it("skips the mirror push when hodor has a CI fix in flight", async () => {
+  it("skips the mirror push when the gate has a CI fix in flight", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -892,7 +892,7 @@ describe("nudge-review-comments", () => {
       createdAt: new Date().toISOString(),
     });
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "hodor_status", { state: "fix_inflight", head_sha: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" });
+    appendEvent(dir, "gate_status", { state: "fix_inflight", head_sha: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" });
 
     const originSha = "ffffffffffffffffffffffffffffffffffffffff";
     const mirrorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -948,7 +948,7 @@ describe("emit", () => {
       "emit",
       "-n",
       "o-r-7",
-      "rower_failed",
+      "coder_failed",
       "--field",
       "exit_code=3",
       "--field",
@@ -957,12 +957,12 @@ describe("emit", () => {
 
     const events = readEvents(dir);
     expect(events).toHaveLength(1);
-    expect(events[0]?.event).toBe("rower_failed");
+    expect(events[0]?.event).toBe("coder_failed");
     expect(events[0]?.["exit_code"]).toBe(3);
     expect(events[0]?.["has_new_commits"]).toBe(true);
   });
 
-  it("accepts hodor_status from the CLI with its current state", async () => {
+  it("accepts gate_status from the CLI with its current state", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -980,7 +980,7 @@ describe("emit", () => {
       "emit",
       "-n",
       "o-r-7",
-      "hodor_status",
+      "gate_status",
       "--field",
       "state=fix_inflight",
       "--field",
@@ -990,7 +990,7 @@ describe("emit", () => {
     const events = readEvents(dir);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      event: "hodor_status",
+      event: "gate_status",
       state: "fix_inflight",
       head_sha: "0123456789abcdef0123456789abcdef01234567",
     });
@@ -1035,7 +1035,7 @@ describe("emit", () => {
     ]);
     await exec(deps, ["emit", "-n", "o-r-7", "merged", "--field", "sha=def456", "--field", "by=javi"]);
     await exec(deps, ["emit", "-n", "o-r-7", "combo_closed"]);
-    await exec(deps, ["emit", "-n", "o-r-7", "rower_retry"]);
+    await exec(deps, ["emit", "-n", "o-r-7", "coder_retry"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual([
       "review_comment",
@@ -1043,42 +1043,44 @@ describe("emit", () => {
       "lgtm_stale",
       "merged",
       "combo_closed",
-      "rower_retry",
+      "coder_retry",
     ]);
   });
 
   it("surfaces emitting to a combo that was never created (caller bug)", async () => {
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: home() } });
-    await expect(exec(deps, ["emit", "-n", "ghost", "rower_started"])).rejects.toThrow(/ENOENT/);
+    await expect(exec(deps, ["emit", "-n", "ghost", "coder_started"])).rejects.toThrow(/ENOENT/);
   });
 
-  it("persists the codex thread artifact when rower_done is emitted", async () => {
-    const h = home();
-    const worktree = mkdtempSync(join(tmpdir(), "combo-chen-worktree-"));
-    seedCodexGnhfRun(worktree);
-    const dir = runDirFor(h, "o-r-7");
-    writeCombo(dir, {
-      id: "o-r-7",
-      issueUrl: ISSUE,
-      repoDir: "/repos/r",
-      worktree,
-      branch: "combo/issue-7",
-      tmuxSession: "combo-chen-o-r-7",
-      createdAt: new Date().toISOString(),
+  for (const doneEvent of ["coder_done", "rower_done"] as const) {
+    it(`persists the codex thread artifact when ${doneEvent} is emitted`, async () => {
+      const h = home();
+      const worktree = mkdtempSync(join(tmpdir(), "combo-chen-worktree-"));
+      seedCodexGnhfRun(worktree);
+      const dir = runDirFor(h, "o-r-7");
+      writeCombo(dir, {
+        id: "o-r-7",
+        issueUrl: ISSUE,
+        repoDir: "/repos/r",
+        worktree,
+        branch: "combo/issue-7",
+        tmuxSession: "combo-chen-o-r-7",
+        createdAt: new Date().toISOString(),
+      });
+      const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+      await exec(deps, ["emit", "-n", "o-r-7", doneEvent]);
+
+      expect(JSON.parse(readFileSync(join(dir, ROWER_THREAD_ARTIFACT), "utf8"))).toEqual({
+        agent: "codex",
+        thread_id: CODEX_THREAD_ID,
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      });
+      expect(readEvents(dir).map((event) => event.event)).toEqual(["coder_done"]);
     });
-    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+  }
 
-    await exec(deps, ["emit", "-n", "o-r-7", "rower_done"]);
-
-    expect(JSON.parse(readFileSync(join(dir, ROWER_THREAD_ARTIFACT), "utf8"))).toEqual({
-      agent: "codex",
-      thread_id: CODEX_THREAD_ID,
-      source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
-    });
-    expect(readEvents(dir).map((event) => event.event)).toEqual(["rower_done"]);
-  });
-
-  it("recreates the hodor tmux window when hodor starts after the early attach watcher exited", async () => {
+  it("recreates the hodor tmux window when gate_started is emitted", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -1101,7 +1103,7 @@ describe("emit", () => {
       },
     });
 
-    await exec(deps, ["emit", "-n", "o-r-7", "hodor_started"]);
+    await exec(deps, ["emit", "-n", "o-r-7", "gate_started"]);
 
     const hodorWindow = calls.find(
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
@@ -1116,7 +1118,7 @@ describe("emit", () => {
       expect.stringContaining("no-mistakes attach"),
     ]);
     expect(hodorWindow?.at(-1)).toContain(worktree);
-    expect(readEvents(dir).map((event) => event.event)).toEqual(["hodor_started"]);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
   });
 
   it("is a no-op when the hodor tmux window already exists", async () => {
@@ -1148,10 +1150,10 @@ describe("emit", () => {
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
     );
     expect(hodorWindow).toBeUndefined();
-    expect(readEvents(dir).map((event) => event.event)).toEqual(["hodor_started"]);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
   });
 
-  it("keeps the hodor_started journal event when window recovery cannot inspect tmux", async () => {
+  it("keeps the gate_started journal event when window recovery cannot inspect tmux", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -1184,7 +1186,7 @@ describe("emit", () => {
       stderr.mockRestore();
     }
 
-    expect(readEvents(dir).map((event) => event.event)).toEqual(["hodor_started"]);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
   });
 });
@@ -1516,7 +1518,7 @@ describe("status", () => {
       tmuxSession: "combo-chen-o-r-7",
       createdAt: new Date().toISOString(),
     });
-    appendEvent(dir, "rower_started", {});
+    appendEvent(dir, "coder_started", {});
     appendEvent(dir, "needs_human", { reason: "gate_decision" });
 
     const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });

@@ -9,12 +9,12 @@ export class ComboEventError extends Error {}
 
 export const EVENT_TYPES = {
   combo_created: { required: ["issue_url"] },
-  rower_started: { required: [] },
-  rower_done: { required: [] },
-  rower_failed: { required: ["exit_code", "has_new_commits"] },
-  hodor_started: { required: [] },
-  hodor_failed: { required: ["exit_code"] },
-  hodor_status: { required: ["state"] },
+  coder_started: { required: [] },
+  coder_done: { required: [] },
+  coder_failed: { required: ["exit_code", "has_new_commits"] },
+  gate_started: { required: [] },
+  gate_failed: { required: ["exit_code"] },
+  gate_status: { required: ["state"] },
   pr_opened: { required: ["url"] },
   needs_human: { required: ["reason"] },
   review_comment: { required: ["author", "kind", "url"] },
@@ -22,16 +22,29 @@ export const EVENT_TYPES = {
   lgtm_stale: { required: ["old_sha", "new_sha"] },
   merged: { required: ["sha", "by"] },
   combo_closed: { required: [] },
-  rower_retry: { required: [] },
+  coder_retry: { required: [] },
   stopped: { required: ["by"] },
 } as const satisfies Record<string, { required: readonly string[] }>;
 
-export type EventName = keyof typeof EVENT_TYPES;
+export type CanonicalEventName = keyof typeof EVENT_TYPES;
+
+export const LEGACY_EVENT_ALIASES = {
+  rower_started: "coder_started",
+  rower_done: "coder_done",
+  rower_failed: "coder_failed",
+  hodor_started: "gate_started",
+  hodor_failed: "gate_failed",
+  hodor_status: "gate_status",
+  rower_retry: "coder_retry",
+} as const satisfies Record<string, CanonicalEventName>;
+
+export type LegacyEventName = keyof typeof LEGACY_EVENT_ALIASES;
+export type EventName = CanonicalEventName | LegacyEventName;
 
 export interface ComboEvent {
   /** ISO-8601 timestamp, written by appendEvent. */
   t: string;
-  event: EventName;
+  event: CanonicalEventName;
   [key: string]: unknown;
 }
 
@@ -46,16 +59,17 @@ export function appendEvent(
   event: EventName,
   payload: Record<string, unknown>,
 ): ComboEvent {
-  const schema = EVENT_TYPES[event];
-  if (!schema) {
+  const canonical = canonicalEventName(event);
+  if (canonical === undefined) {
     throw new ComboEventError(`Unknown event "${String(event)}"`);
   }
+  const schema = EVENT_TYPES[canonical];
   for (const field of schema.required) {
     if (payload[field] === undefined) {
-      throw new ComboEventError(`Event "${event}" requires field "${field}"`);
+      throw new ComboEventError(`Event "${canonical}" requires field "${field}"`);
     }
   }
-  const entry: ComboEvent = { t: new Date().toISOString(), event, ...payload };
+  const entry: ComboEvent = { t: new Date().toISOString(), event: canonical, ...payload };
   // The run dir is created by writeCombo; emitting to a combo that was
   // never created is a caller bug and should surface, not be papered over.
   appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
@@ -70,13 +84,28 @@ export function readEvents(runDir: string): ComboEvent[] {
   for (const line of lines) {
     if (line.trim() === "") continue;
     try {
-      events.push(JSON.parse(line) as ComboEvent);
+      const parsed = JSON.parse(line) as unknown;
+      events.push(normalizeEvent(parsed));
     } catch {
       // A torn last line can happen during concurrent writes (appendFileSync
       // is not guaranteed atomic); ignored gracefully, re-read picks it up.
     }
   }
   return events;
+}
+
+export function canonicalEventName(event: string): CanonicalEventName | undefined {
+  if (event in EVENT_TYPES) return event as CanonicalEventName;
+  return LEGACY_EVENT_ALIASES[event as LegacyEventName];
+}
+
+function normalizeEvent(event: unknown): ComboEvent {
+  if (event === null || typeof event !== "object") return event as ComboEvent;
+  const rawEvent = (event as { event?: unknown })["event"];
+  if (typeof rawEvent !== "string") return event as ComboEvent;
+  const canonical = canonicalEventName(rawEvent);
+  if (canonical === undefined) return event as ComboEvent;
+  return { ...(event as ComboEvent), event: canonical };
 }
 
 interface FollowOptions {

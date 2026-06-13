@@ -14,7 +14,14 @@ import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 
 import { buildRunnerScript, deriveStatus, shellQuote } from "../core/combo.js";
-import { appendEvent, followEvents, readEvents, type ComboEvent, type EventName } from "../core/events.js";
+import {
+  appendEvent,
+  canonicalEventName,
+  followEvents,
+  readEvents,
+  type ComboEvent,
+  type EventName,
+} from "../core/events.js";
 import {
   comboHome,
   comboIdFromIssueUrl,
@@ -239,7 +246,7 @@ function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): b
   if (origin === mirrorSha) return false;
 
   const events = readEvents(runDir);
-  const lastHodorStatus = [...events].reverse().find((e) => e.event === "hodor_status");
+  const lastHodorStatus = [...events].reverse().find((e) => e.event === "gate_status");
   if (lastHodorStatus?.state === "fix_inflight") {
     deps.out(`mirror sync: hodor fix in flight, skipping push for ${combo.id}`);
     return false;
@@ -1047,12 +1054,13 @@ export function createProgram(deps: Deps): Command {
     .option("--field <key=value...>", "Payload fields", (value: string, prev: string[]) => [...prev, value], [])
     .action(async (event: string, options: { name: string; field: string[] }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
-      if (event === "rower_done") {
+      const canonicalEvent = canonicalEventName(event);
+      if (canonicalEvent === "coder_done") {
         const combo = readCombo(runDir);
         persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
-      if (event === "hodor_started") {
+      if (canonicalEvent === "gate_started") {
         // The hodor tmux window runs `no-mistakes attach`, which exits when
         // no active no-mistakes run exists — often before the runner's hodor
         // command starts one.  Recreate the window now so the live role

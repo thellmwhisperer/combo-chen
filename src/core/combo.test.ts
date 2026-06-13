@@ -20,10 +20,10 @@ describe("deriveStatus", () => {
   });
 
   it("advances through the documented phases", () => {
-    const events = [ev("combo_created", { issue_url: "x" }), ev("rower_started")];
+    const events = [ev("combo_created", { issue_url: "x" }), ev("coder_started")];
     expect(deriveStatus(events).phase).toBe("ROWING");
 
-    events.push(ev("rower_done"), ev("hodor_started"));
+    events.push(ev("coder_done"), ev("gate_started"));
     expect(deriveStatus(events).phase).toBe("GATING");
 
     events.push(ev("pr_opened", { url: "https://github.com/o/r/pull/9" }));
@@ -33,24 +33,24 @@ describe("deriveStatus", () => {
   });
 
   it("latches needs_human until the next phase advance", () => {
-    const events = [ev("rower_started"), ev("needs_human", { reason: "gate_decision" })];
+    const events = [ev("coder_started"), ev("needs_human", { reason: "gate_decision" })];
     const status = deriveStatus(events);
     expect(status.needsHuman).toBe(true);
     expect(status.reason).toBe("gate_decision");
 
-    events.push(ev("hodor_started"));
+    events.push(ev("gate_started"));
     expect(deriveStatus(events).needsHuman).toBe(false);
   });
 
   it("marks failures as STALLED and needing a human", () => {
-    const status = deriveStatus([ev("rower_started"), ev("rower_failed", { exit_code: 1, has_new_commits: false })]);
+    const status = deriveStatus([ev("coder_started"), ev("coder_failed", { exit_code: 1, has_new_commits: false })]);
     expect(status.phase).toBe("STALLED");
     expect(status.needsHuman).toBe(true);
   });
 
   it("terminal stop wins over everything", () => {
     const status = deriveStatus([
-      ev("rower_started"),
+      ev("coder_started"),
       ev("needs_human", { reason: "x" }),
       ev("stopped", { by: "human" }),
     ]);
@@ -119,10 +119,10 @@ describe("buildRunnerScript", () => {
   });
 
   it("emits lifecycle events with captured exit codes on failure", () => {
-    expect(script).toContain("emit -n o-r-7 rower_started");
-    expect(script).toContain("emit -n o-r-7 rower_done");
-    expect(script).toContain("rower_failed");
-    expect(script).toContain("hodor_failed");
+    expect(script).toContain("emit -n o-r-7 coder_started");
+    expect(script).toContain("emit -n o-r-7 coder_done");
+    expect(script).toContain("coder_failed");
+    expect(script).toContain("gate_failed");
     expect(script).toContain("exit_code=$code");
   });
 
@@ -132,7 +132,7 @@ describe("buildRunnerScript", () => {
 
     const rower = script.indexOf("gnhf");
     const redirected = script.indexOf(') > "$rower_log" 2>&1; then');
-    const rowerDone = script.indexOf("emit -n o-r-7 rower_done");
+    const rowerDone = script.indexOf("emit -n o-r-7 coder_done");
     expect(rower).toBeGreaterThan(-1);
     expect(redirected).toBeGreaterThan(rower);
     expect(rowerDone).toBeGreaterThan(redirected);
@@ -203,11 +203,11 @@ exit 0
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "rower_started",
-      "rower_done",
-      "hodor_started",
-      "hodor_status --field state=fix_inflight --field head_sha=",
-      "hodor_status --field state=idle --field head_sha=",
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      "gate_status --field state=fix_inflight --field head_sha=",
+      "gate_status --field state=idle --field head_sha=",
       "needs_human --field reason=pr_missing",
     ]);
     expect(readFileSync(join(dir, "rower.log"), "utf8")).toBe(
@@ -293,12 +293,12 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "rower_started",
-      "rower_done",
-      "hodor_started",
-      "hodor_status --field state=fix_inflight --field head_sha=fake-head",
-      "hodor_status --field state=failed --field head_sha=fake-head",
-      "hodor_failed --field exit_code=17",
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      "gate_status --field state=fix_inflight --field head_sha=fake-head",
+      "gate_status --field state=failed --field head_sha=fake-head",
+      "gate_failed --field exit_code=17",
     ]);
     expect(readFileSync(hodorLog, "utf8")).toBe(
       "git remote get-url no-mistakes\ngit push no-mistakes HEAD\n",
@@ -387,11 +387,11 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "rower_started",
-      "rower_done",
-      "hodor_started",
-      "hodor_status --field state=fix_inflight --field head_sha=fake-head",
-      "hodor_status --field state=idle --field head_sha=fake-head",
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      "gate_status --field state=fix_inflight --field head_sha=fake-head",
+      "gate_status --field state=idle --field head_sha=fake-head",
       "needs_human --field reason=pr_missing",
     ]);
     const hodorOutput = readFileSync(hodorLog, "utf8");
@@ -498,11 +498,11 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "rower_started",
-      "rower_done",
-      "hodor_started",
-      `hodor_status --field state=fix_inflight --field head_sha=${headSha}`,
-      `hodor_status --field state=awaiting_approval --field head_sha=${headSha}`,
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      `gate_status --field state=fix_inflight --field head_sha=${headSha}`,
+      `gate_status --field state=awaiting_approval --field head_sha=${headSha}`,
       "needs_human --field reason=gate_waiting",
     ]);
     expect(readFileSync(join(dir, "hodor.log"), "utf8")).toBe(gateToon);
@@ -591,9 +591,9 @@ exit 130
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "rower_started",
+      "coder_started",
       [
-        "rower_failed",
+        "coder_failed",
         "--field exit_code=130",
         "--field has_new_commits=true",
         `--field base_sha=${baseSha}`,
