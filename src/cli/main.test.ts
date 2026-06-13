@@ -335,7 +335,7 @@ describe("attach", () => {
       "-l",
       "12",
       "-t",
-      "combo-chen-o-r-7:rower",
+      "combo-chen-o-r-7:coder",
       expect.stringContaining("events --follow -n o-r-7"),
     ]);
     expect(calls[attachIndex]).toEqual(["tmux", "attach", "-t", "combo-chen-o-r-7"]);
@@ -345,6 +345,37 @@ describe("attach", () => {
 });
 
 describe("activate-coder", () => {
+  it("uses OSS-friendly default coder responding and comment-watch windows", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeFileSync(
+      join(dir, ROWER_THREAD_ARTIFACT),
+      `${JSON.stringify({
+        agent: "codex",
+        thread_id: CODEX_THREAD_ID,
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      })}\n`,
+    );
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["activate-coder", "-n", "o-r-7"]);
+
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows[0]).toContain("coder-responding");
+    expect(newWindows[1]).toContain("comment-watch");
+    expect(out.join("\n")).toContain("coder responding active for o-r-7");
+  });
+
   it("starts the resumed sitter window and the review-comment watcher from the rower thread artifact", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -923,7 +954,7 @@ describe("nudge-review-comments", () => {
 
     const gitCalls = calls.filter((call) => call[0] === "git");
     expect(gitCalls.some((call) => call[2] === "push")).toBe(false);
-    expect(out.some((line) => line.includes("hodor fix in flight"))).toBe(true);
+    expect(out.some((line) => line.includes("gatekeeper fix in flight"))).toBe(true);
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
   });
@@ -1080,7 +1111,7 @@ describe("emit", () => {
     });
   }
 
-  it("recreates the hodor tmux window when gate_started is emitted", async () => {
+  it("recreates the gatekeeper tmux window when gate_started is emitted", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -1098,30 +1129,30 @@ describe("emit", () => {
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
-        if (args[0] === "list-windows") return { status: 0, stdout: "rower\n", stderr: "" };
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
     });
 
     await exec(deps, ["emit", "-n", "o-r-7", "gate_started"]);
 
-    const hodorWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
-    expect(hodorWindow).toEqual([
+    expect(gatekeeperWindow).toEqual([
       "tmux",
       "new-window",
       "-t",
       "combo-chen-o-r-7",
       "-n",
-      "hodor",
+      "gatekeeper",
       expect.stringContaining("no-mistakes attach"),
     ]);
-    expect(hodorWindow?.at(-1)).toContain(worktree);
+    expect(gatekeeperWindow?.at(-1)).toContain(worktree);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
   });
 
-  it("is a no-op when the hodor tmux window already exists", async () => {
+  it("is a no-op when the gatekeeper tmux window already exists", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -1139,17 +1170,17 @@ describe("emit", () => {
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
-        if (args[0] === "list-windows") return { status: 0, stdout: "hodor\nrower\n", stderr: "" };
+        if (args[0] === "list-windows") return { status: 0, stdout: "gatekeeper\ncoder\n", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
     });
 
     await exec(deps, ["emit", "-n", "o-r-7", "hodor_started"]);
 
-    const hodorWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
-    expect(hodorWindow).toBeUndefined();
+    expect(gatekeeperWindow).toBeUndefined();
     expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
   });
 
@@ -1215,18 +1246,19 @@ describe("run", () => {
 
     const tmuxNewSession = calls.find((c) => c[0] === "tmux" && c[1] === "new-session");
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
+    expect(tmuxNewSession).toContain("coder");
     const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
-    const hodorWindow = tmuxNewWindows.find((call) => call.includes("hodor"));
-    expect(hodorWindow).toEqual([
+    const gatekeeperWindow = tmuxNewWindows.find((call) => call.includes("gatekeeper"));
+    expect(gatekeeperWindow).toEqual([
       "tmux",
       "new-window",
       "-t",
       "combo-chen-o-r-7",
       "-n",
-      "hodor",
+      "gatekeeper",
       expect.stringContaining("no-mistakes attach"),
     ]);
-    expect(hodorWindow?.at(-1)).toContain(join(repoDir, ".worktrees", "issue-7"));
+    expect(gatekeeperWindow?.at(-1)).toContain(join(repoDir, ".worktrees", "issue-7"));
     expect(tmuxNewWindows.some((call) => call.includes("watch"))).toBe(false);
     expect(calls).toContainEqual([
       "tmux",
@@ -1236,7 +1268,7 @@ describe("run", () => {
       "-l",
       "12",
       "-t",
-      "combo-chen-o-r-7:rower",
+      "combo-chen-o-r-7:coder",
       expect.stringContaining("events --follow -n o-r-7"),
     ]);
     expect(calls.some((call) => call[1] === "select-pane")).toBe(false);
@@ -1245,7 +1277,7 @@ describe("run", () => {
     expect(events[0]?.event).toBe("combo_created");
   });
 
-  it("uses configured hodor attach retry settings in the hodor tmux window", async () => {
+  it("uses configured gatekeeper attach retry settings in the gatekeeper tmux window", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
@@ -1256,13 +1288,13 @@ describe("run", () => {
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
-    const hodorWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
-    const command = hodorWindow?.at(-1) ?? "";
+    const command = gatekeeperWindow?.at(-1) ?? "";
     expect(command).toContain('if [ "$attempt" -gt 3 ]; then');
-    expect(command).toContain('echo "hodor-attach: timed out after 45 seconds" >&2');
-    expect(command).toContain('echo "hodor-attach: waiting for hodor (attempt $attempt/3)..." >&2');
+    expect(command).toContain('echo "gatekeeper-attach: timed out after 45 seconds" >&2');
+    expect(command).toContain('echo "gatekeeper-attach: waiting for gatekeeper (attempt $attempt/3)..." >&2');
     expect(command).toContain("sleep 15");
   });
 
@@ -1275,10 +1307,10 @@ describe("run", () => {
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
-    const hodorWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("hodor"),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
-    const command = hodorWindow?.at(-1) ?? "";
+    const command = gatekeeperWindow?.at(-1) ?? "";
     const bin = mkdtempSync(join(tmpdir(), "combo-chen-bin-"));
     const noMistakesCalls = join(bin, "no-mistakes-calls");
     const statusAttempts = join(bin, "status-attempts");
@@ -1533,7 +1565,7 @@ describe("status", () => {
 });
 
 describe("activate-reviewer", () => {
-  it("opens a gordon tmux window with the configured judge command for the opened PR", async () => {
+  it("opens a reviewer tmux window with the configured judge command for the opened PR", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
@@ -1569,7 +1601,7 @@ describe("activate-reviewer", () => {
     await exec(deps, ["activate-reviewer", "-n", "o-r-7"]);
 
     const judgeWindow = calls.find(
-      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon"),
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("reviewer"),
     );
     expect(judgeWindow).toBeDefined();
     expect(judgeWindow).toContain("combo-chen-o-r-7");
@@ -1582,7 +1614,7 @@ describe("activate-reviewer", () => {
     expect(command).toContain("lgtm @ <sha>");
 
     const watchWindow = calls.find(
-      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon-watch"),
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("reviewer-watch"),
     );
     expect(watchWindow).toBeDefined();
     expect(watchWindow).toContain("combo-chen-o-r-7");
@@ -1590,12 +1622,12 @@ describe("activate-reviewer", () => {
     const watchCommand = watchWindow?.at(-1) ?? "";
     expect(watchCommand).toContain(`COMBO_CHEN_HOME='${h}'`);
     expect(watchCommand).toContain("judge-tick -n 'o-r-7'");
-    expect(watchCommand).toContain("gordon: (merged|closed|already terminal)");
+    expect(watchCommand).toContain("reviewer: (merged|closed|already terminal)");
     expect(watchCommand).not.toContain("status=$?");
     expect(watchCommand).not.toContain('"$status"');
     expect(watchCommand).toContain("sleep 17");
-    expect(out.join("\n")).toContain("gordon");
-    expect(out.join("\n")).toContain("gordon-watch");
+    expect(out.join("\n")).toContain("reviewer");
+    expect(out.join("\n")).toContain("reviewer-watch");
   });
 
   it("refuses activation before the combo has an opened PR in the journal", async () => {
@@ -1615,7 +1647,7 @@ describe("activate-reviewer", () => {
     await expect(exec(deps, ["activate-reviewer", "-n", "o-r-7"])).rejects.toThrow(/pr_opened/);
   });
 
-  it("checks for existing gordon windows before replacing them", async () => {
+  it("checks for existing reviewer windows before replacing them", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
@@ -1635,7 +1667,7 @@ describe("activate-reviewer", () => {
       tmux: (args) => {
         calls.push(["tmux", ...args]);
         if (args[0] === "list-windows") {
-          return { status: 0, stdout: "rower\ngordon\ngordon-watch\n", stderr: "" };
+          return { status: 0, stdout: "coder\nreviewer\nreviewer-watch\n", stderr: "" };
         }
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -1644,13 +1676,13 @@ describe("activate-reviewer", () => {
     await exec(deps, ["activate-reviewer", "-n", "o-r-7"]);
 
     const listIndex = calls.findIndex((c) => c[1] === "list-windows");
-    const killGordonIndex = calls.findIndex((c) => c.join(" ") === "tmux kill-window -t combo-chen-o-r-7:gordon");
-    const newGordonIndex = calls.findIndex(
-      (c) => c[1] === "new-window" && c.includes("gordon"),
+    const killReviewerIndex = calls.findIndex((c) => c.join(" ") === "tmux kill-window -t combo-chen-o-r-7:reviewer");
+    const newReviewerIndex = calls.findIndex(
+      (c) => c[1] === "new-window" && c.includes("reviewer"),
     );
     expect(listIndex).toBeGreaterThan(-1);
-    expect(killGordonIndex).toBeGreaterThan(listIndex);
-    expect(killGordonIndex).toBeLessThan(newGordonIndex);
+    expect(killReviewerIndex).toBeGreaterThan(listIndex);
+    expect(killReviewerIndex).toBeLessThan(newReviewerIndex);
   });
 });
 
@@ -2024,7 +2056,7 @@ describe("judge-tick", () => {
     });
 
     const judgeWindow = calls.find(
-      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon"),
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("reviewer"),
     );
     expect(judgeWindow).toBeDefined();
 
@@ -2143,7 +2175,7 @@ describe("judge-tick", () => {
     await exec(deps, ["judge-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened"]);
-    expect(out.join("\n")).toContain("gordon: no pinned lgtm for o-r-7");
+    expect(out.join("\n")).toContain("reviewer: no pinned lgtm for o-r-7");
   });
 
   it("skips punctuated negated pins before accepting a later current LGTM", async () => {
@@ -2191,7 +2223,7 @@ describe("judge-tick", () => {
 
     await exec(deps, ["judge-tick", "-n", "o-r-7"]);
 
-    expect(out.join("\n")).toContain("gordon: lgtm current at def456");
+    expect(out.join("\n")).toContain("reviewer: lgtm current at def456");
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "lgtm"]);
     expect(readEvents(dir)[1]).toMatchObject({ sha: "def456" });
@@ -2302,7 +2334,7 @@ describe("judge-tick", () => {
     await exec(deps, ["judge-tick", "-n", "o-r-7"]);
     await exec(deps, ["judge-tick", "-n", "o-r-7"]);
 
-    expect(out.join("\n")).toContain(`gordon: lgtm current at ${fullSha}`);
+    expect(out.join("\n")).toContain(`reviewer: lgtm current at ${fullSha}`);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
 
     const events = readEvents(dir);

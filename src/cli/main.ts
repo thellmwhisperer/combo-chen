@@ -58,6 +58,11 @@ import {
   routeReviewComments,
 } from "../roles/thread-sitter.js";
 
+const CODER_WINDOW = "coder";
+const GATEKEEPER_WINDOW = "gatekeeper";
+const REVIEWER_WINDOW = "reviewer";
+const REVIEWER_WATCH_WINDOW = "reviewer-watch";
+
 export interface Deps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
@@ -176,7 +181,7 @@ function buildJudgeWatchCommand(input: {
     `  output=$(${env} ${input.cli} judge-tick -n ${shellQuote(input.comboId)} 2>&1)`,
     "  rc=$?",
     '  printf "%s\\n" "$output"',
-    `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("gordon: (merged|closed|already terminal)")} && exit 0`,
+    `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("reviewer: (merged|closed|already terminal)")} && exit 0`,
     '  [ "$rc" -eq 0 ] || exit "$rc"',
     `  sleep ${input.pollSeconds}`,
     "done",
@@ -248,7 +253,7 @@ function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): b
   const events = readEvents(runDir);
   const lastHodorStatus = [...events].reverse().find((e) => e.event === "gate_status");
   if (lastHodorStatus?.state === "fix_inflight") {
-    deps.out(`mirror sync: hodor fix in flight, skipping push for ${combo.id}`);
+    deps.out(`mirror sync: gatekeeper fix in flight, skipping push for ${combo.id}`);
     return false;
   }
 
@@ -548,7 +553,7 @@ interface HodorAttachOptions {
 }
 
 function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions): string {
-  // The no-mistakes run id does not exist until the runner reaches hodor.
+  // The no-mistakes run id does not exist until the runner reaches gatekeeper.
   // Without --run, attach follows the active run for this worktree.
   const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
   return [
@@ -560,10 +565,10 @@ function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions
     "  fi",
     "  attempt=$((attempt + 1))",
     `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
-    `    echo "hodor-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
+    `    echo "gatekeeper-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
     "    exit 1",
     "  fi",
-    `  echo "hodor-attach: waiting for hodor (attempt $attempt/${maxAttempts})..." >&2`,
+    `  echo "gatekeeper-attach: waiting for gatekeeper (attempt $attempt/${maxAttempts})..." >&2`,
     `  sleep ${options.retryIntervalSeconds}`,
     "done",
   ].join("\n");
@@ -571,11 +576,11 @@ function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions
 
 function startHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOptions): void {
   const created = deps.tmux(
-    newWindowArgs(combo.tmuxSession, "hodor", buildHodorAttachCommand(combo, options)),
+    newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, buildHodorAttachCommand(combo, options)),
   );
   if (created.status !== 0) {
     throw new Error(
-      `tmux failed to start hodor watcher in "${combo.tmuxSession}": ` +
+      `tmux failed to start gatekeeper watcher in "${combo.tmuxSession}": ` +
         `${created.stderr.trim() || "unknown error"}`,
     );
   }
@@ -589,7 +594,7 @@ function ensureHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachO
         `${listed.stderr.trim() || "unknown error"}`,
     );
   }
-  if (listed.stdout.split(/\r?\n/).includes("hodor")) return;
+  if (listed.stdout.split(/\r?\n/).includes(GATEKEEPER_WINDOW)) return;
 
   startHodorWindow(deps, combo, options);
 }
@@ -631,17 +636,17 @@ function paneCount(stdout: string): number {
 }
 
 function ensureJournalPane(deps: Deps, combo: ComboRecord): void {
-  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, "rower"));
+  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, CODER_WINDOW));
   if (listed.status !== 0) {
     throw new Error(
-      `tmux failed to inspect rower panes in "${combo.tmuxSession}": ` +
+      `tmux failed to inspect coder panes in "${combo.tmuxSession}": ` +
         `${listed.stderr.trim() || "unknown error"}`,
     );
   }
   if (paneCount(listed.stdout) >= 2) return;
 
   const split = deps.tmux(
-    splitWindowArgs(combo.tmuxSession, "rower", `${cliInvocation()} events --follow -n ${combo.id}`),
+    splitWindowArgs(combo.tmuxSession, CODER_WINDOW, `${cliInvocation()} events --follow -n ${combo.id}`),
   );
   if (split.status !== 0) {
     throw new Error(
@@ -661,7 +666,7 @@ export function createProgram(deps: Deps): Command {
     .description("Launch a combo for a GitHub issue")
     .requiredOption("--issue <url>", "GitHub issue URL")
     .option("--repo <dir>", "Target repo directory", process.cwd())
-    .option("--prompt <text>", "Override the rower's objective prompt")
+    .option("--prompt <text>", "Override the coder's objective prompt")
     .action(async (options: { issue: string; repo: string; prompt?: string }) => {
       const issue = parseIssueUrl(options.issue);
       if (!deps.issueExists(options.issue)) {
@@ -747,7 +752,7 @@ export function createProgram(deps: Deps): Command {
         tmux: session,
       });
 
-      const created = deps.tmux(newSessionArgs(session, "rower", `sh "${runnerPath}"`));
+      const created = deps.tmux(newSessionArgs(session, CODER_WINDOW, `sh "${runnerPath}"`));
       if (created.status !== 0) {
         // A combo that never started must not leave orphans behind: undo the
         // run dir, the worktree, and the branch `worktree add -b` created, so
@@ -779,7 +784,7 @@ export function createProgram(deps: Deps): Command {
 
       deps.out(`🥢 ${session}`);
       deps.out(`   worktree ${worktree} · branch ${branch}`);
-      deps.out(`   rower: ${config.roles.rower} · hodor: ${config.roles.hodor}`);
+      deps.out(`   coder: ${config.roles.coder} · gatekeeper: ${config.roles.gatekeeper}`);
       deps.out(`   journal: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
     });
 
@@ -809,7 +814,7 @@ export function createProgram(deps: Deps): Command {
       const combo = readCombo(runDir);
       const prUrl = latestOpenedPrUrl(runDir);
       if (!prUrl) {
-        throw new Error(`Cannot activate judge for ${combo.id}: no pr_opened event in the journal`);
+        throw new Error(`Cannot activate reviewer for ${combo.id}: no pr_opened event in the journal`);
       }
 
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
@@ -820,13 +825,13 @@ export function createProgram(deps: Deps): Command {
         judgeCommand: config.judgeCommand,
       });
 
-      killWindowIfPresent(deps, combo, "gordon");
-      killWindowIfPresent(deps, combo, "gordon-watch");
+      killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
+      killWindowIfPresent(deps, combo, REVIEWER_WATCH_WINDOW);
 
-      const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
+      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, judgeCommand));
       if (created.status !== 0) {
         throw new Error(
-          `tmux failed to start gordon judge in "${combo.tmuxSession}": ` +
+          `tmux failed to start reviewer in "${combo.tmuxSession}": ` +
             `${created.stderr.trim() || "unknown error"}`,
         );
       }
@@ -834,7 +839,7 @@ export function createProgram(deps: Deps): Command {
       const watcher = deps.tmux(
         newWindowArgs(
           combo.tmuxSession,
-          "gordon-watch",
+          REVIEWER_WATCH_WINDOW,
           buildJudgeWatchCommand({
             cli: cliInvocation(),
             comboHome: home,
@@ -845,13 +850,13 @@ export function createProgram(deps: Deps): Command {
       );
       if (watcher.status !== 0) {
         throw new Error(
-          `tmux failed to start gordon watcher in "${combo.tmuxSession}": ` +
+          `tmux failed to start reviewer watcher in "${combo.tmuxSession}": ` +
             `${watcher.stderr.trim() || "unknown error"}`,
         );
       }
 
-      deps.out(`gordon: ${config.judgeAgent} judging ${prUrl} in ${combo.tmuxSession}:gordon`);
-      deps.out(`gordon-watch: polling judge hard signals every ${config.limits.babysitPollSeconds}s`);
+      deps.out(`reviewer: ${config.judgeAgent} judging ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
+      deps.out(`${REVIEWER_WATCH_WINDOW}: polling judge hard signals every ${config.limits.babysitPollSeconds}s`);
     });
 
   program
@@ -863,19 +868,19 @@ export function createProgram(deps: Deps): Command {
       const combo = readCombo(runDir);
       const prUrl = latestOpenedPrUrl(runDir);
       if (!prUrl) {
-        throw new Error(`Cannot tick judge for ${combo.id}: no pr_opened event in the journal`);
+        throw new Error(`Cannot tick reviewer for ${combo.id}: no pr_opened event in the journal`);
       }
 
       let events = readEvents(runDir);
       const terminalEvent = terminalJudgeEvent(events);
       if (terminalEvent) {
-        deps.out(`gordon: already terminal at ${terminalEvent.event}`);
+        deps.out(`reviewer: already terminal at ${terminalEvent.event}`);
         return;
       }
 
       const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy,baseRefName,mergeCommit"]);
       if (pr.status !== 0) {
-        deps.out(`gordon: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
+        deps.out(`reviewer: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
         return;
       }
 
@@ -884,7 +889,7 @@ export function createProgram(deps: Deps): Command {
         prView = parsePrView(pr.stdout);
       } catch (error) {
         deps.out(
-          `gordon: failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+          `reviewer: failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
         return;
       }
@@ -915,13 +920,13 @@ export function createProgram(deps: Deps): Command {
           });
         } catch (error) {
           deps.out(
-            `gordon: teardown pending for ${combo.id}: ` +
+            `reviewer: teardown pending for ${combo.id}: ` +
               `${error instanceof Error ? error.message : String(error)}`,
           );
           return;
         }
         appendEvent(runDir, "combo_closed", {});
-        deps.out(`gordon: merged ${mergeSha} by ${by}`);
+        deps.out(`reviewer: merged ${mergeSha} by ${by}`);
         killComboSession(deps, combo);
         return;
       }
@@ -929,7 +934,7 @@ export function createProgram(deps: Deps): Command {
       if (prView.state === "CLOSED") {
         appendEvent(runDir, "needs_human", { reason: "pr_closed" });
         appendEvent(runDir, "combo_closed", {});
-        deps.out(`gordon: closed`);
+        deps.out(`reviewer: closed`);
         killComboSession(deps, combo);
         return;
       }
@@ -939,7 +944,7 @@ export function createProgram(deps: Deps): Command {
         githubPinnedSha = latestGitHubLgtmSha(deps, prUrl);
       } catch (error) {
         deps.out(
-          `gordon: failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+          `reviewer: failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
         return;
       }
@@ -953,11 +958,11 @@ export function createProgram(deps: Deps): Command {
 
       const pinnedSha = livePinnedLgtmSha(events);
       if (!pinnedSha) {
-        deps.out(`gordon: no pinned lgtm for ${combo.id}`);
+        deps.out(`reviewer: no pinned lgtm for ${combo.id}`);
         return;
       }
       if (pinnedSha === headSha) {
-        deps.out(`gordon: lgtm current at ${headSha}`);
+        deps.out(`reviewer: lgtm current at ${headSha}`);
         return;
       }
 
@@ -976,18 +981,18 @@ export function createProgram(deps: Deps): Command {
         }),
       });
 
-      killWindowIfPresent(deps, combo, "gordon");
+      killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
 
-      const created = deps.tmux(newWindowArgs(combo.tmuxSession, "gordon", judgeCommand));
+      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, judgeCommand));
       if (created.status !== 0) {
         throw new Error(
-          `tmux failed to start gordon re-review in "${combo.tmuxSession}": ` +
+          `tmux failed to start reviewer re-review in "${combo.tmuxSession}": ` +
             `${created.stderr.trim() || "unknown error"}`,
         );
       }
 
       appendEvent(runDir, "lgtm_stale", { old_sha: pinnedSha, new_sha: headSha });
-      deps.out(`gordon: lgtm_stale ${pinnedSha} -> ${headSha}; re-reviewing ${prUrl}`);
+      deps.out(`reviewer: lgtm_stale ${pinnedSha} -> ${headSha}; re-reviewing ${prUrl}`);
     });
 
   program
@@ -1061,8 +1066,8 @@ export function createProgram(deps: Deps): Command {
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
       if (canonicalEvent === "gate_started") {
-        // The hodor tmux window runs `no-mistakes attach`, which exits when
-        // no active no-mistakes run exists — often before the runner's hodor
+        // The gatekeeper tmux window runs `no-mistakes attach`, which exits when
+        // no active no-mistakes run exists — often before the runner's gatekeeper
         // command starts one.  Recreate the window now so the live role
         // window is visible when the no-mistakes run becomes active.
         try {
@@ -1074,7 +1079,7 @@ export function createProgram(deps: Deps): Command {
           });
         } catch (err) {
           process.stderr.write(
-            `combo-chen: hodor window recovery failed for ${options.name}: ${err instanceof Error ? err.message : String(err)}\n`,
+            `combo-chen: gatekeeper window recovery failed for ${options.name}: ${err instanceof Error ? err.message : String(err)}\n`,
           );
         }
       }
@@ -1150,12 +1155,12 @@ export function createProgram(deps: Deps): Command {
           `tmux failed to start ${config.threadSitterWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
         );
       }
-      deps.out(`thread-sitter active for ${combo.id}`);
+      deps.out(`coder responding active for ${combo.id}`);
     });
 
   program
     .command("nudge-review-comments", { hidden: true })
-    .description("One-shot sweep: route new PR comments to the thread-sitter window")
+    .description("One-shot sweep: route new PR comments to the coder responding window")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
