@@ -728,7 +728,7 @@ export function createProgram(deps: Deps): Command {
         combo,
         coderCommand: buildCoderInvocation(coderInput),
         gatekeeperCommand: buildGatekeeperInvocation({
-          gatekeeperCommand: config.hodorCommand,
+          gatekeeperCommand: config.gatekeeperCommand,
           combo,
           issueTitle: issueDetails.title,
           issueBody: issueDetails.body,
@@ -766,8 +766,8 @@ export function createProgram(deps: Deps): Command {
       try {
         ensureJournalPane(deps, combo);
         startGatekeeperWindow(deps, combo, {
-          timeoutSeconds: config.hodorAttachTimeoutSeconds,
-          retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
+          timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+          retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
         });
       } catch (error) {
         const killed = deps.tmux(killSessionArgs(session));
@@ -1074,8 +1074,8 @@ export function createProgram(deps: Deps): Command {
           const combo = readCombo(runDir);
           const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
           ensureGatekeeperWindow(deps, combo, {
-            timeoutSeconds: config.hodorAttachTimeoutSeconds,
-            retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
+            timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+            retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
           });
         } catch (err) {
           process.stderr.write(
