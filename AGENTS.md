@@ -15,52 +15,52 @@ a human merge decision.
 ```text
 DIRECTOR  (orchestrates and watches; NEVER touches code)   [tmux: combo-chen-N]
    │
-   ├─ PHASE 1 · ROWER     gnhf in a worktree (treehouse)   → thread_id captured
-   ├─ PHASE 2 · HODOR     git push to no-mistakes remote (if exists);
+   ├─ PHASE 1 · CODER     gnhf in a worktree (treehouse)   → thread_id captured
+   ├─ PHASE 2 · GATEKEEPER git push to no-mistakes remote (if exists);
    │                      then no-mistakes pipeline → PR       (agent from .no-mistakes.yaml)
-   ├─ PHASE 3 · JUDGING   gordon on /loop (+ coderabbit)  ⇄  RESUMED rower addresses
-   │                      hodor ci-step in parallel (CI/conflicts, force-push)
+   ├─ PHASE 3 · REVIEWING reviewer on /loop (+ coderabbit) ⇄  RESUMED coder responds
+   │                      gatekeeper ci-step in parallel (CI/conflicts, force-push)
    └─ MERGE               human (hard default); per-type automerge once the
                           counterfactual log earns it
 ```
 
-Role names: the **rower** rows (implements); **hodor** holds the door (the
-quality gate); **gordon** judges (the MasterChef reviewer — no courtesy
-LGTMs).
+Role names: the **coder** implements and later responds in the same thread;
+the **gatekeeper** owns validation, push, and CI; the **reviewer** reviews
+the PR with no courtesy LGTMs.
 
 Hard rules:
-- `gordon != rower` (enforced by config validation, not convention).
+- `reviewer != coder` (enforced by config validation, not convention).
 - The director only orchestrates: never code, never review threads.
-- Thread-sitter = the SAME thread that implemented, resumed (`codex resume`,
+- Coder responding mode = the SAME thread that implemented, resumed (`codex resume`,
   `hermes --resume`, stateful ACP session). Fallback: fresh instance + diff.
-- Push semaphore: the rower never pushes while a hodor CI fix is in flight
-  (no-mistakes force-pushes; check `hodor_status` with `state=fix_inflight`
+- Push semaphore: the coder never pushes while a gatekeeper CI fix is in flight
+  (no-mistakes force-pushes; check `gate_status` with `state=fix_inflight`
   before pushing).
 - Mirror freshness: on every review-comment watcher cycle, combo-chen
   compares `origin/<branch>` with the `no-mistakes` mirror and fast-forwards
   the mirror when it is stale (also gated on the push semaphore).
 - LGTM is pinned to a SHA: it expires on every push; merging requires a
-  current LGTM on HEAD ∧ clean CodeRabbit ∧ hodor checks-passed.
+  current LGTM on HEAD ∧ clean CodeRabbit ∧ gatekeeper checks-passed.
 - Rate limits are system events, not failures: the role pauses and resumes
-  at reset. Priority under scarcity: rower > thread-sitter > gordon >
-  sweeps.
+  at reset. Priority under scarcity: coder coding mode > coder responding
+  mode > reviewer > sweeps.
 
-## The two babysitters (an investigated boundary, not an assumed one)
+## The two post-PR loops (an investigated boundary, not an assumed one)
 
-- **hodor** = no-mistakes' `ci` step: watches the PR until merge/close,
+- **gatekeeper** = no-mistakes' `ci` step: watches the PR until merge/close,
   auto-fixes CI failures and merge conflicts. It does NOT read or answer
-  review threads (verified against no-mistakes docs). He holds the door.
-- **thread-sitter** = the resumed rower: answers and addresses review
-  comments (CodeRabbit, reviewers, humans). This is the half no piece of the
-  stack provides — combo-chen's contribution.
+  review threads (verified against no-mistakes docs).
+- **coder responding mode** = the resumed coder: answers and addresses
+  review comments (CodeRabbit, reviewers, humans). This is the half no piece
+  of the stack provides — combo-chen's contribution.
 
 ## Dependencies (Kun Chen's products)
 
 | Piece | Role | Stack |
 |---|---|---|
 | treehouse | worktree pool with warm caches | Go |
-| gnhf | the rower's loop over an issue | TypeScript |
-| no-mistakes | hodor: review→test→docs→lint→push→PR→ci | Go |
+| gnhf | the coder loop over an issue | TypeScript |
+| no-mistakes | gatekeeper: review→test→docs→lint→push→PR→ci | Go |
 | acpx | stateful ACP sessions (clean future channel) | TypeScript |
 
 Agents supported as slots: `claude`, `codex`, `hermes:<model>`
@@ -77,7 +77,7 @@ trio of mechanics: interactive tmux session + resume + ACP.
   friction and lets us reuse gnhf's e2e patterns (acp-mock) when ACP lands.
 - v0 session driver: tmux `send-keys`/`capture-pane`. Migrate to ACP (acpx)
   role by role when it hurts.
-- Persistent roles (reviewer, thread-sitter) run in INTERACTIVE sessions
+- Persistent roles (reviewer, coder responding mode) run in INTERACTIVE sessions
   (subscription limits; legitimate 24/7 use within enforced rate limits);
   headless `-p`/SDK only for one-off sweeps (separate billing pool since
   2026-06-15).
@@ -97,7 +97,7 @@ trio of mechanics: interactive tmux session + resume + ACP.
 ## Status
 
 Spec v1 frozen (see `docs/spec.md` §10 for the decided vetoes). v0 implemented
-with `run`/`attach`/`status`/`stop`/`events`/`activate-judge` plus the hidden `judge-tick`
-poll loop. Rower (codex+gnhf), hodor (no-mistakes), and gordon judge (tmux
+with `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer` plus the hidden `judge-tick`
+poll loop. Coder (codex+gnhf), gatekeeper (no-mistakes), and reviewer (tmux
 poll + incremental re-review) are all implemented. Next: preflight,
 counterfactual log, treehouse, ACP role driving.
