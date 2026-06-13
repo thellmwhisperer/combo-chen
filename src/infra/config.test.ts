@@ -33,10 +33,11 @@ describe("loadConfig", () => {
     // already-quoted shell tokens.
     expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
     expect(config.rowerResumeCommand).toBe("codex resume {thread_id}");
-    expect(config.reviewNudgePrompt).toContain("{url}");
+    expect(config.reviewNudgePrompt).toContain("coder responding mode");
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
-    expect(config.threadSitterWindowName).toBe("thread-sitter");
-    expect(config.threadSitterWatchWindowName).toBe("thread-sitter-watch");
+    expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
+    expect(config.threadSitterWindowName).toBe("coder-responding");
+    expect(config.threadSitterWatchWindowName).toBe("comment-watch");
     expect(config.judgeAgent).toBe("claude");
     expect(config.judgeCommand).toBe("claude {prompt}");
     expect(config.judgeProtocol).toContain("7989");

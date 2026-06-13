@@ -35,27 +35,27 @@ export interface ComboLimits {
 export interface ComboConfig {
   roles: ComboRoles;
   limits: ComboLimits;
-  /** Command template for the configured rower, with {placeholders}. */
+  /** Command template for the configured coder, with {placeholders}. */
   rowerCommand: string;
-  /** Resume command template for the configured rower, with {thread_id}. */
+  /** Resume command template for the configured coder, with {thread_id}. */
   rowerResumeCommand: string;
-  /** Command template for hodor's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
+  /** Command template for the gatekeeper's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
   hodorCommand: string;
-  /** How long the hodor tmux window waits for no-mistakes' active run. */
+  /** How long the gatekeeper tmux window waits for no-mistakes' active run. */
   hodorAttachTimeoutSeconds: number;
-  /** How often the hodor tmux window polls for no-mistakes' active run. */
+  /** How often the gatekeeper tmux window polls for no-mistakes' active run. */
   hodorAttachRetryIntervalSeconds: number;
-  /** Prompt template sent to the thread-sitter for each routed review signal. */
+  /** Prompt template sent to the coder responding mode for each routed review signal. */
   reviewNudgePrompt: string;
-  /** tmux window name for the resumed thread-sitter. */
+  /** tmux window name for the resumed coder responding mode. */
   threadSitterWindowName: string;
   /** tmux window name for the review-comment watcher. */
   threadSitterWatchWindowName: string;
-  /** First configured gordon with an executable command template. */
+  /** First configured reviewer with an executable command template. */
   judgeAgent: string;
-  /** Command template for the judge loop, with {placeholders}. */
+  /** Command template for the reviewer loop, with {placeholders}. */
   judgeCommand: string;
-  /** Review protocol reference injected into the judge prompt. */
+  /** Review protocol reference injected into the reviewer prompt. */
   judgeProtocol: string;
 }
 
@@ -120,14 +120,14 @@ const DEFAULTS = {
     attach_retry_interval_seconds: 10,
   },
   thread_sitter: {
-    window_name: "thread-sitter",
-    watch_window_name: "thread-sitter-watch",
+    window_name: "coder-responding",
+    watch_window_name: "comment-watch",
     review_nudge_prompt: [
-      "New review comment for the thread-sitter:",
+      "New review comment for coder responding mode:",
       "{url}",
       "",
       "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-      "Before pushing, check the hodor push semaphore.",
+      "Before pushing, check the gatekeeper push semaphore.",
     ].join("\n"),
   },
 };
