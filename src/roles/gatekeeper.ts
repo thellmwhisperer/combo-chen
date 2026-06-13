@@ -1,9 +1,9 @@
 /**
- * The hodor adapter: he holds the door. v0 invokes no-mistakes' blocking
+ * The gatekeeper adapter invokes no-mistakes' blocking
  * agent interface and reads its TOON outcome tolerantly — we never parse
  * more of another product's output than we need.
  *
- * Hodor commands may contain {placeholders} (issue_url, issue_title,
+ * Gatekeeper commands may contain {placeholders} (issue_url, issue_title,
  * issue_body, issue_pr_intent, branch) that are expanded with safely
  * quoted values at runner generation time. Commands without placeholders
  * are passed through byte-identically.
@@ -13,15 +13,15 @@ import { parseIssueUrl } from "../core/state.js";
 import { shellQuote } from "../core/combo.js";
 import { ComboConfigError } from "../infra/config.js";
 
-export interface HodorInput {
-  hodorCommand: string;
+export interface GatekeeperInput {
+  gatekeeperCommand: string;
   combo?: Pick<ComboRecord, "branch" | "issueUrl">;
   issueTitle?: string;
   issueBody?: string;
 }
 
 const PLACEHOLDER = /(?<!\$)\{([a-z_]+)\}/g;
-const KNOWN_HODOR_PLACEHOLDERS = new Set([
+const KNOWN_GATEKEEPER_PLACEHOLDERS = new Set([
   "issue_url",
   "issue_title",
   "issue_body",
@@ -135,18 +135,18 @@ export function ensureIssueAutocloseInPrBody(
   return body.trim() === "" ? `${line}\n` : `${line}\n\n${body}`;
 }
 
-export function buildHodorInvocation(input: HodorInput): string {
+export function buildGatekeeperInvocation(input: GatekeeperInput): string {
   let hasPlaceholders = false;
-  for (const [, name] of input.hodorCommand.matchAll(PLACEHOLDER)) {
+  for (const [, name] of input.gatekeeperCommand.matchAll(PLACEHOLDER)) {
     if (name === undefined) continue;
     hasPlaceholders = true;
-    if (!KNOWN_HODOR_PLACEHOLDERS.has(name)) {
-      throw new ComboConfigError(`Unknown hodor placeholder {${name}} in command template`);
+    if (!KNOWN_GATEKEEPER_PLACEHOLDERS.has(name)) {
+      throw new ComboConfigError(`Unknown gatekeeper placeholder {${name}} in command template`);
     }
   }
-  if (!hasPlaceholders) return input.hodorCommand;
+  if (!hasPlaceholders) return input.gatekeeperCommand;
   if (input.combo === undefined || input.issueTitle === undefined || input.issueBody === undefined) {
-    throw new ComboConfigError("Hodor command placeholders require issue facts during runner generation");
+    throw new ComboConfigError("Gatekeeper command placeholders require issue facts during runner generation");
   }
   const vars: Record<string, string> = {
     issue_url: input.combo.issueUrl,
@@ -159,7 +159,7 @@ export function buildHodorInvocation(input: HodorInput): string {
     }),
     branch: input.combo.branch,
   };
-  return input.hodorCommand.replace(PLACEHOLDER, (_match, name: string) => shellQuote(vars[name]!));
+  return input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => shellQuote(vars[name]!));
 }
 
 const OUTCOME = /^outcome:\s*(.+)\s*$/m;

@@ -1474,12 +1474,12 @@ exit 0
     expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
   });
 
-  it("renders hodor command placeholders with safely quoted issue facts in the runner", async () => {
+  it("renders gatekeeper command placeholders with safely quoted issue facts in the runner", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const hodorCommand =
+    const gatekeeperCommand =
       "no-mistakes axi run --yes --url {issue_url} --title {issue_title} --body {issue_body} --branch {branch}";
-    writeFileSync(join(repoDir, "combo-chen.toml"), `[hodor]\ncommand = ${JSON.stringify(hodorCommand)}\n`);
+    writeFileSync(join(repoDir, "combo-chen.toml"), `[gatekeeper]\ncommand = ${JSON.stringify(gatekeeperCommand)}\n`);
     const { deps } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
@@ -1489,7 +1489,7 @@ exit 0
             stdout: JSON.stringify({
               title: `Title "double" and 'single'`,
               body: `First line
-It's "quoted"; touch /tmp/hodor-owned
+It's "quoted"; touch /tmp/gatekeeper-owned
 $(echo boom)`,
             }),
             stderr: "",
@@ -1506,20 +1506,20 @@ $(echo boom)`,
     expect(runner).toContain("--url 'https://github.com/o/r/issues/7'");
     expect(runner).toContain(`--title 'Title "double" and '\\''single'\\'''`);
     expect(runner).toContain(`--body 'First line
-It'\\''s "quoted"; touch /tmp/hodor-owned
+It'\\''s "quoted"; touch /tmp/gatekeeper-owned
 $(echo boom)'`);
     expect(runner).toContain("--branch 'combo/issue-7'");
     expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
   });
 
-  it("rejects unknown hodor command placeholders during runner generation", async () => {
+  it("rejects unknown gatekeeper command placeholders during runner generation", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    writeFileSync(join(repoDir, "combo-chen.toml"), '[hodor]\ncommand = "no-mistakes axi run {isue_url}"\n');
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[gatekeeper]\ncommand = "no-mistakes axi run {isue_url}"\n');
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
-      /Unknown hodor placeholder \{isue_url\}/,
+      /Unknown gatekeeper placeholder \{isue_url\}/,
     );
   });
 
