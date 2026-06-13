@@ -1,10 +1,10 @@
 /**
- * Thread-sitter nudges: hard review signals in, interactive rower attention
+ * Coder responding nudges: hard review signals in, interactive coder attention
  * out. This module does not mutate GitHub or the repo; it only writes the
- * combo journal and delivers prompts to the already-owned sitter window
+ * combo journal and delivers prompts to the already-owned coder window
  * via paste-buffer (set-buffer, paste-buffer, send-keys C-m).
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { shellQuote } from "../core/combo.js";
@@ -12,7 +12,11 @@ import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
-import { ROWER_THREAD_ARTIFACT, type RowerThreadArtifact } from "./rower.js";
+import {
+  CODER_THREAD_ARTIFACT,
+  LEGACY_ROWER_THREAD_ARTIFACT,
+  type CoderThreadArtifact,
+} from "./coder.js";
 
 export interface ReviewCommentSignal {
   author: string;
@@ -37,14 +41,15 @@ export function buildReviewNudgePrompt(
   });
 }
 
-export function readRowerThreadArtifact(runDir: string): RowerThreadArtifact {
-  const artifactPath = join(runDir, ROWER_THREAD_ARTIFACT);
+export function readCoderThreadArtifact(runDir: string): CoderThreadArtifact {
+  const artifactName = artifactNameFor(runDir);
+  const artifactPath = join(runDir, artifactName);
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(artifactPath, "utf8"));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${ROWER_THREAD_ARTIFACT} is not valid JSON: ${message}`);
+    throw new Error(`${artifactName} is not valid JSON: ${message}`);
   }
   if (
     !isRecord(parsed) ||
@@ -53,7 +58,7 @@ export function readRowerThreadArtifact(runDir: string): RowerThreadArtifact {
     parsed["thread_id"].trim() === "" ||
     typeof parsed["source"] !== "string"
   ) {
-    throw new Error(`${ROWER_THREAD_ARTIFACT} is not a valid Codex rower thread artifact`);
+    throw new Error(`${artifactName} is not a valid Codex coder thread artifact`);
   }
   return {
     agent: parsed["agent"],
@@ -62,8 +67,13 @@ export function readRowerThreadArtifact(runDir: string): RowerThreadArtifact {
   };
 }
 
-export function buildThreadSitterResumeCommand(
-  artifact: RowerThreadArtifact,
+function artifactNameFor(runDir: string): string {
+  if (existsSync(join(runDir, CODER_THREAD_ARTIFACT))) return CODER_THREAD_ARTIFACT;
+  return LEGACY_ROWER_THREAD_ARTIFACT;
+}
+
+export function buildCoderRespondingResumeCommand(
+  artifact: CoderThreadArtifact,
   resumeCommand: string,
 ): string {
   return renderCommand(resumeCommand, { thread_id: artifact.thread_id });

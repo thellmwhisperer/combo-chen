@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
-import { ROWER_THREAD_ARTIFACT } from "../roles/rower.js";
+import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { createProgram, type Deps } from "./main.js";
 
 function home(): string {
@@ -359,7 +359,7 @@ describe("activate-coder", () => {
       createdAt: new Date().toISOString(),
     });
     writeFileSync(
-      join(dir, ROWER_THREAD_ARTIFACT),
+      join(dir, CODER_THREAD_ARTIFACT),
       `${JSON.stringify({
         agent: "codex",
         thread_id: CODEX_THREAD_ID,
@@ -376,7 +376,7 @@ describe("activate-coder", () => {
     expect(out.join("\n")).toContain("coder responding active for o-r-7");
   });
 
-  it("starts the resumed sitter window and the review-comment watcher from the rower thread artifact", async () => {
+  it("starts the resumed sitter window and the review-comment watcher from the coder thread artifact", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
@@ -394,7 +394,7 @@ describe("activate-coder", () => {
       createdAt: new Date().toISOString(),
     });
     writeFileSync(
-      join(dir, ROWER_THREAD_ARTIFACT),
+      join(dir, CODER_THREAD_ARTIFACT),
       `${JSON.stringify({
         agent: "codex",
         thread_id: CODEX_THREAD_ID,
@@ -434,7 +434,7 @@ describe("activate-coder", () => {
       createdAt: new Date().toISOString(),
     });
     writeFileSync(
-      join(dir, ROWER_THREAD_ARTIFACT),
+      join(dir, CODER_THREAD_ARTIFACT),
       `${JSON.stringify({
         agent: "codex",
         thread_id: CODEX_THREAD_ID,
@@ -1102,7 +1102,7 @@ describe("emit", () => {
 
       await exec(deps, ["emit", "-n", "o-r-7", doneEvent]);
 
-      expect(JSON.parse(readFileSync(join(dir, ROWER_THREAD_ARTIFACT), "utf8"))).toEqual({
+      expect(JSON.parse(readFileSync(join(dir, CODER_THREAD_ARTIFACT), "utf8"))).toEqual({
         agent: "codex",
         thread_id: CODEX_THREAD_ID,
         source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",

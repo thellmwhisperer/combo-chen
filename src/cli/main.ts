@@ -48,13 +48,13 @@ import {
 } from "../infra/tmux.js";
 import { buildHodorInvocation, ensureIssueAutocloseInPrBody } from "../roles/hodor.js";
 import { buildJudgeInvocation, incrementalJudgePrompt } from "../roles/judge.js";
-import { buildRowerInvocation, persistRowerThreadArtifact } from "../roles/rower.js";
+import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import {
+  buildCoderRespondingResumeCommand,
   buildReviewWatchCommand,
-  buildThreadSitterResumeCommand,
   fetchReviewCommentSignals,
   latestPrUrl,
-  readRowerThreadArtifact,
+  readCoderThreadArtifact,
   routeReviewComments,
 } from "../roles/thread-sitter.js";
 
@@ -718,15 +718,15 @@ export function createProgram(deps: Deps): Command {
 
       writeCombo(runDir, combo);
 
-      const rowerInput: Parameters<typeof buildRowerInvocation>[0] = {
-        rowerCommand: config.rowerCommand,
+      const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
+        coderCommand: config.rowerCommand,
         combo,
       };
-      if (options.prompt !== undefined) rowerInput.prompt = options.prompt;
+      if (options.prompt !== undefined) coderInput.prompt = options.prompt;
 
       const runner = buildRunnerScript({
         combo,
-        rowerCommand: buildRowerInvocation(rowerInput),
+        rowerCommand: buildCoderInvocation(coderInput),
         hodorCommand: buildHodorInvocation({
           hodorCommand: config.hodorCommand,
           combo,
@@ -1062,7 +1062,7 @@ export function createProgram(deps: Deps): Command {
       const canonicalEvent = canonicalEventName(event);
       if (canonicalEvent === "coder_done") {
         const combo = readCombo(runDir);
-        persistRowerThreadArtifact({ runDir, worktree: combo.worktree });
+        persistCoderThreadArtifact({ runDir, worktree: combo.worktree });
       }
       appendEvent(runDir, event as EventName, parseFields(options.field));
       if (canonicalEvent === "gate_started") {
@@ -1121,12 +1121,12 @@ export function createProgram(deps: Deps): Command {
       const runDir = runDirFor(comboHome(deps.env), options.name);
       const combo = readCombo(runDir);
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      const artifact = readRowerThreadArtifact(runDir);
+      const artifact = readCoderThreadArtifact(runDir);
       const sitter = deps.tmux(
         newWindowArgs(
           combo.tmuxSession,
           config.threadSitterWindowName,
-          buildThreadSitterResumeCommand(artifact, config.rowerResumeCommand),
+          buildCoderRespondingResumeCommand(artifact, config.rowerResumeCommand),
         ),
       );
       if (sitter.status !== 0) {
