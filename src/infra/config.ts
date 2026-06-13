@@ -34,11 +34,11 @@ export interface ComboConfig {
   /** Resume command template for the configured coder, with {thread_id}. */
   coderResumeCommand: string;
   /** Command template for the gatekeeper's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
-  hodorCommand: string;
+  gatekeeperCommand: string;
   /** How long the gatekeeper tmux window waits for no-mistakes' active run. */
-  hodorAttachTimeoutSeconds: number;
+  gatekeeperAttachTimeoutSeconds: number;
   /** How often the gatekeeper tmux window polls for no-mistakes' active run. */
-  hodorAttachRetryIntervalSeconds: number;
+  gatekeeperAttachRetryIntervalSeconds: number;
   /** Prompt template sent to the coder responding mode for each routed review signal. */
   reviewNudgePrompt: string;
   /** tmux window name for the resumed coder responding mode. */
@@ -341,14 +341,14 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     },
     coderCommand,
     coderResumeCommand,
-    hodorCommand: String(gatekeeperTable["command"]),
-    hodorAttachTimeoutSeconds: pickNumber(
+    gatekeeperCommand: String(gatekeeperTable["command"]),
+    gatekeeperAttachTimeoutSeconds: pickNumber(
       gatekeeperTable,
       "attach_timeout_seconds",
       DEFAULTS.gatekeeper.attach_timeout_seconds,
       "[gatekeeper]",
     ),
-    hodorAttachRetryIntervalSeconds: pickNumber(
+    gatekeeperAttachRetryIntervalSeconds: pickNumber(
       gatekeeperTable,
       "attach_retry_interval_seconds",
       DEFAULTS.gatekeeper.attach_retry_interval_seconds,

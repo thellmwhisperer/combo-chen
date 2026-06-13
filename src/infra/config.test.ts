@@ -28,8 +28,8 @@ describe("loadConfig", () => {
     expect(config.roles).not.toHaveProperty("gordon");
     expect(config.limits.babysitPollSeconds).toBe(120);
     expect(config.limits.coderTimeoutMinutes).toBe(180);
-    expect(config.hodorAttachTimeoutSeconds).toBe(1800);
-    expect(config.hodorAttachRetryIntervalSeconds).toBe(10);
+    expect(config.gatekeeperAttachTimeoutSeconds).toBe(1800);
+    expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(10);
     expect(config.limits.teardownGitRetries).toBe(2);
     expect(config.limits.teardownGitBackoffSeconds).toBe(2);
     // No quotes around {prompt}: renderCommand substitutes values as
@@ -38,6 +38,9 @@ describe("loadConfig", () => {
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
     expect(config).not.toHaveProperty("rowerCommand");
     expect(config).not.toHaveProperty("rowerResumeCommand");
+    expect(config).not.toHaveProperty("hodorCommand");
+    expect(config).not.toHaveProperty("hodorAttachTimeoutSeconds");
+    expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
     expect(config.reviewNudgePrompt).toContain("coder responding mode");
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
     expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
@@ -92,8 +95,8 @@ describe("loadConfig", () => {
     );
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: userConfig, env: {} });
-    expect(repoConfig.hodorAttachTimeoutSeconds).toBe(600);
-    expect(repoConfig.hodorAttachRetryIntervalSeconds).toBe(20);
+    expect(repoConfig.gatekeeperAttachTimeoutSeconds).toBe(600);
+    expect(repoConfig.gatekeeperAttachRetryIntervalSeconds).toBe(20);
 
     const envConfig = loadConfig({
       repoDir,
@@ -103,8 +106,8 @@ describe("loadConfig", () => {
         COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS: "15",
       },
     });
-    expect(envConfig.hodorAttachTimeoutSeconds).toBe(75);
-    expect(envConfig.hodorAttachRetryIntervalSeconds).toBe(15);
+    expect(envConfig.gatekeeperAttachTimeoutSeconds).toBe(75);
+    expect(envConfig.gatekeeperAttachRetryIntervalSeconds).toBe(15);
 
     const newEnvConfig = loadConfig({
       repoDir,
@@ -116,8 +119,8 @@ describe("loadConfig", () => {
         COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS: "9",
       },
     });
-    expect(newEnvConfig.hodorAttachTimeoutSeconds).toBe(45);
-    expect(newEnvConfig.hodorAttachRetryIntervalSeconds).toBe(9);
+    expect(newEnvConfig.gatekeeperAttachTimeoutSeconds).toBe(45);
+    expect(newEnvConfig.gatekeeperAttachRetryIntervalSeconds).toBe(9);
   });
 
   it("loads teardown retry limits from the standard limits cascade", () => {
@@ -197,9 +200,12 @@ describe("loadConfig", () => {
     expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config).not.toHaveProperty("rowerCommand");
     expect(config).not.toHaveProperty("rowerResumeCommand");
-    expect(config.hodorCommand).toBe("gate --intent {issue_pr_intent}");
-    expect(config.hodorAttachTimeoutSeconds).toBe(42);
-    expect(config.hodorAttachRetryIntervalSeconds).toBe(6);
+    expect(config.gatekeeperCommand).toBe("gate --intent {issue_pr_intent}");
+    expect(config.gatekeeperAttachTimeoutSeconds).toBe(42);
+    expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(6);
+    expect(config).not.toHaveProperty("hodorCommand");
+    expect(config).not.toHaveProperty("hodorAttachTimeoutSeconds");
+    expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
     expect(config.reviewerAgent).toBe("hermes:gemini");
     expect(config.reviewerCommand).toBe("hermes review {pr_url} {prompt}");
     expect(config.reviewerProtocol).toBe("project review protocol 1234");
