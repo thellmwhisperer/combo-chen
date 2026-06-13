@@ -36,8 +36,10 @@ describe("combo-chen.example.toml", () => {
     expect(config.roles.coder).toBe("codex");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude", "coderabbit"]);
-    expect(config.threadSitterWindowName).toBe("coder-responding");
-    expect(config.threadSitterWatchWindowName).toBe("comment-watch");
+    expect(config.coderRespondingWindowName).toBe("coder-responding");
+    expect(config.coderRespondingWatchWindowName).toBe("comment-watch");
+    expect(config).not.toHaveProperty("threadSitterWindowName");
+    expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.limits.coderTimeoutMinutes).toBe(180);

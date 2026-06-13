@@ -1125,19 +1125,19 @@ export function createProgram(deps: Deps): Command {
       const coderResponding = deps.tmux(
         newWindowArgs(
           combo.tmuxSession,
-          config.threadSitterWindowName,
+          config.coderRespondingWindowName,
           buildCoderRespondingResumeCommand(artifact, config.coderResumeCommand),
         ),
       );
       if (coderResponding.status !== 0) {
         throw new Error(
-          `tmux failed to start ${config.threadSitterWindowName}: ${coderResponding.stderr.trim() || "unknown error"}`,
+          `tmux failed to start ${config.coderRespondingWindowName}: ${coderResponding.stderr.trim() || "unknown error"}`,
         );
       }
       const watcher = deps.tmux(
         newWindowArgs(
           combo.tmuxSession,
-          config.threadSitterWatchWindowName,
+          config.coderRespondingWatchWindowName,
           buildReviewWatchCommand({
             cli: cliInvocation(),
             comboId: combo.id,
@@ -1147,12 +1147,12 @@ export function createProgram(deps: Deps): Command {
       );
       if (watcher.status !== 0) {
         try {
-          deps.tmux(killWindowArgs(combo.tmuxSession, config.threadSitterWindowName));
+          deps.tmux(killWindowArgs(combo.tmuxSession, config.coderRespondingWindowName));
         } catch {
           // Preserve the watcher startup failure; cleanup errors are secondary.
         }
         throw new Error(
-          `tmux failed to start ${config.threadSitterWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
+          `tmux failed to start ${config.coderRespondingWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
         );
       }
       deps.out(`coder responding active for ${combo.id}`);
@@ -1185,7 +1185,7 @@ export function createProgram(deps: Deps): Command {
         tmuxSession: combo.tmuxSession,
         comments: fetchReviewCommentSignals(prUrl, deps.gh),
         reviewNudgePrompt: config.reviewNudgePrompt,
-        windowName: config.threadSitterWindowName,
+        windowName: config.coderRespondingWindowName,
         tmux: deps.tmux,
       });
       for (const comment of routed) {
