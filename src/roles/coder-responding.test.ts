@@ -1,23 +1,25 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { readEvents } from "../core/events.js";
+import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT } from "./coder.js";
 import {
   buildReviewNudgePrompt,
   buildReviewWatchCommand,
-  buildThreadSitterResumeCommand,
+  buildCoderRespondingResumeCommand,
   parsePullRequestUrl,
   readGhArray,
+  readCoderThreadArtifact,
   routeReviewComments,
   signalFromComment,
   signalFromReview,
   type ReviewCommentSignal,
-} from "./thread-sitter.js";
+} from "./coder-responding.js";
 
 function runDir(): string {
-  return mkdtempSync(join(tmpdir(), "combo-chen-thread-sitter-"));
+  return mkdtempSync(join(tmpdir(), "combo-chen-coder-responding-"));
 }
 
 const comment: ReviewCommentSignal = {
@@ -28,11 +30,11 @@ const comment: ReviewCommentSignal = {
 
 describe("buildReviewNudgePrompt", () => {
   const promptTemplate = [
-    "New review comment for the thread-sitter:",
+    "New review comment for coder responding mode:",
     "{url}",
     "",
     "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-    "Before pushing, check the hodor push semaphore.",
+    "Before pushing, check the gatekeeper push semaphore.",
   ].join("\n");
 
   it("renders the configured prompt template with the comment URL and two-bucket contract", () => {
@@ -51,10 +53,10 @@ describe("buildReviewNudgePrompt", () => {
   });
 });
 
-describe("thread-sitter activation commands", () => {
+describe("coder responding activation commands", () => {
   it("resumes the implementing thread with the configured command template", () => {
     expect(
-      buildThreadSitterResumeCommand(
+      buildCoderRespondingResumeCommand(
         {
           agent: "codex",
           thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
@@ -65,7 +67,7 @@ describe("thread-sitter activation commands", () => {
     ).toBe("codex resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
 
     expect(
-      buildThreadSitterResumeCommand(
+      buildCoderRespondingResumeCommand(
         {
           agent: "codex",
           thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
@@ -89,6 +91,49 @@ describe("thread-sitter activation commands", () => {
   });
 });
 
+describe("readCoderThreadArtifact", () => {
+  it("reads the canonical coder thread artifact", () => {
+    const dir = runDir();
+    writeFileSync(
+      join(dir, CODER_THREAD_ARTIFACT),
+      JSON.stringify({
+        agent: "codex",
+        thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      }),
+    );
+
+    expect(readCoderThreadArtifact(dir).thread_id).toBe("019eb3f5-c135-76d2-88c5-0aa8edfe4c84");
+  });
+
+  it("still reads the legacy rower artifact for already-created combos", () => {
+    const dir = runDir();
+    writeFileSync(
+      join(dir, LEGACY_ROWER_THREAD_ARTIFACT),
+      JSON.stringify({
+        agent: "codex",
+        thread_id: "legacy-thread",
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      }),
+    );
+
+    expect(readCoderThreadArtifact(dir).thread_id).toBe("legacy-thread");
+  });
+
+  it("reports a missing coder thread artifact separately from invalid JSON", () => {
+    const dir = runDir();
+
+    expect(() => readCoderThreadArtifact(dir)).toThrow(/Missing coder thread artifact/);
+  });
+
+  it("reports invalid JSON for the artifact that exists", () => {
+    const dir = runDir();
+    writeFileSync(join(dir, CODER_THREAD_ARTIFACT), "{nope");
+
+    expect(() => readCoderThreadArtifact(dir)).toThrow(`${CODER_THREAD_ARTIFACT} is not valid JSON`);
+  });
+});
+
 describe("routeReviewComments", () => {
   it("sends exactly one nudge for a new comment and stays idempotent on re-read", () => {
     const dir = runDir();
@@ -106,7 +151,7 @@ describe("routeReviewComments", () => {
         comments: [comment],
         reviewNudgePrompt,
         tmux,
-        windowName: "thread-sitter",
+        windowName: "coder-responding",
       }),
     ).toEqual([comment]);
     expect(
@@ -116,7 +161,7 @@ describe("routeReviewComments", () => {
         comments: [comment],
         reviewNudgePrompt,
         tmux,
-        windowName: "thread-sitter",
+        windowName: "coder-responding",
       }),
     ).toEqual([]);
 
@@ -124,21 +169,21 @@ describe("routeReviewComments", () => {
     expect(tmuxCalls[0]).toEqual([
       "set-buffer",
       "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
+      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
       buildReviewNudgePrompt(comment, reviewNudgePrompt),
     ]);
     expect(tmuxCalls[1]).toEqual([
       "paste-buffer",
       "-d",
       "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
+      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
       "-t",
-      "combo-chen-o-r-7:thread-sitter",
+      "combo-chen-o-r-7:coder-responding",
     ]);
     expect(tmuxCalls[2]).toEqual([
       "send-keys",
       "-t",
-      "combo-chen-o-r-7:thread-sitter",
+      "combo-chen-o-r-7:coder-responding",
       "C-m",
     ]);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["review_comment"]);

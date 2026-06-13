@@ -13,15 +13,15 @@ import { shellQuote } from "../core/combo.js";
 export class ComboConfigError extends Error {}
 
 export interface ComboRoles {
-  rower: string;
-  hodor: string;
-  gordon: string[];
+  coder: string;
+  gatekeeper: string;
+  reviewer: string[];
   merge: string;
 }
 
 export interface ComboLimits {
   babysitPollSeconds: number;
-  rowerTimeoutMinutes: number;
+  coderTimeoutMinutes: number;
   teardownGitRetries: number;
   teardownGitBackoffSeconds: number;
 }
@@ -29,35 +29,46 @@ export interface ComboLimits {
 export interface ComboConfig {
   roles: ComboRoles;
   limits: ComboLimits;
-  /** Command template for the configured rower, with {placeholders}. */
-  rowerCommand: string;
-  /** Resume command template for the configured rower, with {thread_id}. */
-  rowerResumeCommand: string;
-  /** Command template for hodor's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
-  hodorCommand: string;
-  /** How long the hodor tmux window waits for no-mistakes' active run. */
-  hodorAttachTimeoutSeconds: number;
-  /** How often the hodor tmux window polls for no-mistakes' active run. */
-  hodorAttachRetryIntervalSeconds: number;
-  /** Prompt template sent to the thread-sitter for each routed review signal. */
+  /** Command template for the configured coder, with {placeholders}. */
+  coderCommand: string;
+  /** Resume command template for the configured coder, with {thread_id}. */
+  coderResumeCommand: string;
+  /** Command template for the gatekeeper's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
+  gatekeeperCommand: string;
+  /** How long the gatekeeper tmux window waits for no-mistakes' active run. */
+  gatekeeperAttachTimeoutSeconds: number;
+  /** How often the gatekeeper tmux window polls for no-mistakes' active run. */
+  gatekeeperAttachRetryIntervalSeconds: number;
+  /** Prompt template sent to the coder responding mode for each routed review signal. */
   reviewNudgePrompt: string;
-  /** tmux window name for the resumed thread-sitter. */
-  threadSitterWindowName: string;
+  /** tmux window name for the resumed coder responding mode. */
+  coderRespondingWindowName: string;
   /** tmux window name for the review-comment watcher. */
-  threadSitterWatchWindowName: string;
-  /** First configured gordon with an executable command template. */
-  judgeAgent: string;
-  /** Command template for the judge loop, with {placeholders}. */
-  judgeCommand: string;
-  /** Review protocol reference injected into the judge prompt. */
-  judgeProtocol: string;
+  coderRespondingWatchWindowName: string;
+  /** First configured reviewer with an executable command template. */
+  reviewerAgent: string;
+  /** Command template for the reviewer loop, with {placeholders}. */
+  reviewerCommand: string;
+  /** Review protocol reference injected into the reviewer prompt. */
+  reviewerProtocol: string;
 }
 
-const ROLE_NAMES = new Set(["rower", "hodor", "gordon", "merge"]);
-const DEFAULT_GORDON_PROTOCOL = "La Roca review protocol 7989 + project overlay";
-export const DEFAULT_HODOR_COMMAND =
+type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";
+
+const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
+  coder: "coder",
+  rower: "coder",
+  gatekeeper: "gatekeeper",
+  hodor: "gatekeeper",
+  reviewer: "reviewer",
+  gordon: "reviewer",
+  merge: "merge",
+};
+const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
+const DEFAULT_REVIEWER_PROTOCOL = "La Roca review protocol 7989 + project overlay";
+export const DEFAULT_GATEKEEPER_COMMAND =
   "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi";
-const DEFAULT_GORDON_TEMPLATES: Record<string, { command?: string }> = {
+const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
   },
@@ -65,37 +76,37 @@ const DEFAULT_GORDON_TEMPLATES: Record<string, { command?: string }> = {
 
 const DEFAULTS = {
   roles: {
-    rower: "codex",
-    hodor: "no-mistakes",
-    gordon: ["claude", "coderabbit"],
+    coder: "codex",
+    gatekeeper: "no-mistakes",
+    reviewer: ["claude", "coderabbit"],
     merge: "human",
-  },
+  } satisfies ComboRoles,
   limits: {
     babysit_poll_seconds: 120,
-    rower_timeout_minutes: 180,
+    coder_timeout_minutes: 180,
     teardown_git_retries: 2,
     teardown_git_backoff_seconds: 2,
   },
-  rower: {
+  coder: {
     codex: {
       command: "npx -y gnhf --agent codex --current-branch {prompt}",
       resume_command: "codex resume {thread_id}",
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
-  hodor: {
-    command: DEFAULT_HODOR_COMMAND,
+  gatekeeper: {
+    command: DEFAULT_GATEKEEPER_COMMAND,
     attach_timeout_seconds: 1800,
     attach_retry_interval_seconds: 10,
   },
-  thread_sitter: {
-    window_name: "thread-sitter",
-    watch_window_name: "thread-sitter-watch",
+  coder_responding: {
+    window_name: "coder-responding",
+    watch_window_name: "comment-watch",
     review_nudge_prompt: [
-      "New review comment for the thread-sitter:",
+      "New review comment for coder responding mode:",
       "{url}",
       "",
       "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-      "Before pushing, check the hodor push semaphore.",
+      "Before pushing, check the gatekeeper push semaphore.",
     ].join("\n"),
   },
 };
@@ -130,17 +141,23 @@ function asTable(value: unknown, where: string): TomlTable {
 
 function mergeRoles(base: ComboRoles, raw: unknown, source: string): ComboRoles {
   const table = asTable(raw, `[roles] in ${source}`);
-  const merged: ComboRoles = { ...base, gordon: [...base.gordon] };
+  const merged = {
+    coder: base.coder,
+    gatekeeper: base.gatekeeper,
+    reviewer: [...base.reviewer],
+    merge: base.merge,
+  };
   for (const [key, value] of Object.entries(table)) {
     if (!ROLE_NAMES.has(key)) {
       throw new ComboConfigError(
         `Unknown role "${key}" in ${source}. Known roles: ${[...ROLE_NAMES].join(", ")}`,
       );
     }
-    if (key === "gordon") {
-      merged.gordon = Array.isArray(value) ? value.map(String) : [String(value)];
+    const canonical = ROLE_ALIASES[key]!;
+    if (canonical === "reviewer") {
+      merged.reviewer = Array.isArray(value) ? value.map(String) : [String(value)];
     } else {
-      (merged as unknown as Record<string, string>)[key] = String(value);
+      merged[canonical] = String(value);
     }
   }
   return merged;
@@ -154,6 +171,18 @@ function pickNumber(table: TomlTable, key: string, fallback: number, where = "[l
     throw new ComboConfigError(`${where} ${key} must be a positive number`);
   }
   return parsed;
+}
+
+function pickNumberAlias(table: TomlTable, key: string, legacyKey: string, fallback: number): number {
+  if (table[key] !== undefined) return pickNumber(table, key, fallback);
+  return pickNumber(table, legacyKey, fallback);
+}
+
+function normalizeLimitAliases(table: TomlTable): TomlTable {
+  if (table["coder_timeout_minutes"] !== undefined || table["rower_timeout_minutes"] === undefined) {
+    return table;
+  }
+  return { ...table, coder_timeout_minutes: table["rower_timeout_minutes"] };
 }
 
 function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number): number {
@@ -184,104 +213,124 @@ export function loadConfig(options: LoadOptions): ComboConfig {
 
   let roles: ComboRoles = {
     ...DEFAULTS.roles,
-    gordon: [...DEFAULTS.roles.gordon],
+    reviewer: [...DEFAULTS.roles.reviewer],
   };
   let limitsTable: TomlTable = { ...DEFAULTS.limits };
-  let rowerTemplates: Record<string, { command?: unknown; resume_command?: unknown }> = {
-    ...DEFAULTS.rower,
+  let coderTemplates: Record<string, { command?: unknown; resume_command?: unknown }> = {
+    ...DEFAULTS.coder,
   };
-  let hodorTable: TomlTable = { ...DEFAULTS.hodor };
-  let threadSitterTable: TomlTable = { ...DEFAULTS.thread_sitter };
-  let gordonTemplates: Record<string, { command?: string }> = { ...DEFAULT_GORDON_TEMPLATES };
-  let judgeProtocol = DEFAULT_GORDON_PROTOCOL;
+  let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
+  let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
+  let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
+  let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
       roles = mergeRoles(roles, layer.table["roles"], layer.source);
     }
     if (layer.table["limits"] !== undefined) {
-      limitsTable = { ...limitsTable, ...asTable(layer.table["limits"], `[limits] in ${layer.source}`) };
+      limitsTable = {
+        ...limitsTable,
+        ...normalizeLimitAliases(asTable(layer.table["limits"], `[limits] in ${layer.source}`)),
+      };
     }
-    if (layer.table["rower"] !== undefined) {
-      const rowerTable = asTable(layer.table["rower"], `[rower] in ${layer.source}`);
-      for (const [name, entry] of Object.entries(rowerTable)) {
-        rowerTemplates = {
-          ...rowerTemplates,
-          [name]: { ...rowerTemplates[name], ...asTable(entry, `[rower.${name}] in ${layer.source}`) },
+    for (const section of ["rower", "coder"]) {
+      if (layer.table[section] === undefined) continue;
+      const coderTable = asTable(layer.table[section], `[${section}] in ${layer.source}`);
+      for (const [name, entry] of Object.entries(coderTable)) {
+        coderTemplates = {
+          ...coderTemplates,
+          [name]: { ...coderTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
         };
       }
     }
-    if (layer.table["hodor"] !== undefined) {
-      hodorTable = {
-        ...hodorTable,
-        ...asTable(layer.table["hodor"], `[hodor] in ${layer.source}`),
+    for (const section of ["hodor", "gatekeeper"]) {
+      if (layer.table[section] === undefined) continue;
+      gatekeeperTable = {
+        ...gatekeeperTable,
+        ...asTable(layer.table[section], `[${section}] in ${layer.source}`),
       };
     }
-    if (layer.table["thread_sitter"] !== undefined) {
-      threadSitterTable = {
-        ...threadSitterTable,
-        ...asTable(layer.table["thread_sitter"], `[thread_sitter] in ${layer.source}`),
+    for (const section of ["thread_sitter", "coder_responding"]) {
+      if (layer.table[section] === undefined) continue;
+      coderRespondingTable = {
+        ...coderRespondingTable,
+        ...asTable(layer.table[section], `[${section}] in ${layer.source}`),
       };
     }
-    if (layer.table["gordon"] !== undefined) {
-      const gordonTable = asTable(layer.table["gordon"], `[gordon] in ${layer.source}`);
-      if (gordonTable["protocol"] !== undefined) {
-        judgeProtocol = String(gordonTable["protocol"]);
+    for (const section of ["gordon", "reviewer"]) {
+      if (layer.table[section] === undefined) continue;
+      const reviewerTable = asTable(layer.table[section], `[${section}] in ${layer.source}`);
+      if (reviewerTable["protocol"] !== undefined) {
+        reviewerProtocol = String(reviewerTable["protocol"]);
       }
-      for (const [name, entry] of Object.entries(gordonTable)) {
+      for (const [name, entry] of Object.entries(reviewerTable)) {
         if (name === "protocol") continue;
-        gordonTemplates = {
-          ...gordonTemplates,
-          [name]: { ...gordonTemplates[name], ...asTable(entry, `[gordon.${name}] in ${layer.source}`) },
+        reviewerTemplates = {
+          ...reviewerTemplates,
+          [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
         };
       }
     }
   }
 
   const env = options.env ?? {};
-  if (env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"] !== undefined) {
-    hodorTable["attach_timeout_seconds"] = env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"];
+  const gatekeeperAttachTimeout =
+    env["COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS"] ??
+    env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"];
+  if (gatekeeperAttachTimeout !== undefined) {
+    gatekeeperTable["attach_timeout_seconds"] = gatekeeperAttachTimeout;
   }
-  if (env["COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS"] !== undefined) {
-    hodorTable["attach_retry_interval_seconds"] =
-      env["COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS"];
+  const gatekeeperAttachRetryInterval =
+    env["COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS"] ??
+    env["COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS"];
+  if (gatekeeperAttachRetryInterval !== undefined) {
+    gatekeeperTable["attach_retry_interval_seconds"] = gatekeeperAttachRetryInterval;
   }
 
-  if (roles.gordon.length === 0) {
+  if (roles.reviewer.length === 0) {
     throw new ComboConfigError(
-      "gordon must name at least one judge: an empty gordon silently disables judgment.",
+      "reviewer (formerly gordon) must name at least one judge: an empty reviewer silently disables judgment.",
     );
   }
 
-  if (roles.gordon.includes(roles.rower)) {
+  if (roles.reviewer.includes(roles.coder)) {
     throw new ComboConfigError(
-      `gordon != rower: "${roles.rower}" cannot judge its own cooking. Pick a different gordon or rower.`,
+      `reviewer != coder (formerly gordon != rower): "${roles.coder}" cannot review its own cooking. Pick a different reviewer or coder.`,
     );
   }
 
-  const rowerCommand = pickNonEmptyString(
-    rowerTemplates[roles.rower]?.command,
-    `command template for rower "${roles.rower}"`,
+  const coderCommand = pickNonEmptyString(
+    coderTemplates[roles.coder]?.command,
+    `command template for coder "${roles.coder}"`,
   );
-  const rowerResumeCommand = pickNonEmptyString(
-    rowerTemplates[roles.rower]?.resume_command,
-    `resume command template for rower "${roles.rower}"`,
+  const coderResumeCommand = pickNonEmptyString(
+    coderTemplates[roles.coder]?.resume_command,
+    `resume command template for coder "${roles.coder}"`,
   );
 
-  const judgeAgent = roles.gordon.find((agent) => gordonTemplates[agent]?.command);
-  const judgeCommand = judgeAgent === undefined ? undefined : gordonTemplates[judgeAgent]?.command;
-  if (!judgeAgent || !judgeCommand) {
+  const reviewerAgent = roles.reviewer.find((agent) => reviewerTemplates[agent]?.command !== undefined);
+  if (!reviewerAgent) {
     throw new ComboConfigError(
-      `No command template for gordon ${roles.gordon.map((agent) => `"${agent}"`).join(", ")}. ` +
-        `Add [gordon."<name>"] command = "..." to your config.`,
+      `No command template for reviewer (formerly gordon) ${roles.reviewer.map((agent) => `"${agent}"`).join(", ")}. ` +
+        `Add [reviewer."<name>"] command = "..." to your config.`,
     );
   }
+  const reviewerCommand = pickNonEmptyString(
+    reviewerTemplates[reviewerAgent]?.command,
+    `command template for reviewer "${reviewerAgent}"`,
+  );
 
   return {
     roles,
     limits: {
       babysitPollSeconds: pickNumber(limitsTable, "babysit_poll_seconds", DEFAULTS.limits.babysit_poll_seconds),
-      rowerTimeoutMinutes: pickNumber(limitsTable, "rower_timeout_minutes", DEFAULTS.limits.rower_timeout_minutes),
+      coderTimeoutMinutes: pickNumberAlias(
+        limitsTable,
+        "coder_timeout_minutes",
+        "rower_timeout_minutes",
+        DEFAULTS.limits.coder_timeout_minutes,
+      ),
       teardownGitRetries: pickNonNegativeInteger(
         limitsTable,
         "teardown_git_retries",
@@ -293,27 +342,39 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         DEFAULTS.limits.teardown_git_backoff_seconds,
       ),
     },
-    rowerCommand,
-    rowerResumeCommand,
-    hodorCommand: String(hodorTable["command"]),
-    hodorAttachTimeoutSeconds: pickNumber(
-      hodorTable,
+    coderCommand,
+    coderResumeCommand,
+    gatekeeperCommand: pickNonEmptyString(
+      gatekeeperTable["command"],
+      "command template for [gatekeeper]",
+    ),
+    gatekeeperAttachTimeoutSeconds: pickNumber(
+      gatekeeperTable,
       "attach_timeout_seconds",
-      DEFAULTS.hodor.attach_timeout_seconds,
-      "[hodor]",
+      DEFAULTS.gatekeeper.attach_timeout_seconds,
+      "[gatekeeper]",
     ),
-    hodorAttachRetryIntervalSeconds: pickNumber(
-      hodorTable,
+    gatekeeperAttachRetryIntervalSeconds: pickNumber(
+      gatekeeperTable,
       "attach_retry_interval_seconds",
-      DEFAULTS.hodor.attach_retry_interval_seconds,
-      "[hodor]",
+      DEFAULTS.gatekeeper.attach_retry_interval_seconds,
+      "[gatekeeper]",
     ),
-    reviewNudgePrompt: String(threadSitterTable["review_nudge_prompt"]),
-    threadSitterWindowName: String(threadSitterTable["window_name"]),
-    threadSitterWatchWindowName: String(threadSitterTable["watch_window_name"]),
-    judgeAgent,
-    judgeCommand,
-    judgeProtocol,
+    reviewNudgePrompt: pickNonEmptyString(
+      coderRespondingTable["review_nudge_prompt"],
+      "coder_responding.review_nudge_prompt",
+    ),
+    coderRespondingWindowName: pickNonEmptyString(
+      coderRespondingTable["window_name"],
+      "coder_responding.window_name",
+    ),
+    coderRespondingWatchWindowName: pickNonEmptyString(
+      coderRespondingTable["watch_window_name"],
+      "coder_responding.watch_window_name",
+    ),
+    reviewerAgent,
+    reviewerCommand,
+    reviewerProtocol,
   };
 }
 

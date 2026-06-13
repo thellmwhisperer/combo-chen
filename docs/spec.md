@@ -9,22 +9,22 @@ schema, and the config schema must conform to it, not the other way around.
 | Role | Does | Never does | Default agent |
 |---|---|---|---|
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
-| **rower** | the one who rows: implements the issue (phase 1); resumed, addresses review comments (phase 3) | merge, deploy | codex via gnhf |
-| **hodor** | holds the door: no-mistakes pipeline review→test→docs→lint→push→PR; then ci-step: watch CI, auto-fix failures/conflicts. The hodor command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **gordon** | the judge: reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own cooking | claude (+ coderabbit as ambient reviewer) |
+| **coder** | implements the issue (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
+| **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR; then ci-step: watch CI, auto-fix failures/conflicts. The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
+| **reviewer** | reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own changes | claude (+ coderabbit as ambient reviewer) |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
-- `gordon != rower` — no agent judges its own cooking.
+- `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
 
 ## 2. Phases and transitions
 
-```
+```text
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
-  └─▶ ROWING     gnhf loop; ends with rower_done + captured thread_id
-        └─▶ GATING     hodor_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, hodor_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
-              └─▶ JUDGING    gordon loop + thread-sitter + hodor ci-step in parallel
+  └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
+        └─▶ GATING     gate_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
+              └─▶ REVIEWING  reviewer loop + coder responding mode + gatekeeper ci-step in parallel
                     └─▶ READY      lgtm_current ∧ rabbit_clean ∧ checks_passed
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
@@ -32,64 +32,64 @@ SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
 Any phase can transition to `STALLED` (timeout, rate limit, agent death) —
 a director concern, never a silent state.
 
-For `combo-chen run --issue <issue-url>`, the default hodor intent is derived
+For `combo-chen run --issue <issue-url>`, the default gatekeeper intent is derived
 from the ComboRecord issue URL and issue details and ends with `Fixes #N`.
 That explicit autoclose keyword is required for generated issue PRs; a plain
-mention such as `issue #N` is not treated as sufficient. Custom hodor commands
+mention such as `issue #N` is not treated as sufficient. Custom gatekeeper commands
 that still create source-issue PRs must preserve `{issue_pr_intent}` or provide
 an equivalent GitHub autoclose keyword in the PR/body generation path.
 
-A recoverable rower failure journals `rower_retry` (no required fields) and
+A recoverable coder failure journals `coder_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.
 
-A terminal rower failure (non-zero exit) journals `rower_failed` (required
+A terminal coder failure (non-zero exit) journals `coder_failed` (required
 fields: `exit_code`, `has_new_commits`). The runner captures the git HEAD
-before and after the rower run: `base_sha`, `head_sha`, and
-`new_commit_count` quantify what — if anything — the rower committed before
-failing. `rower_failed` transitions the combo immediately to `STALLED`.
+before and after the coder run: `base_sha`, `head_sha`, and
+`new_commit_count` quantify what — if anything — the coder committed before
+failing. `coder_failed` transitions the combo immediately to `STALLED`.
 
 When no-mistakes detects that the gate requires approval (the
 `outcome: awaiting_approval` pattern in its output), the runner emits
-`hodor_status` with `state=awaiting_approval` and `needs_human` with
+`gate_status` with `state=awaiting_approval` and `needs_human` with
 `reason=gate_waiting`, then exits 0. The combo stays in `GATING` until a
 human resolves the gate.
 
 Note: this path does not emit `pr_opened`; downstream automations that
-depend on `pr_opened` (judge activation, thread-sitter nudging, status PR
+depend on `pr_opened` (reviewer activation, coder-response nudging, status PR
 updates) do not start until the gate is resolved or the PR is journaled by
 another path.
 
-## 3. The two babysitters and their boundary
+## 3. Post-PR loops and their boundary
 
-- **hodor** (no-mistakes ci-step): machine signals only. Watches the PR
+- **gatekeeper** (no-mistakes ci-step): machine signals only. Watches the PR
   until merged/closed; fetches failed CI logs, lets its agent fix, commits and
   force-pushes; rebases over merge conflicts. Verified: it never reads or
-  answers review threads. He holds the door.
-- **thread-sitter** (the resumed rower): conversation signals only. Reads new
-  review comments, answers them, pushes addressing commits.
+  answers review threads.
+- **coder responding mode** (the resumed coder): conversation signals only.
+  Reads new review comments, answers them, pushes addressing commits.
 
-**Push semaphore:** the thread-sitter must not push while hodor has a CI
-fix in flight (hodor force-pushes). Before pushing: check hodor state
-(`no-mistakes axi status` or `hodor_status` with `state=fix_inflight`).
+**Push semaphore:** the coder must not push while the gatekeeper has a CI
+fix in flight (the gatekeeper force-pushes). Before pushing: check gatekeeper
+state (`no-mistakes axi status` or `gate_status` with `state=fix_inflight`).
 On every review-comment watcher cycle, combo-chen also compares `origin/<branch>`
 with the `no-mistakes` mirror and syncs the mirror when it is stale, using
 `--force-with-lease` when reconciling an existing mirror branch.
-Hodor needs no symmetric check — he owns CI-red moments; the thread-sitter owns CI-green
-moments.
+The gatekeeper needs no symmetric check; it owns CI-red moments, while coder
+responding mode owns CI-green moments.
 
-`hodor_started` marks the beginning of hodor's lifecycle.  The
-`hodor_status` event records hodor's ongoing lifecycle: `fix_inflight` (hodor
-started and no-mistakes is running), `awaiting_approval` (gate requires
-human sign-off), `failed` (non-zero exit), or `idle` (hodor completed
+`gate_started` marks the beginning of the gatekeeper lifecycle.  The
+`gate_status` event records the gatekeeper's ongoing lifecycle: `fix_inflight`
+(gatekeeper started and no-mistakes is running), `awaiting_approval` (gate requires
+human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper completed
 successfully, awaiting PR detection).
 
-## 4. Thread-sitter resume contract
+## 4. Coder responding contract
 
-- On `rower_done`, combo-chen captures the implementing session's thread id
+- On `coder_done`, combo-chen captures the implementing session's thread id
   (gnhf logs, or lookup in La Roca's ingested session metadata).
-- On `review_comment` (fields: `author`, `kind`, `url`), the thread-sitter is the implementing thread resumed:
+- On `review_comment` (fields: `author`, `kind`, `url`), coder responding mode is the implementing thread resumed:
   `codex resume <id>`, `hermes --resume <session>`, or a stateful ACP session.
-- Fallback (resume unavailable or context-saturated): fresh rower instance
+- Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with issue + PR diff + the comment. Degraded, never blocking.
 - Two-bucket policy per comment (mirrors no-mistakes findings): mechanical
   addresses (rename, guard, doc, test tweak) are handled and answered
@@ -97,17 +97,17 @@ successfully, awaiting PR detection).
   thread until the human rules.
 - Context discipline (empirical, from no-mistakes' design): resumed context
   is for WRITING (addressing with intent memory); fresh context is for
-  JUDGING (the reviewer is never the resumed thread).
+  REVIEWING (the reviewer is never the resumed thread).
 
 ## 5. Review state
 
-- Gordon emits `lgtm` (required field `sha`) to journal the reviewed commit;
+- The reviewer emits `lgtm` (required field `sha`) to journal the reviewed commit;
   the LGTM is pinned to that SHA.
 - Any push invalidates it and the journal records `lgtm_stale` (fields
-  `old_sha`, `new_sha`); gordon re-reviews the delta
+  `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
   findings.
-- READY requires: current LGTM on HEAD ∧ CodeRabbit clean ∧ hodor
+- READY requires: current LGTM on HEAD ∧ CodeRabbit clean ∧ gatekeeper
   checks-passed.
 
 ## 6. Merge policy and the counterfactual log
@@ -118,15 +118,15 @@ successfully, awaiting PR detection).
     local worktree and branch, then journals `combo_closed`. The remote
     branch is left alone by default.
   - **Closed without merge:** The combo journals `needs_human` (fields:
-    `reason`=`"pr_closed"`), then `combo_closed`. The judge stops the tmux
+    `reason`=`"pr_closed"`), then `combo_closed`. The reviewer stops the tmux
     session but does NOT remove the worktree or local branch, preserving
     local work for human salvage.
 - Every run records the counterfactual: would this combo have automerged
-  (PR type, hodor risk assessment, signals, timestamp)? After enough runs,
+  (PR type, gatekeeper risk assessment, signals, timestamp)? After enough runs,
   per-risk-tier automerge can be enabled where the counterfactual matches
-  human decisions — trust earned with data, low-risk tier first. Hodor
+  human decisions — trust earned with data, low-risk tier first. The gatekeeper
   already emits a risk assessment in the PR body; the log keys on it.
-- The READY report links evidence (hodor test artifacts, screenshots, CI
+- The READY report links evidence (gatekeeper test artifacts, screenshots, CI
   runs), not just green booleans: humans merge on evidence.
 
 ## 7. Capacity and rate limits
@@ -135,7 +135,7 @@ successfully, awaiting PR detection).
   each plan; limits are the contract.
 - `rate_limited(role, until)` is a first-class event: the role pauses, the
   director knows, the role resumes at reset.
-- Priority under scarcity: rower > thread-sitter > gordon > sweeps.
+- Priority under scarcity: coder coding mode > coder responding mode > reviewer > sweeps.
 - Roles spread across independent budgets by design (Claude subscription,
   Codex subscription, Hermes API providers).
 - Persistent roles run interactive sessions; headless `-p`/SDK calls are
@@ -143,12 +143,12 @@ successfully, awaiting PR detection).
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo: windows for rower, hodor, and any
-  interactive agent roles (gordon, thread-sitter). The hodor window runs
+- One tmux session per combo: windows for coder, gatekeeper, and any
+  interactive agent roles (reviewer, coder responding mode). The gatekeeper window runs
   `no-mistakes attach`, which exits when no active run exists — often
-  before the hodor command starts one. On `hodor_started` the emit
-  handler recreates the hodor window so the live role window is visible
-  when the no-mistakes run becomes active. The rower window
+  before the gatekeeper command starts one. On `gate_started` the emit
+  handler recreates the gatekeeper window so the live role window is visible
+  when the no-mistakes run becomes active. The coder window
   includes a short (12-line) journal pane showing live events.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
@@ -156,7 +156,7 @@ successfully, awaiting PR detection).
 - Attention surface: tmux window titles + `combo-chen status` always answer
   "which combos need a human RIGHT NOW" (phase + needs_human flag). Five
   combos = five status lines, zero attaching until escalation.
-- The director consumes events, never logs: deep dives (why did the rower
+- The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
@@ -181,15 +181,14 @@ conversation, nothing else. Lingering processes die with the tmux session.
 
 ## 10. Decided (vetoed via the plan-v1 lavish artifact, 2026-06-10)
 
-1. **Claude codes v0**, TDD — Codex is the rower inside combos and the first
+1. **Claude codes v0**, TDD — Codex is the coder inside combos and the first
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
-3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`activate-judge`, rower
-   (codex+gnhf), hodor (no-mistakes), gordon judge (tmux poll loop +
+3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer`, coder
+   (codex+gnhf), gatekeeper (no-mistakes), reviewer (tmux poll loop +
    incremental re-review); manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo
    dashboard deferred to v1+.
 
-Role names ruled by the architect: the implementer is the **rower** (the one
-who rows), the gate is **hodor** (he holds the door), and the reviewer is
-**gordon** (the MasterChef judge: no courtesy LGTMs).
+Public role names are now **coder**, **gatekeeper**, and **reviewer** so the
+contract describes each role directly before the project has external users.

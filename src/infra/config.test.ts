@@ -19,27 +19,38 @@ describe("loadConfig", () => {
   it("returns the documented defaults when no config exists", () => {
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: join(tempDir(), "missing.toml") });
 
-    expect(config.roles.rower).toBe("codex");
-    expect(config.roles.hodor).toBe("no-mistakes");
-    expect(config.roles.gordon).toEqual(["claude", "coderabbit"]);
+    expect(config.roles.coder).toBe("codex");
+    expect(config.roles.gatekeeper).toBe("no-mistakes");
+    expect(config.roles.reviewer).toEqual(["claude", "coderabbit"]);
     expect(config.roles.merge).toBe("human");
+    expect(config.roles).not.toHaveProperty("rower");
+    expect(config.roles).not.toHaveProperty("hodor");
+    expect(config.roles).not.toHaveProperty("gordon");
     expect(config.limits.babysitPollSeconds).toBe(120);
-    expect(config.limits.rowerTimeoutMinutes).toBe(180);
-    expect(config.hodorAttachTimeoutSeconds).toBe(1800);
-    expect(config.hodorAttachRetryIntervalSeconds).toBe(10);
+    expect(config.limits.coderTimeoutMinutes).toBe(180);
+    expect(config.gatekeeperAttachTimeoutSeconds).toBe(1800);
+    expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(10);
     expect(config.limits.teardownGitRetries).toBe(2);
     expect(config.limits.teardownGitBackoffSeconds).toBe(2);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
-    expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
-    expect(config.rowerResumeCommand).toBe("codex resume {thread_id}");
-    expect(config.reviewNudgePrompt).toContain("{url}");
+    expect(config.coderCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
+    expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
+    expect(config).not.toHaveProperty("rowerCommand");
+    expect(config).not.toHaveProperty("rowerResumeCommand");
+    expect(config).not.toHaveProperty("hodorCommand");
+    expect(config).not.toHaveProperty("hodorAttachTimeoutSeconds");
+    expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
+    expect(config.reviewNudgePrompt).toContain("coder responding mode");
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
-    expect(config.threadSitterWindowName).toBe("thread-sitter");
-    expect(config.threadSitterWatchWindowName).toBe("thread-sitter-watch");
-    expect(config.judgeAgent).toBe("claude");
-    expect(config.judgeCommand).toBe("claude {prompt}");
-    expect(config.judgeProtocol).toContain("7989");
+    expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
+    expect(config.coderRespondingWindowName).toBe("coder-responding");
+    expect(config.coderRespondingWatchWindowName).toBe("comment-watch");
+    expect(config).not.toHaveProperty("threadSitterWindowName");
+    expect(config).not.toHaveProperty("threadSitterWatchWindowName");
+    expect(config.reviewerAgent).toBe("claude");
+    expect(config.reviewerCommand).toBe("claude {prompt}");
+    expect(config.reviewerProtocol).toContain("7989");
   });
 
   it("lets the user config override defaults", () => {
@@ -52,12 +63,12 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
 
-    expect(config.roles.rower).toBe("hermes:deepseek");
-    expect(config.rowerCommand).toBe('hermes -z "{prompt}"');
-    expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config.roles.coder).toBe("hermes:deepseek");
+    expect(config.coderCommand).toBe('hermes -z "{prompt}"');
+    expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
-    expect(config.threadSitterWindowName).toBe("sitter");
-    expect(config.threadSitterWatchWindowName).toBe("sitter-watch");
+    expect(config.coderRespondingWindowName).toBe("sitter");
+    expect(config.coderRespondingWatchWindowName).toBe("sitter-watch");
   });
 
   it("repo config wins over user config (repo owns policy)", () => {
@@ -68,10 +79,10 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir, userConfigPath: userConfig });
 
-    expect(config.roles.rower).toBe("codex");
+    expect(config.roles.coder).toBe("codex");
   });
 
-  it("loads hodor attach retry settings through env, repo, user, fallback order", () => {
+  it("loads gatekeeper attach retry settings through env, repo, user, fallback order", () => {
     const userDir = tempDir();
     const userConfig = writeToml(
       userDir,
@@ -86,8 +97,8 @@ describe("loadConfig", () => {
     );
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: userConfig, env: {} });
-    expect(repoConfig.hodorAttachTimeoutSeconds).toBe(600);
-    expect(repoConfig.hodorAttachRetryIntervalSeconds).toBe(20);
+    expect(repoConfig.gatekeeperAttachTimeoutSeconds).toBe(600);
+    expect(repoConfig.gatekeeperAttachRetryIntervalSeconds).toBe(20);
 
     const envConfig = loadConfig({
       repoDir,
@@ -97,8 +108,21 @@ describe("loadConfig", () => {
         COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS: "15",
       },
     });
-    expect(envConfig.hodorAttachTimeoutSeconds).toBe(75);
-    expect(envConfig.hodorAttachRetryIntervalSeconds).toBe(15);
+    expect(envConfig.gatekeeperAttachTimeoutSeconds).toBe(75);
+    expect(envConfig.gatekeeperAttachRetryIntervalSeconds).toBe(15);
+
+    const newEnvConfig = loadConfig({
+      repoDir,
+      userConfigPath: userConfig,
+      env: {
+        COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS: "75",
+        COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS: "15",
+        COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS: "45",
+        COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS: "9",
+      },
+    });
+    expect(newEnvConfig.gatekeeperAttachTimeoutSeconds).toBe(45);
+    expect(newEnvConfig.gatekeeperAttachRetryIntervalSeconds).toBe(9);
   });
 
   it("loads teardown retry limits from the standard limits cascade", () => {
@@ -115,6 +139,83 @@ describe("loadConfig", () => {
 
     expect(config.limits.teardownGitRetries).toBe(1);
     expect(config.limits.teardownGitBackoffSeconds).toBe(3);
+  });
+
+  it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {
+    const userDir = tempDir();
+    const userConfig = writeToml(userDir, "config.toml", "[limits]\nrower_timeout_minutes = 111\n");
+
+    const legacyConfig = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
+    expect(legacyConfig.limits.coderTimeoutMinutes).toBe(111);
+
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[limits]\ncoder_timeout_minutes = 222\n");
+
+    const config = loadConfig({ repoDir, userConfigPath: userConfig });
+
+    expect(config.limits.coderTimeoutMinutes).toBe(222);
+  });
+
+  it("loads OSS-friendly role and section names while preserving old role aliases", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'coder = "hermes:deepseek"',
+        'gatekeeper = "no-mistakes"',
+        'reviewer = ["coderabbit", "hermes:gemini"]',
+        "",
+        '[coder."hermes:deepseek"]',
+        'command = "hermes -z {prompt}"',
+        'resume_command = "hermes --resume {thread_id}"',
+        "",
+        "[gatekeeper]",
+        'command = "gate --intent {issue_pr_intent}"',
+        "attach_timeout_seconds = 42",
+        "attach_retry_interval_seconds = 6",
+        "",
+        "[reviewer]",
+        'protocol = "project review protocol 1234"',
+        "",
+        '[reviewer."hermes:gemini"]',
+        'command = "hermes review {pr_url} {prompt}"',
+        "",
+        "[coder_responding]",
+        'review_nudge_prompt = "Please review {url}"',
+        'window_name = "coder-reply"',
+        'watch_window_name = "comment-watch-local"',
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.roles.coder).toBe("hermes:deepseek");
+    expect(config.roles.gatekeeper).toBe("no-mistakes");
+    expect(config.roles.reviewer).toEqual(["coderabbit", "hermes:gemini"]);
+    expect(config.roles).not.toHaveProperty("rower");
+    expect(config.roles).not.toHaveProperty("hodor");
+    expect(config.roles).not.toHaveProperty("gordon");
+    expect(config.coderCommand).toBe("hermes -z {prompt}");
+    expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config).not.toHaveProperty("rowerCommand");
+    expect(config).not.toHaveProperty("rowerResumeCommand");
+    expect(config.gatekeeperCommand).toBe("gate --intent {issue_pr_intent}");
+    expect(config.gatekeeperAttachTimeoutSeconds).toBe(42);
+    expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(6);
+    expect(config).not.toHaveProperty("hodorCommand");
+    expect(config).not.toHaveProperty("hodorAttachTimeoutSeconds");
+    expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
+    expect(config.reviewerAgent).toBe("hermes:gemini");
+    expect(config.reviewerCommand).toBe("hermes review {pr_url} {prompt}");
+    expect(config.reviewerProtocol).toBe("project review protocol 1234");
+    expect(config.reviewNudgePrompt).toBe("Please review {url}");
+    expect(config.coderRespondingWindowName).toBe("coder-reply");
+    expect(config.coderRespondingWatchWindowName).toBe("comment-watch-local");
+    expect(config).not.toHaveProperty("threadSitterWindowName");
+    expect(config).not.toHaveProperty("threadSitterWatchWindowName");
   });
 
   it("refuses to launch when gordon would judge their own cooking", () => {
@@ -189,6 +290,22 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume command template/);
   });
 
+  it("rejects a non-string gatekeeper command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[gatekeeper]\ncommand = 123\n");
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
+  });
+
+  it("rejects non-string coder responding templates during config load", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[coder_responding]\nwindow_name = 123\n");
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/coder_responding.window_name/);
+  });
+
   it("resolves the first configured gordon command and protocol", () => {
     const repoDir = tempDir();
     writeToml(
@@ -209,9 +326,9 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
 
-    expect(config.judgeAgent).toBe("hermes:gemini");
-    expect(config.judgeCommand).toBe("hermes judge {pr_url} {prompt}");
-    expect(config.judgeProtocol).toBe("project review protocol 1234");
+    expect(config.reviewerAgent).toBe("hermes:gemini");
+    expect(config.reviewerCommand).toBe("hermes judge {pr_url} {prompt}");
+    expect(config.reviewerProtocol).toBe("project review protocol 1234");
   });
 
   it("requires at least one configured gordon command", () => {
@@ -220,6 +337,18 @@ describe("loadConfig", () => {
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/i);
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command/i);
+  });
+
+  it("rejects a non-string reviewer command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[roles]\nreviewer = ["local"]\n\n[reviewer.local]\ncommand = 123\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
   });
 });
 

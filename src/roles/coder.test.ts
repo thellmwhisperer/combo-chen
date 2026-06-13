@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  ROWER_THREAD_ARTIFACT,
-  buildRowerInvocation,
+  CODER_THREAD_ARTIFACT,
+  buildCoderInvocation,
   defaultPrompt,
   extractCodexThreadIdFromJsonl,
-  persistRowerThreadArtifact,
-} from "./rower.js";
+  persistCoderThreadArtifact,
+} from "./coder.js";
 
 const combo = {
   id: "o-r-7",
@@ -36,7 +36,7 @@ function seedGnhfRun(worktree: string): void {
 }
 
 describe("defaultPrompt", () => {
-  it("tells the rower which issue to row and to work test-first", () => {
+  it("tells the coder which issue to implement and to work test-first", () => {
     const prompt = defaultPrompt(combo.issueUrl);
     expect(prompt).toContain(combo.issueUrl);
     expect(prompt).toContain("gh issue view");
@@ -44,10 +44,10 @@ describe("defaultPrompt", () => {
   });
 });
 
-describe("buildRowerInvocation", () => {
+describe("buildCoderInvocation", () => {
   it("renders the configured template with the combo's facts as quoted tokens", () => {
-    const command = buildRowerInvocation({
-      rowerCommand: "gnhf --x {issue_url} --wt {worktree} {prompt}",
+    const command = buildCoderInvocation({
+      coderCommand: "gnhf --x {issue_url} --wt {worktree} {prompt}",
       combo,
     });
     expect(command).toContain("--x 'https://github.com/o/r/issues/7'");
@@ -56,8 +56,8 @@ describe("buildRowerInvocation", () => {
   });
 
   it("lets a custom prompt replace the default", () => {
-    const command = buildRowerInvocation({
-      rowerCommand: "gnhf {prompt}",
+    const command = buildCoderInvocation({
+      coderCommand: "gnhf {prompt}",
       combo,
       prompt: "fix the flaky test only",
     });
@@ -67,7 +67,7 @@ describe("buildRowerInvocation", () => {
 
 describe("extractCodexThreadIdFromJsonl", () => {
   it("returns the thread_id from a thread.started event", () => {
-    const dir = tempDir("rower-extract-");
+    const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "test.jsonl");
     writeFileSync(
       jsonlPath,
@@ -77,14 +77,14 @@ describe("extractCodexThreadIdFromJsonl", () => {
   });
 
   it("returns undefined for an empty file", () => {
-    const dir = tempDir("rower-extract-");
+    const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "empty.jsonl");
     writeFileSync(jsonlPath, "");
     expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
   });
 
   it("returns undefined when no thread.started event is present", () => {
-    const dir = tempDir("rower-extract-");
+    const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "no-thread.jsonl");
     writeFileSync(
       jsonlPath,
@@ -94,7 +94,7 @@ describe("extractCodexThreadIdFromJsonl", () => {
   });
 
   it("returns undefined when thread.started has an empty thread_id", () => {
-    const dir = tempDir("rower-extract-");
+    const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "empty-thread.jsonl");
     writeFileSync(
       jsonlPath,
@@ -104,7 +104,7 @@ describe("extractCodexThreadIdFromJsonl", () => {
   });
 
   it("skips lines with invalid JSON", () => {
-    const dir = tempDir("rower-extract-");
+    const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "bad.jsonl");
     writeFileSync(
       jsonlPath,
@@ -114,7 +114,7 @@ describe("extractCodexThreadIdFromJsonl", () => {
   });
 
   it("returns the most recent thread.started thread_id", () => {
-    const dir = tempDir("rower-extract-");
+    const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "multiple.jsonl");
     writeFileSync(
       jsonlPath,
@@ -128,20 +128,24 @@ describe("extractCodexThreadIdFromJsonl", () => {
   });
 });
 
-describe("rower thread artifact", () => {
+describe("coder thread artifact", () => {
+  it("uses a coder-named artifact file", () => {
+    expect(CODER_THREAD_ARTIFACT).toBe("coder-thread.json");
+  });
+
   it("persists the codex thread id from a gnhf iteration JSONL fixture", () => {
     const runDir = tempDir("combo-chen-run-");
     const worktree = tempDir("combo-chen-worktree-");
     seedGnhfRun(worktree);
 
-    const artifact = persistRowerThreadArtifact({ runDir, worktree });
+    const artifact = persistCoderThreadArtifact({ runDir, worktree });
 
     expect(artifact).toEqual({
       agent: "codex",
       thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
       source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
     });
-    expect(JSON.parse(readFileSync(join(runDir, ROWER_THREAD_ARTIFACT), "utf8"))).toEqual(
+    expect(JSON.parse(readFileSync(join(runDir, CODER_THREAD_ARTIFACT), "utf8"))).toEqual(
       artifact,
     );
   });
