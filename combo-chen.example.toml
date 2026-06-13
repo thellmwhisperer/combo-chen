@@ -7,35 +7,35 @@
 
 [roles]
 # The cast. Fixed roles, configurable agents.
-rower = "codex"                   # who rows (implements); needs a [rower.<name>] command
-# hodor is ALWAYS the no-mistakes binary; WHICH MODEL holds the door is
+coder = "codex"                   # implements; needs a [coder.<name>] command
+# gatekeeper is ALWAYS the no-mistakes binary; WHICH MODEL runs the gate is
 # chosen in the target repo's .no-mistakes.yaml (agent: codex | claude |
 # acp:hermes-deepseek | ...). Non-interactive agents are fine there: the
 # gate drives them headlessly through its own agent interface.
-hodor = "no-mistakes"
-# gordon runs post-PR, judging the result. The first gordon with a command
-# template becomes the active judge; coderabbit remains an ambient reviewer.
-gordon = ["claude", "coderabbit"] # validated: gordon != rower
+gatekeeper = "no-mistakes"
+# reviewer runs post-PR. The first reviewer with a command template becomes
+# the active reviewer; coderabbit remains an ambient reviewer.
+reviewer = ["claude", "coderabbit"] # validated: reviewer != coder
 merge = "human"                   # hard default: earn automerge with data first
 
-[rower.codex]
+[coder.codex]
 # {placeholders}: issue_url, worktree, repo, branch, prompt. Each value is
 # substituted as a single-quoted shell token; don't add quotes around them.
 command = 'npx -y gnhf --agent codex --current-branch {prompt}'
-# {placeholders}: thread_id. Used by the thread-sitter to resume the same
-# implementing context after PR review comments land.
+# {placeholders}: thread_id. Used by coder responding mode to resume the same
+# implementation context after PR review comments land.
 resume_command = 'codex resume {thread_id}'
 
 # A hermes example (DeepSeek/Gemini/... via the Hermes harness):
-# [rower."hermes:deepseek"]
+# [coder."hermes:deepseek"]
 # command = 'hermes -z {prompt}'
 # resume_command = 'hermes --resume {thread_id}'
 
-[hodor]
+[gatekeeper]
 # The default command pushes to the no-mistakes remote (if one exists)
 # before running the gate, then passes an issue-derived intent ending in
 # `Fixes #N` so GitHub closes the source issue when the PR is merged.
-# Override this to use a custom hodor pipeline.
+# Override this to use a custom gatekeeper pipeline.
 # {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent,
 # branch. Each value is substituted as a single-quoted shell token; don't
 # add quotes around them. Unknown placeholders cause run to fail with a
@@ -44,33 +44,33 @@ resume_command = 'codex resume {thread_id}'
 # Example with placeholders:
 # command = "no-mistakes axi run --yes --intent {issue_pr_intent}"
 command = "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi"
-# The hodor tmux window retries until no-mistakes has an active run to attach.
-# Environment overrides: COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS,
-# COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS.
+# The gatekeeper tmux window retries until no-mistakes has an active run to attach.
+# Environment overrides: COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS,
+# COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS.
 attach_timeout_seconds = 1800
 attach_retry_interval_seconds = 10
 
-[thread_sitter]
-window_name = "thread-sitter"
-watch_window_name = "thread-sitter-watch"
+[coder_responding]
+window_name = "coder-responding"
+watch_window_name = "comment-watch"
 # {placeholders}: author, kind, url.
 review_nudge_prompt = '''
-New review comment for the thread-sitter:
+New review comment for coder responding mode:
 {url}
 
 Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.
-Before pushing, check the hodor push semaphore.
+Before pushing, check the gatekeeper push semaphore.
 '''
 
-[gordon]
+[reviewer]
 # Protocol content stays in config. Keep this as a reference to the current
 # La Roca review protocol and project overlay rather than copying them here.
 protocol = "La Roca review protocol 7989 + project overlay"
 
-[gordon.claude]
+[reviewer.claude]
 # {placeholders}: issue_url, pr_url, worktree, repo, branch, protocol, prompt.
 command = "claude {prompt}"
 
 [limits]
-babysit_poll_seconds = 120  # thread-sitter review-comment poll interval
+babysit_poll_seconds = 120  # review-comment poll interval
 rower_timeout_minutes = 180

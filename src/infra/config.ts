@@ -119,7 +119,7 @@ const DEFAULTS = {
     attach_timeout_seconds: 1800,
     attach_retry_interval_seconds: 10,
   },
-  thread_sitter: {
+  coder_responding: {
     window_name: "coder-responding",
     watch_window_name: "comment-watch",
     review_nudge_prompt: [
@@ -230,7 +230,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     ...DEFAULTS.coder,
   };
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
-  let threadSitterTable: TomlTable = { ...DEFAULTS.thread_sitter };
+  let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
   let gordonTemplates: Record<string, { command?: string }> = { ...DEFAULT_GORDON_TEMPLATES };
   let judgeProtocol = DEFAULT_GORDON_PROTOCOL;
 
@@ -258,10 +258,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         ...asTable(layer.table[section], `[${section}] in ${layer.source}`),
       };
     }
-    if (layer.table["thread_sitter"] !== undefined) {
-      threadSitterTable = {
-        ...threadSitterTable,
-        ...asTable(layer.table["thread_sitter"], `[thread_sitter] in ${layer.source}`),
+    for (const section of ["thread_sitter", "coder_responding"]) {
+      if (layer.table[section] === undefined) continue;
+      coderRespondingTable = {
+        ...coderRespondingTable,
+        ...asTable(layer.table[section], `[${section}] in ${layer.source}`),
       };
     }
     for (const section of ["gordon", "reviewer"]) {
@@ -355,9 +356,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       DEFAULTS.gatekeeper.attach_retry_interval_seconds,
       "[gatekeeper]",
     ),
-    reviewNudgePrompt: String(threadSitterTable["review_nudge_prompt"]),
-    threadSitterWindowName: String(threadSitterTable["window_name"]),
-    threadSitterWatchWindowName: String(threadSitterTable["watch_window_name"]),
+    reviewNudgePrompt: String(coderRespondingTable["review_nudge_prompt"]),
+    threadSitterWindowName: String(coderRespondingTable["window_name"]),
+    threadSitterWatchWindowName: String(coderRespondingTable["watch_window_name"]),
     judgeAgent,
     judgeCommand,
     judgeProtocol,
