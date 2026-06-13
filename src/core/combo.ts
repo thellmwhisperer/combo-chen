@@ -72,8 +72,8 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
 
 export interface RunnerInput {
   combo: ComboRecord;
-  rowerCommand: string;
-  hodorCommand: string;
+  coderCommand: string;
+  gatekeeperCommand: string;
   /** Full invocation for creating the resumed coder and its comment watcher. */
   activateCoder: string;
   /** Full invocation prefix for emitting events, e.g. "node /x/cli.mjs emit -n <id>". */
@@ -100,8 +100,8 @@ export function shellQuote(value: string): string {
 export function buildRunnerScript(input: RunnerInput): string {
   const {
     combo,
-    rowerCommand,
-    hodorCommand,
+    coderCommand,
+    gatekeeperCommand,
     emit,
     activateCoder,
     activateReviewer,
@@ -121,7 +121,7 @@ coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 ${emit} coder_started
 
 if (
-  ${rowerCommand}
+  ${coderCommand}
 ) > "$coder_log" 2>&1; then
   ${emit} coder_done
 else
@@ -149,7 +149,7 @@ ${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_sta
 
 gatekeeper_code=0
 (
-  ${hodorCommand}
+  ${gatekeeperCommand}
 ) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
 if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then
