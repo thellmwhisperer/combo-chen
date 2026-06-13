@@ -3,7 +3,7 @@
  *
  * The runner is the combo's spine: a generated shell script that lives in
  * the run dir and executes inside the combo's tmux window. It sequences
- * rower → hodor → PR detection and reports every milestone to the journal
+ * coder → gatekeeper → PR detection and reports every milestone to the journal
  * through `combo-chen emit`, so status/events stay truthful even if the
  * conductor CLI exited long ago. No daemon, no hidden state.
  */
@@ -28,11 +28,11 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
 
   for (const event of events) {
     switch (event.event) {
-      case "rower_started":
+      case "coder_started":
         phase = "ROWING";
         needsHuman = false;
         break;
-      case "hodor_started":
+      case "gate_started":
         phase = "GATING";
         needsHuman = false;
         break;
@@ -41,8 +41,8 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         needsHuman = false;
         pr = typeof event["url"] === "string" ? (event["url"] as string) : pr;
         break;
-      case "rower_failed":
-      case "hodor_failed":
+      case "coder_failed":
+      case "gate_failed":
         phase = "STALLED";
         needsHuman = true;
         reason = event.event;
@@ -118,12 +118,12 @@ autoclose_log="$(dirname "$0")/autoclose.log"
 cd ${shellQuote(combo.worktree)}
 rower_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
-${emit} rower_started
+${emit} coder_started
 
 if (
   ${rowerCommand}
 ) > "$rower_log" 2>&1; then
-  ${emit} rower_done
+  ${emit} coder_done
 else
   code=$?
   rower_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
@@ -139,13 +139,13 @@ else
   else
     has_new_commits=false
   fi
-  ${emit} rower_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$rower_base_sha --field head_sha=$rower_head_sha --field new_commit_count=$new_commit_count
+  ${emit} coder_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$rower_base_sha --field head_sha=$rower_head_sha --field new_commit_count=$new_commit_count
   exit $code
 fi
 
-${emit} hodor_started
+${emit} gate_started
 hodor_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} hodor_status --field state=fix_inflight --field head_sha="$hodor_start_sha"
+${emit} gate_status --field state=fix_inflight --field head_sha="$hodor_start_sha"
 
 hodor_code=0
 (
@@ -154,20 +154,20 @@ hodor_code=0
 
 if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
   hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  ${emit} hodor_status --field state=awaiting_approval --field head_sha="$hodor_head_sha"
+  ${emit} gate_status --field state=awaiting_approval --field head_sha="$hodor_head_sha"
   ${emit} needs_human --field reason=gate_waiting
   exit 0
 fi
 
 if [ "$hodor_code" -ne 0 ]; then
   hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  ${emit} hodor_status --field state=failed --field head_sha="$hodor_head_sha"
-  ${emit} hodor_failed --field exit_code=$hodor_code
+  ${emit} gate_status --field state=failed --field head_sha="$hodor_head_sha"
+  ${emit} gate_failed --field exit_code=$hodor_code
   exit $hodor_code
 fi
 
 hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} hodor_status --field state=idle --field head_sha="$hodor_head_sha"
+${emit} gate_status --field state=idle --field head_sha="$hodor_head_sha"
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
