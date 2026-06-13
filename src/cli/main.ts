@@ -169,7 +169,7 @@ export function resolvePollMs(env: Record<string, string | undefined>): number |
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function buildJudgeWatchCommand(input: {
+function buildReviewerWatchCommand(input: {
   cli: string;
   comboHome: string;
   comboId: string;
@@ -178,7 +178,7 @@ function buildJudgeWatchCommand(input: {
   const env = `COMBO_CHEN_HOME=${shellQuote(input.comboHome)}`;
   return [
     "while :; do",
-    `  output=$(${env} ${input.cli} judge-tick -n ${shellQuote(input.comboId)} 2>&1)`,
+    `  output=$(${env} ${input.cli} reviewer-tick -n ${shellQuote(input.comboId)} 2>&1)`,
     "  rc=$?",
     '  printf "%s\\n" "$output"',
     `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("reviewer: (merged|closed|already terminal)")} && exit 0`,
@@ -447,7 +447,7 @@ function parsePrView(stdout: string): PrView {
   throw new Error("gh pr view did not return headRefOid");
 }
 
-function terminalJudgeEvent(events: ComboEvent[]): ComboEvent | undefined {
+function terminalReviewerEvent(events: ComboEvent[]): ComboEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
     if (event.event === "combo_closed") return event;
@@ -840,7 +840,7 @@ export function createProgram(deps: Deps): Command {
         newWindowArgs(
           combo.tmuxSession,
           REVIEWER_WATCH_WINDOW,
-          buildJudgeWatchCommand({
+          buildReviewerWatchCommand({
             cli: cliInvocation(),
             comboHome: home,
             comboId: combo.id,
@@ -856,12 +856,12 @@ export function createProgram(deps: Deps): Command {
       }
 
       deps.out(`reviewer: ${config.reviewerAgent} judging ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
-      deps.out(`${REVIEWER_WATCH_WINDOW}: polling judge hard signals every ${config.limits.babysitPollSeconds}s`);
+      deps.out(`${REVIEWER_WATCH_WINDOW}: polling reviewer hard signals every ${config.limits.babysitPollSeconds}s`);
     });
 
   program
-    .command("judge-tick", { hidden: true })
-    .description("Poll judge hard signals once")
+    .command("reviewer-tick", { hidden: true })
+    .description("Poll reviewer hard signals once")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
@@ -872,7 +872,7 @@ export function createProgram(deps: Deps): Command {
       }
 
       let events = readEvents(runDir);
-      const terminalEvent = terminalJudgeEvent(events);
+      const terminalEvent = terminalReviewerEvent(events);
       if (terminalEvent) {
         deps.out(`reviewer: already terminal at ${terminalEvent.event}`);
         return;

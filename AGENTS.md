@@ -97,7 +97,7 @@ trio of mechanics: interactive tmux session + resume + ACP.
 ## Status
 
 Spec v1 frozen (see `docs/spec.md` §10 for the decided vetoes). v0 implemented
-with `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer` plus the hidden `judge-tick`
+with `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer` plus the hidden `reviewer-tick`
 poll loop. Coder (codex+gnhf), gatekeeper (no-mistakes), and reviewer (tmux
 poll + incremental re-review) are all implemented. Next: preflight,
 counterfactual log, treehouse, ACP role driving.
