@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildJudgeInvocation, defaultJudgePrompt } from "./judge.js";
+import { buildReviewerInvocation, defaultReviewerPrompt } from "./reviewer.js";
 
 const combo = {
   id: "o-r-9",
@@ -15,9 +15,9 @@ const combo = {
 const prUrl = "https://github.com/o/r/pull/9";
 const protocol = "La Roca review protocol 7989 + project overlay 8034";
 
-describe("defaultJudgePrompt", () => {
+describe("defaultReviewerPrompt", () => {
   it("injects the PR URL, protocol, and the COMMENT-only verdict contract", () => {
-    const prompt = defaultJudgePrompt({ combo, prUrl, protocol });
+    const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
 
     expect(prompt).toContain(prUrl);
     expect(prompt).toContain(protocol);
@@ -25,13 +25,14 @@ describe("defaultJudgePrompt", () => {
     expect(prompt).toContain("never APPROVE");
     expect(prompt).toContain("lgtm @ <sha>");
     expect(prompt).toContain("never write code");
+    expect(prompt).toContain("reviewer != coder");
   });
 });
 
-describe("buildJudgeInvocation", () => {
-  it("renders the configured judge command with quoted PR facts and prompt", () => {
-    const command = buildJudgeInvocation({
-      judgeCommand: "claude --judge {pr_url} {protocol} {prompt}",
+describe("buildReviewerInvocation", () => {
+  it("renders the configured reviewer command with quoted PR facts and prompt", () => {
+    const command = buildReviewerInvocation({
+      reviewerCommand: "claude --judge {pr_url} {protocol} {prompt}",
       combo,
       prUrl,
       protocol,
@@ -44,8 +45,8 @@ describe("buildJudgeInvocation", () => {
   });
 
   it("lets a custom prompt replace the default contract text", () => {
-    const command = buildJudgeInvocation({
-      judgeCommand: "judge {prompt}",
+    const command = buildReviewerInvocation({
+      reviewerCommand: "judge {prompt}",
       combo,
       prUrl,
       protocol,

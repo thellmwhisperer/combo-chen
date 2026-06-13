@@ -47,7 +47,7 @@ import {
   type TmuxResult,
 } from "../infra/tmux.js";
 import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../roles/gatekeeper.js";
-import { buildJudgeInvocation, incrementalJudgePrompt } from "../roles/judge.js";
+import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import {
   buildCoderRespondingResumeCommand,
@@ -818,17 +818,17 @@ export function createProgram(deps: Deps): Command {
       }
 
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      const judgeCommand = buildJudgeInvocation({
+      const reviewerCommand = buildReviewerInvocation({
         combo,
         prUrl,
         protocol: config.judgeProtocol,
-        judgeCommand: config.judgeCommand,
+        reviewerCommand: config.judgeCommand,
       });
 
       killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
       killWindowIfPresent(deps, combo, REVIEWER_WATCH_WINDOW);
 
-      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, judgeCommand));
+      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
       if (created.status !== 0) {
         throw new Error(
           `tmux failed to start reviewer in "${combo.tmuxSession}": ` +
@@ -967,12 +967,12 @@ export function createProgram(deps: Deps): Command {
       }
 
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      const judgeCommand = buildJudgeInvocation({
+      const reviewerCommand = buildReviewerInvocation({
         combo,
         prUrl,
         protocol: config.judgeProtocol,
-        judgeCommand: config.judgeCommand,
-        prompt: incrementalJudgePrompt({
+        reviewerCommand: config.judgeCommand,
+        prompt: incrementalReviewerPrompt({
           combo,
           prUrl,
           protocol: config.judgeProtocol,
@@ -983,7 +983,7 @@ export function createProgram(deps: Deps): Command {
 
       killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
 
-      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, judgeCommand));
+      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
       if (created.status !== 0) {
         throw new Error(
           `tmux failed to start reviewer re-review in "${combo.tmuxSession}": ` +
