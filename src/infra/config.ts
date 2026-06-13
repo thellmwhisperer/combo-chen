@@ -27,7 +27,7 @@ export interface ComboRoles {
 
 export interface ComboLimits {
   babysitPollSeconds: number;
-  rowerTimeoutMinutes: number;
+  coderTimeoutMinutes: number;
   teardownGitRetries: number;
   teardownGitBackoffSeconds: number;
 }
@@ -104,7 +104,7 @@ const DEFAULTS = {
   }),
   limits: {
     babysit_poll_seconds: 120,
-    rower_timeout_minutes: 180,
+    coder_timeout_minutes: 180,
     teardown_git_retries: 2,
     teardown_git_backoff_seconds: 2,
   },
@@ -194,6 +194,18 @@ function pickNumber(table: TomlTable, key: string, fallback: number, where = "[l
   return parsed;
 }
 
+function pickNumberAlias(table: TomlTable, key: string, legacyKey: string, fallback: number): number {
+  if (table[key] !== undefined) return pickNumber(table, key, fallback);
+  return pickNumber(table, legacyKey, fallback);
+}
+
+function normalizeLimitAliases(table: TomlTable): TomlTable {
+  if (table["coder_timeout_minutes"] !== undefined || table["rower_timeout_minutes"] === undefined) {
+    return table;
+  }
+  return { ...table, coder_timeout_minutes: table["rower_timeout_minutes"] };
+}
+
 function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number): number {
   const value = table[key];
   if (value === undefined) return fallback;
@@ -239,7 +251,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       roles = mergeRoles(roles, layer.table["roles"], layer.source);
     }
     if (layer.table["limits"] !== undefined) {
-      limitsTable = { ...limitsTable, ...asTable(layer.table["limits"], `[limits] in ${layer.source}`) };
+      limitsTable = {
+        ...limitsTable,
+        ...normalizeLimitAliases(asTable(layer.table["limits"], `[limits] in ${layer.source}`)),
+      };
     }
     for (const section of ["rower", "coder"]) {
       if (layer.table[section] === undefined) continue;
@@ -329,7 +344,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     roles,
     limits: {
       babysitPollSeconds: pickNumber(limitsTable, "babysit_poll_seconds", DEFAULTS.limits.babysit_poll_seconds),
-      rowerTimeoutMinutes: pickNumber(limitsTable, "rower_timeout_minutes", DEFAULTS.limits.rower_timeout_minutes),
+      coderTimeoutMinutes: pickNumberAlias(
+        limitsTable,
+        "coder_timeout_minutes",
+        "rower_timeout_minutes",
+        DEFAULTS.limits.coder_timeout_minutes,
+      ),
       teardownGitRetries: pickNonNegativeInteger(
         limitsTable,
         "teardown_git_retries",

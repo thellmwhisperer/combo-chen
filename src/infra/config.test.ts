@@ -24,7 +24,7 @@ describe("loadConfig", () => {
     expect(config.roles.gordon).toEqual(["claude", "coderabbit"]);
     expect(config.roles.merge).toBe("human");
     expect(config.limits.babysitPollSeconds).toBe(120);
-    expect(config.limits.rowerTimeoutMinutes).toBe(180);
+    expect(config.limits.coderTimeoutMinutes).toBe(180);
     expect(config.hodorAttachTimeoutSeconds).toBe(1800);
     expect(config.hodorAttachRetryIntervalSeconds).toBe(10);
     expect(config.limits.teardownGitRetries).toBe(2);
@@ -129,6 +129,21 @@ describe("loadConfig", () => {
 
     expect(config.limits.teardownGitRetries).toBe(1);
     expect(config.limits.teardownGitBackoffSeconds).toBe(3);
+  });
+
+  it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {
+    const userDir = tempDir();
+    const userConfig = writeToml(userDir, "config.toml", "[limits]\nrower_timeout_minutes = 111\n");
+
+    const legacyConfig = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
+    expect(legacyConfig.limits.coderTimeoutMinutes).toBe(111);
+
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[limits]\ncoder_timeout_minutes = 222\n");
+
+    const config = loadConfig({ repoDir, userConfigPath: userConfig });
+
+    expect(config.limits.coderTimeoutMinutes).toBe(222);
   });
 
   it("loads OSS-friendly role and section names while preserving old role aliases", () => {
