@@ -1,15 +1,17 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { readEvents } from "../core/events.js";
+import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT } from "./coder.js";
 import {
   buildReviewNudgePrompt,
   buildReviewWatchCommand,
-  buildThreadSitterResumeCommand,
+  buildCoderRespondingResumeCommand,
   parsePullRequestUrl,
   readGhArray,
+  readCoderThreadArtifact,
   routeReviewComments,
   signalFromComment,
   signalFromReview,
@@ -17,7 +19,7 @@ import {
 } from "./thread-sitter.js";
 
 function runDir(): string {
-  return mkdtempSync(join(tmpdir(), "combo-chen-thread-sitter-"));
+  return mkdtempSync(join(tmpdir(), "combo-chen-coder-responding-"));
 }
 
 const comment: ReviewCommentSignal = {
@@ -51,10 +53,10 @@ describe("buildReviewNudgePrompt", () => {
   });
 });
 
-describe("thread-sitter activation commands", () => {
+describe("coder responding activation commands", () => {
   it("resumes the implementing thread with the configured command template", () => {
     expect(
-      buildThreadSitterResumeCommand(
+      buildCoderRespondingResumeCommand(
         {
           agent: "codex",
           thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
@@ -65,7 +67,7 @@ describe("thread-sitter activation commands", () => {
     ).toBe("codex resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
 
     expect(
-      buildThreadSitterResumeCommand(
+      buildCoderRespondingResumeCommand(
         {
           agent: "codex",
           thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
@@ -86,6 +88,36 @@ describe("thread-sitter activation commands", () => {
     ).toBe(
       'while :; do "node" "/opt/combo/dist/cli.mjs" nudge-review-comments -n \'o-r-7\'; sleep 7; done',
     );
+  });
+});
+
+describe("readCoderThreadArtifact", () => {
+  it("reads the canonical coder thread artifact", () => {
+    const dir = runDir();
+    writeFileSync(
+      join(dir, CODER_THREAD_ARTIFACT),
+      JSON.stringify({
+        agent: "codex",
+        thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      }),
+    );
+
+    expect(readCoderThreadArtifact(dir).thread_id).toBe("019eb3f5-c135-76d2-88c5-0aa8edfe4c84");
+  });
+
+  it("still reads the legacy rower artifact for already-created combos", () => {
+    const dir = runDir();
+    writeFileSync(
+      join(dir, LEGACY_ROWER_THREAD_ARTIFACT),
+      JSON.stringify({
+        agent: "codex",
+        thread_id: "legacy-thread",
+        source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      }),
+    );
+
+    expect(readCoderThreadArtifact(dir).thread_id).toBe("legacy-thread");
   });
 });
 
