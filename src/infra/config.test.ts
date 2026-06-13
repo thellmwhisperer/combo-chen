@@ -34,8 +34,10 @@ describe("loadConfig", () => {
     expect(config.limits.teardownGitBackoffSeconds).toBe(2);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
-    expect(config.rowerCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
-    expect(config.rowerResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.coderCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
+    expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
+    expect(config).not.toHaveProperty("rowerCommand");
+    expect(config).not.toHaveProperty("rowerResumeCommand");
     expect(config.reviewNudgePrompt).toContain("coder responding mode");
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
     expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
@@ -57,8 +59,8 @@ describe("loadConfig", () => {
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
 
     expect(config.roles.coder).toBe("hermes:deepseek");
-    expect(config.rowerCommand).toBe('hermes -z "{prompt}"');
-    expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config.coderCommand).toBe('hermes -z "{prompt}"');
+    expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
     expect(config.threadSitterWindowName).toBe("sitter");
     expect(config.threadSitterWatchWindowName).toBe("sitter-watch");
@@ -191,8 +193,10 @@ describe("loadConfig", () => {
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
     expect(config.roles).not.toHaveProperty("gordon");
-    expect(config.rowerCommand).toBe("hermes -z {prompt}");
-    expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config.coderCommand).toBe("hermes -z {prompt}");
+    expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config).not.toHaveProperty("rowerCommand");
+    expect(config).not.toHaveProperty("rowerResumeCommand");
     expect(config.hodorCommand).toBe("gate --intent {issue_pr_intent}");
     expect(config.hodorAttachTimeoutSeconds).toBe(42);
     expect(config.hodorAttachRetryIntervalSeconds).toBe(6);

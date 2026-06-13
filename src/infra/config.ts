@@ -30,9 +30,9 @@ export interface ComboConfig {
   roles: ComboRoles;
   limits: ComboLimits;
   /** Command template for the configured coder, with {placeholders}. */
-  rowerCommand: string;
+  coderCommand: string;
   /** Resume command template for the configured coder, with {thread_id}. */
-  rowerResumeCommand: string;
+  coderResumeCommand: string;
   /** Command template for the gatekeeper's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
   hodorCommand: string;
   /** How long the gatekeeper tmux window waits for no-mistakes' active run. */
@@ -300,11 +300,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     );
   }
 
-  const rowerCommand = pickNonEmptyString(
+  const coderCommand = pickNonEmptyString(
     coderTemplates[roles.coder]?.command,
     `command template for coder "${roles.coder}"`,
   );
-  const rowerResumeCommand = pickNonEmptyString(
+  const coderResumeCommand = pickNonEmptyString(
     coderTemplates[roles.coder]?.resume_command,
     `resume command template for coder "${roles.coder}"`,
   );
@@ -339,8 +339,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         DEFAULTS.limits.teardown_git_backoff_seconds,
       ),
     },
-    rowerCommand,
-    rowerResumeCommand,
+    coderCommand,
+    coderResumeCommand,
     hodorCommand: String(gatekeeperTable["command"]),
     hodorAttachTimeoutSeconds: pickNumber(
       gatekeeperTable,

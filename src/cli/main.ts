@@ -719,7 +719,7 @@ export function createProgram(deps: Deps): Command {
       writeCombo(runDir, combo);
 
       const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
-        coderCommand: config.rowerCommand,
+        coderCommand: config.coderCommand,
         combo,
       };
       if (options.prompt !== undefined) coderInput.prompt = options.prompt;
@@ -1126,7 +1126,7 @@ export function createProgram(deps: Deps): Command {
         newWindowArgs(
           combo.tmuxSession,
           config.threadSitterWindowName,
-          buildCoderRespondingResumeCommand(artifact, config.rowerResumeCommand),
+          buildCoderRespondingResumeCommand(artifact, config.coderResumeCommand),
         ),
       );
       if (coderResponding.status !== 0) {
