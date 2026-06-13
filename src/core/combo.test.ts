@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_HODOR_COMMAND } from "../infra/config.js";
+import { DEFAULT_GATEKEEPER_COMMAND } from "../infra/config.js";
 import { buildGatekeeperInvocation } from "../roles/gatekeeper.js";
 import type { ComboEvent } from "./events.js";
 import { buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
@@ -85,7 +85,7 @@ describe("buildRunnerScript", () => {
     createdAt: "2026-06-10T00:00:00.000Z",
   };
   const renderedDefaultGatekeeperCommand = buildGatekeeperInvocation({
-    gatekeeperCommand: DEFAULT_HODOR_COMMAND,
+    gatekeeperCommand: DEFAULT_GATEKEEPER_COMMAND,
     combo,
     issueTitle: "Issue title",
     issueBody: "Issue body",
@@ -93,8 +93,8 @@ describe("buildRunnerScript", () => {
 
   const script = buildRunnerScript({
     combo,
-    rowerCommand: 'npx -y gnhf --agent codex --current-branch "Implement issue 7"',
-    hodorCommand: "no-mistakes axi run",
+    coderCommand: 'npx -y gnhf --agent codex --current-branch "Implement issue 7"',
+    gatekeeperCommand: "no-mistakes axi run",
     emit: "node /opt/combo/dist/cli.mjs emit -n o-r-7",
     activateCoder: "node /opt/combo/dist/cli.mjs activate-coder -n o-r-7",
     activateReviewer: "node /opt/combo/dist/cli.mjs activate-reviewer -n o-r-7",
@@ -106,16 +106,16 @@ describe("buildRunnerScript", () => {
   });
 
   it("sequences coder, gatekeeper, PR detection, and the final handoff to humans", () => {
-    const rower = script.indexOf("gnhf");
+    const coder = script.indexOf("gnhf");
     const gatekeeper = script.indexOf("no-mistakes axi run");
     const pr = script.indexOf("gh pr list");
-    const coder = script.indexOf("activate-coder");
+    const activateCoder = script.indexOf("activate-coder");
     const handoff = script.indexOf("pr_ready");
-    expect(rower).toBeGreaterThan(-1);
-    expect(gatekeeper).toBeGreaterThan(rower);
+    expect(coder).toBeGreaterThan(-1);
+    expect(gatekeeper).toBeGreaterThan(coder);
     expect(pr).toBeGreaterThan(gatekeeper);
-    expect(coder).toBeGreaterThan(pr);
-    expect(handoff).toBeGreaterThan(coder);
+    expect(activateCoder).toBeGreaterThan(pr);
+    expect(handoff).toBeGreaterThan(activateCoder);
   });
 
   it("emits lifecycle events with captured exit codes on failure", () => {
@@ -130,15 +130,15 @@ describe("buildRunnerScript", () => {
     expect(script).toContain('coder_log="$(dirname "$0")/coder.log"');
     expect(script).toContain(') > "$coder_log" 2>&1; then');
 
-    const rower = script.indexOf("gnhf");
+    const coder = script.indexOf("gnhf");
     const redirected = script.indexOf(') > "$coder_log" 2>&1; then');
-    const rowerDone = script.indexOf("emit -n o-r-7 coder_done");
-    expect(rower).toBeGreaterThan(-1);
-    expect(redirected).toBeGreaterThan(rower);
-    expect(rowerDone).toBeGreaterThan(redirected);
+    const coderDone = script.indexOf("emit -n o-r-7 coder_done");
+    expect(coder).toBeGreaterThan(-1);
+    expect(redirected).toBeGreaterThan(coder);
+    expect(coderDone).toBeGreaterThan(redirected);
   });
 
-  it("emits rower_done when a fake rower exits after seeing non-TTY stdout", () => {
+  it("emits coder_done when a fake coder exits after seeing non-TTY stdout", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -155,20 +155,20 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     );
     chmodSync(fakeEmit, 0o755);
 
-    const fakeRower = join(bin, "fake-rower");
+    const fakeCoder = join(bin, "fake-coder");
     writeFileSync(
-      fakeRower,
+      fakeCoder,
       `#!/bin/sh
 if [ -t 1 ]; then
   echo "interactive final screen" >&2
   exit 91
 fi
-echo "fake rower completed"
-echo "fake rower stderr" >&2
+echo "fake coder completed"
+echo "fake coder stderr" >&2
 exit 0
 `,
     );
-    chmodSync(fakeRower, 0o755);
+    chmodSync(fakeCoder, 0o755);
 
     const fakeGh = join(bin, "gh");
     writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
@@ -179,8 +179,8 @@ exit 0
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        rowerCommand: shellQuote(fakeRower),
-        hodorCommand: "true",
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
         activateReviewer: ":",
@@ -211,7 +211,7 @@ exit 0
       "needs_human --field reason=pr_missing",
     ]);
     expect(readFileSync(join(dir, "coder.log"), "utf8")).toBe(
-      "fake rower completed\nfake rower stderr\n",
+      "fake coder completed\nfake coder stderr\n",
     );
   });
 
@@ -268,8 +268,8 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        rowerCommand: "true",
-        hodorCommand: renderedDefaultGatekeeperCommand,
+        coderCommand: "true",
+        gatekeeperCommand: renderedDefaultGatekeeperCommand,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
         activateReviewer: ":",
@@ -362,8 +362,8 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        rowerCommand: "true",
-        hodorCommand: renderedDefaultGatekeeperCommand,
+        coderCommand: "true",
+        gatekeeperCommand: renderedDefaultGatekeeperCommand,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
         activateReviewer: ":",
@@ -473,8 +473,8 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree, branch: "combo/issue-24" },
-        rowerCommand: "true",
-        hodorCommand: `${shellQuote(fakeNoMistakes)} axi run --intent ${shellQuote("Implement issue 24")}`,
+        coderCommand: "true",
+        gatekeeperCommand: `${shellQuote(fakeNoMistakes)} axi run --intent ${shellQuote("Implement issue 24")}`,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
         activateReviewer: ":",
@@ -508,7 +508,7 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
     expect(readFileSync(join(dir, "gatekeeper.log"), "utf8")).toBe(gateToon);
   });
 
-  it("emits rower_failed with branch-vs-base commit evidence when a rower commits then exits nonzero", () => {
+  it("emits coder_failed with branch-vs-base commit evidence when a coder commits then exits nonzero", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -546,25 +546,25 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     );
     chmodSync(fakeEmit, 0o755);
 
-    const fakeRower = join(bin, "fake-rower");
+    const fakeCoder = join(bin, "fake-coder");
     writeFileSync(
-      fakeRower,
+      fakeCoder,
       `#!/bin/sh
-printf 'rower change\\n' > rower.txt
-git add rower.txt
-git commit -m 'rower change'
+printf 'coder change\\n' > coder.txt
+git add coder.txt
+git commit -m 'coder change'
 exit 130
 `,
     );
-    chmodSync(fakeRower, 0o755);
+    chmodSync(fakeCoder, 0o755);
 
     const runnerPath = join(dir, "runner.sh");
     writeFileSync(
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        rowerCommand: shellQuote(fakeRower),
-        hodorCommand: "true",
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
         activateReviewer: ":",
@@ -648,8 +648,8 @@ exit 130
   it("single-quotes derived values so paths with spaces or metacharacters stay literal", () => {
     const spaced = buildRunnerScript({
       combo: { ...combo, worktree: "/repos/my repo/.worktrees/issue-7", branch: "combo/it's-7" },
-      rowerCommand: "gnhf",
-      hodorCommand: "no-mistakes axi run",
+      coderCommand: "gnhf",
+      gatekeeperCommand: "no-mistakes axi run",
       emit: "emit",
       activateCoder: "activate-coder",
       activateReviewer: "activate-reviewer -n o-r-7",

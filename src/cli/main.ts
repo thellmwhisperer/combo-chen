@@ -726,8 +726,8 @@ export function createProgram(deps: Deps): Command {
 
       const runner = buildRunnerScript({
         combo,
-        rowerCommand: buildCoderInvocation(coderInput),
-        hodorCommand: buildGatekeeperInvocation({
+        coderCommand: buildCoderInvocation(coderInput),
+        gatekeeperCommand: buildGatekeeperInvocation({
           gatekeeperCommand: config.hodorCommand,
           combo,
           issueTitle: issueDetails.title,

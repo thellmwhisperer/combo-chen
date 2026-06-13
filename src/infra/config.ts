@@ -72,7 +72,7 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROTOCOL = "La Roca review protocol 7989 + project overlay";
-export const DEFAULT_HODOR_COMMAND =
+export const DEFAULT_GATEKEEPER_COMMAND =
   "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi";
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
@@ -115,7 +115,7 @@ const DEFAULTS = {
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   gatekeeper: {
-    command: DEFAULT_HODOR_COMMAND,
+    command: DEFAULT_GATEKEEPER_COMMAND,
     attach_timeout_seconds: 1800,
     attach_retry_interval_seconds: 10,
   },
