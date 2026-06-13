@@ -81,8 +81,8 @@ describe("command surface", () => {
       .sort();
     expect(names).toEqual(
       [
-        "activate-judge",
-        "activate-thread-sitter",
+        "activate-coder",
+        "activate-reviewer",
         "attach",
         "emit",
         "ensure-pr-autoclose",
@@ -344,7 +344,7 @@ describe("attach", () => {
   });
 });
 
-describe("activate-thread-sitter", () => {
+describe("activate-coder", () => {
   it("starts the resumed sitter window and the review-comment watcher from the rower thread artifact", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -372,7 +372,7 @@ describe("activate-thread-sitter", () => {
     );
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-    await exec(deps, ["activate-thread-sitter", "-n", "o-r-7"]);
+    await exec(deps, ["activate-coder", "-n", "o-r-7"]);
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows).toHaveLength(2);
@@ -421,7 +421,7 @@ describe("activate-thread-sitter", () => {
       },
     });
 
-    await expect(exec(deps, ["activate-thread-sitter", "-n", "o-r-7"])).rejects.toThrow(
+    await expect(exec(deps, ["activate-coder", "-n", "o-r-7"])).rejects.toThrow(
       /tmux failed to start sitter-watch: duplicate window/,
     );
 
@@ -1207,7 +1207,8 @@ describe("run", () => {
     const axiRun = runner.indexOf("no-mistakes axi run");
     expect(gatePush).toBeGreaterThan(-1);
     expect(axiRun).toBeGreaterThan(gatePush);
-    expect(runner).toContain("activate-judge -n o-r-7");
+    expect(runner).toContain("activate-coder -n o-r-7");
+    expect(runner).toContain("activate-reviewer -n o-r-7");
 
     const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
     expect(gitCall).toBeDefined();
@@ -1531,7 +1532,7 @@ describe("status", () => {
   });
 });
 
-describe("activate-judge", () => {
+describe("activate-reviewer", () => {
   it("opens a gordon tmux window with the configured judge command for the opened PR", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -1565,7 +1566,7 @@ describe("activate-judge", () => {
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
 
     const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
-    await exec(deps, ["activate-judge", "-n", "o-r-7"]);
+    await exec(deps, ["activate-reviewer", "-n", "o-r-7"]);
 
     const judgeWindow = calls.find(
       (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("gordon"),
@@ -1611,7 +1612,7 @@ describe("activate-judge", () => {
     });
 
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
-    await expect(exec(deps, ["activate-judge", "-n", "o-r-7"])).rejects.toThrow(/pr_opened/);
+    await expect(exec(deps, ["activate-reviewer", "-n", "o-r-7"])).rejects.toThrow(/pr_opened/);
   });
 
   it("checks for existing gordon windows before replacing them", async () => {
@@ -1640,7 +1641,7 @@ describe("activate-judge", () => {
       },
     });
 
-    await exec(deps, ["activate-judge", "-n", "o-r-7"]);
+    await exec(deps, ["activate-reviewer", "-n", "o-r-7"]);
 
     const listIndex = calls.findIndex((c) => c[1] === "list-windows");
     const killGordonIndex = calls.findIndex((c) => c.join(" ") === "tmux kill-window -t combo-chen-o-r-7:gordon");
