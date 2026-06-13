@@ -66,6 +66,7 @@ describe("event schema", () => {
 
   it("rejects unknown event names", () => {
     expect(() => appendEvent(runDir(), "rower_sank" as never, {})).toThrow(ComboEventError);
+    expect(() => appendEvent(runDir(), "toString" as never, {})).toThrow(ComboEventError);
   });
 
   it("rejects events missing required payload fields", () => {
@@ -86,6 +87,23 @@ describe("journal", () => {
     expect(events[1]?.reason).toBe("gate_decision");
     expect(typeof events[0]?.t).toBe("string");
     expect(Number.isNaN(Date.parse(events[0]!.t))).toBe(false);
+  });
+
+  it("keeps appendEvent in control of reserved journal fields", () => {
+    const dir = runDir();
+    const entry = appendEvent(dir, "coder_started", {
+      event: "gate_failed",
+      t: "not-a-date",
+      note: "kept",
+    });
+
+    expect(entry.event).toBe("coder_started");
+    expect(entry.t).not.toBe("not-a-date");
+    expect(entry.note).toBe("kept");
+    expect(readEvents(dir)[0]).toMatchObject({
+      event: "coder_started",
+      note: "kept",
+    });
   });
 
   it("appends the post-PR event vocabulary with its documented fields", () => {
@@ -140,6 +158,17 @@ describe("journal", () => {
       "coder_retry",
     ]);
     expect(events[3]?.state).toBe("idle");
+  });
+
+  it("writes legacy role event aliases as canonical event names", () => {
+    const dir = runDir();
+    appendEvent(dir, "rower_failed", { exit_code: 1, has_new_commits: false });
+    appendEvent(dir, "hodor_status", { state: "idle" });
+
+    expect(readEvents(dir)).toMatchObject([
+      { event: "coder_failed", exit_code: 1, has_new_commits: false },
+      { event: "gate_status", state: "idle" },
+    ]);
   });
 
   it("reads an empty list when no journal exists yet", () => {

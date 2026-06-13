@@ -221,7 +221,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   };
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
-  let reviewerTemplates: Record<string, { command?: string }> = { ...DEFAULT_REVIEWER_TEMPLATES };
+  let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
 
   for (const layer of layers) {
@@ -309,14 +309,17 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     `resume command template for coder "${roles.coder}"`,
   );
 
-  const reviewerAgent = roles.reviewer.find((agent) => reviewerTemplates[agent]?.command);
-  const reviewerCommand = reviewerAgent === undefined ? undefined : reviewerTemplates[reviewerAgent]?.command;
-  if (!reviewerAgent || !reviewerCommand) {
+  const reviewerAgent = roles.reviewer.find((agent) => reviewerTemplates[agent]?.command !== undefined);
+  if (!reviewerAgent) {
     throw new ComboConfigError(
       `No command template for reviewer (formerly gordon) ${roles.reviewer.map((agent) => `"${agent}"`).join(", ")}. ` +
         `Add [reviewer."<name>"] command = "..." to your config.`,
     );
   }
+  const reviewerCommand = pickNonEmptyString(
+    reviewerTemplates[reviewerAgent]?.command,
+    `command template for reviewer "${reviewerAgent}"`,
+  );
 
   return {
     roles,
@@ -341,7 +344,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     },
     coderCommand,
     coderResumeCommand,
-    gatekeeperCommand: String(gatekeeperTable["command"]),
+    gatekeeperCommand: pickNonEmptyString(
+      gatekeeperTable["command"],
+      "command template for [gatekeeper]",
+    ),
     gatekeeperAttachTimeoutSeconds: pickNumber(
       gatekeeperTable,
       "attach_timeout_seconds",
@@ -354,9 +360,18 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       DEFAULTS.gatekeeper.attach_retry_interval_seconds,
       "[gatekeeper]",
     ),
-    reviewNudgePrompt: String(coderRespondingTable["review_nudge_prompt"]),
-    coderRespondingWindowName: String(coderRespondingTable["window_name"]),
-    coderRespondingWatchWindowName: String(coderRespondingTable["watch_window_name"]),
+    reviewNudgePrompt: pickNonEmptyString(
+      coderRespondingTable["review_nudge_prompt"],
+      "coder_responding.review_nudge_prompt",
+    ),
+    coderRespondingWindowName: pickNonEmptyString(
+      coderRespondingTable["window_name"],
+      "coder_responding.window_name",
+    ),
+    coderRespondingWatchWindowName: pickNonEmptyString(
+      coderRespondingTable["watch_window_name"],
+      "coder_responding.watch_window_name",
+    ),
     reviewerAgent,
     reviewerCommand,
     reviewerProtocol,

@@ -10,7 +10,7 @@
 import type { ComboEvent } from "./events.js";
 import type { ComboRecord } from "./state.js";
 
-export type Phase = "SETUP" | "ROWING" | "GATING" | "JUDGING" | "STOPPED" | "STALLED";
+export type Phase = "SETUP" | "CODING" | "GATING" | "REVIEWING" | "STOPPED" | "STALLED";
 
 export interface ComboStatus {
   phase: Phase;
@@ -29,7 +29,7 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
   for (const event of events) {
     switch (event.event) {
       case "coder_started":
-        phase = "ROWING";
+        phase = "CODING";
         needsHuman = false;
         break;
       case "gate_started":
@@ -37,7 +37,7 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         needsHuman = false;
         break;
       case "pr_opened":
-        phase = "JUDGING";
+        phase = "REVIEWING";
         needsHuman = false;
         pr = typeof event["url"] === "string" ? (event["url"] as string) : pr;
         break;

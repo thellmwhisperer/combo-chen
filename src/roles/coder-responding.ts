@@ -43,6 +43,11 @@ export function buildReviewNudgePrompt(
 
 export function readCoderThreadArtifact(runDir: string): CoderThreadArtifact {
   const artifactName = artifactNameFor(runDir);
+  if (artifactName === undefined) {
+    throw new Error(
+      `Missing coder thread artifact: expected ${CODER_THREAD_ARTIFACT} or ${LEGACY_ROWER_THREAD_ARTIFACT} in ${runDir}`,
+    );
+  }
   const artifactPath = join(runDir, artifactName);
   let parsed: unknown;
   try {
@@ -67,9 +72,10 @@ export function readCoderThreadArtifact(runDir: string): CoderThreadArtifact {
   };
 }
 
-function artifactNameFor(runDir: string): string {
+function artifactNameFor(runDir: string): string | undefined {
   if (existsSync(join(runDir, CODER_THREAD_ARTIFACT))) return CODER_THREAD_ARTIFACT;
-  return LEGACY_ROWER_THREAD_ARTIFACT;
+  if (existsSync(join(runDir, LEGACY_ROWER_THREAD_ARTIFACT))) return LEGACY_ROWER_THREAD_ARTIFACT;
+  return undefined;
 }
 
 export function buildCoderRespondingResumeCommand(

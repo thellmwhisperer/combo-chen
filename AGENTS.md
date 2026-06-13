@@ -51,8 +51,8 @@ Hard rules:
   auto-fixes CI failures and merge conflicts. It does NOT read or answer
   review threads (verified against no-mistakes docs).
 - **coder responding mode** = the resumed coder: answers and addresses
-  review comments (CodeRabbit, reviewers, humans). This is the half no piece
-  of the stack provides — combo-chen's contribution.
+  review comments (CodeRabbit, reviewers, humans). This is the part no-mistakes
+  does not provide — combo-chen's contribution.
 
 ## Dependencies (Kun Chen's products)
 
@@ -79,7 +79,7 @@ trio of mechanics: interactive tmux session + resume + ACP.
   role by role when it hurts.
 - Persistent roles (reviewer, coder responding mode) run in INTERACTIVE sessions
   (subscription limits; legitimate 24/7 use within enforced rate limits);
-  headless `-p`/SDK only for one-off sweeps (separate billing pool since
+  headless `-p`/SDK only for one-off sweeps (separate billing pool effective
   2026-06-15).
 - Human merge by default. combo-chen records the counterfactual ("would have
   automerged") so per-PR-type automerge is earned with data, not faith.
