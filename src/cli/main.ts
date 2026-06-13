@@ -728,9 +728,9 @@ export function createProgram(deps: Deps): Command {
           issueTitle: issueDetails.title,
           issueBody: issueDetails.body,
         }),
-        activateThreadSitter: `${cliInvocation()} activate-thread-sitter -n ${id}`,
+        activateCoder: `${cliInvocation()} activate-coder -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
-        activateJudge: `${cliInvocation()} activate-judge -n ${id}`,
+        activateReviewer: `${cliInvocation()} activate-reviewer -n ${id}`,
         ensurePrAutoclose: `${cliInvocation()} ensure-pr-autoclose -n ${shellQuote(id)} --pr-url`,
       });
       const runnerPath = join(runDir, "runner.sh");
@@ -800,8 +800,8 @@ export function createProgram(deps: Deps): Command {
     });
 
   program
-    .command("activate-judge")
-    .description("Start the configured gordon judge window for an opened PR")
+    .command("activate-reviewer")
+    .description("Start the configured reviewer window for an opened PR")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
       const home = comboHome(deps.env);
@@ -1109,8 +1109,8 @@ export function createProgram(deps: Deps): Command {
     });
 
   program
-    .command("activate-thread-sitter", { hidden: true })
-    .description("Start the resumed thread-sitter and its review-comment watcher")
+    .command("activate-coder", { hidden: true })
+    .description("Start the resumed coder and its review-comment watcher")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);

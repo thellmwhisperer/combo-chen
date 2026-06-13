@@ -96,8 +96,8 @@ describe("buildRunnerScript", () => {
     rowerCommand: 'npx -y gnhf --agent codex --current-branch "Implement issue 7"',
     hodorCommand: "no-mistakes axi run",
     emit: "node /opt/combo/dist/cli.mjs emit -n o-r-7",
-    activateThreadSitter: "node /opt/combo/dist/cli.mjs activate-thread-sitter -n o-r-7",
-    activateJudge: "node /opt/combo/dist/cli.mjs activate-judge -n o-r-7",
+    activateCoder: "node /opt/combo/dist/cli.mjs activate-coder -n o-r-7",
+    activateReviewer: "node /opt/combo/dist/cli.mjs activate-reviewer -n o-r-7",
     ensurePrAutoclose: "node /opt/combo/dist/cli.mjs ensure-pr-autoclose -n o-r-7 --pr-url",
   });
 
@@ -109,13 +109,13 @@ describe("buildRunnerScript", () => {
     const rower = script.indexOf("gnhf");
     const hodor = script.indexOf("no-mistakes axi run");
     const pr = script.indexOf("gh pr list");
-    const threadSitter = script.indexOf("activate-thread-sitter");
+    const coder = script.indexOf("activate-coder");
     const handoff = script.indexOf("pr_ready");
     expect(rower).toBeGreaterThan(-1);
     expect(hodor).toBeGreaterThan(rower);
     expect(pr).toBeGreaterThan(hodor);
-    expect(threadSitter).toBeGreaterThan(pr);
-    expect(handoff).toBeGreaterThan(threadSitter);
+    expect(coder).toBeGreaterThan(pr);
+    expect(handoff).toBeGreaterThan(coder);
   });
 
   it("emits lifecycle events with captured exit codes on failure", () => {
@@ -182,8 +182,8 @@ exit 0
         rowerCommand: shellQuote(fakeRower),
         hodorCommand: "true",
         emit: shellQuote(fakeEmit),
-        activateThreadSitter: ":",
-        activateJudge: ":",
+        activateCoder: ":",
+        activateReviewer: ":",
       }),
     );
     chmodSync(runnerPath, 0o755);
@@ -271,8 +271,8 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
         rowerCommand: "true",
         hodorCommand: renderedDefaultHodorCommand,
         emit: shellQuote(fakeEmit),
-        activateThreadSitter: ":",
-        activateJudge: ":",
+        activateCoder: ":",
+        activateReviewer: ":",
       }),
     );
     chmodSync(runnerPath, 0o755);
@@ -365,8 +365,8 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
         rowerCommand: "true",
         hodorCommand: renderedDefaultHodorCommand,
         emit: shellQuote(fakeEmit),
-        activateThreadSitter: ":",
-        activateJudge: ":",
+        activateCoder: ":",
+        activateReviewer: ":",
       }),
     );
     chmodSync(runnerPath, 0o755);
@@ -476,8 +476,8 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
         rowerCommand: "true",
         hodorCommand: `${shellQuote(fakeNoMistakes)} axi run --intent ${shellQuote("Implement issue 24")}`,
         emit: shellQuote(fakeEmit),
-        activateThreadSitter: ":",
-        activateJudge: ":",
+        activateCoder: ":",
+        activateReviewer: ":",
       }),
     );
     chmodSync(runnerPath, 0o755);
@@ -566,8 +566,8 @@ exit 130
         rowerCommand: shellQuote(fakeRower),
         hodorCommand: "true",
         emit: shellQuote(fakeEmit),
-        activateThreadSitter: ":",
-        activateJudge: ":",
+        activateCoder: ":",
+        activateReviewer: ":",
       }),
     );
     chmodSync(runnerPath, 0o755);
@@ -614,7 +614,7 @@ exit 130
     const prMissing = script.indexOf("reason=pr_missing");
     const prUrlBranch = script.indexOf('if [ -n "${pr_url:-}" ]');
     const prMissingElse = script.lastIndexOf("else");
-    const threadSitter = script.indexOf("activate-thread-sitter");
+    const coder = script.indexOf("activate-coder");
     expect(prReady).toBeGreaterThan(-1);
     expect(prMissing).toBeGreaterThan(-1);
     // pr_ready lives inside the if-branch that saw a URL; pr_missing in the
@@ -622,11 +622,11 @@ exit 130
     expect(prUrlBranch).toBeLessThan(prReady);
     expect(autocloseLog).toBeGreaterThan(-1);
     expect(autoclose).toBeGreaterThan(prUrlBranch);
-    expect(autoclose).toBeLessThan(threadSitter);
+    expect(autoclose).toBeLessThan(coder);
     expect(prReady).toBeLessThan(prMissingElse);
     expect(prMissing).toBeGreaterThan(prMissingElse);
-    expect(threadSitter).toBeGreaterThan(prUrlBranch);
-    expect(threadSitter).toBeLessThan(prMissingElse);
+    expect(coder).toBeGreaterThan(prUrlBranch);
+    expect(coder).toBeLessThan(prMissingElse);
   });
 
   it("records PR autoclose guard output instead of losing failures in the pane", () => {
@@ -636,13 +636,13 @@ exit 130
     expect(script).toContain('>> "$autoclose_log"');
   });
 
-  it("activates the judge after journaling the opened PR and before human handoff", () => {
+  it("activates the reviewer after journaling the opened PR and before human handoff", () => {
     const prOpened = script.indexOf('pr_opened --field url="$pr_url"');
-    const activateJudge = script.indexOf("activate-judge -n o-r-7");
+    const activateReviewer = script.indexOf("activate-reviewer -n o-r-7");
     const handoff = script.indexOf("reason=pr_ready");
     expect(prOpened).toBeGreaterThan(-1);
-    expect(activateJudge).toBeGreaterThan(prOpened);
-    expect(activateJudge).toBeLessThan(handoff);
+    expect(activateReviewer).toBeGreaterThan(prOpened);
+    expect(activateReviewer).toBeLessThan(handoff);
   });
 
   it("single-quotes derived values so paths with spaces or metacharacters stay literal", () => {
@@ -651,8 +651,8 @@ exit 130
       rowerCommand: "gnhf",
       hodorCommand: "no-mistakes axi run",
       emit: "emit",
-      activateThreadSitter: "activate-thread-sitter",
-      activateJudge: "activate-judge -n o-r-7",
+      activateCoder: "activate-coder",
+      activateReviewer: "activate-reviewer -n o-r-7",
     });
     expect(spaced).toContain("cd '/repos/my repo/.worktrees/issue-7'");
     expect(spaced).toContain("--head 'combo/it'\\''s-7'");

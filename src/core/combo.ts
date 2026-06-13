@@ -74,12 +74,12 @@ export interface RunnerInput {
   combo: ComboRecord;
   rowerCommand: string;
   hodorCommand: string;
-  /** Full invocation for creating the resumed sitter and its comment watcher. */
-  activateThreadSitter: string;
+  /** Full invocation for creating the resumed coder and its comment watcher. */
+  activateCoder: string;
   /** Full invocation prefix for emitting events, e.g. "node /x/cli.mjs emit -n <id>". */
   emit: string;
-  /** Full invocation for starting the judge loop after a PR has been journaled. */
-  activateJudge: string;
+  /** Full invocation for starting the reviewer loop after a PR has been journaled. */
+  activateReviewer: string;
   /** Full invocation prefix for ensuring the PR body visibly autocloses the source issue. */
   ensurePrAutoclose?: string;
 }
@@ -103,8 +103,8 @@ export function buildRunnerScript(input: RunnerInput): string {
     rowerCommand,
     hodorCommand,
     emit,
-    activateThreadSitter,
-    activateJudge,
+    activateCoder,
+    activateReviewer,
     ensurePrAutoclose = ":",
   } = input;
   return `#!/bin/sh
@@ -178,8 +178,8 @@ if [ -n "\${pr_url:-}" ]; then
     printf '%s\\n' "autoclose guard skipped with exit code $autoclose_code" >> "$autoclose_log"
   fi
   ${emit} pr_opened --field url="$pr_url"
-  ${activateThreadSitter}
-  ${activateJudge}
+  ${activateCoder}
+  ${activateReviewer}
   ${emit} needs_human --field reason=pr_ready
 else
   ${emit} needs_human --field reason=pr_missing
