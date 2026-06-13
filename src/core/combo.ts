@@ -111,25 +111,25 @@ export function buildRunnerScript(input: RunnerInput): string {
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
-rower_log="$(dirname "$0")/rower.log"
-hodor_log="$(dirname "$0")/hodor.log"
+coder_log="$(dirname "$0")/coder.log"
+gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
 
 cd ${shellQuote(combo.worktree)}
-rower_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
+coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 ${emit} coder_started
 
 if (
   ${rowerCommand}
-) > "$rower_log" 2>&1; then
+) > "$coder_log" 2>&1; then
   ${emit} coder_done
 else
   code=$?
-  rower_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  coder_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
   new_commit_count=0
-  if [ -n "$rower_base_sha" ] && [ -n "$rower_head_sha" ]; then
-    new_commit_count=$(git rev-list --count "$rower_base_sha..$rower_head_sha" 2>/dev/null || printf '0')
+  if [ -n "$coder_base_sha" ] && [ -n "$coder_head_sha" ]; then
+    new_commit_count=$(git rev-list --count "$coder_base_sha..$coder_head_sha" 2>/dev/null || printf '0')
   fi
   case "$new_commit_count" in
     ""|*[!0-9]*) new_commit_count=0 ;;
@@ -139,35 +139,35 @@ else
   else
     has_new_commits=false
   fi
-  ${emit} coder_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$rower_base_sha --field head_sha=$rower_head_sha --field new_commit_count=$new_commit_count
+  ${emit} coder_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$coder_base_sha --field head_sha=$coder_head_sha --field new_commit_count=$new_commit_count
   exit $code
 fi
 
 ${emit} gate_started
-hodor_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} gate_status --field state=fix_inflight --field head_sha="$hodor_start_sha"
+gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
+${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"
 
-hodor_code=0
+gatekeeper_code=0
 (
   ${hodorCommand}
-) > "$hodor_log" 2>&1 || hodor_code=$?
+) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
-if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
-  hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  ${emit} gate_status --field state=awaiting_approval --field head_sha="$hodor_head_sha"
+if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then
+  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  ${emit} gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"
   ${emit} needs_human --field reason=gate_waiting
   exit 0
 fi
 
-if [ "$hodor_code" -ne 0 ]; then
-  hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  ${emit} gate_status --field state=failed --field head_sha="$hodor_head_sha"
-  ${emit} gate_failed --field exit_code=$hodor_code
-  exit $hodor_code
+if [ "$gatekeeper_code" -ne 0 ]; then
+  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  ${emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"
+  ${emit} gate_failed --field exit_code=$gatekeeper_code
+  exit $gatekeeper_code
 fi
 
-hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} gate_status --field state=idle --field head_sha="$hodor_head_sha"
+gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then

@@ -126,12 +126,12 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("exit_code=$code");
   });
 
-  it("runs the rower with stdout and stderr redirected to rower.log beside the runner", () => {
-    expect(script).toContain('rower_log="$(dirname "$0")/rower.log"');
-    expect(script).toContain(') > "$rower_log" 2>&1; then');
+  it("runs the coder with stdout and stderr redirected to coder.log beside the runner", () => {
+    expect(script).toContain('coder_log="$(dirname "$0")/coder.log"');
+    expect(script).toContain(') > "$coder_log" 2>&1; then');
 
     const rower = script.indexOf("gnhf");
-    const redirected = script.indexOf(') > "$rower_log" 2>&1; then');
+    const redirected = script.indexOf(') > "$coder_log" 2>&1; then');
     const rowerDone = script.indexOf("emit -n o-r-7 coder_done");
     expect(rower).toBeGreaterThan(-1);
     expect(redirected).toBeGreaterThan(rower);
@@ -210,7 +210,7 @@ exit 0
       "gate_status --field state=idle --field head_sha=",
       "needs_human --field reason=pr_missing",
     ]);
-    expect(readFileSync(join(dir, "rower.log"), "utf8")).toBe(
+    expect(readFileSync(join(dir, "coder.log"), "utf8")).toBe(
       "fake rower completed\nfake rower stderr\n",
     );
   });
@@ -223,7 +223,7 @@ exit 0
     mkdirSync(bin, { recursive: true });
 
     const eventsPath = join(dir, "events.log");
-    const hodorLog = join(dir, "hodor.log");
+    const hodorLog = join(dir, "gatekeeper.log");
     const fakeEmit = join(bin, "emit");
     writeFileSync(
       fakeEmit,
@@ -313,7 +313,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
     mkdirSync(bin, { recursive: true });
 
     const eventsPath = join(dir, "events.log");
-    const hodorLog = join(dir, "hodor.log");
+    const hodorLog = join(dir, "gatekeeper.log");
     const fakeEmit = join(bin, "emit");
     writeFileSync(
       fakeEmit,
@@ -505,7 +505,7 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
       `gate_status --field state=awaiting_approval --field head_sha=${headSha}`,
       "needs_human --field reason=gate_waiting",
     ]);
-    expect(readFileSync(join(dir, "hodor.log"), "utf8")).toBe(gateToon);
+    expect(readFileSync(join(dir, "gatekeeper.log"), "utf8")).toBe(gateToon);
   });
 
   it("emits rower_failed with branch-vs-base commit evidence when a rower commits then exits nonzero", () => {
