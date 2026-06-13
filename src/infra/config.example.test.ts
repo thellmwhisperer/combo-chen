@@ -9,7 +9,8 @@ import { loadConfig } from "./config.js";
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EXAMPLE_CONFIG = join(REPO_ROOT, "combo-chen.example.toml");
 const PUBLIC_DOCS = ["README.md", "docs/spec.md", "AGENTS.md"].map((path) => join(REPO_ROOT, path));
-const OLD_ROLE_TERMS = /\b(rower|hodor|gordon)\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b/i;
+const OLD_ROLE_TERMS =
+  /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b/i;
 
 describe("combo-chen.example.toml", () => {
   it("uses the public OSS-friendly role vocabulary", () => {
@@ -39,5 +40,6 @@ describe("combo-chen.example.toml", () => {
     expect(config.threadSitterWatchWindowName).toBe("comment-watch");
     expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
     expect(config.reviewerAgent).toBe("claude");
+    expect(config.limits.coderTimeoutMinutes).toBe(180);
   });
 });
