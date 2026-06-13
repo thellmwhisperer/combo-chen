@@ -157,6 +157,11 @@ describe("loadConfig", () => {
         '[reviewer."hermes:gemini"]',
         'command = "hermes review {pr_url} {prompt}"',
         "",
+        "[coder_responding]",
+        'review_nudge_prompt = "Please review {url}"',
+        'window_name = "coder-reply"',
+        'watch_window_name = "comment-watch-local"',
+        "",
       ].join("\n"),
     );
 
@@ -176,6 +181,9 @@ describe("loadConfig", () => {
     expect(config.judgeAgent).toBe("hermes:gemini");
     expect(config.judgeCommand).toBe("hermes review {pr_url} {prompt}");
     expect(config.judgeProtocol).toBe("project review protocol 1234");
+    expect(config.reviewNudgePrompt).toBe("Please review {url}");
+    expect(config.threadSitterWindowName).toBe("coder-reply");
+    expect(config.threadSitterWatchWindowName).toBe("comment-watch-local");
   });
 
   it("refuses to launch when gordon would judge their own cooking", () => {
