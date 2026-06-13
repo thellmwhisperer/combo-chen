@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { appendFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -31,12 +31,12 @@ describe("event schema", () => {
     expect(Object.keys(EVENT_TYPES).sort()).toEqual(
       [
         "combo_created",
-        "rower_started",
-        "rower_done",
-        "rower_failed",
-        "hodor_started",
-        "hodor_failed",
-        "hodor_status",
+        "coder_started",
+        "coder_done",
+        "coder_failed",
+        "gate_started",
+        "gate_failed",
+        "gate_status",
         "pr_opened",
         "needs_human",
         "review_comment",
@@ -44,7 +44,7 @@ describe("event schema", () => {
         "lgtm_stale",
         "merged",
         "combo_closed",
-        "rower_retry",
+        "coder_retry",
         "stopped",
       ].sort(),
     );
@@ -54,18 +54,19 @@ describe("event schema", () => {
     expect(EVENT_TYPES.combo_created.required).toEqual(["issue_url"]);
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
-    expect(EVENT_TYPES.rower_failed.required).toEqual(["exit_code", "has_new_commits"]);
-    expect(EVENT_TYPES.hodor_status.required).toEqual(["state"]);
+    expect(EVENT_TYPES.coder_failed.required).toEqual(["exit_code", "has_new_commits"]);
+    expect(EVENT_TYPES.gate_status.required).toEqual(["state"]);
     expect(EVENT_TYPES.review_comment.required).toEqual(["author", "kind", "url"]);
     expect(EVENT_TYPES.lgtm.required).toEqual(["sha"]);
     expect(EVENT_TYPES.lgtm_stale.required).toEqual(["old_sha", "new_sha"]);
     expect(EVENT_TYPES.merged.required).toEqual(["sha", "by"]);
     expect(EVENT_TYPES.combo_closed.required).toEqual([]);
-    expect(EVENT_TYPES.rower_retry.required).toEqual([]);
+    expect(EVENT_TYPES.coder_retry.required).toEqual([]);
   });
 
   it("rejects unknown event names", () => {
     expect(() => appendEvent(runDir(), "rower_sank" as never, {})).toThrow(ComboEventError);
+    expect(() => appendEvent(runDir(), "toString" as never, {})).toThrow(ComboEventError);
   });
 
   it("rejects events missing required payload fields", () => {
@@ -88,6 +89,23 @@ describe("journal", () => {
     expect(Number.isNaN(Date.parse(events[0]!.t))).toBe(false);
   });
 
+  it("keeps appendEvent in control of reserved journal fields", () => {
+    const dir = runDir();
+    const entry = appendEvent(dir, "coder_started", {
+      event: "gate_failed",
+      t: "not-a-date",
+      note: "kept",
+    });
+
+    expect(entry.event).toBe("coder_started");
+    expect(entry.t).not.toBe("not-a-date");
+    expect(entry.note).toBe("kept");
+    expect(readEvents(dir)[0]).toMatchObject({
+      event: "coder_started",
+      note: "kept",
+    });
+  });
+
   it("appends the post-PR event vocabulary with its documented fields", () => {
     const dir = runDir();
     appendEvent(dir, "review_comment", {
@@ -99,7 +117,7 @@ describe("journal", () => {
     appendEvent(dir, "lgtm_stale", { old_sha: "abc123", new_sha: "def456" });
     appendEvent(dir, "merged", { sha: "def456", by: "javi" });
     appendEvent(dir, "combo_closed", {});
-    appendEvent(dir, "rower_retry", {});
+    appendEvent(dir, "coder_retry", {});
 
     expect(readEvents(dir).map((event) => event.event)).toEqual([
       "review_comment",
@@ -107,7 +125,49 @@ describe("journal", () => {
       "lgtm_stale",
       "merged",
       "combo_closed",
-      "rower_retry",
+      "coder_retry",
+    ]);
+  });
+
+  it("reads legacy role event names as canonical aliases", () => {
+    const dir = runDir();
+    appendFileSync(
+      join(dir, "journal.jsonl"),
+      [
+        JSON.stringify({ t: "2026-06-10T00:00:00.000Z", event: "rower_started" }),
+        JSON.stringify({
+          t: "2026-06-10T00:00:01.000Z",
+          event: "rower_failed",
+          exit_code: 1,
+          has_new_commits: false,
+        }),
+        JSON.stringify({ t: "2026-06-10T00:00:02.000Z", event: "hodor_started" }),
+        JSON.stringify({ t: "2026-06-10T00:00:03.000Z", event: "hodor_status", state: "idle" }),
+        JSON.stringify({ t: "2026-06-10T00:00:04.000Z", event: "hodor_failed", exit_code: 2 }),
+        JSON.stringify({ t: "2026-06-10T00:00:05.000Z", event: "rower_retry" }),
+      ].join("\n") + "\n",
+    );
+
+    const events = readEvents(dir);
+    expect(events.map((event) => event.event)).toEqual([
+      "coder_started",
+      "coder_failed",
+      "gate_started",
+      "gate_status",
+      "gate_failed",
+      "coder_retry",
+    ]);
+    expect(events[3]?.state).toBe("idle");
+  });
+
+  it("writes legacy role event aliases as canonical event names", () => {
+    const dir = runDir();
+    appendEvent(dir, "rower_failed", { exit_code: 1, has_new_commits: false });
+    appendEvent(dir, "hodor_status", { state: "idle" });
+
+    expect(readEvents(dir)).toMatchObject([
+      { event: "coder_failed", exit_code: 1, has_new_commits: false },
+      { event: "gate_status", state: "idle" },
     ]);
   });
 
@@ -140,11 +200,11 @@ describe("journal", () => {
     // No fixed sleeps gating correctness: wait until the follower has the
     // first event, only then append the second, then wait for it to land.
     await waitFor(() => seen.length >= 1);
-    appendEvent(dir, "rower_started", {});
+    appendEvent(dir, "coder_started", {});
     await waitFor(() => seen.length >= 2);
     controller.abort();
     await following;
 
-    expect(seen).toEqual(["combo_created", "rower_started"]);
+    expect(seen).toEqual(["combo_created", "coder_started"]);
   });
 });

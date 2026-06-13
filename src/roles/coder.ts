@@ -1,5 +1,5 @@
 /**
- * The rower adapter: turns config + combo facts into the command that rows.
+ * The coder adapter: turns config + combo facts into the command that implements.
  * v0 ships a gnhf default; anything else is a config template away.
  */
 import {
@@ -15,9 +15,10 @@ import { join, relative, sep } from "node:path";
 import { renderCommand } from "../infra/config.js";
 import type { ComboRecord } from "../core/state.js";
 
-export const ROWER_THREAD_ARTIFACT = "rower-thread.json";
+export const CODER_THREAD_ARTIFACT = "coder-thread.json";
+export const LEGACY_ROWER_THREAD_ARTIFACT = "rower-thread.json";
 
-export interface RowerThreadArtifact {
+export interface CoderThreadArtifact {
   agent: "codex";
   thread_id: string;
   source: string;
@@ -32,15 +33,15 @@ export function defaultPrompt(issueUrl: string): string {
   );
 }
 
-export interface RowerInput {
-  rowerCommand: string;
+export interface CoderInput {
+  coderCommand: string;
   combo: ComboRecord;
   prompt?: string;
 }
 
-export function buildRowerInvocation(input: RowerInput): string {
+export function buildCoderInvocation(input: CoderInput): string {
   const prompt = input.prompt ?? defaultPrompt(input.combo.issueUrl);
-  return renderCommand(input.rowerCommand, {
+  return renderCommand(input.coderCommand, {
     issue_url: input.combo.issueUrl,
     worktree: input.combo.worktree,
     repo: input.combo.repoDir,
@@ -74,10 +75,10 @@ export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undef
   return latestThreadId;
 }
 
-export function persistRowerThreadArtifact(input: {
+export function persistCoderThreadArtifact(input: {
   runDir: string;
   worktree: string;
-}): RowerThreadArtifact {
+}): CoderThreadArtifact {
   const jsonlPath = latestGnhfIterationJsonl(input.worktree);
   if (jsonlPath === undefined) {
     throw new Error(
@@ -89,13 +90,13 @@ export function persistRowerThreadArtifact(input: {
     throw new Error(`No thread.started event found in ${jsonlPath}`);
   }
 
-  const artifact: RowerThreadArtifact = {
+  const artifact: CoderThreadArtifact = {
     agent: "codex",
     thread_id: threadId,
     source: relative(input.worktree, jsonlPath).split(sep).join("/"),
   };
   mkdirSync(input.runDir, { recursive: true });
-  writeFileSync(join(input.runDir, ROWER_THREAD_ARTIFACT), `${JSON.stringify(artifact, null, 2)}\n`);
+  writeFileSync(join(input.runDir, CODER_THREAD_ARTIFACT), `${JSON.stringify(artifact, null, 2)}\n`);
   return artifact;
 }
 

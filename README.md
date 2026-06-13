@@ -10,14 +10,13 @@ composes tools you may already use — [gnhf](https://github.com/kunchenguid/gnh
 | Role | Does | Default |
 |---|---|---|
 | **director** | orchestrates, watches, escalates — never touches code | you, or your agent |
-| **rower** | rows: implements the issue, loops until done | codex via gnhf |
-| **hodor** | holds the door: review→test→docs→lint→push→PR, then watches CI | no-mistakes |
-| **gordon** | judges: reviews the PR, no courtesy LGTMs | claude + coderabbit |
-| **thread-sitter** | the resumed rower: reads review comments, addresses them, pushes replies | codex (resumed thread) |
+| **coder** | implements the issue, then resumes the same thread to address review comments | codex via gnhf |
+| **gatekeeper** | runs review→test→docs→lint→push→PR, then watches CI | no-mistakes |
+| **reviewer** | reviews the PR, no courtesy LGTMs | claude + coderabbit |
 | **merge** | the decision | human, always (v0) |
 
-Hard rule, validated at launch: `gordon != rower` — no agent judges its own
-cooking.
+Hard rule, validated at launch: `reviewer != coder` — no agent reviews its
+own changes.
 
 ## v0
 
@@ -32,40 +31,40 @@ combo-chen stop -n you-repo-128
 ```
 
 `run` validates the issue, creates an isolated git worktree and a tmux
-session, and starts the combo's **runner**: a generated script that rows
+session, and starts the combo's **runner**: a generated script that codes
 (gnhf), then gates (pre-pushes to the `no-mistakes` remote if one exists,
 then runs `no-mistakes axi run --intent` with the source issue contract),
-journals `hodor_status` events through
-the hodor lifecycle (fix_inflight → idle / failed / awaiting_approval),
+journals `gate_status` events through
+the gatekeeper lifecycle (fix_inflight → idle / failed / awaiting_approval),
 and journals every milestone as JSONL events. If the gate opens and
-`pr_opened` is detected, the runner activates the judge; if no-mistakes is
+`pr_opened` is detected, the runner activates the reviewer; if no-mistakes is
 `awaiting_approval`, the combo remains in `GATING` with `gate_waiting`
 until a human resolves the gate. The CLI is setup and
-introspection; the runner is the spine; the judge polls for merge signals
+introspection; the runner is the spine; the reviewer polls for merge signals
 and re-reviews on push.
 
 State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
-`journal.jsonl`, `rower-thread.json`, `rower.log`, `hodor.log`, `runner.sh`). No daemon.
+`journal.jsonl`, `coder-thread.json`, `coder.log`, `gatekeeper.log`, `runner.sh`). No daemon.
 
 ## Configuration
 
 Copy [`combo-chen.example.toml`](combo-chen.example.toml) to
 `combo-chen.toml` (repo) or `~/.config/combo-chen/config.toml` (user).
 Cascade: defaults ← user ← repo. Zero hardcoded operational values.
-The default hodor command passes an issue-derived intent to no-mistakes that
+The default gatekeeper command passes an issue-derived intent to no-mistakes that
 ends with `Fixes #N`, where `N` comes from the source issue URL. That explicit
 GitHub autoclose keyword is the PR/body contract for normal issue combos:
 merging the generated PR should close the source issue automatically.
 
-The hodor command supports `{issue_url}`, `{issue_title}`, `{issue_body}`,
+The gatekeeper command supports `{issue_url}`, `{issue_title}`, `{issue_body}`,
 `{issue_pr_intent}`, and `{branch}` placeholders that are shell-quoted at
 runner generation time. Custom commands that still create issue-closing PRs
 should pass `{issue_pr_intent}` or include an equivalent autoclose keyword;
 free-form text such as `issue #N` is not sufficient for GitHub autoclose.
 
-Required judge config: `[roles].gordon` must be non-empty, and at least one
-listed gordon agent must have a `[gordon.<agent>]` `command` template. The
-top-level `[gordon]` protocol reference is optional; it falls back to the
+Required reviewer config: `[roles].reviewer` must be non-empty, and at least one
+listed reviewer agent must have a `[reviewer.<agent>]` `command` template. The
+top-level `[reviewer]` protocol reference is optional; it falls back to the
 default protocol reference when omitted.
 
 ## Status

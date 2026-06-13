@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildHodorInvocation,
+  buildGatekeeperInvocation,
   buildIssuePrIntent,
   ensureIssueAutocloseInPrBody,
   hasIssueAutocloseInPrBody,
   parseAxiOutcome,
-} from "./hodor.js";
+} from "./gatekeeper.js";
 
-describe("buildHodorInvocation", () => {
+describe("buildGatekeeperInvocation", () => {
   it("uses the configured gate command", () => {
-    expect(buildHodorInvocation({ hodorCommand: "no-mistakes axi run" })).toBe(
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run" })).toBe(
       "no-mistakes axi run",
     );
   });

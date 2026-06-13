@@ -3,14 +3,14 @@
  *
  * The runner is the combo's spine: a generated shell script that lives in
  * the run dir and executes inside the combo's tmux window. It sequences
- * rower → hodor → PR detection and reports every milestone to the journal
+ * coder → gatekeeper → PR detection and reports every milestone to the journal
  * through `combo-chen emit`, so status/events stay truthful even if the
  * conductor CLI exited long ago. No daemon, no hidden state.
  */
 import type { ComboEvent } from "./events.js";
 import type { ComboRecord } from "./state.js";
 
-export type Phase = "SETUP" | "ROWING" | "GATING" | "JUDGING" | "STOPPED" | "STALLED";
+export type Phase = "SETUP" | "CODING" | "GATING" | "REVIEWING" | "STOPPED" | "STALLED";
 
 export interface ComboStatus {
   phase: Phase;
@@ -28,21 +28,21 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
 
   for (const event of events) {
     switch (event.event) {
-      case "rower_started":
-        phase = "ROWING";
+      case "coder_started":
+        phase = "CODING";
         needsHuman = false;
         break;
-      case "hodor_started":
+      case "gate_started":
         phase = "GATING";
         needsHuman = false;
         break;
       case "pr_opened":
-        phase = "JUDGING";
+        phase = "REVIEWING";
         needsHuman = false;
         pr = typeof event["url"] === "string" ? (event["url"] as string) : pr;
         break;
-      case "rower_failed":
-      case "hodor_failed":
+      case "coder_failed":
+      case "gate_failed":
         phase = "STALLED";
         needsHuman = true;
         reason = event.event;
@@ -72,14 +72,14 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
 
 export interface RunnerInput {
   combo: ComboRecord;
-  rowerCommand: string;
-  hodorCommand: string;
-  /** Full invocation for creating the resumed sitter and its comment watcher. */
-  activateThreadSitter: string;
+  coderCommand: string;
+  gatekeeperCommand: string;
+  /** Full invocation for creating the resumed coder and its comment watcher. */
+  activateCoder: string;
   /** Full invocation prefix for emitting events, e.g. "node /x/cli.mjs emit -n <id>". */
   emit: string;
-  /** Full invocation for starting the judge loop after a PR has been journaled. */
-  activateJudge: string;
+  /** Full invocation for starting the reviewer loop after a PR has been journaled. */
+  activateReviewer: string;
   /** Full invocation prefix for ensuring the PR body visibly autocloses the source issue. */
   ensurePrAutoclose?: string;
 }
@@ -87,8 +87,8 @@ export interface RunnerInput {
 /**
  * Single-quote a value for POSIX shell so it stays a literal: paths with
  * spaces, branch names with apostrophes, anything. Trust boundary note:
- * rowerCommand and hodorCommand are operator-written config (they ARE
- * shell, like a Makefile recipe). Hodor commands with {placeholders}
+ * Coder and gatekeeper commands are operator-written config (they ARE
+ * shell, like a Makefile recipe). Gatekeeper commands with {placeholders}
  * are expanded with shell-quoted values at generation time; commands
  * without placeholders stay verbatim. Every value combo-chen derives
  * itself (worktree, branch) goes through this.
@@ -100,36 +100,36 @@ export function shellQuote(value: string): string {
 export function buildRunnerScript(input: RunnerInput): string {
   const {
     combo,
-    rowerCommand,
-    hodorCommand,
+    coderCommand,
+    gatekeeperCommand,
     emit,
-    activateThreadSitter,
-    activateJudge,
+    activateCoder,
+    activateReviewer,
     ensurePrAutoclose = ":",
   } = input;
   return `#!/bin/sh
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
-rower_log="$(dirname "$0")/rower.log"
-hodor_log="$(dirname "$0")/hodor.log"
+coder_log="$(dirname "$0")/coder.log"
+gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
 
 cd ${shellQuote(combo.worktree)}
-rower_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
+coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
-${emit} rower_started
+${emit} coder_started
 
 if (
-  ${rowerCommand}
-) > "$rower_log" 2>&1; then
-  ${emit} rower_done
+  ${coderCommand}
+) > "$coder_log" 2>&1; then
+  ${emit} coder_done
 else
   code=$?
-  rower_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  coder_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
   new_commit_count=0
-  if [ -n "$rower_base_sha" ] && [ -n "$rower_head_sha" ]; then
-    new_commit_count=$(git rev-list --count "$rower_base_sha..$rower_head_sha" 2>/dev/null || printf '0')
+  if [ -n "$coder_base_sha" ] && [ -n "$coder_head_sha" ]; then
+    new_commit_count=$(git rev-list --count "$coder_base_sha..$coder_head_sha" 2>/dev/null || printf '0')
   fi
   case "$new_commit_count" in
     ""|*[!0-9]*) new_commit_count=0 ;;
@@ -139,35 +139,35 @@ else
   else
     has_new_commits=false
   fi
-  ${emit} rower_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$rower_base_sha --field head_sha=$rower_head_sha --field new_commit_count=$new_commit_count
+  ${emit} coder_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$coder_base_sha --field head_sha=$coder_head_sha --field new_commit_count=$new_commit_count
   exit $code
 fi
 
-${emit} hodor_started
-hodor_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} hodor_status --field state=fix_inflight --field head_sha="$hodor_start_sha"
+${emit} gate_started
+gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
+${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"
 
-hodor_code=0
+gatekeeper_code=0
 (
-  ${hodorCommand}
-) > "$hodor_log" 2>&1 || hodor_code=$?
+  ${gatekeeperCommand}
+) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
-if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$hodor_log"; then
-  hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  ${emit} hodor_status --field state=awaiting_approval --field head_sha="$hodor_head_sha"
+if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then
+  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  ${emit} gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"
   ${emit} needs_human --field reason=gate_waiting
   exit 0
 fi
 
-if [ "$hodor_code" -ne 0 ]; then
-  hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  ${emit} hodor_status --field state=failed --field head_sha="$hodor_head_sha"
-  ${emit} hodor_failed --field exit_code=$hodor_code
-  exit $hodor_code
+if [ "$gatekeeper_code" -ne 0 ]; then
+  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  ${emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"
+  ${emit} gate_failed --field exit_code=$gatekeeper_code
+  exit $gatekeeper_code
 fi
 
-hodor_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} hodor_status --field state=idle --field head_sha="$hodor_head_sha"
+gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
@@ -178,8 +178,8 @@ if [ -n "\${pr_url:-}" ]; then
     printf '%s\\n' "autoclose guard skipped with exit code $autoclose_code" >> "$autoclose_log"
   fi
   ${emit} pr_opened --field url="$pr_url"
-  ${activateThreadSitter}
-  ${activateJudge}
+  ${activateCoder}
+  ${activateReviewer}
   ${emit} needs_human --field reason=pr_ready
 else
   ${emit} needs_human --field reason=pr_missing
