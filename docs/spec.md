@@ -118,7 +118,7 @@ successfully, awaiting PR detection).
     local worktree and branch, then journals `combo_closed`. The remote
     branch is left alone by default.
   - **Closed without merge:** The combo journals `needs_human` (fields:
-    `reason`=`"pr_closed"`), then `combo_closed`. The judge stops the tmux
+    `reason`=`"pr_closed"`), then `combo_closed`. The reviewer stops the tmux
     session but does NOT remove the worktree or local branch, preserving
     local work for human salvage.
 - Every run records the counterfactual: would this combo have automerged

@@ -87,7 +87,7 @@ describe("command surface", () => {
         "emit",
         "ensure-pr-autoclose",
         "events",
-        "judge-tick",
+        "reviewer-tick",
         "nudge-review-comments",
         "run",
         "status",
@@ -1621,7 +1621,7 @@ describe("activate-reviewer", () => {
 
     const watchCommand = watchWindow?.at(-1) ?? "";
     expect(watchCommand).toContain(`COMBO_CHEN_HOME='${h}'`);
-    expect(watchCommand).toContain("judge-tick -n 'o-r-7'");
+    expect(watchCommand).toContain("reviewer-tick -n 'o-r-7'");
     expect(watchCommand).toContain("reviewer: (merged|closed|already terminal)");
     expect(watchCommand).not.toContain("status=$?");
     expect(watchCommand).not.toContain('"$status"');
@@ -1686,7 +1686,7 @@ describe("activate-reviewer", () => {
   });
 });
 
-describe("judge-tick", () => {
+describe("reviewer-tick", () => {
   it("journals a merged PR, tears down local state, and leaves the remote branch alone", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -1738,7 +1738,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).slice(-2)).toMatchObject([
       { event: "merged", sha: "squash789", by: "javi" },
@@ -1827,7 +1827,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged", "combo_closed"]);
     expect(calls.some((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view")).toBe(true);
@@ -1861,7 +1861,7 @@ describe("judge-tick", () => {
       }),
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged", "combo_closed"]);
     expect(readEvents(dir).filter((event) => event.event === "merged")).toHaveLength(1);
@@ -1904,14 +1904,14 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged"]);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "kill-session")).toBe(false);
     expect(out.join("\n")).toContain("teardown pending");
 
     cleanupCanSucceed = true;
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "merged", "combo_closed"]);
     expect(calls.filter((c) => c[0] === "tmux" && c[1] === "kill-session")).toHaveLength(1);
@@ -1958,7 +1958,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(verifyAttempts).toBe(3);
     expect(calls.filter((c) => c[0] === "sleep")).toEqual([
@@ -1995,7 +1995,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).slice(-2)).toMatchObject([
       { event: "needs_human", reason: "pr_closed" },
@@ -2046,7 +2046,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     const stale = readEvents(dir).at(-1);
     expect(stale).toMatchObject({
@@ -2115,7 +2115,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual([
       "pr_opened",
@@ -2172,7 +2172,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened"]);
     expect(out.join("\n")).toContain("reviewer: no pinned lgtm for o-r-7");
@@ -2221,7 +2221,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(out.join("\n")).toContain("reviewer: lgtm current at def456");
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
@@ -2276,7 +2276,7 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc123" });
   });
@@ -2331,8 +2331,8 @@ describe("judge-tick", () => {
       },
     });
 
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
-    await exec(deps, ["judge-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(out.join("\n")).toContain(`reviewer: lgtm current at ${fullSha}`);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
@@ -2383,7 +2383,7 @@ describe("judge-tick", () => {
           : { status: 0, stdout: "", stderr: "" },
     });
 
-    await expect(exec(deps, ["judge-tick", "-n", "o-r-7"])).rejects.toThrow(/re-review/);
+    await expect(exec(deps, ["reviewer-tick", "-n", "o-r-7"])).rejects.toThrow(/re-review/);
 
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "lgtm"]);
   });
