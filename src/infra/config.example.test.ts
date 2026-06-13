@@ -11,6 +11,7 @@ const EXAMPLE_CONFIG = join(REPO_ROOT, "combo-chen.example.toml");
 const PUBLIC_DOCS = ["README.md", "docs/spec.md", "AGENTS.md"].map((path) => join(REPO_ROOT, path));
 const OLD_ROLE_TERMS =
   /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b|\bjudge-tick\b/i;
+const OLD_PHASE_TERMS = /\b(ROWING|JUDGING)\b/;
 
 describe("combo-chen.example.toml", () => {
   it("uses the public OSS-friendly role vocabulary", () => {
@@ -24,6 +25,14 @@ describe("combo-chen.example.toml", () => {
       const body = readFileSync(doc, "utf8");
 
       expect(body).not.toMatch(OLD_ROLE_TERMS);
+    }
+  });
+
+  it("keeps shipped docs on the canonical phase vocabulary", () => {
+    for (const doc of PUBLIC_DOCS) {
+      const body = readFileSync(doc, "utf8");
+
+      expect(body).not.toMatch(OLD_PHASE_TERMS);
     }
   });
 

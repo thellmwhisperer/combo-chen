@@ -20,11 +20,11 @@ Validation at launch (hard failures, the combo refuses to start):
 
 ## 2. Phases and transitions
 
-```
+```text
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
-  └─▶ ROWING     gnhf loop; ends with coder_done + captured thread_id
+  └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
-              └─▶ JUDGING  reviewer loop + coder responding mode + gatekeeper ci-step in parallel
+              └─▶ REVIEWING  reviewer loop + coder responding mode + gatekeeper ci-step in parallel
                     └─▶ READY      lgtm_current ∧ rabbit_clean ∧ checks_passed
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```

@@ -69,7 +69,12 @@ export function appendEvent(
       throw new ComboEventError(`Event "${canonical}" requires field "${field}"`);
     }
   }
-  const entry: ComboEvent = { t: new Date().toISOString(), event: canonical, ...payload };
+  const { event: _ignoredEvent, t: _ignoredTimestamp, ...safePayload } = payload;
+  const entry: ComboEvent = {
+    ...safePayload,
+    t: new Date().toISOString(),
+    event: canonical,
+  };
   // The run dir is created by writeCombo; emitting to a combo that was
   // never created is a caller bug and should surface, not be papered over.
   appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
@@ -95,8 +100,11 @@ export function readEvents(runDir: string): ComboEvent[] {
 }
 
 export function canonicalEventName(event: string): CanonicalEventName | undefined {
-  if (event in EVENT_TYPES) return event as CanonicalEventName;
-  return LEGACY_EVENT_ALIASES[event as LegacyEventName];
+  if (Object.hasOwn(EVENT_TYPES, event)) return event as CanonicalEventName;
+  if (Object.hasOwn(LEGACY_EVENT_ALIASES, event)) {
+    return LEGACY_EVENT_ALIASES[event as LegacyEventName];
+  }
+  return undefined;
 }
 
 function normalizeEvent(event: unknown): ComboEvent {

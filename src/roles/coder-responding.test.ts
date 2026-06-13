@@ -119,6 +119,19 @@ describe("readCoderThreadArtifact", () => {
 
     expect(readCoderThreadArtifact(dir).thread_id).toBe("legacy-thread");
   });
+
+  it("reports a missing coder thread artifact separately from invalid JSON", () => {
+    const dir = runDir();
+
+    expect(() => readCoderThreadArtifact(dir)).toThrow(/Missing coder thread artifact/);
+  });
+
+  it("reports invalid JSON for the artifact that exists", () => {
+    const dir = runDir();
+    writeFileSync(join(dir, CODER_THREAD_ARTIFACT), "{nope");
+
+    expect(() => readCoderThreadArtifact(dir)).toThrow(`${CODER_THREAD_ARTIFACT} is not valid JSON`);
+  });
 });
 
 describe("routeReviewComments", () => {

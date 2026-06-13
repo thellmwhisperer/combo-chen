@@ -1559,7 +1559,7 @@ describe("status", () => {
 
     const text = out.join("\n");
     expect(text).toContain("o-r-7");
-    expect(text).toContain("ROWING");
+    expect(text).toContain("CODING");
     expect(text).toContain("gate_decision");
   });
 });

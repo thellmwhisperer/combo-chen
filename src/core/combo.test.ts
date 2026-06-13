@@ -21,14 +21,14 @@ describe("deriveStatus", () => {
 
   it("advances through the documented phases", () => {
     const events = [ev("combo_created", { issue_url: "x" }), ev("coder_started")];
-    expect(deriveStatus(events).phase).toBe("ROWING");
+    expect(deriveStatus(events).phase).toBe("CODING");
 
     events.push(ev("coder_done"), ev("gate_started"));
     expect(deriveStatus(events).phase).toBe("GATING");
 
     events.push(ev("pr_opened", { url: "https://github.com/o/r/pull/9" }));
     const status = deriveStatus(events);
-    expect(status.phase).toBe("JUDGING");
+    expect(status.phase).toBe("REVIEWING");
     expect(status.pr).toBe("https://github.com/o/r/pull/9");
   });
 

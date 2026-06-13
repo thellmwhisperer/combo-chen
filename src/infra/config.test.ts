@@ -290,6 +290,22 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume command template/);
   });
 
+  it("rejects a non-string gatekeeper command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[gatekeeper]\ncommand = 123\n");
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
+  });
+
+  it("rejects non-string coder responding templates during config load", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[coder_responding]\nwindow_name = 123\n");
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/coder_responding.window_name/);
+  });
+
   it("resolves the first configured gordon command and protocol", () => {
     const repoDir = tempDir();
     writeToml(
@@ -321,6 +337,18 @@ describe("loadConfig", () => {
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/i);
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command/i);
+  });
+
+  it("rejects a non-string reviewer command template during config load", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[roles]\nreviewer = ["local"]\n\n[reviewer.local]\ncommand = 123\n',
+    );
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
   });
 });
 

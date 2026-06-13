@@ -855,7 +855,7 @@ export function createProgram(deps: Deps): Command {
         );
       }
 
-      deps.out(`reviewer: ${config.reviewerAgent} judging ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
+      deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
       deps.out(`${REVIEWER_WATCH_WINDOW}: polling reviewer hard signals every ${config.limits.babysitPollSeconds}s`);
     });
 
