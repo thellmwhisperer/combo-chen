@@ -38,9 +38,9 @@ describe("loadConfig", () => {
     expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
     expect(config.threadSitterWindowName).toBe("coder-responding");
     expect(config.threadSitterWatchWindowName).toBe("comment-watch");
-    expect(config.judgeAgent).toBe("claude");
-    expect(config.judgeCommand).toBe("claude {prompt}");
-    expect(config.judgeProtocol).toContain("7989");
+    expect(config.reviewerAgent).toBe("claude");
+    expect(config.reviewerCommand).toBe("claude {prompt}");
+    expect(config.reviewerProtocol).toContain("7989");
   });
 
   it("lets the user config override defaults", () => {
@@ -178,9 +178,9 @@ describe("loadConfig", () => {
     expect(config.hodorCommand).toBe("gate --intent {issue_pr_intent}");
     expect(config.hodorAttachTimeoutSeconds).toBe(42);
     expect(config.hodorAttachRetryIntervalSeconds).toBe(6);
-    expect(config.judgeAgent).toBe("hermes:gemini");
-    expect(config.judgeCommand).toBe("hermes review {pr_url} {prompt}");
-    expect(config.judgeProtocol).toBe("project review protocol 1234");
+    expect(config.reviewerAgent).toBe("hermes:gemini");
+    expect(config.reviewerCommand).toBe("hermes review {pr_url} {prompt}");
+    expect(config.reviewerProtocol).toBe("project review protocol 1234");
     expect(config.reviewNudgePrompt).toBe("Please review {url}");
     expect(config.threadSitterWindowName).toBe("coder-reply");
     expect(config.threadSitterWatchWindowName).toBe("comment-watch-local");
@@ -278,9 +278,9 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
 
-    expect(config.judgeAgent).toBe("hermes:gemini");
-    expect(config.judgeCommand).toBe("hermes judge {pr_url} {prompt}");
-    expect(config.judgeProtocol).toBe("project review protocol 1234");
+    expect(config.reviewerAgent).toBe("hermes:gemini");
+    expect(config.reviewerCommand).toBe("hermes judge {pr_url} {prompt}");
+    expect(config.reviewerProtocol).toBe("project review protocol 1234");
   });
 
   it("requires at least one configured gordon command", () => {

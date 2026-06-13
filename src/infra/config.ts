@@ -52,11 +52,11 @@ export interface ComboConfig {
   /** tmux window name for the review-comment watcher. */
   threadSitterWatchWindowName: string;
   /** First configured reviewer with an executable command template. */
-  judgeAgent: string;
+  reviewerAgent: string;
   /** Command template for the reviewer loop, with {placeholders}. */
-  judgeCommand: string;
+  reviewerCommand: string;
   /** Review protocol reference injected into the reviewer prompt. */
-  judgeProtocol: string;
+  reviewerProtocol: string;
 }
 
 type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";
@@ -71,10 +71,10 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
   merge: "merge",
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
-const DEFAULT_GORDON_PROTOCOL = "La Roca review protocol 7989 + project overlay";
+const DEFAULT_REVIEWER_PROTOCOL = "La Roca review protocol 7989 + project overlay";
 export const DEFAULT_HODOR_COMMAND =
   "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi";
-const DEFAULT_GORDON_TEMPLATES: Record<string, { command?: string }> = {
+const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
   },
@@ -231,8 +231,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   };
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
-  let gordonTemplates: Record<string, { command?: string }> = { ...DEFAULT_GORDON_TEMPLATES };
-  let judgeProtocol = DEFAULT_GORDON_PROTOCOL;
+  let reviewerTemplates: Record<string, { command?: string }> = { ...DEFAULT_REVIEWER_TEMPLATES };
+  let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
@@ -269,13 +269,13 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       if (layer.table[section] === undefined) continue;
       const reviewerTable = asTable(layer.table[section], `[${section}] in ${layer.source}`);
       if (reviewerTable["protocol"] !== undefined) {
-        judgeProtocol = String(reviewerTable["protocol"]);
+        reviewerProtocol = String(reviewerTable["protocol"]);
       }
       for (const [name, entry] of Object.entries(reviewerTable)) {
         if (name === "protocol") continue;
-        gordonTemplates = {
-          ...gordonTemplates,
-          [name]: { ...gordonTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
+        reviewerTemplates = {
+          ...reviewerTemplates,
+          [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
         };
       }
     }
@@ -316,9 +316,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     `resume command template for coder "${roles.coder}"`,
   );
 
-  const judgeAgent = roles.reviewer.find((agent) => gordonTemplates[agent]?.command);
-  const judgeCommand = judgeAgent === undefined ? undefined : gordonTemplates[judgeAgent]?.command;
-  if (!judgeAgent || !judgeCommand) {
+  const reviewerAgent = roles.reviewer.find((agent) => reviewerTemplates[agent]?.command);
+  const reviewerCommand = reviewerAgent === undefined ? undefined : reviewerTemplates[reviewerAgent]?.command;
+  if (!reviewerAgent || !reviewerCommand) {
     throw new ComboConfigError(
       `No command template for reviewer (formerly gordon) ${roles.reviewer.map((agent) => `"${agent}"`).join(", ")}. ` +
         `Add [reviewer."<name>"] command = "..." to your config.`,
@@ -359,9 +359,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewNudgePrompt: String(coderRespondingTable["review_nudge_prompt"]),
     threadSitterWindowName: String(coderRespondingTable["window_name"]),
     threadSitterWatchWindowName: String(coderRespondingTable["watch_window_name"]),
-    judgeAgent,
-    judgeCommand,
-    judgeProtocol,
+    reviewerAgent,
+    reviewerCommand,
+    reviewerProtocol,
   };
 }
 

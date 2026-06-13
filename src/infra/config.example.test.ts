@@ -38,6 +38,6 @@ describe("combo-chen.example.toml", () => {
     expect(config.threadSitterWindowName).toBe("coder-responding");
     expect(config.threadSitterWatchWindowName).toBe("comment-watch");
     expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
-    expect(config.judgeAgent).toBe("claude");
+    expect(config.reviewerAgent).toBe("claude");
   });
 });
