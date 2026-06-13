@@ -16,12 +16,6 @@ export interface ComboRoles {
   coder: string;
   gatekeeper: string;
   reviewer: string[];
-  /** @deprecated Use coder. Kept so old config consumers keep working during the rename. */
-  rower: string;
-  /** @deprecated Use gatekeeper. Kept so old config consumers keep working during the rename. */
-  hodor: string;
-  /** @deprecated Use reviewer. Kept so old config consumers keep working during the rename. */
-  gordon: string[];
   merge: string;
 }
 
@@ -80,28 +74,13 @@ const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   },
 };
 
-function roleAliases(roles: {
-  coder: string;
-  gatekeeper: string;
-  reviewer: string[];
-  merge: string;
-}): ComboRoles {
-  return {
-    ...roles,
-    reviewer: [...roles.reviewer],
-    rower: roles.coder,
-    hodor: roles.gatekeeper,
-    gordon: [...roles.reviewer],
-  };
-}
-
 const DEFAULTS = {
-  roles: roleAliases({
+  roles: {
     coder: "codex",
     gatekeeper: "no-mistakes",
     reviewer: ["claude", "coderabbit"],
     merge: "human",
-  }),
+  } satisfies ComboRoles,
   limits: {
     babysit_poll_seconds: 120,
     coder_timeout_minutes: 180,
@@ -181,7 +160,7 @@ function mergeRoles(base: ComboRoles, raw: unknown, source: string): ComboRoles 
       merged[canonical] = String(value);
     }
   }
-  return roleAliases(merged);
+  return merged;
 }
 
 function pickNumber(table: TomlTable, key: string, fallback: number, where = "[limits]"): number {
@@ -235,7 +214,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let roles: ComboRoles = {
     ...DEFAULTS.roles,
     reviewer: [...DEFAULTS.roles.reviewer],
-    gordon: [...DEFAULTS.roles.gordon],
   };
   let limitsTable: TomlTable = { ...DEFAULTS.limits };
   let coderTemplates: Record<string, { command?: unknown; resume_command?: unknown }> = {
