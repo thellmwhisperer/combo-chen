@@ -16,7 +16,7 @@ import {
   signalFromComment,
   signalFromReview,
   type ReviewCommentSignal,
-} from "./thread-sitter.js";
+} from "./coder-responding.js";
 
 function runDir(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-coder-responding-"));
@@ -30,11 +30,11 @@ const comment: ReviewCommentSignal = {
 
 describe("buildReviewNudgePrompt", () => {
   const promptTemplate = [
-    "New review comment for the thread-sitter:",
+    "New review comment for coder responding mode:",
     "{url}",
     "",
     "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-    "Before pushing, check the hodor push semaphore.",
+    "Before pushing, check the gatekeeper push semaphore.",
   ].join("\n");
 
   it("renders the configured prompt template with the comment URL and two-bucket contract", () => {
@@ -138,7 +138,7 @@ describe("routeReviewComments", () => {
         comments: [comment],
         reviewNudgePrompt,
         tmux,
-        windowName: "thread-sitter",
+        windowName: "coder-responding",
       }),
     ).toEqual([comment]);
     expect(
@@ -148,7 +148,7 @@ describe("routeReviewComments", () => {
         comments: [comment],
         reviewNudgePrompt,
         tmux,
-        windowName: "thread-sitter",
+        windowName: "coder-responding",
       }),
     ).toEqual([]);
 
@@ -156,21 +156,21 @@ describe("routeReviewComments", () => {
     expect(tmuxCalls[0]).toEqual([
       "set-buffer",
       "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
+      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
       buildReviewNudgePrompt(comment, reviewNudgePrompt),
     ]);
     expect(tmuxCalls[1]).toEqual([
       "paste-buffer",
       "-d",
       "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
+      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
       "-t",
-      "combo-chen-o-r-7:thread-sitter",
+      "combo-chen-o-r-7:coder-responding",
     ]);
     expect(tmuxCalls[2]).toEqual([
       "send-keys",
       "-t",
-      "combo-chen-o-r-7:thread-sitter",
+      "combo-chen-o-r-7:coder-responding",
       "C-m",
     ]);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["review_comment"]);
