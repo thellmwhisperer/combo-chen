@@ -56,7 +56,7 @@ import {
   latestPrUrl,
   readCoderThreadArtifact,
   routeReviewComments,
-} from "../roles/thread-sitter.js";
+} from "../roles/coder-responding.js";
 
 const CODER_WINDOW = "coder";
 const GATEKEEPER_WINDOW = "gatekeeper";
@@ -1122,16 +1122,16 @@ export function createProgram(deps: Deps): Command {
       const combo = readCombo(runDir);
       const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
       const artifact = readCoderThreadArtifact(runDir);
-      const sitter = deps.tmux(
+      const coderResponding = deps.tmux(
         newWindowArgs(
           combo.tmuxSession,
           config.threadSitterWindowName,
           buildCoderRespondingResumeCommand(artifact, config.rowerResumeCommand),
         ),
       );
-      if (sitter.status !== 0) {
+      if (coderResponding.status !== 0) {
         throw new Error(
-          `tmux failed to start ${config.threadSitterWindowName}: ${sitter.stderr.trim() || "unknown error"}`,
+          `tmux failed to start ${config.threadSitterWindowName}: ${coderResponding.stderr.trim() || "unknown error"}`,
         );
       }
       const watcher = deps.tmux(
