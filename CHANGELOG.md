@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.0.19](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.18...combo-chen-v0.0.19) (2026-06-13)
+
+
+### Features
+
+* **cli:** Renamed the hidden CLI activation surface and generated runner invocations from thread-sitter/judge commands to coder/reviewer commands. ([e49b1b3](https://github.com/thellmwhisperer/combo-chen/commit/e49b1b34dc606ce58b082e054d9f495fc9fdd1e0))
+* **config:** accept OSS role aliases ([a3dc0d4](https://github.com/thellmwhisperer/combo-chen/commit/a3dc0d41f72c9913a7005fe6f0040b6af7bb69d3))
+* **config:** Updated the shipped config example to OSS-friendly role names and pinned it with tests while adding canonical `[coder_responding]` config support. ([d742a6b](https://github.com/thellmwhisperer/combo-chen/commit/d742a6b0e76241c63b0d03ee2a9219894017e115))
+* **events:** Implemented and validated the journal-event rename slice for issue [#43](https://github.com/thellmwhisperer/combo-chen/issues/43), moving runner/status contracts to canonical coder/gate event names while preserving legacy readability. ([031787c](https://github.com/thellmwhisperer/combo-chen/commit/031787c6d18c19df2a4a4d58d9deb1bb5308fa2c))
+* **roles:** Renamed the implementer role adapter surface from rower to coder and verified the new canonical coder thread artifact with legacy artifact fallback. ([e5cb456](https://github.com/thellmwhisperer/combo-chen/commit/e5cb4562e65845972dccd9825dac93821734e91f))
+
+
+### Bug Fixes
+
+* **config:** Removed deprecated rower/hodor/gordon keys from the returned config roles API while keeping legacy TOML role aliases readable and validating the full suite. ([54ef082](https://github.com/thellmwhisperer/combo-chen/commit/54ef0824c675a069ecf6709bfe48e70234c859d7))
+* **config:** Renamed the public coder timeout config key/API from rower terminology to coder terminology while preserving legacy TOML compatibility. ([3e829d0](https://github.com/thellmwhisperer/combo-chen/commit/3e829d0c6acc0434d3ce5d53cfe0c073d07becbe))
+* **config:** Renamed the remaining coder-responding window config result fields from threadSitter* to coderResponding* and validated the full suite green. ([96433bf](https://github.com/thellmwhisperer/combo-chen/commit/96433bffca75b2d7d2b6f607e94a100f19080370))
+* **config:** Renamed the remaining gatekeeper config result API from deprecated `hodor*` fields to canonical `gatekeeper*` fields and validated the repo. ([5f2f574](https://github.com/thellmwhisperer/combo-chen/commit/5f2f574f785cba84c644f81d8690bf715ee0eef2))
+* **review:** address role rename review comments ([60b42e1](https://github.com/thellmwhisperer/combo-chen/commit/60b42e1e8b36c1943c31a5d5f2ff8367b6547e81))
+* **roles:** Renamed the next runtime role-label slice to OSS-friendly coder/gatekeeper/reviewer terminology and validated it with the full suite. ([777bac3](https://github.com/thellmwhisperer/combo-chen/commit/777bac35e1d397d0871e9465d3c95c4314c6c4f9))
+* **runner:** Renamed the generated runner API from rower/hodor command fields to canonical coder/gatekeeper command fields and validated the full suite green. ([5bff8f8](https://github.com/thellmwhisperer/combo-chen/commit/5bff8f8470773087f358cbc08f3fe94de0c9f1be))
+* **runner:** Renamed the generated runner's role log artifacts from rower/hodor to coder/gatekeeper and validated the slice end to end. ([b1b0d58](https://github.com/thellmwhisperer/combo-chen/commit/b1b0d58128a34e9598624259665fcb99fbad4618))
+
 ## [0.0.18](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.17...combo-chen-v0.0.18) (2026-06-12)
 
 
