@@ -821,8 +821,8 @@ export function createProgram(deps: Deps): Command {
       const reviewerCommand = buildReviewerInvocation({
         combo,
         prUrl,
-        protocol: config.judgeProtocol,
-        reviewerCommand: config.judgeCommand,
+        protocol: config.reviewerProtocol,
+        reviewerCommand: config.reviewerCommand,
       });
 
       killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
@@ -855,7 +855,7 @@ export function createProgram(deps: Deps): Command {
         );
       }
 
-      deps.out(`reviewer: ${config.judgeAgent} judging ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
+      deps.out(`reviewer: ${config.reviewerAgent} judging ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
       deps.out(`${REVIEWER_WATCH_WINDOW}: polling judge hard signals every ${config.limits.babysitPollSeconds}s`);
     });
 
@@ -970,12 +970,12 @@ export function createProgram(deps: Deps): Command {
       const reviewerCommand = buildReviewerInvocation({
         combo,
         prUrl,
-        protocol: config.judgeProtocol,
-        reviewerCommand: config.judgeCommand,
+        protocol: config.reviewerProtocol,
+        reviewerCommand: config.reviewerCommand,
         prompt: incrementalReviewerPrompt({
           combo,
           prUrl,
-          protocol: config.judgeProtocol,
+          protocol: config.reviewerProtocol,
           oldSha: pinnedSha,
           newSha: headSha,
         }),
