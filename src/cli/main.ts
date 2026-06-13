@@ -46,7 +46,7 @@ import {
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
-import { buildHodorInvocation, ensureIssueAutocloseInPrBody } from "../roles/hodor.js";
+import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../roles/gatekeeper.js";
 import { buildJudgeInvocation, incrementalJudgePrompt } from "../roles/judge.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import {
@@ -251,8 +251,8 @@ function syncNoMistakesMirror(deps: Deps, combo: ComboRecord, runDir: string): b
   if (origin === mirrorSha) return false;
 
   const events = readEvents(runDir);
-  const lastHodorStatus = [...events].reverse().find((e) => e.event === "gate_status");
-  if (lastHodorStatus?.state === "fix_inflight") {
+  const lastGatekeeperStatus = [...events].reverse().find((e) => e.event === "gate_status");
+  if (lastGatekeeperStatus?.state === "fix_inflight") {
     deps.out(`mirror sync: gatekeeper fix in flight, skipping push for ${combo.id}`);
     return false;
   }
@@ -547,12 +547,12 @@ function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string)
   }
 }
 
-interface HodorAttachOptions {
+interface GatekeeperAttachOptions {
   timeoutSeconds: number;
   retryIntervalSeconds: number;
 }
 
-function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions): string {
+function buildGatekeeperAttachCommand(combo: ComboRecord, options: GatekeeperAttachOptions): string {
   // The no-mistakes run id does not exist until the runner reaches gatekeeper.
   // Without --run, attach follows the active run for this worktree.
   const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
@@ -574,9 +574,9 @@ function buildHodorAttachCommand(combo: ComboRecord, options: HodorAttachOptions
   ].join("\n");
 }
 
-function startHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOptions): void {
+function startGatekeeperWindow(deps: Deps, combo: ComboRecord, options: GatekeeperAttachOptions): void {
   const created = deps.tmux(
-    newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, buildHodorAttachCommand(combo, options)),
+    newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, buildGatekeeperAttachCommand(combo, options)),
   );
   if (created.status !== 0) {
     throw new Error(
@@ -586,7 +586,7 @@ function startHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOp
   }
 }
 
-function ensureHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachOptions): void {
+function ensureGatekeeperWindow(deps: Deps, combo: ComboRecord, options: GatekeeperAttachOptions): void {
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) {
     throw new Error(
@@ -596,7 +596,7 @@ function ensureHodorWindow(deps: Deps, combo: ComboRecord, options: HodorAttachO
   }
   if (listed.stdout.split(/\r?\n/).includes(GATEKEEPER_WINDOW)) return;
 
-  startHodorWindow(deps, combo, options);
+  startGatekeeperWindow(deps, combo, options);
 }
 
 function resolveAttachCombo(
@@ -727,8 +727,8 @@ export function createProgram(deps: Deps): Command {
       const runner = buildRunnerScript({
         combo,
         rowerCommand: buildCoderInvocation(coderInput),
-        hodorCommand: buildHodorInvocation({
-          hodorCommand: config.hodorCommand,
+        hodorCommand: buildGatekeeperInvocation({
+          gatekeeperCommand: config.hodorCommand,
           combo,
           issueTitle: issueDetails.title,
           issueBody: issueDetails.body,
@@ -765,7 +765,7 @@ export function createProgram(deps: Deps): Command {
       }
       try {
         ensureJournalPane(deps, combo);
-        startHodorWindow(deps, combo, {
+        startGatekeeperWindow(deps, combo, {
           timeoutSeconds: config.hodorAttachTimeoutSeconds,
           retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
         });
@@ -1073,7 +1073,7 @@ export function createProgram(deps: Deps): Command {
         try {
           const combo = readCombo(runDir);
           const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-          ensureHodorWindow(deps, combo, {
+          ensureGatekeeperWindow(deps, combo, {
             timeoutSeconds: config.hodorAttachTimeoutSeconds,
             retryIntervalSeconds: config.hodorAttachRetryIntervalSeconds,
           });

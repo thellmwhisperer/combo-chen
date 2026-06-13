@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_HODOR_COMMAND } from "../infra/config.js";
-import { buildHodorInvocation } from "../roles/hodor.js";
+import { buildGatekeeperInvocation } from "../roles/gatekeeper.js";
 import type { ComboEvent } from "./events.js";
 import { buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
 
@@ -84,8 +84,8 @@ describe("buildRunnerScript", () => {
     tmuxSession: "combo-chen-o-r-7",
     createdAt: "2026-06-10T00:00:00.000Z",
   };
-  const renderedDefaultHodorCommand = buildHodorInvocation({
-    hodorCommand: DEFAULT_HODOR_COMMAND,
+  const renderedDefaultGatekeeperCommand = buildGatekeeperInvocation({
+    gatekeeperCommand: DEFAULT_HODOR_COMMAND,
     combo,
     issueTitle: "Issue title",
     issueBody: "Issue body",
@@ -105,15 +105,15 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("cd '/repos/r/.worktrees/issue-7'");
   });
 
-  it("sequences rower, hodor, pr detection, and the final handoff to humans", () => {
+  it("sequences coder, gatekeeper, PR detection, and the final handoff to humans", () => {
     const rower = script.indexOf("gnhf");
-    const hodor = script.indexOf("no-mistakes axi run");
+    const gatekeeper = script.indexOf("no-mistakes axi run");
     const pr = script.indexOf("gh pr list");
     const coder = script.indexOf("activate-coder");
     const handoff = script.indexOf("pr_ready");
     expect(rower).toBeGreaterThan(-1);
-    expect(hodor).toBeGreaterThan(rower);
-    expect(pr).toBeGreaterThan(hodor);
+    expect(gatekeeper).toBeGreaterThan(rower);
+    expect(pr).toBeGreaterThan(gatekeeper);
     expect(coder).toBeGreaterThan(pr);
     expect(handoff).toBeGreaterThan(coder);
   });
@@ -215,7 +215,7 @@ exit 0
     );
   });
 
-  it("emits hodor_failed with the gate push exit code when the default pre-push fails", () => {
+  it("emits gate_failed with the gate push exit code when the default pre-push fails", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -223,7 +223,7 @@ exit 0
     mkdirSync(bin, { recursive: true });
 
     const eventsPath = join(dir, "events.log");
-    const hodorLog = join(dir, "gatekeeper.log");
+    const gatekeeperLog = join(dir, "gatekeeper.log");
     const fakeEmit = join(bin, "emit");
     writeFileSync(
       fakeEmit,
@@ -238,11 +238,11 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
       fakeGit,
       `#!/bin/sh
 if [ "$1" = "push" ]; then
-  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 17
 fi
 if [ "$1" = "remote" ]; then
-  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 0
 fi
 if [ "$1" = "rev-parse" ]; then
@@ -258,7 +258,7 @@ exit 1
     writeFileSync(
       fakeNoMistakes,
       `#!/bin/sh
-printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
+printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 `,
     );
     chmodSync(fakeNoMistakes, 0o755);
@@ -269,7 +269,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       buildRunnerScript({
         combo: { ...combo, worktree },
         rowerCommand: "true",
-        hodorCommand: renderedDefaultHodorCommand,
+        hodorCommand: renderedDefaultGatekeeperCommand,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
         activateReviewer: ":",
@@ -282,7 +282,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       env: {
         ...process.env,
         EVENTS_LOG: eventsPath,
-        HODOR_LOG: hodorLog,
+        GATEKEEPER_LOG: gatekeeperLog,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       },
     });
@@ -300,7 +300,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       "gate_status --field state=failed --field head_sha=fake-head",
       "gate_failed --field exit_code=17",
     ]);
-    expect(readFileSync(hodorLog, "utf8")).toBe(
+    expect(readFileSync(gatekeeperLog, "utf8")).toBe(
       "git remote get-url no-mistakes\ngit push no-mistakes HEAD\n",
     );
   });
@@ -313,7 +313,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
     mkdirSync(bin, { recursive: true });
 
     const eventsPath = join(dir, "events.log");
-    const hodorLog = join(dir, "gatekeeper.log");
+    const gatekeeperLog = join(dir, "gatekeeper.log");
     const fakeEmit = join(bin, "emit");
     writeFileSync(
       fakeEmit,
@@ -328,11 +328,11 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
       fakeGit,
       `#!/bin/sh
 if [ "$1" = "remote" ]; then
-  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 2
 fi
 if [ "$1" = "push" ]; then
-  printf 'git %s\\n' "$*" >> "$HODOR_LOG"
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 17
 fi
 if [ "$1" = "rev-parse" ]; then
@@ -348,7 +348,7 @@ exit 1
     writeFileSync(
       fakeNoMistakes,
       `#!/bin/sh
-printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
+printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 `,
     );
     chmodSync(fakeNoMistakes, 0o755);
@@ -363,7 +363,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       buildRunnerScript({
         combo: { ...combo, worktree },
         rowerCommand: "true",
-        hodorCommand: renderedDefaultHodorCommand,
+        hodorCommand: renderedDefaultGatekeeperCommand,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
         activateReviewer: ":",
@@ -376,7 +376,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       env: {
         ...process.env,
         EVENTS_LOG: eventsPath,
-        HODOR_LOG: hodorLog,
+        GATEKEEPER_LOG: gatekeeperLog,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       },
     });
@@ -394,10 +394,10 @@ printf 'no-mistakes %s\\n' "$*" >> "$HODOR_LOG"
       "gate_status --field state=idle --field head_sha=fake-head",
       "needs_human --field reason=pr_missing",
     ]);
-    const hodorOutput = readFileSync(hodorLog, "utf8");
-    expect(hodorOutput).toContain("git remote get-url no-mistakes\nno-mistakes axi run --intent");
-    expect(hodorOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
-    expect(hodorOutput).toContain("Fixes #7");
+    const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
+    expect(gatekeeperOutput).toContain("git remote get-url no-mistakes\nno-mistakes axi run --intent");
+    expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
+    expect(gatekeeperOutput).toContain("Fixes #7");
   });
 
   it("emits gate_waiting when no-mistakes stops at an axi approval gate", () => {
@@ -618,7 +618,7 @@ exit 130
     expect(prReady).toBeGreaterThan(-1);
     expect(prMissing).toBeGreaterThan(-1);
     // pr_ready lives inside the if-branch that saw a URL; pr_missing in the
-    // final else (lastIndexOf: earlier elses belong to rower/hodor failure).
+    // final else (lastIndexOf: earlier elses belong to coder/gatekeeper failure).
     expect(prUrlBranch).toBeLessThan(prReady);
     expect(autocloseLog).toBeGreaterThan(-1);
     expect(autoclose).toBeGreaterThan(prUrlBranch);
