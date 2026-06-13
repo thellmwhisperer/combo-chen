@@ -71,7 +71,7 @@ describe("loadConfig", () => {
     expect(config.roles.rower).toBe("codex");
   });
 
-  it("loads hodor attach retry settings through env, repo, user, fallback order", () => {
+  it("loads gatekeeper attach retry settings through env, repo, user, fallback order", () => {
     const userDir = tempDir();
     const userConfig = writeToml(
       userDir,
@@ -99,6 +99,19 @@ describe("loadConfig", () => {
     });
     expect(envConfig.hodorAttachTimeoutSeconds).toBe(75);
     expect(envConfig.hodorAttachRetryIntervalSeconds).toBe(15);
+
+    const newEnvConfig = loadConfig({
+      repoDir,
+      userConfigPath: userConfig,
+      env: {
+        COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS: "75",
+        COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS: "15",
+        COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS: "45",
+        COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS: "9",
+      },
+    });
+    expect(newEnvConfig.hodorAttachTimeoutSeconds).toBe(45);
+    expect(newEnvConfig.hodorAttachRetryIntervalSeconds).toBe(9);
   });
 
   it("loads teardown retry limits from the standard limits cascade", () => {
@@ -115,6 +128,53 @@ describe("loadConfig", () => {
 
     expect(config.limits.teardownGitRetries).toBe(1);
     expect(config.limits.teardownGitBackoffSeconds).toBe(3);
+  });
+
+  it("loads OSS-friendly role and section names while preserving old role aliases", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'coder = "hermes:deepseek"',
+        'gatekeeper = "no-mistakes"',
+        'reviewer = ["coderabbit", "hermes:gemini"]',
+        "",
+        '[coder."hermes:deepseek"]',
+        'command = "hermes -z {prompt}"',
+        'resume_command = "hermes --resume {thread_id}"',
+        "",
+        "[gatekeeper]",
+        'command = "gate --intent {issue_pr_intent}"',
+        "attach_timeout_seconds = 42",
+        "attach_retry_interval_seconds = 6",
+        "",
+        "[reviewer]",
+        'protocol = "project review protocol 1234"',
+        "",
+        '[reviewer."hermes:gemini"]',
+        'command = "hermes review {pr_url} {prompt}"',
+        "",
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.roles.coder).toBe("hermes:deepseek");
+    expect(config.roles.gatekeeper).toBe("no-mistakes");
+    expect(config.roles.reviewer).toEqual(["coderabbit", "hermes:gemini"]);
+    expect(config.roles.rower).toBe("hermes:deepseek");
+    expect(config.roles.hodor).toBe("no-mistakes");
+    expect(config.roles.gordon).toEqual(["coderabbit", "hermes:gemini"]);
+    expect(config.rowerCommand).toBe("hermes -z {prompt}");
+    expect(config.rowerResumeCommand).toBe("hermes --resume {thread_id}");
+    expect(config.hodorCommand).toBe("gate --intent {issue_pr_intent}");
+    expect(config.hodorAttachTimeoutSeconds).toBe(42);
+    expect(config.hodorAttachRetryIntervalSeconds).toBe(6);
+    expect(config.judgeAgent).toBe("hermes:gemini");
+    expect(config.judgeCommand).toBe("hermes review {pr_url} {prompt}");
+    expect(config.judgeProtocol).toBe("project review protocol 1234");
   });
 
   it("refuses to launch when gordon would judge their own cooking", () => {
