@@ -71,7 +71,6 @@ describe("loadConfig", () => {
     expect(config.reviewNudgePrompt).toContain("Leave committed local changes");
     expect(config.reviewNudgePrompt).toContain("gatekeeper/no-mistakes");
     expect(config.coderRespondingWindowName).toBe("coder-responding");
-    expect(config.coderRespondingWatchWindowName).toBe("comment-watch");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
@@ -84,7 +83,7 @@ describe("loadConfig", () => {
     const userConfig = writeToml(
       userDir,
       "config.toml",
-      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n\n[thread_sitter]\nreview_nudge_prompt = "Please inspect {url}"\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
+      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n\n[thread_sitter]\nreview_nudge_prompt = "Please inspect {url}"\nwindow_name = "sitter"\n',
     );
 
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
@@ -94,7 +93,6 @@ describe("loadConfig", () => {
     expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
     expect(config.coderRespondingWindowName).toBe("sitter");
-    expect(config.coderRespondingWatchWindowName).toBe("sitter-watch");
   });
 
   it("repo config wins over user config (repo owns policy)", () => {
@@ -259,7 +257,6 @@ describe("loadConfig", () => {
         "[coder_responding]",
         'review_nudge_prompt = "Please review {url}"',
         'window_name = "coder-reply"',
-        'watch_window_name = "comment-watch-local"',
         "",
       ].join("\n"),
     );
@@ -287,7 +284,6 @@ describe("loadConfig", () => {
     expect(config.reviewerProtocol).toBe("project review protocol 1234");
     expect(config.reviewNudgePrompt).toBe("Please review {url}");
     expect(config.coderRespondingWindowName).toBe("coder-reply");
-    expect(config.coderRespondingWatchWindowName).toBe("comment-watch-local");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
   });

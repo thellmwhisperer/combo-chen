@@ -76,8 +76,6 @@ export interface ComboConfig {
   reviewNudgePrompt: string;
   /** tmux window name for the resumed coder responding mode. */
   coderRespondingWindowName: string;
-  /** Legacy tmux window name for the old review-comment watcher. */
-  coderRespondingWatchWindowName: string;
   /** First configured reviewer with an executable command template. */
   reviewerAgent: string;
   /** Command template for the reviewer loop, with {placeholders}. */
@@ -135,7 +133,6 @@ const DEFAULTS = {
   },
   coder_responding: {
     window_name: "coder-responding",
-    watch_window_name: "comment-watch",
     review_nudge_prompt: [
       "New review comment for coder responding mode:",
       "{url}",
@@ -434,10 +431,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     coderRespondingWindowName: pickNonEmptyString(
       coderRespondingTable["window_name"],
       "coder_responding.window_name",
-    ),
-    coderRespondingWatchWindowName: pickNonEmptyString(
-      coderRespondingTable["watch_window_name"],
-      "coder_responding.watch_window_name",
     ),
     reviewerAgent,
     reviewerCommand,
