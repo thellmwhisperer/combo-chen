@@ -54,14 +54,19 @@ describe("event schema", () => {
         "coder_started",
         "coder_done",
         "coder_failed",
+        "address_done",
+        "address_noop",
         "gate_started",
         "gate_failed",
         "gate_status",
+        "gate_validated",
+        "gate_stale",
         "pr_opened",
         "needs_human",
         "review_comment",
         "lgtm",
         "lgtm_stale",
+        "ready_for_merge",
         "merged",
         "combo_closed",
         "coder_retry",
@@ -77,10 +82,15 @@ describe("event schema", () => {
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
     expect(EVENT_TYPES.coder_failed.required).toEqual(["exit_code", "has_new_commits"]);
+    expect(EVENT_TYPES.address_done.required).toEqual(["head_sha"]);
+    expect(EVENT_TYPES.address_noop.required).toEqual(["head_sha"]);
     expect(EVENT_TYPES.gate_status.required).toEqual(["state"]);
+    expect(EVENT_TYPES.gate_validated.required).toEqual(["sha"]);
+    expect(EVENT_TYPES.gate_stale.required).toEqual(["old_sha", "new_sha"]);
     expect(EVENT_TYPES.review_comment.required).toEqual(["author", "kind", "url"]);
     expect(EVENT_TYPES.lgtm.required).toEqual(["sha"]);
     expect(EVENT_TYPES.lgtm_stale.required).toEqual(["old_sha", "new_sha"]);
+    expect(EVENT_TYPES.ready_for_merge.required).toEqual(["sha", "pr_url"]);
     expect(EVENT_TYPES.merged.required).toEqual(["sha", "by"]);
     expect(EVENT_TYPES.combo_closed.required).toEqual([]);
     expect(EVENT_TYPES.coder_retry.required).toEqual([]);
@@ -141,16 +151,29 @@ describe("journal", () => {
       kind: "judge",
       url: "https://github.com/o/r/pull/7#discussion_r1",
     });
+    appendEvent(dir, "address_done", { head_sha: "abc123" });
+    appendEvent(dir, "address_noop", { head_sha: "abc123" });
+    appendEvent(dir, "gate_validated", { sha: "abc123", source: "no-mistakes" });
+    appendEvent(dir, "gate_stale", { old_sha: "abc123", new_sha: "def456" });
     appendEvent(dir, "lgtm", { sha: "abc123" });
     appendEvent(dir, "lgtm_stale", { old_sha: "abc123", new_sha: "def456" });
+    appendEvent(dir, "ready_for_merge", {
+      sha: "def456",
+      pr_url: "https://github.com/o/r/pull/7",
+    });
     appendEvent(dir, "merged", { sha: "def456", by: "javi" });
     appendEvent(dir, "combo_closed", {});
     appendEvent(dir, "coder_retry", {});
 
     expect(readEvents(dir).map((event) => event.event)).toEqual([
       "review_comment",
+      "address_done",
+      "address_noop",
+      "gate_validated",
+      "gate_stale",
       "lgtm",
       "lgtm_stale",
+      "ready_for_merge",
       "merged",
       "combo_closed",
       "coder_retry",

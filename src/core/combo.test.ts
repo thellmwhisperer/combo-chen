@@ -54,6 +54,43 @@ describe("deriveStatus", () => {
     expect(status.pr).toBe("https://github.com/o/r/pull/9");
   });
 
+  it("marks the combo READY only from a ready_for_merge event", () => {
+    const status = deriveStatus([
+      ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+      ev("gate_validated", { sha: "def456" }),
+      ev("lgtm", { sha: "def456" }),
+      ev("ready_for_merge", {
+        sha: "def456",
+        pr_url: "https://github.com/o/r/pull/9",
+      }),
+    ]);
+
+    expect(status.phase).toBe("READY");
+    expect(status.needsHuman).toBe(false);
+    expect(status.pr).toBe("https://github.com/o/r/pull/9");
+  });
+
+  it("moves a READY combo back to REVIEWING when head-bound signals go stale", () => {
+    for (const staleEvent of [
+      ev("lgtm_stale", { old_sha: "def456", new_sha: "fedcba" }),
+      ev("gate_stale", { old_sha: "def456", new_sha: "fedcba" }),
+      ev("address_done", { head_sha: "fedcba" }),
+    ]) {
+      const status = deriveStatus([
+        ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+        ev("ready_for_merge", {
+          sha: "def456",
+          pr_url: "https://github.com/o/r/pull/9",
+        }),
+        staleEvent,
+      ]);
+
+      expect(status.phase).toBe("REVIEWING");
+      expect(status.needsHuman).toBe(false);
+      expect(status.pr).toBe("https://github.com/o/r/pull/9");
+    }
+  });
+
   it("latches needs_human until the next phase advance", () => {
     const events = [ev("coder_started"), ev("needs_human", { reason: "gate_decision" })];
     const status = deriveStatus(events);

@@ -67,7 +67,8 @@ describe("combo-chen.example.toml", () => {
     expect(config.coderRespondingWatchWindowName).toBe("comment-watch");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
-    expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
+    expect(config.reviewNudgePrompt).toContain("Do not push");
+    expect(config.reviewNudgePrompt).toContain("gatekeeper/no-mistakes");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.limits.coderTimeoutMinutes).toBe(180);
   });
