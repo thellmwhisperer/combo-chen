@@ -34,7 +34,6 @@ import { readEvents } from "../core/events.js";
 import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT } from "./coder.js";
 import {
   buildReviewNudgePrompt,
-  buildReviewWatchCommand,
   buildCoderRespondingResumeCommand,
   parsePullRequestUrl,
   readGhArray,
@@ -107,17 +106,6 @@ describe("coder responding activation commands", () => {
     ).toBe("hermes --resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
   });
 
-  it("builds a small polling watcher around the nudge helper", () => {
-    expect(
-      buildReviewWatchCommand({
-        cli: '"node" "/opt/combo/dist/cli.mjs"',
-        comboId: "o-r-7",
-        pollSeconds: 7,
-      }),
-    ).toBe(
-      'while :; do "node" "/opt/combo/dist/cli.mjs" nudge-review-comments -n \'o-r-7\'; sleep 7; done',
-    );
-  });
 });
 // -/ 1/3
 

@@ -37,8 +37,9 @@ Hard rules:
   normal path. Coder responding mode leaves committed local changes; the
   gatekeeper/no-mistakes gate validates and publishes each HEAD.
 - Mirror freshness: on every director tick, combo-chen
-  compares `origin/<branch>` with the `no-mistakes` mirror and fast-forwards
-  the mirror when it is stale (also gated on gatekeeper state).
+  compares `origin/<branch>` with the `no-mistakes` mirror and syncs the
+  mirror when it is stale, using `--force-with-lease` for existing mirror
+  branches (also gated on gatekeeper state).
 - After PR open, `director-watch` is the single polling loop. Reviewer and
   coder responding mode are worker windows; the director routes comments,
   marks stale gates, and starts post-address no-mistakes gates.

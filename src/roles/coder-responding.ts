@@ -45,7 +45,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { shellQuote } from "../core/combo.js";
 import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { renderCommand } from "../infra/config.js";
@@ -124,14 +123,6 @@ export function buildCoderRespondingResumeCommand(
   resumeCommand: string,
 ): string {
   return renderCommand(resumeCommand, { thread_id: artifact.thread_id });
-}
-
-export function buildReviewWatchCommand(input: {
-  cli: string;
-  comboId: string;
-  pollSeconds: number;
-}): string {
-  return `while :; do ${input.cli} nudge-review-comments -n ${shellQuote(input.comboId)}; sleep ${input.pollSeconds}; done`;
 }
 
 export function routeReviewComments(input: {

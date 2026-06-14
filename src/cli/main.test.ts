@@ -271,6 +271,184 @@ describe("command surface", () => {
 });
 
 describe("director-tick", () => {
+  function seedReadyCandidate(input: {
+    homeDir: string;
+    headSha: string;
+    gateSha?: string;
+    lgtmSha?: string;
+  }): { dir: string; repoDir: string; worktree: string } {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(input.homeDir, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "gate_validated", { sha: input.gateSha ?? input.headSha });
+    appendEvent(dir, "lgtm", { sha: input.lgtmSha ?? input.headSha });
+    return { dir, repoDir, worktree };
+  }
+
+  function successfulRollup(): unknown[] {
+    return [
+      { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+      { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+      { __typename: "StatusContext", context: "coverage", state: "SUCCESS" },
+    ];
+  }
+
+  function readyDeps(input: {
+    homeDir: string;
+    worktree: string;
+    prHeadSha: string;
+    worktreeHeadSha?: string;
+    rollup?: unknown[];
+    codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
+  }): { deps: Deps; calls: string[][]; out: string[] } {
+    return fakeDeps({
+      env: { COMBO_CHEN_HOME: input.homeDir },
+      gh: (args) => {
+        const payload = ["gh", ...args];
+        const prView = JSON.stringify({
+          headRefOid: input.prHeadSha,
+          state: "OPEN",
+          statusCheckRollup: input.rollup ?? successfulRollup(),
+        });
+        if (args[0] === "pr" && args[1] === "view") {
+          return { status: 0, stdout: prView, stderr: "" };
+        }
+        if (args.join(" ").includes("issues/7/comments")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        if (args.join(" ").includes("pulls/7/comments")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        if (args.join(" ").includes("pulls/7/reviews")) {
+          const comments = input.codeRabbitComments ?? [
+            {
+              body: "CodeRabbit review complete. No issues found.",
+              commitSha: input.prHeadSha,
+              submittedAt: "2026-06-15T00:00:00Z",
+            },
+          ];
+          return {
+            status: 0,
+            stdout: JSON.stringify(
+              comments.map((comment, index) => ({
+                body: comment.body,
+                commit_id: comment.commitSha ?? input.prHeadSha,
+                html_url: `https://github.com/o/r/pull/7#pullrequestreview-${index + 1}`,
+                state: "COMMENTED",
+                submitted_at: comment.submittedAt ?? `2026-06-15T00:00:0${index}Z`,
+                user: { login: "coderabbitai" },
+              })),
+            ),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${payload.join(" ")}` };
+      },
+      git: (args, cwd) => {
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+          return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+        }
+        if (cwd === input.worktree && args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: `${input.worktreeHeadSha ?? input.prHeadSha}\n`, stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+  }
+
+  it("emits READY when gate, reviewer, CodeRabbit, and checks all agree on the current head", async () => {
+    const h = home();
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { dir, worktree } = seedReadyCandidate({ homeDir: h, headSha });
+    const { deps } = readyDeps({ homeDir: h, worktree, prHeadSha: headSha });
+
+    await exec(deps, ["director-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir)).toContainEqual(
+      expect.objectContaining({
+        event: "ready_for_merge",
+        sha: headSha,
+        pr_url: "https://github.com/o/r/pull/7",
+      }),
+    );
+  });
+
+  it("does not emit READY when CodeRabbit only reports a rate-limited review skip", async () => {
+    const h = home();
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { dir, worktree } = seedReadyCandidate({ homeDir: h, headSha });
+    const { deps } = readyDeps({
+      homeDir: h,
+      worktree,
+      prHeadSha: headSha,
+      codeRabbitComments: [
+        {
+          body: "CodeRabbit review complete. No issues found.",
+          submittedAt: "2026-06-15T00:00:00Z",
+        },
+        {
+          body: "Review skipped: rate limited for this account.",
+          submittedAt: "2026-06-15T00:01:00Z",
+        },
+      ],
+    });
+
+    await exec(deps, ["director-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).some((event) => event.event === "ready_for_merge")).toBe(false);
+  });
+
+  it("does not emit READY when the current head has a failing check rollup", async () => {
+    const h = home();
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { dir, worktree } = seedReadyCandidate({ homeDir: h, headSha });
+    const { deps } = readyDeps({
+      homeDir: h,
+      worktree,
+      prHeadSha: headSha,
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" },
+        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+      ],
+    });
+
+    await exec(deps, ["director-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).some((event) => event.event === "ready_for_merge")).toBe(false);
+  });
+
+  it("does not emit READY when the journaled gate and LGTM belong to a stale SHA", async () => {
+    const h = home();
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const newSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { dir, worktree } = seedReadyCandidate({
+      homeDir: h,
+      headSha: newSha,
+      gateSha: oldSha,
+      lgtmSha: oldSha,
+    });
+    const { deps } = readyDeps({
+      homeDir: h,
+      worktree,
+      prHeadSha: newSha,
+      worktreeHeadSha: oldSha,
+    });
+
+    await exec(deps, ["director-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(dir).some((event) => event.event === "ready_for_merge")).toBe(false);
+  });
+
   it("runs one orchestration pass over reviewer and review-comment hard signals", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -391,8 +569,14 @@ describe("director-tick", () => {
     const gatekeeperWindow = calls.find(
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
-    expect(gatekeeperWindow?.at(-1)).toContain("no-mistakes axi run --intent");
-    expect(gatekeeperWindow?.at(-1)).toContain("post-address gate");
+    const command = gatekeeperWindow?.at(-1) ?? "";
+    const scriptPath = join(dir, `gatekeeper-post-${newHead.slice(0, 12)}.sh`);
+    expect(command.length).toBeLessThan(200);
+    expect(command).toBe(`sh '${scriptPath}'`);
+    expect(command).not.toContain("no-mistakes axi run --intent");
+    const script = readFileSync(scriptPath, "utf8");
+    expect(script).toContain("no-mistakes axi run --intent");
+    expect(script).toContain("post-address gate");
     expect(out).toContain(`director: post-address gate started for o-r-7 at ${newHead}`);
   });
 
@@ -612,7 +796,7 @@ describe("activate-coder", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
+      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\n",
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -649,7 +833,7 @@ describe("activate-coder", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
+      '[thread_sitter]\nwindow_name = "sitter"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
