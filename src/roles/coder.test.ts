@@ -56,6 +56,7 @@ function seedGnhfRun(worktree: string): void {
   writeFileSync(join(runDir, "iteration-1.jsonl"), readFileSync(codexJsonlFixture, "utf8"));
 }
 
+// -- 1/3 CORE · Prompt generation + invocation ← START HERE --
 describe("defaultPrompt", () => {
   it("tells the coder which issue to implement and to work test-first", () => {
     const prompt = defaultPrompt(combo.issueUrl);
@@ -86,6 +87,9 @@ describe("buildCoderInvocation", () => {
   });
 });
 
+// -/ 1/3
+
+// -- 2/3 HELPER · Thread ID extraction --
 describe("extractCodexThreadIdFromJsonl", () => {
   it("returns the thread_id from a thread.started event", () => {
     const dir = tempDir("coder-extract-");
@@ -149,6 +153,9 @@ describe("extractCodexThreadIdFromJsonl", () => {
   });
 });
 
+// -/ 2/3
+
+// -- 3/3 HELPER · Coder thread artifact --
 describe("coder thread artifact", () => {
   it("uses a coder-named artifact file", () => {
     expect(CODER_THREAD_ARTIFACT).toBe("coder-thread.json");
@@ -171,3 +178,4 @@ describe("coder thread artifact", () => {
     );
   });
 });
+// -/ 3/3
