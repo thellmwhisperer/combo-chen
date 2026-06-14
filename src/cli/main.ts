@@ -61,7 +61,7 @@
  *
  *   See // -- N/9 markers inline for quick scroll navigation.
  *
- * @exports createProgram, defaultDeps, resolvePollMs
+ * @exports createProgram, defaultDeps, resolvePollMs, Deps
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux},
  *   ../roles/{gatekeeper,reviewer,coder,coder-responding}

@@ -31,7 +31,7 @@ delimiters and the inline-marker prefix change.
 
 ## Header content
 
-```
+```text
 @overview One-line summary. ~N lines, M public symbols, key responsibility.
 
   READING GUIDE
@@ -74,7 +74,7 @@ Rules for the header:
 
 ## Inline section markers
 
-```
+```text
 -- N/M ROLE · Section name
 
   … code …

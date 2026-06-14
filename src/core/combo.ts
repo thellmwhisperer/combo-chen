@@ -31,7 +31,7 @@
  *   │ RunnerInput          Input shape for buildRunnerScript         │
  *   └────────────────────────────────────────────────────────────────┘
  *
- * @exports buildRunnerScript, deriveStatus, shellQuote
+ * @exports buildRunnerScript, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
  * @deps ./events, ./state
  */
 import type { ComboEvent } from "./events.js";
