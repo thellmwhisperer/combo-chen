@@ -3,14 +3,14 @@
  * @overview combo-chen CLI — ~1300 lines, 11 commands, one execution flow.
  *
  *   READING GUIDE
- *   ─────────────
+ *   ───────────--
  *   1. Start at createProgram         ← registers all 11 subcommands
  *   2. Pick the .command() you need
  *   3. isDirectRun                    ← main(): boots the CLI
  *   4. Everything else is helpers     ← only read when debugging one
  *
  *   MAIN FLOW
- *   ─────────
+ *   ───────--
  *   isDirectRun
  *     → createProgram(defaultDeps())
  *       → parseAsync(process.argv)
@@ -32,7 +32,7 @@
  *   └────────────────────────────────────────────────────────────────┘
  *
  *   HELPERS (~lines 99-720, on-demand reading)
- *   ──────────────────────────────────────────
+ *   ────────────────────────────────────────--
  *   All live before createProgram. They are called by the commands.
  *   Grouped with // -- N/9 markers. Don't read top-to-bottom;
  *   jump to the section a .command() calls when you trace its logic.
@@ -117,7 +117,7 @@ import {
   routeReviewComments,
 } from "../roles/coder-responding.js";
 
-// -- 1/9 HELPER · Tmux windows + Deps ──
+// -- 1/9 HELPER · Tmux windows + Deps --
 const CODER_WINDOW = "coder";
 const GATEKEEPER_WINDOW = "gatekeeper";
 const REVIEWER_WINDOW = "reviewer";
@@ -163,7 +163,7 @@ export function defaultDeps(): Deps {
 
 // -/ 1/9
 
-// -- 2/9 HELPER · Parse helpers ──
+// -- 2/9 HELPER · Parse helpers --
 function coerce(value: string): unknown {
   if (value === "true") return true;
   if (value === "false") return false;
@@ -253,7 +253,7 @@ function buildReviewerWatchCommand(input: {
 
 // -/ 2/9
 
-// -- 3/9 HELPER · Git + mirror + PR detection ──
+// -- 3/9 HELPER · Git + mirror + PR detection --
 function remoteShaForRef(stdout: string, ref: string): string | undefined {
   for (const line of stdout.split(/\r?\n/)) {
     const [sha, candidate] = line.trim().split(/\s+/, 2);
@@ -350,7 +350,7 @@ function latestOpenedPrUrl(runDir: string): string | undefined {
 
 // -/ 3/9
 
-// -- 4/9 HELPER · LGTM logic ──
+// -- 4/9 HELPER · LGTM logic --
 function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
   let sha: string | undefined;
   for (const event of events) {
@@ -463,7 +463,7 @@ function latestGitHubLgtmSha(deps: Deps, prUrl: string): string | undefined {
 
 // -/ 4/9
 
-// -- 5/9 HELPER · PR parsing ──
+// -- 5/9 HELPER · PR parsing --
 interface PrView {
   headSha: string;
   state: string;
@@ -521,7 +521,7 @@ function parsePrView(stdout: string): PrView {
 
 // -/ 5/9
 
-// -- 6/9 HELPER · Terminal + merge teardown ──
+// -- 6/9 HELPER · Terminal + merge teardown --
 function terminalReviewerEvent(events: ComboEvent[]): ComboEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
@@ -594,7 +594,7 @@ async function teardownMergedCombo(input: {
 
 // -/ 6/9
 
-// -- 7/9 HELPER · Tmux window management ──
+// -- 7/9 HELPER · Tmux window management --
 function killComboSession(deps: Deps, combo: ComboRecord): void {
   const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
   if (killed.status !== 0) {
@@ -736,7 +736,7 @@ function ensureJournalPane(deps: Deps, combo: ComboRecord): void {
 
 // -/ 7/9
 
-// -- 8/9 CORE · createProgram + 11 subcommands ← START HERE ──
+// -- 8/9 CORE · createProgram + 11 subcommands ← START HERE --
 export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
@@ -1290,7 +1290,7 @@ export function createProgram(deps: Deps): Command {
 
 // -/ 8/9
 
-// -- 9/9 CORE · Entry point ──
+// -- 9/9 CORE · Entry point --
 const isDirectRun = (() => {
   const argv1 = process.argv[1];
   if (!argv1) return false;

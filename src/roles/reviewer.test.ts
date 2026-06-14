@@ -34,6 +34,7 @@ const combo = {
 const prUrl = "https://github.com/o/r/pull/9";
 const protocol = "La Roca review protocol 7989 + project overlay 8034";
 
+// -- 1/1 CORE · defaultReviewerPrompt + buildReviewerInvocation ← START HERE --
 describe("defaultReviewerPrompt", () => {
   it("injects the PR URL, protocol, and the COMMENT-only verdict contract", () => {
     const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
@@ -75,3 +76,4 @@ describe("buildReviewerInvocation", () => {
     expect(command).toBe("judge 'review this one diff only'");
   });
 });
+// -/ 1/1

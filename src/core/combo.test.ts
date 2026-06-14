@@ -32,7 +32,7 @@ function ev(event: ComboEvent["event"], extra: Record<string, unknown> = {}): Co
   return { t: new Date().toISOString(), event, ...extra };
 }
 
-// -- 1/2 STATUS · Phase derivation tests (deriveStatus) --
+// -- 1/2 CORE · Phase derivation tests (deriveStatus) --
 
 
 describe("deriveStatus", () => {
@@ -97,7 +97,7 @@ describe("deriveStatus", () => {
 });
 // -/ 1/2
 
-// -- 2/2 RUNNER · Runner script generation tests ← START HERE --
+// -- 2/2 CORE · Runner script generation tests ← START HERE --
 describe("buildRunnerScript", () => {
   const combo = {
     id: "o-r-7",
