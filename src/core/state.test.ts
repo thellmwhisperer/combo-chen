@@ -37,14 +37,16 @@ function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-home-"));
 }
 
+// -- 1/2 HELPER · Issue identity + combo home --
 describe("issue identity", () => {
   it("parses a GitHub issue URL", () => {
     expect(parseIssueUrl("https://github.com/thellmwhisperer/roca-madre/issues/128")).toEqual({
       owner: "thellmwhisperer",
       repo: "roca-madre",
       number: 128,
-    });
   });
+});
+// -/ 2/2
 
   it("rejects anything that is not a GitHub issue URL", () => {
     expect(() => parseIssueUrl("https://github.com/o/r/pull/3")).toThrow(ComboStateError);
@@ -68,6 +70,9 @@ describe("combo home", () => {
   });
 });
 
+// -/ 1/2
+
+// -- 2/2 CORE · Combo records: read, write, list ← START HERE --
 describe("combo records", () => {
   it("round-trips a combo record and lists it", () => {
     const base = home();

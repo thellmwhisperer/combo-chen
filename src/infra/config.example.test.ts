@@ -30,6 +30,7 @@ const OLD_ROLE_TERMS =
   /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b|\bjudge-tick\b/i;
 const OLD_PHASE_TERMS = /\b(ROWING|JUDGING)\b/;
 
+// -- 1/1 CORE · Example config validation ← START HERE --
 describe("combo-chen.example.toml", () => {
   it("uses the public OSS-friendly role vocabulary", () => {
     const body = readFileSync(EXAMPLE_CONFIG, "utf8");
@@ -71,3 +72,4 @@ describe("combo-chen.example.toml", () => {
     expect(config.limits.coderTimeoutMinutes).toBe(180);
   });
 });
+// -/ 1/1
