@@ -1,11 +1,38 @@
 /**
- * Phase derivation and the runner script.
+ * @overview Core logic: phase state machine + runner script generator.
+ *   188 lines, 3 exports, 1 critical function.
  *
- * The runner is the combo's spine: a generated shell script that lives in
- * the run dir and executes inside the combo's tmux window. It sequences
- * coder → gatekeeper → PR detection and reports every milestone to the journal
- * through `combo-chen emit`, so status/events stay truthful even if the
- * conductor CLI exited long ago. No daemon, no hidden state.
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at buildRunnerScript    ← generates runner.sh, the combo spine
+ *   2. deriveStatus                  ← event → phase state machine
+ *   3. shellQuote                    ← POSIX-safe shell quoting
+ *
+ *   MAIN FLOW (called from cli/main.ts)
+ *   ───────────────────────────────────
+ *   main.run()
+ *     → buildRunnerScript(input)     ← generates the shell script
+ *       → shellQuote() for safety
+ *     → writes runner.sh to disk
+ *     → tmux executes it
+ *
+ *   runner.sh lifecycle (what buildRunnerScript generates):
+ *     coder_started → coderCommand → coder_done
+ *     → gate_started → gatekeeperCommand → pr_opened
+ *     → activateCoder + activateReviewer → needs_human
+ *
+ *   ┌─ CORE ─────────────────────────────────────────────────────────┐
+ *   │ buildRunnerScript   Generates the runner shell script          │
+ *   │ shellQuote           POSIX-safe single-quoting                 │
+ *   ├─ PHASE DERIVATION ────────────────────────────────────────────┤
+ *   │ deriveStatus         Maps event journal → ComboStatus          │
+ *   │ Phase                "SETUP"|"CODING"|"GATING"|"REVIEWING"...  │
+ *   │ ComboStatus          {phase, needsHuman, reason?, pr?}         │
+ *   │ RunnerInput          Input shape for buildRunnerScript         │
+ *   └────────────────────────────────────────────────────────────────┘
+ *
+ * @exports buildRunnerScript, deriveStatus, shellQuote
+ * @deps ./events, ./state
  */
 import type { ComboEvent } from "./events.js";
 import type { ComboRecord } from "./state.js";
@@ -19,6 +46,8 @@ export interface ComboStatus {
   pr?: string;
   lastEvent?: ComboEvent;
 }
+
+// -- 1/3 · Phase derivation + types --
 
 export function deriveStatus(events: ComboEvent[]): ComboStatus {
   let phase: Phase = "SETUP";
@@ -70,6 +99,10 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
   return status;
 }
 
+// -/ 1/3
+
+// -- 2/3 · RunnerInput + shellQuote --
+
 export interface RunnerInput {
   combo: ComboRecord;
   coderCommand: string;
@@ -84,18 +117,14 @@ export interface RunnerInput {
   ensurePrAutoclose?: string;
 }
 
-/**
- * Single-quote a value for POSIX shell so it stays a literal: paths with
- * spaces, branch names with apostrophes, anything. Trust boundary note:
- * Coder and gatekeeper commands are operator-written config (they ARE
- * shell, like a Makefile recipe). Gatekeeper commands with {placeholders}
- * are expanded with shell-quoted values at generation time; commands
- * without placeholders stay verbatim. Every value combo-chen derives
- * itself (worktree, branch) goes through this.
- */
+//    POSIX-safe single-quoting. Paths, branch names, anything.
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
+
+// -/ 2/3
+
+// -- 3/3 CORE · buildRunnerScript ← START HERE --
 
 export function buildRunnerScript(input: RunnerInput): string {
   const {
@@ -186,3 +215,4 @@ else
 fi
 `;
 }
+// -/ 3/3
