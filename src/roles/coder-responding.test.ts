@@ -55,7 +55,7 @@ const comment: ReviewCommentSignal = {
   url: "https://github.com/o/r/pull/7#discussion_r1",
 };
 
-// -- 1/3 PROMPT · Nudge prompt + activation commands ← START HERE --
+// -- 1/3 HELPER · Nudge prompt + activation commands --
 
 describe("buildReviewNudgePrompt", () => {
   const promptTemplate = [
@@ -121,7 +121,7 @@ describe("coder responding activation commands", () => {
 });
 // -/ 1/3
 
-// -- 2/3 CORE · Thread artifact + review routing --
+// -- 2/3 CORE · Thread artifact + review routing ← START HERE --
 describe("readCoderThreadArtifact", () => {
   it("reads the canonical coder thread artifact", () => {
     const dir = runDir();
@@ -223,7 +223,7 @@ describe("routeReviewComments", () => {
 });
 // -/ 2/3
 
-// -- 3/3 PARSING · URL parsing, gh array, signal extraction --
+// -- 3/3 HELPER · URL parsing, gh array, signal extraction --
 describe("parsePullRequestUrl", () => {
   it("parses a standard GitHub PR URL", () => {
     const pr = parsePullRequestUrl("https://github.com/o/r/pull/7");

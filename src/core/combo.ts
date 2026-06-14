@@ -47,7 +47,7 @@ export interface ComboStatus {
   lastEvent?: ComboEvent;
 }
 
-// -- 1/3 · Phase derivation + types --
+// -- 1/3 HELPER · Phase derivation + types --
 
 export function deriveStatus(events: ComboEvent[]): ComboStatus {
   let phase: Phase = "SETUP";
@@ -101,7 +101,7 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
 
 // -/ 1/3
 
-// -- 2/3 · RunnerInput + shellQuote --
+// -- 2/3 HELPER · RunnerInput + shellQuote --
 
 export interface RunnerInput {
   combo: ComboRecord;

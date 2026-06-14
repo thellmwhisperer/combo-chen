@@ -34,7 +34,7 @@ function writeToml(dir: string, name: string, body: string): string {
   return path;
 }
 
-// -- 1/2 LOAD · Config loading cascade tests ← START HERE --
+// -- 1/2 CORE · Config loading cascade tests ← START HERE --
 
 
 describe("loadConfig", () => {
@@ -375,7 +375,7 @@ describe("loadConfig", () => {
 });
 // -/ 1/2
 
-// -- 2/2 RENDER · Command rendering tests --
+// -- 2/2 HELPER · Command rendering tests --
 describe("renderCommand", () => {
   it("interpolates the documented placeholders as single-quoted shell tokens", () => {
     const rendered = renderCommand("gnhf --x {issue_url} in {worktree} for {repo} on {branch}: {prompt}", {
