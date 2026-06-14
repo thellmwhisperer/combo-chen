@@ -1,10 +1,42 @@
 /**
- * The combo's spine: an append-only JSONL journal per run.
- * The event catalogue below IS the schema — events.test.ts pins it.
+ * @overview Event journal: append-only JSONL spine per combo run.
+ *   ~159 lines, 12 exports, 1 canonical schema.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at EVENT_TYPES              ← defines every possible event shape
+ *   2. appendEvent                        ← writes a validated event to journal
+ *   3. readEvents                         ← reads + normalizes the full journal
+ *   4. followEvents                       ← async iterator for tailing
+ *   5. canonicalEventName                 ← legacy alias resolution
+ *
+ *   MAIN FLOW
+ *   ─────────
+ *   runner.sh → emit command → appendEvent() → journal.jsonl
+ *   reader → readEvents()/followEvents() → deriveStatus() in combo.ts
+ *
+ *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
+ *   │ EVENT_TYPES         Canonical event catalogue (the schema)        │
+ *   │ appendEvent         Write a validated event to the journal        │
+ *   │ readEvents          Read all events from the journal              │
+ *   │ followEvents        Async generator: yield + poll for new events  │
+ *   │ canonicalEventName  Resolve legacy aliases → canonical names      │
+ *   │ journalPath         Resolve journal.jsonl path for a runDir       │
+ *   │ ComboEvent          Single journal entry shape                    │
+ *   │ ComboEventError     Thrown on schema/validation violations        │
+ *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
+ *   │ normalizeEvent       Canonicalize event names on read             │
+ *   │ sleep               Abortable setTimeout wrapper                  │
+ *   │ EVENT_TYPES / LEGACY_EVENT_ALIASES / CanonicalEventName etc.     │
+ *   └──────────────────────────────────────────────────────────────────┘
+ *
+ * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, readEvents, canonicalEventName
+ * @deps node:fs, node:path
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+// -- 1/4 CORE · Event catalogue + types ← START HERE --
 export class ComboEventError extends Error {}
 
 export const EVENT_TYPES = {
@@ -42,11 +74,14 @@ export type LegacyEventName = keyof typeof LEGACY_EVENT_ALIASES;
 export type EventName = CanonicalEventName | LegacyEventName;
 
 export interface ComboEvent {
-  /** ISO-8601 timestamp, written by appendEvent. */
   t: string;
   event: CanonicalEventName;
   [key: string]: unknown;
 }
+
+// -/ 1/4
+
+// -- 2/4 CORE · appendEvent --
 
 const JOURNAL = "journal.jsonl";
 
@@ -80,6 +115,9 @@ export function appendEvent(
   appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
   return entry;
 }
+// -/ 2/4
+
+// -- 3/4 CORE · readEvents + canonicalEventName --
 
 export function readEvents(runDir: string): ComboEvent[] {
   const path = journalPath(runDir);
@@ -115,7 +153,9 @@ function normalizeEvent(event: unknown): ComboEvent {
   if (canonical === undefined) return event as ComboEvent;
   return { ...(event as ComboEvent), event: canonical };
 }
+// -/ 3/4
 
+// -- 4/4 HELPER · followEvents (async tail) --
 interface FollowOptions {
   pollMs?: number;
   signal?: AbortSignal;
@@ -157,3 +197,4 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     );
   });
 }
+// -/ 4/4

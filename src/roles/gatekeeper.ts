@@ -1,18 +1,44 @@
 /**
- * The gatekeeper adapter invokes no-mistakes' blocking
- * agent interface and reads its TOON outcome tolerantly — we never parse
- * more of another product's output than we need.
+ * @overview Gatekeeper adapter: invokes no-mistakes' blocking agent
+ *   interface. Expands {placeholders} in commands and reads TOON outcomes
+ *   tolerantly. ~170 lines, 6 exports.
  *
- * Gatekeeper commands may contain {placeholders} (issue_url, issue_title,
- * issue_body, issue_pr_intent, branch) that are expanded with safely
- * quoted values at runner generation time. Commands without placeholders
- * are passed through byte-identically.
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at buildGatekeeperInvocation ← the command the runner executes
+ *   2. buildIssuePrIntent                  ← the intent payload for no-mistakes
+ *   3. ensureIssueAutocloseInPrBody        ← injects "Fixes #N" into PR body
+ *   4. parseAxiOutcome                     ← read no-mistakes outcome line
+ *   5. visiblePrBodyMarkdown               ← HTML/Markdown visibility parser
+ *
+ *   MAIN FLOW
+ *   ─────────
+ *   cli/main.ts → buildGatekeeperInvocation({gatekeeperCommand, combo, issueTitle, issueBody})
+ *     → buildIssuePrIntent → shellQuote placeholders
+ *     → runner.sh executes the command
+ *     → no-mistakes axi run → TOON outcome → parseAxiOutcome
+ *
+ *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
+ *   │ buildGatekeeperInvocation  Expand {placeholders} in gatekeeper command │
+ *   │ buildIssuePrIntent         Format issue facts for no-mistakes intent   │
+ *   │ ensureIssueAutocloseInPrBody Inject "Fixes #N" if missing from PR body │
+ *   │ hasIssueAutocloseInPrBody  Check if PR body already autocloses issue   │
+ *   │ parseAxiOutcome            Extract TOON "outcome:" line from raw text  │
+ *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
+ *   │ GatekeeperInput, visiblePrBodyMarkdown, escapeRegExp,                │
+ *   │ PLACEHOLDER, KNOWN_GATEKEEPER_PLACEHOLDERS,                           │
+ *   │ MAX_INTENT_BODY_LENGTH, AUTOCLOSE_KEYWORDS                            │
+ *   └────────────────────────────────────────────────────────────────────────┘
+ *
+ * @exports GatekeeperInput, buildIssuePrIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
+ * @deps ../core/state, ../core/combo, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
 import { parseIssueUrl } from "../core/state.js";
 import { shellQuote } from "../core/combo.js";
 import { ComboConfigError } from "../infra/config.js";
 
+// -- 1/3 HELPER · GatekeeperInput + constants + buildIssuePrIntent --
 export interface GatekeeperInput {
   gatekeeperCommand: string;
   combo?: Pick<ComboRecord, "branch" | "issueUrl">;
@@ -57,7 +83,9 @@ export function buildIssuePrIntent(input: {
   intent.push("", `Fixes #${issue.number}`);
   return intent.join("\n");
 }
+// -/ 1/3
 
+// -- 2/3 HELPER · PR body visibility + autoclose --
 function visiblePrBodyMarkdown(body: string): string {
   const visible: string[] = [];
   let inFence = false;
@@ -134,7 +162,9 @@ export function ensureIssueAutocloseInPrBody(
   const line = `Fixes #${issue.number}`;
   return body.trim() === "" ? `${line}\n` : `${line}\n\n${body}`;
 }
+// -/ 2/3
 
+// -- 3/3 CORE · buildGatekeeperInvocation + parseAxiOutcome ← START HERE --
 export function buildGatekeeperInvocation(input: GatekeeperInput): string {
   let hasPlaceholders = false;
   for (const [, name] of input.gatekeeperCommand.matchAll(PLACEHOLDER)) {
@@ -168,3 +198,4 @@ export function parseAxiOutcome(raw: string): string | undefined {
   const match = OUTCOME.exec(raw);
   return match?.[1]?.trim();
 }
+// -/ 3/3

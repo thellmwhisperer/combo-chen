@@ -1,3 +1,19 @@
+/**
+ * @overview Unit tests for tmux argument builders. ~99 lines, testing
+ *   the pure argument-vector contracts for session management, window
+ *   splitting, pane capture, and the nudge/paste-buffer mechanism.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("tmux argument builders")   ← single describe block
+ *
+ *   ┌─ TEST AREAS ───────────────────────────────────────┐
+ *   │ tmux argument builders  All tmux argv contracts    │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, ./tmux
+ */
 import { describe, expect, it } from "vitest";
 
 import {

@@ -1,3 +1,23 @@
+/**
+ * @overview Unit tests for the gatekeeper role. ~113 lines, testing
+ *   gatekeeper invocation building, issue→PR intent generation (with
+ *   autoclose keywords and truncation), axi TOON outcome parsing, and
+ *   the PR body issue autoclose contract.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("PR body issue autoclose contract")   ← autoclose detection
+ *   2. Then describe("buildGatekeeperInvocation")               ← intent + invocation
+ *
+ *   ┌─ TEST AREAS ────────────────────────────────────────┐
+ *   │ buildGatekeeperInvocation     Invocation + intent    │
+ *   │ parseAxiOutcome              TOON outcome extraction │
+ *   │ PR body issue autoclose contract  Keyword detection  │
+ *   └──────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, ./gatekeeper
+ */
 import { describe, expect, it } from "vitest";
 
 import {
