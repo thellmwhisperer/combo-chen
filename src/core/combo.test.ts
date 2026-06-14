@@ -1,3 +1,22 @@
+/**
+ * @overview Unit tests for core combo orchestration. ~660 lines, testing
+ *   phase derivation (deriveStatus) and the runner shell script generator
+ *   (buildRunnerScript) with real subprocess execution.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("buildRunnerScript")  ← most important test area
+ *   2. Then describe("deriveStatus")           ← phase state machine contract
+ *
+ *   ┌─ TEST AREAS ──────────────────────────────────────────────┐
+ *   │ deriveStatus         Verifies the phase state machine      │
+ *   │ buildRunnerScript    Verifies the generated runner script  │
+ *   └────────────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{child_process,fs,os,path}, ../infra/config,
+ *   ../roles/gatekeeper, ./events, ./combo
+ */
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,6 +31,9 @@ import { buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
 function ev(event: ComboEvent["event"], extra: Record<string, unknown> = {}): ComboEvent {
   return { t: new Date().toISOString(), event, ...extra };
 }
+
+// -- 1/2 STATUS · Phase derivation tests (deriveStatus) --
+
 
 describe("deriveStatus", () => {
   it("starts in SETUP", () => {
@@ -73,7 +95,9 @@ describe("deriveStatus", () => {
     }
   });
 });
+// -/ 1/2
 
+// -- 2/2 RUNNER · Runner script generation tests ← START HERE --
 describe("buildRunnerScript", () => {
   const combo = {
     id: "o-r-7",
@@ -658,3 +682,4 @@ exit 130
     expect(spaced).toContain("--head 'combo/it'\\''s-7'");
   });
 });
+// -/ 2/2

@@ -1,3 +1,22 @@
+/**
+ * @overview Unit tests for the reviewer role. ~58 lines, testing
+ *   the default reviewer prompt contract (COMMENT-only, never-APPROVE,
+ *   lgtm convention, reviewer!=coder rule) and the reviewer invocation
+ *   command rendering with protocol placeholders.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("defaultReviewerPrompt")   ← verdict contract
+ *   2. Then describe("buildReviewerInvocation")     ← command rendering
+ *
+ *   ┌─ TEST AREAS ──────────────────────────────────────┐
+ *   │ defaultReviewerPrompt    Prompt contract rules    │
+ *   │ buildReviewerInvocation  Command template render  │
+ *   └────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, ./reviewer
+ */
 import { describe, expect, it } from "vitest";
 
 import { buildReviewerInvocation, defaultReviewerPrompt } from "./reviewer.js";

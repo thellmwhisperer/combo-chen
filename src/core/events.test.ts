@@ -1,3 +1,22 @@
+/**
+ * @overview Unit tests for the event journal subsystem. ~210 lines, testing
+ *   event schema validation, JSONL append/read, legacy alias mapping,
+ *   torn-line tolerance, and the async follow/followEvents stream.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("journal")   ← append, read, follow, legacy aliases
+ *   2. Then describe("event schema")  ← catalogue and validation contract
+ *
+ *   ┌─ TEST AREAS ───────────────────────────────────────┐
+ *   │ event schema  Pinned catalogue + required fields   │
+ *   │ journal       JSONL read/write, legacy aliases,    │
+ *   │               torn-line tolerance, async follow    │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path}, ./events
+ */
 import { appendFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

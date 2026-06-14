@@ -1,11 +1,39 @@
 /**
- * The reviewer adapter renders the configured reviewer command with the PR facts
- * and the frozen review contract. The loop mechanics will live in the
- * orchestrator; this module owns what a reviewer session is told to do.
+ * @overview Reviewer adapter: renders the configured reviewer command with
+ *   PR facts and the frozen review contract. The loop mechanics live in the
+ *   orchestrator; this module owns what a reviewer session is told to do.
+ *   ~57 lines, 6 exports.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at buildReviewerInvocation  ← main entry: renders the command
+ *   2. defaultReviewerPrompt             ← the frozen review contract
+ *   3. incrementalReviewerPrompt         ← delta-only re-review prompt
+ *
+ *   MAIN FLOW
+ *   ─────────
+ *   cli/main.ts → buildReviewerInvocation({combo, prUrl, protocol, reviewerCommand})
+ *     → defaultReviewerPrompt / incrementalReviewerPrompt → renderCommand
+ *     → executed in reviewer tmux window
+ *
+ *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
+ *   │ buildReviewerInvocation   Render reviewer command from template    │
+ *   │ defaultReviewerPrompt     Standard review contract prompt         │
+ *   │ incrementalReviewerPrompt Delta-only re-review prompt             │
+ *   │ ReviewerInput             Shape for buildReviewerInvocation       │
+ *   │ ReviewerPromptInput       Shape for defaultReviewerPrompt         │
+ *   │ IncrementalReviewerPromptInput Shape for incrementalReviewerPrompt│
+ *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
+ *   │ (none — all exports are public)                                  │
+ *   └──────────────────────────────────────────────────────────────────┘
+ *
+ * @exports ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, buildReviewerInvocation
+ * @deps ../core/state, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
 import { renderCommand } from "../infra/config.js";
 
+// -- 1/1 CORE · Prompt definitions + invocation ← START HERE --
 export interface ReviewerPromptInput {
   combo: ComboRecord;
   prUrl: string;
@@ -55,3 +83,4 @@ export function buildReviewerInvocation(input: ReviewerInput): string {
     prompt,
   });
 }
+// -/ 1/1

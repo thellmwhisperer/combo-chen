@@ -1,3 +1,20 @@
+/**
+ * @overview Unit tests for the shipped example config and doc vocabulary.
+ *   ~56 lines, testing that combo-chen.example.toml and public docs use
+ *   only OSS-friendly role names (no legacy rower/hodor/gordon terms) and
+ *   that the example config stays loadable by the config cascade.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("combo-chen.example.toml")   ← single describe block
+ *
+ *   ┌─ TEST AREAS ────────────────────────────────────────────┐
+ *   │ combo-chen.example.toml  Vocabulary check + loadability  │
+ *   └──────────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path,url}, ./config
+ */
 import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

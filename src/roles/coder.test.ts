@@ -1,3 +1,24 @@
+/**
+ * @overview Unit tests for the coder role. ~152 lines, testing
+ *   default prompt generation, coder invocation rendering, codex thread-id
+ *   extraction from JSONL, and thread artifact persistence.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("extractCodexThreadIdFromJsonl")   ← thread-id parsing
+ *   2. Then describe("coder thread artifact")               ← persistence
+ *   3. Then describe("buildCoderInvocation")                 ← command rendering
+ *
+ *   ┌─ TEST AREAS ───────────────────────────────────────┐
+ *   │ defaultPrompt              Issue-aware prompt text  │
+ *   │ buildCoderInvocation       Command template render  │
+ *   │ extractCodexThreadIdFromJsonl  JSONL thread-id scan │
+ *   │ coder thread artifact      Persist + artifact path  │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path,url}, ./coder
+ */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

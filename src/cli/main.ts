@@ -67,7 +67,7 @@
  *   ../roles/{gatekeeper,reviewer,coder,coder-responding}
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
@@ -116,7 +116,6 @@ import {
   readCoderThreadArtifact,
   routeReviewComments,
 } from "../roles/coder-responding.js";
-import { auditSherpa, buildSherpaPrompt } from "../core/sherpa.js";
 
 // ── 1/9 HELPER · Tmux windows + Deps ──
 const CODER_WINDOW = "coder";
@@ -1283,38 +1282,6 @@ export function createProgram(deps: Deps): Command {
       });
       for (const comment of routed) {
         deps.out(`nudged ${comment.url}`);
-      }
-    });
-
-  // .command("sherpa") — Sherpa navigable comment standard
-  const sherpaCmd = program
-    .command("sherpa")
-    .description("Sherpa navigable comment standard: format and audit source files");
-
-  sherpaCmd
-    .command("format")
-    .description("Generate a Sherpa annotation prompt for a source file")
-    .requiredOption("--file <path>", "Source file to annotate")
-    .action(async (options: { file: string }) => {
-      const fileContent = readFileSync(options.file, "utf8");
-      const prompt = buildSherpaPrompt(fileContent, options.file);
-      deps.out(prompt);
-    });
-
-  sherpaCmd
-    .command("audit")
-    .description("Validate existing Sherpa annotations on a source file")
-    .requiredOption("--file <path>", "Source file to audit")
-    .action(async (options: { file: string }) => {
-      const fileContent = readFileSync(options.file, "utf8");
-      const result = auditSherpa(fileContent);
-      if (result.valid) {
-        deps.out(`sherpa: ${options.file} is valid`);
-      } else {
-        for (const issue of result.issues) {
-          deps.out(`sherpa: ${issue.kind}: ${issue.detail}`);
-        }
-        throw new Error(`sherpa audit failed for ${options.file}: ${result.issues.length} issue(s)`);
       }
     });
 

@@ -1,3 +1,22 @@
+/**
+ * @overview Unit tests for config loading and command rendering. ~381 lines,
+ *   testing the env → repo → user → fallback cascade, legacy role alias
+ *   mapping, validation rejections, and the renderCommand placeholder engine.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("loadConfig")   ← config cascade contract
+ *   2. Then describe("renderCommand")    ← shell-safe placeholder interpolation
+ *
+ *   ┌─ TEST AREAS ──────────────────────────────────────────────┐
+ *   │ loadConfig      Defaults, cascade, legacy aliases,        │
+ *   │                 validation rejections                      │
+ *   │ renderCommand   Placeholder interpolation, shell quoting   │
+ *   └────────────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path}, ./config
+ */
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +33,9 @@ function writeToml(dir: string, name: string, body: string): string {
   writeFileSync(path, body);
   return path;
 }
+
+// -- 1/2 LOAD · Config loading cascade tests ← START HERE --
+
 
 describe("loadConfig", () => {
   it("returns the documented defaults when no config exists", () => {
@@ -351,7 +373,9 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
   });
 });
+// -/ 1/2
 
+// -- 2/2 RENDER · Command rendering tests --
 describe("renderCommand", () => {
   it("interpolates the documented placeholders as single-quoted shell tokens", () => {
     const rendered = renderCommand("gnhf --x {issue_url} in {worktree} for {repo} on {branch}: {prompt}", {
@@ -379,3 +403,4 @@ describe("renderCommand", () => {
     expect(() => renderCommand("gnhf {isue_url}", { issue_url: "x" })).toThrow(/isue_url/);
   });
 });
+// -/ 2/2
