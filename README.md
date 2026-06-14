@@ -37,14 +37,17 @@ then runs `no-mistakes axi run --intent` with the source issue contract),
 journals `gate_status` events through
 the gatekeeper lifecycle (fix_inflight → idle / failed / awaiting_approval),
 and journals every milestone as JSONL events. If the gate opens and
-`pr_opened` is detected, the runner activates the reviewer; if no-mistakes is
+`pr_opened` is detected, the runner activates the resumed coder, reviewer,
+and a single director-owned watcher; if no-mistakes is
 `awaiting_approval`, the combo remains in `GATING` with `gate_waiting`
 until a human resolves the gate. The CLI is setup and
-introspection; the runner is the spine; the reviewer polls for merge signals
-and re-reviews on push.
+introspection; the runner is the spine; `director-watch` polls hard signals,
+routes review comments, detects committed local addressing changes, and starts
+the next no-mistakes gate before publishing them.
 
 State lives under `~/.combo-chen/runs/<combo>/` (`combo.json`,
-`journal.jsonl`, `coder-thread.json`, `coder.log`, `gatekeeper.log`, `runner.sh`). No daemon.
+`journal.jsonl`, `coder-thread.json`, `coder.log`, `gatekeeper.log`,
+`gatekeeper-post-*.log`, `runner.sh`). No daemon.
 
 ## Configuration
 

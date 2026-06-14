@@ -33,12 +33,15 @@ Hard rules:
 - The director only orchestrates: never code, never review threads.
 - Coder responding mode = the SAME thread that implemented, resumed (`codex resume`,
   `hermes --resume`, stateful ACP session). Fallback: fresh instance + diff.
-- Push semaphore: the coder never pushes while a gatekeeper CI fix is in flight
-  (no-mistakes force-pushes; check `gate_status` with `state=fix_inflight`
-  before pushing).
-- Mirror freshness: on every review-comment watcher cycle, combo-chen
+- Publish boundary: the coder never pushes to origin or the PR branch in the
+  normal path. Coder responding mode leaves committed local changes; the
+  gatekeeper/no-mistakes gate validates and publishes each HEAD.
+- Mirror freshness: on every director tick, combo-chen
   compares `origin/<branch>` with the `no-mistakes` mirror and fast-forwards
-  the mirror when it is stale (also gated on the push semaphore).
+  the mirror when it is stale (also gated on gatekeeper state).
+- After PR open, `director-watch` is the single polling loop. Reviewer and
+  coder responding mode are worker windows; the director routes comments,
+  marks stale gates, and starts post-address no-mistakes gates.
 - LGTM is pinned to a SHA: it expires on every push; merging requires a
   current LGTM on HEAD ∧ clean CodeRabbit ∧ gatekeeper checks-passed.
 - Rate limits are system events, not failures: the role pauses and resumes
@@ -102,7 +105,8 @@ trio of mechanics: interactive tmux session + resume + ACP.
 ## Status
 
 Spec v1 frozen (see `docs/spec.md` §10 for the decided vetoes). v0 implemented
-with `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer` plus the hidden `reviewer-tick`
-poll loop. Coder (codex+gnhf), gatekeeper (no-mistakes), and reviewer (tmux
-poll + incremental re-review) are all implemented. Next: preflight,
+with `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer` plus hidden
+`director-tick`/`director-watch` orchestration. Coder (codex+gnhf), gatekeeper
+(no-mistakes), reviewer (incremental re-review), and post-address gates are
+implemented. Next: preflight,
 counterfactual log, treehouse, ACP role driving.

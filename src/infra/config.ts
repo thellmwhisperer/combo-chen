@@ -76,7 +76,7 @@ export interface ComboConfig {
   reviewNudgePrompt: string;
   /** tmux window name for the resumed coder responding mode. */
   coderRespondingWindowName: string;
-  /** tmux window name for the review-comment watcher. */
+  /** Legacy tmux window name for the old review-comment watcher. */
   coderRespondingWatchWindowName: string;
   /** First configured reviewer with an executable command template. */
   reviewerAgent: string;
@@ -140,8 +140,8 @@ const DEFAULTS = {
       "New review comment for coder responding mode:",
       "{url}",
       "",
-      "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-      "Before pushing, check the gatekeeper push semaphore.",
+      "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.",
+      "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
     ].join("\n"),
   },
 };

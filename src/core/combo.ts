@@ -37,7 +37,7 @@
 import type { ComboEvent } from "./events.js";
 import type { ComboRecord } from "./state.js";
 
-export type Phase = "SETUP" | "CODING" | "GATING" | "REVIEWING" | "STOPPED" | "STALLED";
+export type Phase = "SETUP" | "CODING" | "GATING" | "REVIEWING" | "READY" | "STOPPED" | "STALLED";
 
 export interface ComboStatus {
   phase: Phase;
@@ -69,6 +69,20 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         phase = "REVIEWING";
         needsHuman = false;
         pr = typeof event["url"] === "string" ? (event["url"] as string) : pr;
+        break;
+      case "address_done":
+      case "address_noop":
+      case "gate_stale":
+      case "lgtm_stale":
+        if (phase === "READY") {
+          phase = "REVIEWING";
+          needsHuman = false;
+        }
+        break;
+      case "ready_for_merge":
+        phase = "READY";
+        needsHuman = false;
+        pr = typeof event["pr_url"] === "string" ? (event["pr_url"] as string) : pr;
         break;
       case "coder_failed":
       case "gate_failed":

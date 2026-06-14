@@ -62,8 +62,8 @@ describe("buildReviewNudgePrompt", () => {
     "New review comment for coder responding mode:",
     "{url}",
     "",
-    "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-    "Before pushing, check the gatekeeper push semaphore.",
+    "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.",
+    "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
   ].join("\n");
 
   it("renders the configured prompt template with the comment URL and two-bucket contract", () => {

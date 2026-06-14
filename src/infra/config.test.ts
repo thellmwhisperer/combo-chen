@@ -67,7 +67,9 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
     expect(config.reviewNudgePrompt).toContain("coder responding mode");
     expect(config.reviewNudgePrompt).toContain("two-bucket contract");
-    expect(config.reviewNudgePrompt).toContain("gatekeeper push semaphore");
+    expect(config.reviewNudgePrompt).toContain("Do not push");
+    expect(config.reviewNudgePrompt).toContain("Leave committed local changes");
+    expect(config.reviewNudgePrompt).toContain("gatekeeper/no-mistakes");
     expect(config.coderRespondingWindowName).toBe("coder-responding");
     expect(config.coderRespondingWatchWindowName).toBe("comment-watch");
     expect(config).not.toHaveProperty("threadSitterWindowName");
