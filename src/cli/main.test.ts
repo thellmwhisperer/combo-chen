@@ -90,6 +90,7 @@ describe("command surface", () => {
         "reviewer-tick",
         "nudge-review-comments",
         "run",
+        "sherpa",
         "status",
         "stop",
       ].sort(),
