@@ -1,3 +1,8 @@
+---
+name: sherpa
+description: Read, write, and maintain the Sherpa navigable-comment standard on any source file, in any language, in any project, with no dependencies. Use when reading an unfamiliar file to navigate it efficiently, when asked to "apply sherpa"/"hazme sherpa"/"add reading guide", when project instructions require Sherpa before code edits, and when editing a file that already carries Sherpa (keep the map in sync).
+user-invocable: true
+---
 # Sherpa — navigable code comment standard
 
 A commenting discipline for the agent era. A reader (human or agent) opens a
@@ -31,7 +36,7 @@ delimiters and the inline-marker prefix change.
 
 ## Header content
 
-```text
+```
 @overview One-line summary. ~N lines, M public symbols, key responsibility.
 
   READING GUIDE
@@ -74,7 +79,7 @@ Rules for the header:
 
 ## Inline section markers
 
-```text
+```
 -- N/M ROLE · Section name
 
   … code …

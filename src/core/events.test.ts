@@ -45,6 +45,7 @@ async function waitFor(condition: () => boolean, deadlineMs = 5000): Promise<voi
   }
 }
 
+// -- 1/2 HELPER · event schema: catalogue + validation contract --
 describe("event schema", () => {
   it("pins the v0 event catalogue — a new event without a schema does not exist", () => {
     expect(Object.keys(EVENT_TYPES).sort()).toEqual(
@@ -93,6 +94,9 @@ describe("event schema", () => {
   });
 });
 
+// -/ 1/2
+
+// -- 2/2 CORE · journal: read/write, legacy aliases, async follow ← START HERE --
 describe("journal", () => {
   it("appends JSONL with a timestamp and reads back in order", () => {
     const dir = runDir();
@@ -122,8 +126,9 @@ describe("journal", () => {
     expect(readEvents(dir)[0]).toMatchObject({
       event: "coder_started",
       note: "kept",
-    });
   });
+});
+// -/ 2/2
 
   it("appends the post-PR event vocabulary with its documented fields", () => {
     const dir = runDir();

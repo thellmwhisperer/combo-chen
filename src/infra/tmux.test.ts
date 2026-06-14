@@ -32,6 +32,7 @@ import {
   splitWindowArgs,
 } from "./tmux.js";
 
+// -- 1/1 CORE · tmux argument builders: argv contracts ← START HERE --
 describe("tmux argument builders (pure: what we ask tmux to do is contract)", () => {
   it("creates detached sessions with a first named window", () => {
     expect(newSessionArgs("combo-chen-o-r-7", "rower", "sh runner.sh")).toEqual([
@@ -113,3 +114,4 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     ]);
   });
 });
+// -/ 1/1

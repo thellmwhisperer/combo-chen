@@ -25,9 +25,9 @@
  *   │ hasIssueAutocloseInPrBody  Check if PR body already autocloses issue   │
  *   │ parseAxiOutcome            Extract TOON "outcome:" line from raw text  │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
- *   │ GatekeeperInput, visiblePrBodyMarkdown, escapeRegExp,                │
- *   │ PLACEHOLDER, KNOWN_GATEKEEPER_PLACEHOLDERS,                           │
- *   │ MAX_INTENT_BODY_LENGTH, AUTOCLOSE_KEYWORDS                            │
+ *   │ visiblePrBodyMarkdown, escapeRegExp, PLACEHOLDER,                      │
+ *   │ KNOWN_GATEKEEPER_PLACEHOLDERS, MAX_INTENT_BODY_LENGTH,                 │
+ *   │ AUTOCLOSE_KEYWORDS                                                      │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports GatekeeperInput, buildIssuePrIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
@@ -38,7 +38,7 @@ import { parseIssueUrl } from "../core/state.js";
 import { shellQuote } from "../core/combo.js";
 import { ComboConfigError } from "../infra/config.js";
 
-// -- 1/3 HELPER · GatekeeperInput + constants + buildIssuePrIntent --
+// -- 1/3 CORE · GatekeeperInput + constants + buildIssuePrIntent --
 export interface GatekeeperInput {
   gatekeeperCommand: string;
   combo?: Pick<ComboRecord, "branch" | "issueUrl">;

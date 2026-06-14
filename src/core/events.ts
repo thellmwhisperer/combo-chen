@@ -30,7 +30,7 @@
  *   │ EVENT_TYPES / LEGACY_EVENT_ALIASES / CanonicalEventName etc.     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, readEvents, canonicalEventName
+ * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, readEvents, canonicalEventName, followEvents
  * @deps node:fs, node:path
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
