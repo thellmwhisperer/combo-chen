@@ -26,7 +26,10 @@
 function coerceEventFieldValue(value: string): unknown {
   if (value === "true") return true;
   if (value === "false") return false;
-  if (/^-?\d+$/.test(value)) return Number(value);
+  if (/^-?\d+$/.test(value)) {
+    const parsed = Number(value);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
   return value;
 }
 // -/ 1/2
