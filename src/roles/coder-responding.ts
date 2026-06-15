@@ -33,7 +33,8 @@
  *   │ signalFromReview              Extract signal from review JSON     │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
- *   │ hasNonEmptyBody, isRecord, PullRef                               │
+ *   │ bodyText, meaningfulLines, isCodeRabbitRetriggerBookkeeping,       │
+ *   │ isCodeRabbitRateLimitComment, isPinnedLgtmReview, isRecord, PullRef│
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
