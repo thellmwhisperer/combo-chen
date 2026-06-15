@@ -53,6 +53,7 @@ import {
   readCoderThreadArtifact,
   routeReviewComments,
 } from "../roles/coder-responding.js";
+import { parseEventFields } from "./args.js";
 import {
   ensureGatekeeperWindow,
   startGatekeeperWindow,
@@ -112,23 +113,6 @@ export function defaultDeps(): Deps {
       return (result.status ?? 1) === 0;
     },
   };
-}
-
-function coerce(value: string): unknown {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  if (/^-?\d+$/.test(value)) return Number(value);
-  return value;
-}
-
-function parseFields(fields: string[]): Record<string, unknown> {
-  const payload: Record<string, unknown> = {};
-  for (const field of fields) {
-    const eq = field.indexOf("=");
-    if (eq === -1) throw new Error(`--field expects key=value, got "${field}"`);
-    payload[field.slice(0, eq)] = coerce(field.slice(eq + 1));
-  }
-  return payload;
 }
 
 function cliInvocation(): string {
@@ -544,7 +528,7 @@ export function createProgram(deps: Deps): Command {
         const combo = readCombo(runDir);
         persistCoderThreadArtifact({ runDir, worktree: combo.worktree });
       }
-      appendEvent(runDir, event as EventName, parseFields(options.field));
+      appendEvent(runDir, event as EventName, parseEventFields(options.field));
       if (canonicalEvent === "gate_started") {
         // The gatekeeper tmux window runs `no-mistakes attach`, which exits when
         // no active no-mistakes run exists — often before the runner's gatekeeper
