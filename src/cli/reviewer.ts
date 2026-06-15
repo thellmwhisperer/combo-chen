@@ -22,9 +22,10 @@
  *   none
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
- * @deps ../core/{events,state}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers
+ * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
+import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
@@ -123,8 +124,9 @@ export async function tickReviewer(input: {
   deps: TickReviewerDeps;
   home: string;
   comboId: string;
+  ghApiCache?: GhApiCache;
 }): Promise<void> {
-  const { deps, home, comboId } = input;
+  const { deps, home, comboId, ghApiCache } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const prUrl = latestOpenedPrUrl(runDir);
@@ -208,7 +210,7 @@ export async function tickReviewer(input: {
 
   let githubPinnedSha: string | undefined;
   try {
-    githubPinnedSha = latestGitHubLgtmSha(deps.gh, prUrl);
+    githubPinnedSha = latestGitHubLgtmSha(deps.gh, prUrl, ghApiCache);
   } catch (error) {
     deps.out(
       reviewerTransientFailure(

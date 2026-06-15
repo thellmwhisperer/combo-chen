@@ -23,9 +23,10 @@
  *   none
  *
  * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, activateCoder, nudgeReviewComments
- * @deps ../core/{events,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./gate
+ * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./gate
  */
 import { readEvents } from "../core/events.js";
+import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
@@ -95,8 +96,9 @@ export function nudgeReviewComments(input: {
   deps: NudgeReviewCommentsDeps;
   home: string;
   comboId: string;
+  ghApiCache?: GhApiCache;
 }): void {
-  const { deps, home, comboId } = input;
+  const { deps, home, comboId, ghApiCache } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const prUrl = latestPrUrl(readEvents(runDir));
@@ -115,7 +117,7 @@ export function nudgeReviewComments(input: {
     );
   }
   try {
-    const comments = fetchReviewCommentSignals(prUrl, deps.gh);
+    const comments = fetchReviewCommentSignals(prUrl, deps.gh, ghApiCache);
     const headSha = comments.length === 0 ? undefined : worktreeHeadSha(deps, combo);
     const routed = routeReviewComments({
       runDir,

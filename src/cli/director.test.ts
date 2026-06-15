@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~350 lines, READY and post-address orchestration.
+ * @overview Unit tests for director CLI helpers. ~370 lines, READY and post-address orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -181,6 +181,25 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
       }),
     );
+  });
+
+  it("reuses each paginated GitHub API endpoint within one director tick", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record } = seedReadyCandidate({ homeDir: h, headSha });
+    const { deps, calls } = fakeDeps({ homeDir: h, record, prHeadSha: headSha });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    const apiEndpoints = calls
+      .filter((call) => call[0] === "gh" && call[1] === "api")
+      .map((call) => call.find((part) => part.startsWith("repos/")));
+
+    expect(apiEndpoints).toEqual([
+      "repos/o/r/issues/7/comments",
+      "repos/o/r/pulls/7/reviews",
+      "repos/o/r/pulls/7/comments",
+    ]);
   });
 
   it("does not emit READY when CodeRabbit only reports a rate-limited review skip", async () => {
