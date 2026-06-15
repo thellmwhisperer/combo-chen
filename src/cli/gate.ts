@@ -74,6 +74,12 @@ export function buildGatekeeperAttachCommand(
   combo: ComboRecord,
   options: GatekeeperAttachOptions,
 ): string {
+  if (!Number.isFinite(options.timeoutSeconds) || options.timeoutSeconds <= 0) {
+    throw new Error("gatekeeper attach timeout must be > 0 seconds");
+  }
+  if (!Number.isFinite(options.retryIntervalSeconds) || options.retryIntervalSeconds <= 0) {
+    throw new Error("gatekeeper attach retry interval must be > 0 seconds");
+  }
   // The no-mistakes run id does not exist until the runner reaches gatekeeper.
   // Without --run, attach follows the active run for this worktree.
   const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);

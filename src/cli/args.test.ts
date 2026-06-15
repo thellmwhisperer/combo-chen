@@ -31,6 +31,7 @@ describe("parseEventFields", () => {
       parseEventFields([
         "state=fix_inflight",
         "exit_code=3",
+        "external_id=9007199254740993",
         "has_new_commits=true",
         "dry_run=false",
         "url=https://github.com/o/r/pull/7?anchor=a=b",
@@ -38,6 +39,7 @@ describe("parseEventFields", () => {
     ).toEqual({
       state: "fix_inflight",
       exit_code: 3,
+      external_id: "9007199254740993",
       has_new_commits: true,
       dry_run: false,
       url: "https://github.com/o/r/pull/7?anchor=a=b",

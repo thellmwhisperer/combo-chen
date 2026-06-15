@@ -69,6 +69,18 @@ describe("remoteShaForRef", () => {
 
 // -- 2/4 CORE · gatekeeper attach window helpers <- START HERE --
 describe("gatekeeper attach window helpers", () => {
+  it("rejects non-positive timeout and retry values", () => {
+    expect(() =>
+      buildGatekeeperAttachCommand(combo(), { timeoutSeconds: 0, retryIntervalSeconds: 15 }),
+    ).toThrow("timeout");
+    expect(() =>
+      buildGatekeeperAttachCommand(combo(), { timeoutSeconds: 45, retryIntervalSeconds: 0 }),
+    ).toThrow("retry interval");
+    expect(() =>
+      buildGatekeeperAttachCommand(combo(), { timeoutSeconds: Number.NaN, retryIntervalSeconds: 15 }),
+    ).toThrow("timeout");
+  });
+
   it("builds the polling attach command with shell-quoted worktree paths", () => {
     expect(
       buildGatekeeperAttachCommand(
