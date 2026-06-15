@@ -187,8 +187,12 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 - Post-address no-mistakes gates are launched with generated run scripts in
   the combo run directory. The tmux command stays short (`sh <script>`), while
   the script owns gate status events, log capture, PR autoclose repair, and
-  current-head validation. Transient GitHub, git, or tmux failures are logged
-  and re-evaluated on the next director tick where possible.
+  current-head validation. Before running no-mistakes, the script publishes
+  `HEAD:refs/heads/<branch>` to the no-mistakes mirror; when the mirror branch
+  already exists, it uses `--force-with-lease` against the observed mirror SHA
+  instead of a broad force or plain `git push no-mistakes HEAD`. Transient
+  GitHub, git, or tmux failures are logged and re-evaluated on the next
+  director tick where possible.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.

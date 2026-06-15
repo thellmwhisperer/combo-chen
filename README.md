@@ -40,6 +40,8 @@ wrote the code.
    thread. The coder may answer and commit locally, but does not push.
 7. **Post-address gate**: if local addressing commits appear, combo-chen
    journals the stale gate, generates a short post-address gate script, and
+   safely publishes `HEAD:refs/heads/<branch>` to the no-mistakes mirror
+   using `--force-with-lease` when a mirror branch already exists. It then
    starts no-mistakes again. no-mistakes remains the sole normal publisher.
 8. **READY**: combo-chen emits `ready_for_merge` only when all current-head
    signals agree: gate validated this SHA, reviewer LGTM is pinned to this SHA,
