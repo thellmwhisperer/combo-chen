@@ -3,8 +3,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { remoteShaForRef, syncNoMistakesMirror } from "./gate.js";
+import {
+  buildGatekeeperAttachCommand,
+  ensureGatekeeperWindow,
+  remoteShaForRef,
+  syncNoMistakesMirror,
+} from "./gate.js";
 import type { ComboRecord } from "../core/state.js";
+
+function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
+  return {
+    id: "o-r-7",
+    issueUrl: "https://github.com/o/r/issues/7",
+    repoDir: join(tmpdir(), "combo-chen-repo"),
+    worktree: join(tmpdir(), "combo-chen-worktree"),
+    branch: "combo/issue-7",
+    tmuxSession: "combo-chen-o-r-7",
+    createdAt: new Date(0).toISOString(),
+    ...overrides,
+  };
+}
 
 describe("remoteShaForRef", () => {
   it("returns only the SHA for the exact ref", () => {
@@ -20,20 +38,65 @@ describe("remoteShaForRef", () => {
   });
 });
 
+describe("gatekeeper attach window helpers", () => {
+  it("builds the polling attach command with shell-quoted worktree paths", () => {
+    expect(
+      buildGatekeeperAttachCommand(
+        combo({ worktree: "/tmp/o'hara worktree" }),
+        { timeoutSeconds: 45, retryIntervalSeconds: 15 },
+      ),
+    ).toBe(
+      [
+        "cd '/tmp/o'\\''hara worktree'",
+        "attempt=0",
+        "while :; do",
+        "  if no-mistakes axi status 2>/dev/null | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
+        "    exec no-mistakes attach",
+        "  fi",
+        "  attempt=$((attempt + 1))",
+        '  if [ "$attempt" -gt 3 ]; then',
+        '    echo "gatekeeper-attach: timed out after 45 seconds" >&2',
+        "    exit 1",
+        "  fi",
+        '  echo "gatekeeper-attach: waiting for gatekeeper (attempt $attempt/3)..." >&2',
+        "  sleep 15",
+        "done",
+      ].join("\n"),
+    );
+  });
+
+  it("starts the gatekeeper window only when it is absent", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    ensureGatekeeperWindow(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "coder\nreviewer\n", stderr: "" };
+        },
+      },
+      record,
+      { timeoutSeconds: 30, retryIntervalSeconds: 10 },
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
+    expect(calls[1]?.slice(0, 5)).toEqual([
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "gatekeeper",
+    ]);
+  });
+});
+
 describe("syncNoMistakesMirror", () => {
   it("treats a missing no-mistakes remote as a no-op", () => {
     const calls: string[][] = [];
     const out: string[] = [];
-    const worktree = join(tmpdir(), "combo-chen-worktree");
-    const combo: ComboRecord = {
-      id: "o-r-7",
-      issueUrl: "https://github.com/o/r/issues/7",
-      repoDir: join(tmpdir(), "combo-chen-repo"),
-      worktree,
-      branch: "combo/issue-7",
-      tmuxSession: "combo-chen-o-r-7",
-      createdAt: new Date(0).toISOString(),
-    };
+    const record = combo();
 
     expect(
       syncNoMistakesMirror(
@@ -44,12 +107,12 @@ describe("syncNoMistakesMirror", () => {
             return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
           },
         },
-        combo,
+        record,
         mkdtempSync(join(tmpdir(), "combo-chen-run-")),
       ),
     ).toBe(false);
 
     expect(out).toEqual([]);
-    expect(calls).toEqual([[worktree, "remote", "get-url", "no-mistakes"]]);
+    expect(calls).toEqual([[record.worktree, "remote", "get-url", "no-mistakes"]]);
   });
 });

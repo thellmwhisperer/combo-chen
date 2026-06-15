@@ -56,7 +56,11 @@ import {
   readCoderThreadArtifact,
   routeReviewComments,
 } from "../roles/coder-responding.js";
-import { syncNoMistakesMirror } from "./gate.js";
+import {
+  ensureGatekeeperWindow,
+  startGatekeeperWindow,
+  syncNoMistakesMirror,
+} from "./gate.js";
 import { latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
 import {
   canonicalLgtmShaForHead,
@@ -70,7 +74,6 @@ import { buildReviewerWatchCommand, resolvePollMs } from "./watchers.js";
 export { resolvePollMs } from "./watchers.js";
 
 const CODER_WINDOW = "coder";
-const GATEKEEPER_WINDOW = "gatekeeper";
 const REVIEWER_WINDOW = "reviewer";
 const REVIEWER_WATCH_WINDOW = "reviewer-watch";
 
@@ -258,58 +261,6 @@ function killWindowIfPresent(deps: Deps, combo: ComboRecord, windowName: string)
         `${killed.stderr.trim() || "unknown error"}`,
     );
   }
-}
-
-interface GatekeeperAttachOptions {
-  timeoutSeconds: number;
-  retryIntervalSeconds: number;
-}
-
-function buildGatekeeperAttachCommand(combo: ComboRecord, options: GatekeeperAttachOptions): string {
-  // The no-mistakes run id does not exist until the runner reaches gatekeeper.
-  // Without --run, attach follows the active run for this worktree.
-  const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
-  return [
-    `cd ${shellQuote(combo.worktree)}`,
-    "attempt=0",
-    "while :; do",
-    "  if no-mistakes axi status 2>/dev/null | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
-    "    exec no-mistakes attach",
-    "  fi",
-    "  attempt=$((attempt + 1))",
-    `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
-    `    echo "gatekeeper-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
-    "    exit 1",
-    "  fi",
-    `  echo "gatekeeper-attach: waiting for gatekeeper (attempt $attempt/${maxAttempts})..." >&2`,
-    `  sleep ${options.retryIntervalSeconds}`,
-    "done",
-  ].join("\n");
-}
-
-function startGatekeeperWindow(deps: Deps, combo: ComboRecord, options: GatekeeperAttachOptions): void {
-  const created = deps.tmux(
-    newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, buildGatekeeperAttachCommand(combo, options)),
-  );
-  if (created.status !== 0) {
-    throw new Error(
-      `tmux failed to start gatekeeper watcher in "${combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
-    );
-  }
-}
-
-function ensureGatekeeperWindow(deps: Deps, combo: ComboRecord, options: GatekeeperAttachOptions): void {
-  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
-  if (listed.status !== 0) {
-    throw new Error(
-      `tmux failed to list windows in "${combo.tmuxSession}": ` +
-        `${listed.stderr.trim() || "unknown error"}`,
-    );
-  }
-  if (listed.stdout.split(/\r?\n/).includes(GATEKEEPER_WINDOW)) return;
-
-  startGatekeeperWindow(deps, combo, options);
 }
 
 function resolveAttachCombo(
