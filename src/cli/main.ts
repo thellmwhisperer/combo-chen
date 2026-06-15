@@ -16,6 +16,7 @@
  *   ----------
  *   createProgram     Build the Commander program and wire command handlers.
  *   defaultDeps       Provide production adapters for command handlers.
+ *   isDirectRun       Compare the current module URL against argv[1].
  *   Deps              Dependency interface used by CLI handlers and tests.
  *   resolvePollMs                 Re-exported watcher cadence helper for compatibility.
  *   buildDirectorWatchCommand     Re-exported director watcher helper for compatibility.
@@ -24,7 +25,7 @@
  *   ---------
  *   cliInvocation; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
- * @exports createProgram, defaultDeps, Deps, resolvePollMs, buildDirectorWatchCommand
+ * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
  *   ./args, ./coder, ./director, ./gate, ./github, ./reviewer, ./sessions, ./watchers
@@ -32,7 +33,7 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 
 import { buildRunnerScript, deriveStatus, shellQuote } from "../core/combo.js";
@@ -493,15 +494,16 @@ export function createProgram(deps: Deps): Command {
 // -/ 2/4
 
 // -- 3/4 HELPER · Direct-run detection --
-const isDirectRun = (() => {
-  const argv1 = process.argv[1];
+export function isDirectRun(metaUrl: string, argv1: string | undefined): boolean {
   if (!argv1) return false;
-  return import.meta.url === new URL(`file://${argv1}`).href || argv1.endsWith("cli.mjs");
-})();
+  return metaUrl === pathToFileURL(argv1).href || argv1.endsWith("cli.mjs");
+}
+
+const directRun = isDirectRun(import.meta.url, process.argv[1]);
 // -/ 3/4
 
 // -- 4/4 CORE · CLI process entrypoint --
-if (isDirectRun) {
+if (directRun) {
   createProgram(defaultDeps())
     .parseAsync(process.argv)
     .catch((error: unknown) => {

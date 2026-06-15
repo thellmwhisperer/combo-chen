@@ -1,11 +1,11 @@
 /**
- * @overview Director CLI helpers. ~275 lines, 2 exports, post-PR orchestration.
+ * @overview Director CLI helpers. ~290 lines, 5 exports, post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at tickDirector          <- one deterministic post-PR pass.
  *   2. Then runReadyForMergeIfNeeded <- current-head READY agreement.
- *   3. Bottom helpers                 <- check rollup and CodeRabbit parsing.
+ *   3. READY pure helpers            <- head, gate, and review predicates.
  *
  *   MAIN FLOW
  *   ---------
@@ -13,19 +13,23 @@
  *
  *   PUBLIC API
  *   ----------
- *   DirectorDeps     Dependencies for director ticks.
- *   tickDirector     Run one director-owned observer pass.
+ *   DirectorDeps              Dependencies for director ticks.
+ *   tickDirector              Run one director-owned observer pass.
+ *   headStateAllowsReady      Pure PR-head readiness predicate.
+ *   gateStateAllowsReady      Pure gate/current-head readiness predicate.
+ *   reviewStateAllowsReady    Pure reviewer/current-head readiness predicate.
  *
  *   INTERNALS
  *   ---------
  *   runReadyForMergeIfNeeded, hasCleanCodeRabbitSignal, rollup helpers
  *
- * @exports DirectorDeps, tickDirector
- * @deps ../core/{events,state}, ../roles/coder-responding, ./gate, ./github, ./reviewer, ./coder
+ * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
+ * @deps ../core/{events,gh-api,state}, ../infra/tmux, ../roles/coder-responding, ./gate, ./github, ./reviewer, ./coder
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
+import { createGhApiCache, readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
-import { latestPrUrl, parsePullRequestUrl, readGhArray } from "../roles/coder-responding.js";
+import { latestPrUrl, parsePullRequestUrl } from "../roles/coder-responding.js";
 import { nudgeReviewComments } from "./coder.js";
 import {
   latestGateStatus,
@@ -57,14 +61,15 @@ export async function tickDirector(input: {
   const { deps, home, comboId, cli } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
+  const ghApiCache = createGhApiCache();
 
-  await tickReviewer({ deps, home, comboId });
+  await tickReviewer({ deps, home, comboId, ghApiCache });
   if (terminalReviewerEvent(readEvents(runDir))) {
     deps.out(`director: tick complete for ${comboId}`);
     return;
   }
 
-  nudgeReviewComments({ deps, home, comboId });
+  nudgeReviewComments({ deps, home, comboId, ghApiCache });
 
   const prUrl = latestPrUrl(readEvents(runDir));
   if (prUrl !== undefined) {
@@ -79,7 +84,7 @@ export async function tickDirector(input: {
     }
   }
 
-  runReadyForMergeIfNeeded(deps, comboId);
+  runReadyForMergeIfNeeded(deps, comboId, ghApiCache);
   deps.out(`director: tick complete for ${comboId}`);
 }
 // -/ 2/3
@@ -182,6 +187,7 @@ function latestCodeRabbitCommentForHead(
   gh: DirectorDeps["gh"],
   prUrl: string,
   headSha: string,
+  cache?: GhApiCache,
 ): CodeRabbitComment | undefined {
   const ref = parsePullRequestUrl(prUrl);
   if (!ref) return undefined;
@@ -190,7 +196,7 @@ function latestCodeRabbitCommentForHead(
     `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/comments`,
   ];
   const comments = endpoints.flatMap((endpoint) =>
-    readGhArray(gh, endpoint)
+    readGhArray(gh, endpoint, cache)
       .map((item) => codeRabbitCommentForHead(item, headSha))
       .filter((item): item is CodeRabbitComment => item !== undefined),
   );
@@ -203,9 +209,10 @@ function hasCleanCodeRabbitSignal(
   prUrl: string,
   headSha: string,
   rollup: unknown[] | undefined,
+  cache?: GhApiCache,
 ): boolean {
   if (!codeRabbitCheckSucceeded(rollup)) return false;
-  const latestComment = latestCodeRabbitCommentForHead(deps.gh, prUrl, headSha);
+  const latestComment = latestCodeRabbitCommentForHead(deps.gh, prUrl, headSha, cache);
   return latestComment !== undefined && !CODERABBIT_NO_REVIEW.test(latestComment.body);
 }
 
@@ -225,7 +232,22 @@ function hasCurrentGateForHead(events: ComboEvent[], headSha: string): boolean {
   return latestPublishedGateSha(events) === headSha;
 }
 
-function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
+export function headStateAllowsReady(
+  events: ComboEvent[],
+  prView: { headSha: string; state: string },
+): boolean {
+  return prView.state === "OPEN" && !hasReadyForMerge(events, prView.headSha);
+}
+
+export function gateStateAllowsReady(events: ComboEvent[], headSha: string): boolean {
+  return hasCurrentGateForHead(events, headSha);
+}
+
+export function reviewStateAllowsReady(events: ComboEvent[], headSha: string): boolean {
+  return livePinnedLgtmSha(events) === headSha;
+}
+
+function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCache?: GhApiCache): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
   const events = readEvents(runDir);
   const prUrl = latestPrUrl(events);
@@ -249,15 +271,14 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   }
 
   const headSha = prView.headSha;
-  if (prView.state !== "OPEN") return;
-  if (hasReadyForMerge(events, headSha)) return;
-  if (!hasCurrentGateForHead(events, headSha)) return;
-  if (livePinnedLgtmSha(events) !== headSha) return;
+  if (!headStateAllowsReady(events, prView)) return;
+  if (!gateStateAllowsReady(events, headSha)) return;
+  if (!reviewStateAllowsReady(events, headSha)) return;
   if (!ciRollupSucceeded(prView.statusCheckRollup)) return;
 
   let codeRabbitClean = false;
   try {
-    codeRabbitClean = hasCleanCodeRabbitSignal(deps, prUrl, headSha, prView.statusCheckRollup);
+    codeRabbitClean = hasCleanCodeRabbitSignal(deps, prUrl, headSha, prView.statusCheckRollup, ghApiCache);
   } catch (error) {
     deps.out(
       `director: failed to read CodeRabbit signal for ${comboId}: ${
