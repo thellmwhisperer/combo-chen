@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3020 lines.
+ *   deps so tests run without a real terminal or network. ~3030 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -19,6 +19,7 @@
  *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
+ *   │ reconcile             Frozen journal repair command            │
  *   │ status                Table format output                      │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
@@ -141,6 +142,7 @@ describe("command surface", () => {
         "events",
         "reviewer-tick",
         "nudge-review-comments",
+        "reconcile",
         "run",
         "status",
         "stop",
