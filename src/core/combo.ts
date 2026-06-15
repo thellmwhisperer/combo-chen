@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   232 lines, 6 exports, 1 critical function.
+ *   240 lines, 6 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -17,7 +17,7 @@
  *     → tmux executes it
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
- *     coder_started → coderCommand → coder_done
+ *     fetch/rebase origin/main → coder_started → coderCommand → coder_done
  *     → gate_started → gatekeeperCommand → pr_opened
  *     → activateCoder + activateReviewer → needs_human
  *
@@ -86,6 +86,7 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         break;
       case "coder_failed":
       case "gate_failed":
+      case "rebase_conflict":
         phase = "STALLED";
         needsHuman = true;
         reason = event.event;
@@ -157,8 +158,15 @@ set -u
 coder_log="$(dirname "$0")/coder.log"
 gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
+rebase_log="$(dirname "$0")/rebase.log"
 
 cd ${shellQuote(combo.worktree)}
+if git fetch origin main > "$rebase_log" 2>&1 && git rebase origin/main >> "$rebase_log" 2>&1; then
+  :
+else
+  ${emit} rebase_conflict --field base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+  exit 1
+fi
 coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 ${emit} coder_started
