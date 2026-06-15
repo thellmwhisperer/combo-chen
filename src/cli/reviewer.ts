@@ -24,7 +24,7 @@
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
  * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers
  */
-import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
+import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
@@ -269,14 +269,7 @@ export async function tickReviewer(input: {
 
 // -- 4/4 HELPER · Journal and LGTM predicates --
 export function latestOpenedPrUrl(runDir: string): string | undefined {
-  const events = readEvents(runDir);
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]!;
-    if (event.event === "pr_opened" && typeof event["url"] === "string") {
-      return event["url"];
-    }
-  }
-  return undefined;
+  return latestPrUrlFromEvents(readEvents(runDir));
 }
 
 export function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
