@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { latestGitHubLgtmSha, parsePrView, remoteSlug } from "./github.js";
+import { fetchIssueDetails, latestGitHubLgtmSha, parsePrView, remoteSlug } from "./github.js";
 
 describe("cli GitHub helpers", () => {
   it("extracts owner/repo slugs from common origin remote URL shapes", () => {
@@ -27,6 +27,26 @@ describe("cli GitHub helpers", () => {
       baseRefName: "main",
       mergeSha: "abc123",
     });
+  });
+
+  it("fetches issue title and normalizes null bodies from gh JSON", () => {
+    const calls: string[][] = [];
+    const gh = (args: string[]) => {
+      calls.push(args);
+      return {
+        status: 0,
+        stdout: JSON.stringify({ title: "Split CLI helpers", body: null }),
+        stderr: "",
+      };
+    };
+
+    expect(fetchIssueDetails(gh, "https://github.com/o/r/issues/84")).toEqual({
+      title: "Split CLI helpers",
+      body: "",
+    });
+    expect(calls).toEqual([
+      ["issue", "view", "https://github.com/o/r/issues/84", "--json", "title,body"],
+    ]);
   });
 
   it("finds the latest non-negated LGTM pin across comments and reviews", () => {

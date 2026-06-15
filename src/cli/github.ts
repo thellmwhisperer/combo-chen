@@ -6,6 +6,11 @@ export interface GhResult {
 
 export type GhRunner = (args: string[]) => GhResult;
 
+export interface IssueDetails {
+  title: string;
+  body: string;
+}
+
 /**
  * Extract the "owner/repo" slug from a git remote URL. Handles the two
  * shapes git uses in practice: scp-like ssh and https, with or without ".git".
@@ -13,6 +18,34 @@ export type GhRunner = (args: string[]) => GhResult;
 export function remoteSlug(remoteUrl: string): string | undefined {
   const match = /^(?:git@[^:/]+:|https:\/\/[^/]+\/)([^/]+\/[^/]+?)(?:\.git)?\/?$/.exec(remoteUrl);
   return match?.[1];
+}
+
+export function fetchIssueDetails(gh: GhRunner, issueUrl: string): IssueDetails {
+  const result = gh(["issue", "view", issueUrl, "--json", "title,body"]);
+  if (result.status !== 0) {
+    throw new Error(`Issue details not reachable: ${issueUrl} (gh issue view failed)`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new Error(`Issue details not readable: ${issueUrl} (gh issue view returned invalid JSON)`);
+  }
+
+  if (parsed === null || typeof parsed !== "object") {
+    throw new Error(`Issue details not readable: ${issueUrl} (gh issue view returned invalid JSON)`);
+  }
+
+  const title = "title" in parsed ? parsed.title : undefined;
+  const body = "body" in parsed ? parsed.body : undefined;
+  if (typeof title !== "string") {
+    throw new Error(`Issue details not readable: ${issueUrl} (missing title)`);
+  }
+  if (body !== undefined && body !== null && typeof body !== "string") {
+    throw new Error(`Issue details not readable: ${issueUrl} (invalid body)`);
+  }
+  return { title, body: body ?? "" };
 }
 
 interface PullRequestRef {

@@ -61,7 +61,7 @@ import {
   startGatekeeperWindow,
   syncNoMistakesMirror,
 } from "./gate.js";
-import { latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
+import { fetchIssueDetails, latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
 import { teardownMergedCombo } from "./lifecycle.js";
 import {
   canonicalLgtmShaForHead,
@@ -87,11 +87,6 @@ export interface Deps {
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
-}
-
-interface IssueDetails {
-  title: string;
-  body: string;
 }
 
 export function defaultDeps(): Deps {
@@ -137,34 +132,6 @@ function parseFields(fields: string[]): Record<string, unknown> {
 function cliInvocation(): string {
   const script = fileURLToPath(import.meta.url);
   return `"${process.execPath}" "${script}"`;
-}
-
-function fetchIssueDetails(deps: Deps, issueUrl: string): IssueDetails {
-  const result = deps.gh(["issue", "view", issueUrl, "--json", "title,body"]);
-  if (result.status !== 0) {
-    throw new Error(`Issue details not reachable: ${issueUrl} (gh issue view failed)`);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    throw new Error(`Issue details not readable: ${issueUrl} (gh issue view returned invalid JSON)`);
-  }
-
-  if (parsed === null || typeof parsed !== "object") {
-    throw new Error(`Issue details not readable: ${issueUrl} (gh issue view returned invalid JSON)`);
-  }
-
-  const title = "title" in parsed ? parsed.title : undefined;
-  const body = "body" in parsed ? parsed.body : undefined;
-  if (typeof title !== "string") {
-    throw new Error(`Issue details not readable: ${issueUrl} (missing title)`);
-  }
-  if (body !== undefined && body !== null && typeof body !== "string") {
-    throw new Error(`Issue details not readable: ${issueUrl} (invalid body)`);
-  }
-  return { title, body: body ?? "" };
 }
 
 function killComboSession(deps: Deps, combo: ComboRecord): void {
@@ -270,7 +237,7 @@ export function createProgram(deps: Deps): Command {
       if (!deps.issueExists(options.issue)) {
         throw new Error(`Issue not reachable: ${options.issue} (gh issue view failed)`);
       }
-      const issueDetails = fetchIssueDetails(deps, options.issue);
+      const issueDetails = fetchIssueDetails(deps.gh, options.issue);
 
       // The wrong cwd must not silently row on unrelated code: when the
       // target repo has an origin, its slug has to equal the issue's
