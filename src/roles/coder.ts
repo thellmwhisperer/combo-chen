@@ -1,6 +1,35 @@
 /**
- * The coder adapter: turns config + combo facts into the command that implements.
- * v0 ships a gnhf default; anything else is a config template away.
+ * @overview Coder adapter: turns config + combo facts into a gnhf command.
+ *   Extracts Codex thread IDs for resume. ~118 lines, 8 exports.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at buildCoderInvocation     ← the command the runner executes
+ *   2. persistCoderThreadArtifact         ← captures thread_id for resume
+ *   3. extractCodexThreadIdFromJsonl      ← parses gnhf JSONL for thread
+ *   4. defaultPrompt                      ← read when tracing prompt shape
+ *
+ *   MAIN FLOW
+ *   ─────────
+ *   cli/main.ts → buildCoderInvocation({coderCommand, combo, prompt?})
+ *     → renderCommand(template, {issue_url, worktree, repo, branch, prompt})
+ *     → runner.sh executes the command
+ *     → emit "coder_done" → persistCoderThreadArtifact extracts thread_id
+ *
+ *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
+ *   │ buildCoderInvocation       Render the coder command from template     │
+ *   │ persistCoderThreadArtifact Extract + store thread_id for resume       │
+ *   │ extractCodexThreadIdFromJsonl Parse gnhf JSONL → thread_id           │
+ *   │ defaultPrompt              Standard coder objective prompt            │
+ *   │ CoderThreadArtifact        {agent, thread_id, source} shape           │
+ *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
+ *   │ latestGnhfIterationJsonl   Find newest iteration-1.jsonl in .gnhf    │
+ *   │ CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT                   │
+ *   │ CoderInput                                                            │
+ *   └────────────────────────────────────────────────────────────────────────┘
+ *
+ * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
+ * @deps node:fs, node:path, ../infra/config, ../core/state
  */
 import {
   existsSync,
@@ -15,6 +44,7 @@ import { join, relative, sep } from "node:path";
 import { renderCommand } from "../infra/config.js";
 import type { ComboRecord } from "../core/state.js";
 
+// -- 1/3 HELPER · Types + constants + defaultPrompt --
 export const CODER_THREAD_ARTIFACT = "coder-thread.json";
 export const LEGACY_ROWER_THREAD_ARTIFACT = "rower-thread.json";
 
@@ -38,7 +68,9 @@ export interface CoderInput {
   combo: ComboRecord;
   prompt?: string;
 }
+// -/ 1/3
 
+// -- 2/3 CORE · buildCoderInvocation ← START HERE --
 export function buildCoderInvocation(input: CoderInput): string {
   const prompt = input.prompt ?? defaultPrompt(input.combo.issueUrl);
   return renderCommand(input.coderCommand, {
@@ -49,7 +81,9 @@ export function buildCoderInvocation(input: CoderInput): string {
     prompt,
   });
 }
+// -/ 2/3
 
+// -- 3/3 CORE · Thread artifact extraction + persistence --
 export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undefined {
   let latestThreadId: string | undefined;
   for (const line of readFileSync(jsonlPath, "utf8").split(/\r?\n/)) {
@@ -116,3 +150,4 @@ function latestGnhfIterationJsonl(worktree: string): string | undefined {
   }
   return latest?.path;
 }
+// -/ 3/3

@@ -93,6 +93,11 @@ trio of mechanics: interactive tmux session + resume + ACP.
 - Config: per-repo `combo-chen.toml` + user-level; repo wins on policy,
   user wins on local setup (same model as treehouse/no-mistakes).
 - Short conventional commits. Small PRs. No co-authors.
+- Sherpa is ambient: every source file carries a navigable header
+  (`@overview` / READING GUIDE / `// -- N/M --` markers). When reading a file,
+  use the header to navigate — read it first, follow the READING GUIDE to the
+  CORE section, jump to the markers the task needs. Don't read top-to-bottom
+  or grep blindly. Apply/maintain the map on write (see the `sherpa` skill).
 
 ## Status
 

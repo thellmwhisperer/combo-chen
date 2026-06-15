@@ -1,3 +1,22 @@
+/**
+ * @overview Unit tests for the event journal subsystem. ~210 lines, testing
+ *   event schema validation, JSONL append/read, legacy alias mapping,
+ *   torn-line tolerance, and the async follow/followEvents stream.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("journal")   ← append, read, follow, legacy aliases
+ *   2. Then describe("event schema")  ← catalogue and validation contract
+ *
+ *   ┌─ TEST AREAS ───────────────────────────────────────┐
+ *   │ event schema  Pinned catalogue + required fields   │
+ *   │ journal       JSONL read/write, legacy aliases,    │
+ *   │               torn-line tolerance, async follow    │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path}, ./events
+ */
 import { appendFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +45,7 @@ async function waitFor(condition: () => boolean, deadlineMs = 5000): Promise<voi
   }
 }
 
+// -- 1/2 HELPER · event schema: catalogue + validation contract --
 describe("event schema", () => {
   it("pins the v0 event catalogue — a new event without a schema does not exist", () => {
     expect(Object.keys(EVENT_TYPES).sort()).toEqual(
@@ -74,6 +94,9 @@ describe("event schema", () => {
   });
 });
 
+// -/ 1/2
+
+// -- 2/2 CORE · journal: read/write, legacy aliases, async follow ← START HERE --
 describe("journal", () => {
   it("appends JSONL with a timestamp and reads back in order", () => {
     const dir = runDir();
@@ -103,8 +126,9 @@ describe("journal", () => {
     expect(readEvents(dir)[0]).toMatchObject({
       event: "coder_started",
       note: "kept",
-    });
   });
+});
+// -/ 2/2
 
   it("appends the post-PR event vocabulary with its documented fields", () => {
     const dir = runDir();
