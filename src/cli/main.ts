@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~470 lines, 11 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~520 lines, 13 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -18,16 +18,16 @@
  *   defaultDeps       Provide production adapters for command handlers.
  *   Deps              Dependency interface used by CLI handlers and tests.
  *   resolvePollMs                 Re-exported watcher cadence helper for compatibility.
- *   buildReviewerWatchCommand     Re-exported reviewer watcher helper for compatibility.
+ *   buildDirectorWatchCommand     Re-exported director watcher helper for compatibility.
  *
  *   INTERNALS
  *   ---------
  *   cliInvocation; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
- * @exports createProgram, defaultDeps, Deps, resolvePollMs, buildReviewerWatchCommand
+ * @exports createProgram, defaultDeps, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./coder, ./gate, ./github, ./reviewer, ./sessions, ./watchers
+ *   ./args, ./coder, ./director, ./gate, ./github, ./reviewer, ./sessions, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -66,8 +66,11 @@ import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../role
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import { parseEventFields } from "./args.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
+import { tickDirector } from "./director.js";
 import {
   ensureGatekeeperWindow,
+  NO_MISTAKES_CONFIG_FILE,
+  propagateNoMistakesConfig,
   startGatekeeperWindow,
 } from "./gate.js";
 import { fetchIssueDetails, remoteSlug } from "./github.js";
@@ -82,7 +85,7 @@ import {
 } from "./sessions.js";
 import { resolvePollMs } from "./watchers.js";
 
-export { buildReviewerWatchCommand, resolvePollMs } from "./watchers.js";
+export { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
 
 // -- 1/4 HELPER · Deps and production adapters --
 export interface Deps {
@@ -183,6 +186,9 @@ export function createProgram(deps: Deps): Command {
       const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch], options.repo);
       if (worktreeResult.status !== 0) {
         throw new Error(`git worktree add failed: ${worktreeResult.stderr.trim()}`);
+      }
+      if (propagateNoMistakesConfig(options.repo, worktree)) {
+        deps.out(`no-mistakes: copied local config to ${worktree}/${NO_MISTAKES_CONFIG_FILE}`);
       }
 
       writeCombo(runDir, combo);
@@ -296,6 +302,47 @@ export function createProgram(deps: Deps): Command {
         home: comboHome(deps.env),
         comboId: options.name,
       });
+    });
+
+  program
+    .command("director-tick", { hidden: true })
+    .description("Run one director orchestration pass")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      await tickDirector({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+        cli: cliInvocation(),
+      });
+    });
+
+  program
+    .command("director-watch", { hidden: true })
+    .description("Run the director orchestration loop")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .option("--iterations <n>", "Stop after n ticks; intended for tests and one-shot supervision")
+    .action(async (options: { name: string; iterations?: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+      const maxTicks = options.iterations === undefined ? undefined : Number(options.iterations);
+      if (maxTicks !== undefined && (!Number.isInteger(maxTicks) || maxTicks <= 0)) {
+        throw new Error("--iterations must be a positive integer");
+      }
+
+      let ticks = 0;
+      while (maxTicks === undefined || ticks < maxTicks) {
+        await tickDirector({
+          deps,
+          home: comboHome(deps.env),
+          comboId: options.name,
+          cli: cliInvocation(),
+        });
+        ticks += 1;
+        if (maxTicks !== undefined && ticks >= maxTicks) break;
+        await deps.sleep(config.limits.babysitPollSeconds * 1000);
+      }
     });
 
   program
@@ -418,7 +465,7 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("activate-coder", { hidden: true })
-    .description("Start the resumed coder and its review-comment watcher")
+    .description("Start the resumed coder responding worker")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
       activateCoder({

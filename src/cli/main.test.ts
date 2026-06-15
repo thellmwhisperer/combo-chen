@@ -16,11 +16,11 @@
  *   │ command surface       Verifies all commands are registered     │
  *   │ run                   Worktree + runner.sh + tmux session      │
  *   │ attach                Session resolution and journal pane      │
- *   │ activate-coder        Coder resume for responding mode          │
+ *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
  *   │ status                Table format output                      │
- *   │ activate-reviewer     Reviewer + watcher windows               │
+ *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
  *   │ stop                  kill-session + journal stopped event     │
@@ -42,7 +42,7 @@ import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { buildReviewerWatchCommand, createProgram, type Deps } from "./main.js";
+import { buildDirectorWatchCommand, createProgram, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
 function home(): string {
@@ -270,376 +270,6 @@ describe("command surface", () => {
   });
 });
 
-describe("director-tick", () => {
-  function seedReadyCandidate(input: {
-    homeDir: string;
-    headSha: string;
-    gateSha?: string;
-    lgtmSha?: string;
-  }): { dir: string; repoDir: string; worktree: string } {
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const worktree = join(repoDir, ".worktrees", "issue-7");
-    const dir = runDirFor(input.homeDir, "o-r-7");
-    writeCombo(dir, {
-      id: "o-r-7",
-      issueUrl: ISSUE,
-      repoDir,
-      worktree,
-      branch: "combo/issue-7",
-      tmuxSession: "combo-chen-o-r-7",
-      createdAt: new Date().toISOString(),
-    });
-    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "gate_validated", { sha: input.gateSha ?? input.headSha });
-    appendEvent(dir, "lgtm", { sha: input.lgtmSha ?? input.headSha });
-    return { dir, repoDir, worktree };
-  }
-
-  function successfulRollup(): unknown[] {
-    return [
-      { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
-      { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
-      { __typename: "StatusContext", context: "coverage", state: "SUCCESS" },
-    ];
-  }
-
-  function readyDeps(input: {
-    homeDir: string;
-    worktree: string;
-    prHeadSha: string;
-    worktreeHeadSha?: string;
-    rollup?: unknown[];
-    codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
-  }): { deps: Deps; calls: string[][]; out: string[] } {
-    return fakeDeps({
-      env: { COMBO_CHEN_HOME: input.homeDir },
-      gh: (args) => {
-        const payload = ["gh", ...args];
-        const prView = JSON.stringify({
-          headRefOid: input.prHeadSha,
-          state: "OPEN",
-          statusCheckRollup: input.rollup ?? successfulRollup(),
-        });
-        if (args[0] === "pr" && args[1] === "view") {
-          return { status: 0, stdout: prView, stderr: "" };
-        }
-        if (args.join(" ").includes("issues/7/comments")) {
-          return { status: 0, stdout: "[]", stderr: "" };
-        }
-        if (args.join(" ").includes("pulls/7/comments")) {
-          return { status: 0, stdout: "[]", stderr: "" };
-        }
-        if (args.join(" ").includes("pulls/7/reviews")) {
-          const comments = input.codeRabbitComments ?? [
-            {
-              body: "CodeRabbit review complete. No issues found.",
-              commitSha: input.prHeadSha,
-              submittedAt: "2026-06-15T00:00:00Z",
-            },
-          ];
-          return {
-            status: 0,
-            stdout: JSON.stringify(
-              comments.map((comment, index) => ({
-                body: comment.body,
-                commit_id: comment.commitSha ?? input.prHeadSha,
-                html_url: `https://github.com/o/r/pull/7#pullrequestreview-${index + 1}`,
-                state: "COMMENTED",
-                submitted_at: comment.submittedAt ?? `2026-06-15T00:00:0${index}Z`,
-                user: { login: "coderabbitai" },
-              })),
-            ),
-            stderr: "",
-          };
-        }
-        return { status: 1, stdout: "", stderr: `unexpected gh ${payload.join(" ")}` };
-      },
-      git: (args, cwd) => {
-        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
-          return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
-        }
-        if (cwd === input.worktree && args[0] === "rev-parse" && args[1] === "HEAD") {
-          return { status: 0, stdout: `${input.worktreeHeadSha ?? input.prHeadSha}\n`, stderr: "" };
-        }
-        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
-      },
-    });
-  }
-
-  it("emits READY when gate, reviewer, CodeRabbit, and checks all agree on the current head", async () => {
-    const h = home();
-    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { dir, worktree } = seedReadyCandidate({ homeDir: h, headSha });
-    const { deps } = readyDeps({ homeDir: h, worktree, prHeadSha: headSha });
-
-    await exec(deps, ["director-tick", "-n", "o-r-7"]);
-
-    expect(readEvents(dir)).toContainEqual(
-      expect.objectContaining({
-        event: "ready_for_merge",
-        sha: headSha,
-        pr_url: "https://github.com/o/r/pull/7",
-      }),
-    );
-  });
-
-  it("does not emit READY when CodeRabbit only reports a rate-limited review skip", async () => {
-    const h = home();
-    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { dir, worktree } = seedReadyCandidate({ homeDir: h, headSha });
-    const { deps } = readyDeps({
-      homeDir: h,
-      worktree,
-      prHeadSha: headSha,
-      codeRabbitComments: [
-        {
-          body: "CodeRabbit review complete. No issues found.",
-          submittedAt: "2026-06-15T00:00:00Z",
-        },
-        {
-          body: "Review skipped: rate limited for this account.",
-          submittedAt: "2026-06-15T00:01:00Z",
-        },
-      ],
-    });
-
-    await exec(deps, ["director-tick", "-n", "o-r-7"]);
-
-    expect(readEvents(dir).some((event) => event.event === "ready_for_merge")).toBe(false);
-  });
-
-  it("does not emit READY when the current head has a failing check rollup", async () => {
-    const h = home();
-    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { dir, worktree } = seedReadyCandidate({ homeDir: h, headSha });
-    const { deps } = readyDeps({
-      homeDir: h,
-      worktree,
-      prHeadSha: headSha,
-      rollup: [
-        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" },
-        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
-      ],
-    });
-
-    await exec(deps, ["director-tick", "-n", "o-r-7"]);
-
-    expect(readEvents(dir).some((event) => event.event === "ready_for_merge")).toBe(false);
-  });
-
-  it("does not emit READY when the journaled gate and LGTM belong to a stale SHA", async () => {
-    const h = home();
-    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    const newSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { dir, worktree } = seedReadyCandidate({
-      homeDir: h,
-      headSha: newSha,
-      gateSha: oldSha,
-      lgtmSha: oldSha,
-    });
-    const { deps } = readyDeps({
-      homeDir: h,
-      worktree,
-      prHeadSha: newSha,
-      worktreeHeadSha: oldSha,
-    });
-
-    await exec(deps, ["director-tick", "-n", "o-r-7"]);
-
-    expect(readEvents(dir).some((event) => event.event === "ready_for_merge")).toBe(false);
-  });
-
-  it("runs one orchestration pass over reviewer and review-comment hard signals", async () => {
-    const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const dir = runDirFor(h, "o-r-7");
-    writeCombo(dir, {
-      id: "o-r-7",
-      issueUrl: ISSUE,
-      repoDir,
-      worktree: join(repoDir, ".worktrees", "issue-7"),
-      branch: "combo/issue-7",
-      tmuxSession: "combo-chen-o-r-7",
-      createdAt: new Date().toISOString(),
-    });
-    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-
-    const { deps, calls, out } = fakeDeps({
-      env: { COMBO_CHEN_HOME: h },
-      gh: (args) => {
-        calls.push(["gh", ...args]);
-        if (args[0] === "pr" && args[1] === "view") {
-          return {
-            status: 0,
-            stdout: '{"headRefOid":"head123","state":"OPEN"}',
-            stderr: "",
-          };
-        }
-        return { status: 0, stdout: "[]", stderr: "" };
-      },
-      git: (args, cwd) => {
-        calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
-          return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
-        }
-        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
-      },
-    });
-
-    await exec(deps, ["director-tick", "-n", "o-r-7"]);
-
-    expect(calls).toContainEqual([
-      "gh",
-      "pr",
-      "view",
-      "https://github.com/o/r/pull/7",
-      "--json",
-      "headRefOid,state,mergedBy,baseRefName,mergeCommit",
-    ]);
-    expect(calls).toContainEqual([
-      "git",
-      `cwd=${join(repoDir, ".worktrees", "issue-7")}`,
-      "remote",
-      "get-url",
-      "no-mistakes",
-    ]);
-    expect(out).toContain("reviewer: no pinned lgtm for o-r-7");
-    expect(out).toContain("director: tick complete for o-r-7");
-  });
-
-  it("starts a post-address gate when the coder leaves a new committed HEAD", async () => {
-    const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const worktree = join(repoDir, ".worktrees", "issue-7");
-    const dir = runDirFor(h, "o-r-7");
-    writeCombo(dir, {
-      id: "o-r-7",
-      issueUrl: ISSUE,
-      repoDir,
-      worktree,
-      branch: "combo/issue-7",
-      tmuxSession: "combo-chen-o-r-7",
-      createdAt: new Date().toISOString(),
-    });
-    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "gate_status", { state: "idle", head_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
-
-    const newHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { deps, calls, out } = fakeDeps({
-      env: { COMBO_CHEN_HOME: h },
-      gh: (args) => {
-        calls.push(["gh", ...args]);
-        if (args[0] === "issue" && args[1] === "view") {
-          return {
-            status: 0,
-            stdout: JSON.stringify({ title: "Issue title", body: "Issue body" }),
-            stderr: "",
-          };
-        }
-        if (args[0] === "pr" && args[1] === "view") {
-          return {
-            status: 0,
-            stdout: JSON.stringify({ headRefOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", state: "OPEN" }),
-            stderr: "",
-          };
-        }
-        return { status: 0, stdout: "[]", stderr: "" };
-      },
-      git: (args, cwd) => {
-        calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
-          return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
-        }
-        if (args[0] === "status" && args[1] === "--porcelain") {
-          return { status: 0, stdout: "", stderr: "" };
-        }
-        if (args[0] === "rev-parse" && args[1] === "HEAD") {
-          return { status: 0, stdout: `${newHead}\n`, stderr: "" };
-        }
-        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
-      },
-    });
-
-    await exec(deps, ["director-tick", "-n", "o-r-7"]);
-
-    const events = readEvents(dir).map((event) => event.event);
-    expect(events).toContain("address_done");
-    expect(events).toContain("gate_stale");
-    expect(readEvents(dir)).toContainEqual(expect.objectContaining({ event: "address_done", head_sha: newHead }));
-    const gatekeeperWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-    );
-    const command = gatekeeperWindow?.at(-1) ?? "";
-    const scriptPath = join(dir, `gatekeeper-post-${newHead.slice(0, 12)}.sh`);
-    expect(command.length).toBeLessThan(200);
-    expect(command).toBe(`sh '${scriptPath}'`);
-    expect(command).not.toContain("no-mistakes axi run --intent");
-    const script = readFileSync(scriptPath, "utf8");
-    expect(script).toContain("no-mistakes axi run --intent");
-    expect(script).toContain("post-address gate");
-    expect(out).toContain(`director: post-address gate started for o-r-7 at ${newHead}`);
-  });
-
-  it("marks an in-flight gate stale without starting a second publisher", async () => {
-    const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const worktree = join(repoDir, ".worktrees", "issue-7");
-    const dir = runDirFor(h, "o-r-7");
-    writeCombo(dir, {
-      id: "o-r-7",
-      issueUrl: ISSUE,
-      repoDir,
-      worktree,
-      branch: "combo/issue-7",
-      tmuxSession: "combo-chen-o-r-7",
-      createdAt: new Date().toISOString(),
-    });
-    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "gate_status", { state: "fix_inflight", head_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
-
-    const newHead = "cccccccccccccccccccccccccccccccccccccccc";
-    const { deps, calls, out } = fakeDeps({
-      env: { COMBO_CHEN_HOME: h },
-      gh: (args) => {
-        calls.push(["gh", ...args]);
-        if (args[0] === "pr" && args[1] === "view") {
-          return {
-            status: 0,
-            stdout: JSON.stringify({ headRefOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", state: "OPEN" }),
-            stderr: "",
-          };
-        }
-        return { status: 0, stdout: "[]", stderr: "" };
-      },
-      git: (args, cwd) => {
-        calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
-          return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
-        }
-        if (args[0] === "status" && args[1] === "--porcelain") {
-          return { status: 0, stdout: "", stderr: "" };
-        }
-        if (args[0] === "rev-parse" && args[1] === "HEAD") {
-          return { status: 0, stdout: `${newHead}\n`, stderr: "" };
-        }
-        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
-      },
-    });
-
-    await exec(deps, ["director-tick", "-n", "o-r-7"]);
-
-    expect(readEvents(dir)).toContainEqual(
-      expect.objectContaining({
-        event: "gate_stale",
-        old_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        new_sha: newHead,
-      }),
-    );
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
-    expect(out).toContain(`director: gate in flight for o-r-7 is stale at ${newHead}; waiting for it to finish`);
-  });
-});
-
 describe("attach", () => {
   function seedCombo(homeDir: string, id: string, createdAt: string): void {
     const issueNumber = id.split("-").at(-1) ?? "7";
@@ -760,7 +390,7 @@ describe("attach", () => {
 });
 
 describe("activate-coder", () => {
-  it("uses the OSS-friendly default coder responding window", async () => {
+  it("uses OSS-friendly default coder responding worker", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
@@ -796,7 +426,7 @@ describe("activate-coder", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\n",
+      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -828,12 +458,12 @@ describe("activate-coder", () => {
     expect(calls.some((call) => call[0] === "gh")).toBe(false);
   });
 
-  it("surfaces tmux failures when the coder responding window cannot start", async () => {
+  it("reports resumed coder startup failures", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nwindow_name = "sitter"\n',
+      '[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -868,7 +498,7 @@ describe("activate-coder", () => {
       /tmux failed to start sitter: duplicate window/,
     );
 
-    expect(calls.some((call) => call[1] === "kill-window")).toBe(false);
+    expect(calls).not.toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:sitter"]);
   });
 });
 
@@ -1112,6 +742,9 @@ describe("nudge-review-comments", () => {
         if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
           return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
         }
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: "abc123\n", stderr: "" };
+        }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
       },
     });
@@ -1125,6 +758,7 @@ describe("nudge-review-comments", () => {
       author: "coderabbitai",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
+      head_sha: "abc123",
     });
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux");
@@ -1149,7 +783,9 @@ describe("nudge-review-comments", () => {
     ]);
     expect(calls.filter((call) => call[0] === "git")).toEqual([
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
+      ["git", `cwd=${worktree}`, "rev-parse", "HEAD"],
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
+      ["git", `cwd=${worktree}`, "rev-parse", "HEAD"],
     ]);
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
@@ -1203,6 +839,9 @@ describe("nudge-review-comments", () => {
         if (args[0] === "fetch") {
           return { status: 128, stdout: "", stderr: "network down" };
         }
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: "abc123\n", stderr: "" };
+        }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
       },
     });
@@ -1215,6 +854,7 @@ describe("nudge-review-comments", () => {
       author: "coderabbitai",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
+      head_sha: "abc123",
     });
     expect(out.some((line) => line.includes("mirror sync failed"))).toBe(true);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "paste-buffer")).toBe(true);
@@ -2108,8 +1748,8 @@ describe("activate-reviewer", () => {
   });
 });
 
-describe("reviewer-watch command", () => {
-  it("survives one failed reviewer tick, journals watch_error, and runs the next tick", () => {
+describe("director-watch command", () => {
+  it("survives one failed director tick, journals watch_error, and runs the next tick", () => {
     const h = home();
     const tickCount = join(h, "tick-count");
     const watchEvents = join(h, "watch-events.log");
@@ -2122,7 +1762,7 @@ describe("reviewer-watch command", () => {
         `watch_events=${shellQuote(watchEvents)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -2144,7 +1784,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2164,7 +1804,7 @@ describe("reviewer-watch command", () => {
     expect(events).not.toContain("watch_dead");
   });
 
-  it("backs off when reviewer-tick reports an exit-zero transient failure marker", () => {
+  it("backs off when director-tick reports an exit-zero transient failure marker", () => {
     const h = home();
     const tickCount = join(h, "tick-count");
     const watchEvents = join(h, "watch-events.log");
@@ -2177,7 +1817,7 @@ describe("reviewer-watch command", () => {
         `watch_events=${shellQuote(watchEvents)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -2199,7 +1839,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2232,7 +1872,7 @@ describe("reviewer-watch command", () => {
         `watch_events=${shellQuote(watchEvents)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -2250,7 +1890,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2292,7 +1932,7 @@ describe("reviewer-watch command", () => {
         `tick_count=${shellQuote(tickCount)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -2306,7 +1946,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2346,7 +1986,7 @@ describe("reviewer-watch command", () => {
         `tick_count=${shellQuote(tickCount)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -2360,7 +2000,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2400,7 +2040,7 @@ describe("reviewer-watch command", () => {
         `tick_count=${shellQuote(tickCount)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -2413,7 +2053,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2434,7 +2074,7 @@ describe("reviewer-watch command", () => {
 });
 
 describe("reviewer-tick", () => {
-  it("marks gh pr view failures as transient for reviewer-watch backoff", async () => {
+  it("marks gh pr view failures as transient for director-watch backoff", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
@@ -2461,7 +2101,7 @@ describe("reviewer-tick", () => {
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened"]);
   });
 
-  it("marks invalid gh pr view JSON as transient for reviewer-watch backoff", async () => {
+  it("marks invalid gh pr view JSON as transient for director-watch backoff", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
