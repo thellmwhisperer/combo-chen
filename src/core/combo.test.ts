@@ -105,6 +105,7 @@ describe("deriveStatus", () => {
     for (const failed of [
       ev("coder_failed", { exit_code: 1, has_new_commits: false }),
       ev("gate_failed", { exit_code: 17 }),
+      ev("rebase_failed", { base: "base-sha" }),
       ev("rebase_conflict", { base: "base-sha" }),
     ]) {
       const status = deriveStatus([failed]);
@@ -357,6 +358,79 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
       "git rebase origin/main",
       "git merge-base HEAD origin/main",
       "emit rebase_conflict --field base=merge-base-sha",
+    ]);
+  });
+
+  it("journals rebase_failed and exits before coder starts when git fetch fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const tracePath = join(dir, "trace.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf 'emit %s\\n' "$*" >> "$TRACE_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+printf 'git %s\\n' "$*" >> "$TRACE_LOG"
+if [ "$1" = "fetch" ]; then exit 128; fi
+if [ "$1" = "merge-base" ]; then printf 'merge-base-sha\\n'; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeCoder = join(bin, "fake-coder");
+    writeFileSync(
+      fakeCoder,
+      `#!/bin/sh
+printf 'coder ran\\n' >> "$TRACE_LOG"
+`,
+    );
+    chmodSync(fakeCoder, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TRACE_LOG: tracePath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 1,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(tracePath, "utf8").trim().split("\n")).toEqual([
+      "git fetch origin main",
+      "git merge-base HEAD origin/main",
+      "emit rebase_failed --field base=merge-base-sha",
     ]);
   });
 
