@@ -61,6 +61,7 @@ combo-chen run --issue https://github.com/you/repo/issues/128
 combo-chen status
 combo-chen attach -n you-repo-128
 combo-chen events --follow -n you-repo-128
+combo-chen forensics --issues 128
 combo-chen reconcile [--apply]
 combo-chen stop -n you-repo-128
 ```
@@ -73,6 +74,9 @@ Useful behavior:
 - `attach` opens the combo tmux session and recreates the short journal pane if
   needed.
 - `events --follow` tails the JSONL journal without attaching to tmux.
+- `forensics --issues <numbers>` produces a read-only markdown report with
+  timelines, gates, process windows, and detected incidents across selected
+  runs. Use `--format json` for machine-readable output.
 - `reconcile` compares local combo journals with GitHub and reports frozen
   merged journals that need repair. Use `--apply` to append missing terminal
   events and run teardown.
@@ -173,7 +177,8 @@ when changing a file.
 
 ## Status
 
-v0 is implemented with `run`, `attach`, `status`, `stop`, `events`, `reconcile`,
+v0 is implemented with `run`, `attach`, `status`, `stop`, `events`, `forensics`,
+`reconcile`,
 the hidden director loop, coder responding mode, no-mistakes initial and
 post-address gates, reviewer re-review, local no-mistakes config propagation,
 and current-head READY agreement. Deferred work: preflight, counterfactual

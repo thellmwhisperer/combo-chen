@@ -24,13 +24,14 @@
  *   │ journalPath         Resolve journal.jsonl path for a runDir       │
  *   │ ComboEvent          Single journal entry shape                    │
  *   │ ComboEventError     Thrown on schema/validation violations        │
+ *   │ latestPrUrlFromEvents  Find latest pr_opened URL in an event array │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ normalizeEvent       Canonicalize event names on read             │
  *   │ sleep               Abortable setTimeout wrapper                  │
  *   │ EVENT_TYPES / LEGACY_EVENT_ALIASES / CanonicalEventName etc.     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, readEvents, canonicalEventName, followEvents
+ * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
  * @deps node:fs, node:path
  */
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
@@ -86,6 +87,14 @@ export interface ComboEvent {
   t: string;
   event: CanonicalEventName;
   [key: string]: unknown;
+}
+
+export function latestPrUrlFromEvents(events: ComboEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "pr_opened" && typeof event.url === "string") return event.url;
+  }
+  return undefined;
 }
 
 // -/ 1/4
