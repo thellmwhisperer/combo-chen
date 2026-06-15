@@ -1,5 +1,5 @@
 /**
- * @overview GitHub CLI parsing helpers. ~235 lines, 8 exports, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~231 lines, 8 exports, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
@@ -175,6 +175,7 @@ export interface PrView {
   mergedBy?: string;
   baseRefName?: string;
   mergeSha?: string;
+  statusCheckRollup?: unknown[];
 }
 
 export function parsePrView(stdout: string): PrView {
@@ -195,10 +196,14 @@ export function parsePrView(stdout: string): PrView {
     const mergedBy = (parsed as { mergedBy?: unknown }).mergedBy;
     const baseRefName = (parsed as { baseRefName?: unknown }).baseRefName;
     const mergeCommit = (parsed as { mergeCommit?: unknown }).mergeCommit;
+    const statusCheckRollup = (parsed as { statusCheckRollup?: unknown }).statusCheckRollup;
     const view: PrView = {
       headSha: (parsed as { headRefOid: string }).headRefOid,
       state: typeof state === "string" && state.length > 0 ? state : "OPEN",
     };
+    if (Array.isArray(statusCheckRollup)) {
+      view.statusCheckRollup = statusCheckRollup;
+    }
     if (typeof baseRefName === "string" && baseRefName.length > 0) {
       view.baseRefName = baseRefName;
     }

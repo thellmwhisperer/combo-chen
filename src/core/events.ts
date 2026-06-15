@@ -1,6 +1,6 @@
 /**
  * @overview Event journal: append-only JSONL spine per combo run.
- *   ~202 lines, 12 exports, 1 canonical schema.
+ *   ~207 lines, 12 exports, 1 canonical schema.
  *
  *   READING GUIDE
  *   ─────────────
@@ -44,14 +44,19 @@ export const EVENT_TYPES = {
   coder_started: { required: [] },
   coder_done: { required: [] },
   coder_failed: { required: ["exit_code", "has_new_commits"] },
+  address_done: { required: ["head_sha"] },
+  address_noop: { required: ["head_sha"] },
   gate_started: { required: [] },
   gate_failed: { required: ["exit_code"] },
   gate_status: { required: ["state"] },
+  gate_validated: { required: ["sha"] },
+  gate_stale: { required: ["old_sha", "new_sha"] },
   pr_opened: { required: ["url"] },
   needs_human: { required: ["reason"] },
   review_comment: { required: ["author", "kind", "url"] },
   lgtm: { required: ["sha"] },
   lgtm_stale: { required: ["old_sha", "new_sha"] },
+  ready_for_merge: { required: ["sha", "pr_url"] },
   merged: { required: ["sha", "by"] },
   combo_closed: { required: [] },
   coder_retry: { required: [] },

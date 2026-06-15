@@ -1,10 +1,10 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~220 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~225 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at reviewer journal helpers <- pure LGTM/terminal predicates.
- *   2. Then activateReviewer             <- reviewer + watcher tmux windows.
+ *   2. Then activateReviewer             <- reviewer + director-watch tmux windows.
  *   3. Then tickReviewer                 <- PR state handling.
  *
  *   MAIN FLOW
@@ -133,21 +133,22 @@ describe("activateReviewer", () => {
 
     expect(calls[0]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
     expect(calls[1]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
-    expect(calls[2]?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "reviewer"]);
-    expect(calls[2]?.at(-1)).toContain("https://github.com/o/r/pull/7");
-    expect(calls[3]?.slice(0, 5)).toEqual([
+    expect(calls[2]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
+    expect(calls[3]?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "reviewer"]);
+    expect(calls[3]?.at(-1)).toContain("https://github.com/o/r/pull/7");
+    expect(calls[4]?.slice(0, 5)).toEqual([
       "new-window",
       "-t",
       "combo-chen-o-r-7",
       "-n",
-      "reviewer-watch",
+      "director-watch",
     ]);
-    expect(calls[3]?.at(-1)).toContain(
-      `COMBO_CHEN_HOME='${home}' node /repo/dist/cli.mjs reviewer-tick -n 'o-r-7'`,
+    expect(calls[4]?.at(-1)).toContain(
+      `COMBO_CHEN_HOME='${home}' node /repo/dist/cli.mjs director-tick -n 'o-r-7'`,
     );
     expect(out).toEqual([
       "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
-      "reviewer-watch: polling reviewer hard signals every 120s",
+      "director-watch: polling combo hard signals every 120s",
     ]);
   });
 

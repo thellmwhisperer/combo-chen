@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder responding mode. ~379 lines, testing
+ * @overview Unit tests for coder responding mode. ~433 lines, testing
  *   review nudge prompt rendering, activation/resume commands, thread
  *   artifact persistence, PR comment routing, URL parsing, gh array
  *   aggregation, and review comment/PR review signal extraction.
@@ -12,7 +12,7 @@
  *
  *   ┌─ TEST AREAS ───────────────────────────────────────────────┐
  *   │ buildReviewNudgePrompt          Prompt template rendering  │
- *   │ coder responding activation commands  Resume + watcher     │
+ *   │ coder responding activation commands  Resume commands        │
  *   │ readCoderThreadArtifact         Legacy + canonical path    │
  *   │ routeReviewComments             Idempotent nudge + journal │
  *   │ parsePullRequestUrl             URL parsing variants       │
@@ -34,7 +34,6 @@ import { readEvents } from "../core/events.js";
 import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT } from "./coder.js";
 import {
   buildReviewNudgePrompt,
-  buildReviewWatchCommand,
   buildCoderRespondingResumeCommand,
   parsePullRequestUrl,
   readGhArray,
@@ -62,8 +61,8 @@ describe("buildReviewNudgePrompt", () => {
     "New review comment for coder responding mode:",
     "{url}",
     "",
-    "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.",
-    "Before pushing, check the gatekeeper push semaphore.",
+    "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.",
+    "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
   ].join("\n");
 
   it("renders the configured prompt template with the comment URL and two-bucket contract", () => {
@@ -107,17 +106,6 @@ describe("coder responding activation commands", () => {
     ).toBe("hermes --resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
   });
 
-  it("builds a small polling watcher around the nudge helper", () => {
-    expect(
-      buildReviewWatchCommand({
-        cli: '"node" "/opt/combo/dist/cli.mjs"',
-        comboId: "o-r-7",
-        pollSeconds: 7,
-      }),
-    ).toBe(
-      'while :; do "node" "/opt/combo/dist/cli.mjs" nudge-review-comments -n \'o-r-7\'; sleep 7; done',
-    );
-  });
 });
 // -/ 1/3
 
@@ -361,6 +349,23 @@ describe("signalFromComment", () => {
     expect(signalFromComment(null, "pr_comment")).toBeUndefined();
     expect(signalFromComment(42, "pr_comment")).toBeUndefined();
   });
+
+  it("ignores a pure CodeRabbit retrigger bookkeeping PR comment", () => {
+    expect(
+      signalFromComment(
+        {
+          body: [
+            "@coderabbitai review",
+            "",
+            "Codex -- Re-running CodeRabbit for current PR #82 head 73f80173 after the no-mistakes documentation commit.",
+          ].join("\n"),
+          html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+          user: { login: "teseo" },
+        },
+        "pr_comment",
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("signalFromReview", () => {
@@ -389,6 +394,21 @@ describe("signalFromReview", () => {
       signalFromReview({
         state: "APPROVED",
         body: "LGTM",
+        html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+        user: { login: "reviewer" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a COMMENTED review that is only a pinned LGTM", () => {
+    expect(
+      signalFromReview({
+        state: "COMMENTED",
+        body: [
+          "lgtm @ 73f80173a96fc2d70af0972c6ee936cc59ad5f19",
+          "",
+          "Runtime review. No findings.",
+        ].join("\n"),
         html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
         user: { login: "reviewer" },
       }),

@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~150 lines, 8 exports, attach and journal-pane utilities.
+ * @overview tmux session helpers. ~145 lines, 9 exports, attach and journal-pane utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -13,14 +13,14 @@
  *
  *   PUBLIC API
  *   ----------
- *   CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, SessionDeps
+ *   CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps
  *   killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
  *   paneCount
  *
- * @exports CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, SessionDeps, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
  * @deps ../core/state, ../infra/tmux
  */
 import { type ComboRecord, listCombos } from "../core/state.js";
@@ -38,6 +38,7 @@ import {
 export const CODER_WINDOW = "coder";
 export const REVIEWER_WINDOW = "reviewer";
 export const REVIEWER_WATCH_WINDOW = "reviewer-watch";
+export const DIRECTOR_WATCH_WINDOW = "director-watch";
 
 export interface SessionDeps {
   tmux: (args: string[]) => TmuxResult;

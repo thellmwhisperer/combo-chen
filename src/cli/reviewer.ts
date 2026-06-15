@@ -1,15 +1,15 @@
 /**
- * @overview Reviewer CLI helpers. ~310 lines, 10 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~312 lines, 10 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at activateReviewer      <- starts reviewer and reviewer-watch windows.
+ *   1. Start at activateReviewer      <- starts reviewer and director-watch windows.
  *   2. Then tickReviewer              <- one merge/close/LGTM/re-review poll.
  *   3. Bottom helpers                 <- journal-derived PR/LGTM predicates.
  *
  *   MAIN FLOW
  *   ---------
- *   activateReviewer -> tmux windows; tickReviewer -> gh pr view -> journal events or re-review
+ *   activateReviewer -> reviewer + director-watch windows; tickReviewer -> gh pr view -> journal events or re-review
  *
  *   PUBLIC API
  *   ----------
@@ -33,11 +33,12 @@ import { latestGitHubLgtmSha, parsePrView, type PrView } from "./github.js";
 import { teardownMergedCombo } from "./lifecycle.js";
 import {
   REVIEWER_WATCH_WINDOW,
+  DIRECTOR_WATCH_WINDOW,
   REVIEWER_WINDOW,
   killComboSession,
   killWindowIfPresent,
 } from "./sessions.js";
-import { buildReviewerWatchCommand, reviewerTransientFailure } from "./watchers.js";
+import { buildDirectorWatchCommand, reviewerTransientFailure } from "./watchers.js";
 
 // -- 1/4 HELPER · Dependency contracts --
 export interface ActivateReviewerDeps {
@@ -81,6 +82,7 @@ export function activateReviewer(input: {
 
   killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
   killWindowIfPresent(deps, combo, REVIEWER_WATCH_WINDOW);
+  killWindowIfPresent(deps, combo, DIRECTOR_WATCH_WINDOW);
 
   const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
   if (created.status !== 0) {
@@ -93,8 +95,8 @@ export function activateReviewer(input: {
   const watcher = deps.tmux(
     newWindowArgs(
       combo.tmuxSession,
-      REVIEWER_WATCH_WINDOW,
-      buildReviewerWatchCommand({
+      DIRECTOR_WATCH_WINDOW,
+      buildDirectorWatchCommand({
         cli,
         comboHome: home,
         comboId: combo.id,
@@ -106,13 +108,13 @@ export function activateReviewer(input: {
   );
   if (watcher.status !== 0) {
     throw new Error(
-      `tmux failed to start reviewer watcher in "${combo.tmuxSession}": ` +
+      `tmux failed to start director watcher in "${combo.tmuxSession}": ` +
         `${watcher.stderr.trim() || "unknown error"}`,
     );
   }
 
   deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
-  deps.out(`${REVIEWER_WATCH_WINDOW}: polling reviewer hard signals every ${config.limits.babysitPollSeconds}s`);
+  deps.out(`${DIRECTOR_WATCH_WINDOW}: polling combo hard signals every ${config.limits.babysitPollSeconds}s`);
 }
 // -/ 2/4
 

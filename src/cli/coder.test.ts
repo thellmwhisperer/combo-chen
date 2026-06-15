@@ -3,7 +3,7 @@
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at activateCoder tests        <- tmux windows and cleanup.
+ *   1. Start at activateCoder tests        <- resumed coder worker.
  *   2. Then nudgeReviewComments tests      <- mirror sync and comment routing.
  *   3. Test harness helpers                <- combo and thread artifact setup.
  *
@@ -63,7 +63,7 @@ function writeThreadArtifact(runDir: string): void {
 
 // -- 2/3 CORE · activateCoder tests <- START HERE --
 describe("activateCoder", () => {
-  it("starts resumed coder and review-comment watcher windows from config", () => {
+  it("starts resumed coder worker from config", () => {
     const calls: string[][] = [];
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
@@ -72,7 +72,7 @@ describe("activateCoder", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
+        "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -91,7 +91,7 @@ describe("activateCoder", () => {
       cli: "node /repo/dist/cli.mjs",
     });
 
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual([
       "new-window",
       "-t",
@@ -100,20 +100,10 @@ describe("activateCoder", () => {
       "sitter",
       `codex --profile sitter resume '${CODEX_THREAD_ID}'`,
     ]);
-    expect(calls[1]?.slice(0, 5)).toEqual([
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      "sitter-watch",
-    ]);
-    expect(calls[1]?.at(-1)).toBe(
-      "while :; do node /repo/dist/cli.mjs nudge-review-comments -n 'o-r-7'; sleep 7; done",
-    );
     expect(out).toEqual(["coder responding active for o-r-7"]);
   });
 
-  it("cleans up the resumed coder window when watcher startup fails", () => {
+  it("reports resumed coder startup failures", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
@@ -133,7 +123,7 @@ describe("activateCoder", () => {
           out: () => undefined,
           tmux: (args) => {
             calls.push(args);
-            if (args[0] === "new-window" && args.includes("sitter-watch")) {
+            if (args[0] === "new-window" && args.includes("sitter")) {
               return { status: 1, stdout: "", stderr: "duplicate window" };
             }
             return { status: 0, stdout: "", stderr: "" };
@@ -143,9 +133,9 @@ describe("activateCoder", () => {
         comboId: record.id,
         cli: "node /repo/dist/cli.mjs",
       }),
-    ).toThrow("tmux failed to start sitter-watch: duplicate window");
+    ).toThrow("tmux failed to start sitter: duplicate window");
 
-    expect(calls).toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:sitter"]);
+    expect(calls).not.toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:sitter"]);
   });
 });
 // -/ 2/3
@@ -179,6 +169,9 @@ describe("nudgeReviewComments", () => {
           if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
             return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
           }
+          if (args[0] === "rev-parse" && args[1] === "HEAD") {
+            return { status: 0, stdout: "abc123\n", stderr: "" };
+          }
           return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
         },
         gh: (args) => {
@@ -210,9 +203,11 @@ describe("nudgeReviewComments", () => {
       author: "coderabbitai",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
+      head_sha: "abc123",
     });
     expect(calls.filter((call) => call[0] === "git")).toEqual([
       ["git", `cwd=${record.worktree}`, "remote", "get-url", "no-mistakes"],
+      ["git", `cwd=${record.worktree}`, "rev-parse", "HEAD"],
     ]);
     expect(calls.filter((call) => call[0] === "tmux")).toEqual([
       [
