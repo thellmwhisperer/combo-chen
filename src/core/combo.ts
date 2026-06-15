@@ -86,6 +86,7 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         break;
       case "coder_failed":
       case "gate_failed":
+      case "rebase_failed":
       case "rebase_conflict":
         phase = "STALLED";
         needsHuman = true;
@@ -161,9 +162,11 @@ autoclose_log="$(dirname "$0")/autoclose.log"
 rebase_log="$(dirname "$0")/rebase.log"
 
 cd ${shellQuote(combo.worktree)}
-if git fetch origin main > "$rebase_log" 2>&1 && git rebase origin/main >> "$rebase_log" 2>&1; then
-  :
-else
+if ! git fetch origin main > "$rebase_log" 2>&1; then
+  ${emit} rebase_failed --field base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+  exit 1
+fi
+if ! git rebase origin/main >> "$rebase_log" 2>&1; then
   ${emit} rebase_conflict --field base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
   exit 1
 fi
