@@ -19,7 +19,7 @@
  *
  *   INTERNALS
  *   ---------
- *   GitHubPin, lgtmPinFromBody, pinsFromItems, rollupSignal, parseIssueView
+ *   GitHubPin, lgtmCandidateLines, lgtmPinFromBody, pinsFromItems, rollupSignal, parseIssueView
  *
  * @exports GhResult, GhRunner, IssueDetails, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, PrView, parsePrView, fetchForensicsGithubFacts
  * @deps ../core/gh-api, ../core/pr-url
@@ -105,13 +105,31 @@ interface GitHubPin {
   t: number;
 }
 
-const LGTM_PIN = /\blgtm\s*@\s*([0-9a-f]{6,40})\b/gi;
-const LGTM_NEGATION_PREFIX = /\b(?:no|not|sin)[\s,!.:;-]+$/i;
+const LGTM_PIN_LINE = /^\s*lgtm\s*@\s*([0-9a-f]{7,40})\s*$/i;
+
+function lgtmCandidateLines(body: string): string[] {
+  const lines: string[] = [];
+  let inCodeFence = false;
+
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trimStart();
+    if (/^(?:```|~~~)/.test(trimmed)) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (inCodeFence || trimmed.startsWith(">")) continue;
+    if (line.startsWith("    ")) continue;
+
+    lines.push(line.replace(/`[^`\r\n]*`/g, ""));
+  }
+
+  return lines;
+}
 
 function lgtmPinFromBody(body: string): string | undefined {
-  for (const match of body.matchAll(LGTM_PIN)) {
-    const start = match.index ?? 0;
-    if (LGTM_NEGATION_PREFIX.test(body.slice(0, start))) continue;
+  for (const line of lgtmCandidateLines(body)) {
+    const match = LGTM_PIN_LINE.exec(line);
+    if (!match) continue;
     return match[1]!;
   }
   return undefined;
