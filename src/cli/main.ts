@@ -36,7 +36,6 @@ import {
   attachSessionArgs,
   hasSessionArgs,
   killSessionArgs,
-  killWindowArgs,
   newSessionArgs,
   newWindowArgs,
   tmux as realTmux,
@@ -46,14 +45,12 @@ import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../role
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import {
-  buildCoderRespondingResumeCommand,
-  buildReviewWatchCommand,
   fetchReviewCommentSignals,
   latestPrUrl,
-  readCoderThreadArtifact,
   routeReviewComments,
 } from "../roles/coder-responding.js";
 import { parseEventFields } from "./args.js";
+import { activateCoder } from "./coder.js";
 import {
   ensureGatekeeperWindow,
   startGatekeeperWindow,
@@ -540,44 +537,12 @@ export function createProgram(deps: Deps): Command {
     .description("Start the resumed coder and its review-comment watcher")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
-      const runDir = runDirFor(comboHome(deps.env), options.name);
-      const combo = readCombo(runDir);
-      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      const artifact = readCoderThreadArtifact(runDir);
-      const coderResponding = deps.tmux(
-        newWindowArgs(
-          combo.tmuxSession,
-          config.coderRespondingWindowName,
-          buildCoderRespondingResumeCommand(artifact, config.coderResumeCommand),
-        ),
-      );
-      if (coderResponding.status !== 0) {
-        throw new Error(
-          `tmux failed to start ${config.coderRespondingWindowName}: ${coderResponding.stderr.trim() || "unknown error"}`,
-        );
-      }
-      const watcher = deps.tmux(
-        newWindowArgs(
-          combo.tmuxSession,
-          config.coderRespondingWatchWindowName,
-          buildReviewWatchCommand({
-            cli: cliInvocation(),
-            comboId: combo.id,
-            pollSeconds: config.limits.babysitPollSeconds,
-          }),
-        ),
-      );
-      if (watcher.status !== 0) {
-        try {
-          deps.tmux(killWindowArgs(combo.tmuxSession, config.coderRespondingWindowName));
-        } catch {
-          // Preserve the watcher startup failure; cleanup errors are secondary.
-        }
-        throw new Error(
-          `tmux failed to start ${config.coderRespondingWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
-        );
-      }
-      deps.out(`coder responding active for ${combo.id}`);
+      activateCoder({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+        cli: cliInvocation(),
+      });
     });
 
   program
