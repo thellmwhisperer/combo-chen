@@ -1,113 +1,94 @@
-# combo-chen
+# combo-chen Agent Contract
 
-Conductor for autonomous issue → PR pipelines. It composes existing products
-(treehouse, gnhf, no-mistakes) and interchangeable agents (Claude, Codex,
-Hermes) under a fixed role contract. Named after Kun Chen, author of the
-stack this project conducts.
+combo-chen is a deterministic director harness for autonomous issue-to-PR
+work. It coordinates existing tools; it does not collapse their roles.
 
-A user (or an agent) says `combo-chen run --issue <url>` and gets: an
-isolated worktree, a coder implementing in a loop, a quality gate that opens
-the PR, a multi-model review loop, and babysitting until the PR is ready for
-a human merge decision.
+## Role Boundaries
 
-## Architecture: fixed roles, configurable agents
+- **Director**: orchestrates only. Starts phases, watches hard signals, writes
+  journal events, routes work, and escalates `needs_human`. It does not edit
+  code, answer review threads, approve PRs, push, merge, or deploy.
+- **Coder**: implements the issue and later resumes the same thread for review
+  comments. The coder leaves local commits in the combo worktree and does not
+  push to origin or the PR branch in the normal path.
+- **Reviewer**: reviews by comment and records a current SHA-pinned LGTM signal
+  when clean. It does not use GitHub approval as the merge contract, does not
+  review its own code, and does not publish.
+- **Gatekeeper**: no-mistakes is the normal publisher. It validates, pushes,
+  opens/updates the PR, watches CI, and republishes fixes through its gate.
+- **Human**: owns merge decisions and intent-touching escalations.
 
-```text
-DIRECTOR  (orchestrates and watches; NEVER touches code)   [tmux: combo-chen-N]
-   │
-   ├─ PHASE 1 · CODER     gnhf in a worktree (treehouse)   → thread_id captured
-   ├─ PHASE 2 · GATEKEEPER git push to no-mistakes remote (if exists);
-   │                      then no-mistakes pipeline → PR       (agent from .no-mistakes.yaml)
-   ├─ PHASE 3 · REVIEWING reviewer on /loop (+ coderabbit) ⇄  RESUMED coder responds
-   │                      gatekeeper ci-step in parallel (CI/conflicts, force-push)
-   └─ MERGE               human (hard default); per-type automerge once the
-                          counterfactual log earns it
-```
+Hard rule: `reviewer != coder`.
 
-Role names: the **coder** implements and later responds in the same thread;
-the **gatekeeper** owns validation, push, and CI; the **reviewer** reviews
-the PR with no courtesy LGTMs.
+## Implemented Loop
 
-Hard rules:
-- `reviewer != coder` (enforced by config validation, not convention).
-- The director only orchestrates: never code, never review threads.
-- Coder responding mode = the SAME thread that implemented, resumed (`codex resume`,
-  `hermes --resume`, stateful ACP session). Fallback: fresh instance + diff.
-- Publish boundary: the coder never pushes to origin or the PR branch in the
-  normal path. Coder responding mode leaves committed local changes; the
-  gatekeeper/no-mistakes gate validates and publishes each HEAD.
-- Mirror freshness: on every director tick, combo-chen
-  compares `origin/<branch>` with the `no-mistakes` mirror and syncs the
-  mirror when it is stale, using `--force-with-lease` for existing mirror
-  branches (also gated on gatekeeper state).
-- After PR open, `director-watch` is the single polling loop. Reviewer and
-  coder responding mode are worker windows; the director routes comments,
-  marks stale gates, and starts post-address no-mistakes gates.
-- LGTM is pinned to a SHA: it expires on every push; merging requires a
-  current LGTM on HEAD ∧ clean CodeRabbit ∧ gatekeeper checks-passed.
-- Rate limits are system events, not failures: the role pauses and resumes
-  at reset. Priority under scarcity: coder coding mode > coder responding
-  mode > reviewer > sweeps.
+1. `combo-chen run --issue <url>` creates `.worktrees/issue-N`, writes
+   `runner.sh`, starts tmux, and journals `combo_created`.
+2. Coder/gnhf runs in the worktree and commits locally.
+3. no-mistakes validates and publishes the initial PR.
+4. After `pr_opened`, `director-watch` is the single observer. Reviewer and
+   coder responding mode are worker windows.
+5. Review comments are routed to the resumed coder thread. Mechanical fixes are
+   handled locally; intent-touching decisions emit `needs_human`.
+6. Local addressing commits trigger a generated-script post-address
+   no-mistakes gate. The tmux command stays short (`sh <script>`).
+7. READY is journaled only when all current-head signals agree:
+   gate validated the PR head SHA, reviewer LGTM is pinned to that SHA,
+   CodeRabbit has SUCCESS plus a non-rate-limited/non-skipped current-head
+   comment, and non-CodeRabbit CI/check rollup is successful for that SHA.
 
-## The two post-PR loops (an investigated boundary, not an assumed one)
+Rate limits and transient GitHub/git/tmux errors are operational events. Log a
+concise note, keep the director loop alive when possible, and re-evaluate on
+the next tick.
 
-- **gatekeeper** = no-mistakes' `ci` step: watches the PR until merge/close,
-  auto-fixes CI failures and merge conflicts. It does NOT read or answer
-  review threads (verified against no-mistakes docs).
-- **coder responding mode** = the resumed coder: answers and addresses
-  review comments (CodeRabbit, reviewers, humans). This is the part no-mistakes
-  does not provide — combo-chen's contribution.
+## Branch And Worktree Ownership
 
-## Dependencies (Kun Chen's products)
+- One branch has one owner. Do not share a work branch between agents.
+- Combo worktrees live under the project `.worktrees/` directory.
+- Scratch artifacts live under the project `.tmp/` directory.
+- Do not create project worktrees under `/tmp`, `/private/tmp`, or
+  `/Volumes/CrucialX9/tmp` unless explicitly instructed.
+- Preserve unrelated user changes. Never reset or checkout away work you did
+  not create.
 
-| Piece | Role | Stack |
-|---|---|---|
-| treehouse | worktree pool with warm caches | Go |
-| gnhf | the coder loop over an issue | TypeScript |
-| no-mistakes | gatekeeper: review→test→docs→lint→push→PR→ci | Go |
-| acpx | stateful ACP sessions (clean future channel) | TypeScript |
+## no-mistakes Config Artifact
 
-Agents supported as slots: `claude`, `codex`, `hermes:<model>`
-(deepseek/gemini/...), `acp:<target>`. All three harnesses support the same
-trio of mechanics: interactive tmux session + resume + ACP.
+The source checkout may have an ignored local `.no-mistakes.yaml` with explicit
+repo commands such as test, lint/typecheck, and build. Git worktrees do not
+materialize ignored working-tree files automatically, so combo-chen copies
+`<repoDir>/.no-mistakes.yaml` to `<worktree>/.no-mistakes.yaml` when:
 
-## Frozen decisions
+- the source config exists;
+- the worktree config is missing;
+- an initial or post-address no-mistakes gate is about to run.
 
-- CLI product (determinism) + thin per-agent adapters (judgment). A Claude
-  skill or an AGENTS.md paragraph only says "call the binary and babysit its
-  events".
-- Stack: TypeScript with gnhf's masonry — Node ≥20, pnpm, vitest, tsdown,
-  commander. Matching the companion tool's conventions minimizes contributor
-  friction and lets us reuse gnhf's e2e patterns (acp-mock) when ACP lands.
-- v0 session driver: tmux `send-keys`/`capture-pane`. Migrate to ACP (acpx)
-  role by role when it hurts.
-- Persistent roles (reviewer, coder responding mode) run in INTERACTIVE sessions
-  (subscription limits; legitimate 24/7 use within enforced rate limits);
-  headless `-p`/SDK only for one-off sweeps (separate billing pool effective
-  2026-06-15).
-- Human merge by default. combo-chen records the counterfactual ("would have
-  automerged") so per-PR-type automerge is earned with data, not faith.
-- Review protocol: La Roca global pattern 7989 + per-project overlay (e.g.
-  8034 for roca-madre). Referenced, never copied here.
+The copy preserves content and mode, never overwrites an existing worktree
+config, and remains a local artifact. Do not stage or commit `.no-mistakes.yaml`.
 
-## Development conventions
+## Development Discipline
 
-- TDD is mandatory: red test before production code.
-- Zero hardcoded operational values: env → TOML config → fallback cascade.
-- Config: per-repo `combo-chen.toml` + user-level; repo wins on policy,
-  user wins on local setup (same model as treehouse/no-mistakes).
-- Short conventional commits. Small PRs. No co-authors.
-- Sherpa is ambient: every source file carries a navigable header
-  (`@overview` / READING GUIDE / `// -- N/M --` markers). When reading a file,
-  use the header to navigate — read it first, follow the READING GUIDE to the
-  CORE section, jump to the markers the task needs. Don't read top-to-bottom
-  or grep blindly. Apply/maintain the map on write (see the `sherpa` skill).
+- TDD is mandatory for behavior changes: write the failing test first, then
+  implement.
+- Keep operational values configurable through env, TOML, then fallback.
+- Use focused tests for orchestration contracts and broaden only when shared
+  behavior changes.
+- Validate with `pnpm test`, `pnpm typecheck`, `pnpm build`, and
+  `git diff --check` before committing.
+- Use short conventional commits. No co-authors.
+
+## Sherpa Navigation
+
+Source files carry Sherpa-style navigable headers:
+
+- read `@overview` first;
+- follow the READING GUIDE to the core section;
+- use `// -- N/M` markers instead of reading top-to-bottom;
+- keep the header and marker map current when editing touched files.
 
 ## Status
 
-Spec v1 frozen (see `docs/spec.md` §10 for the decided vetoes). v0 implemented
-with `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer` plus hidden
-`director-tick`/`director-watch` orchestration. Coder (codex+gnhf), gatekeeper
-(no-mistakes), reviewer (incremental re-review), and post-address gates are
-implemented. Next: preflight,
-counterfactual log, treehouse, ACP role driving.
+v0 implements the issue-to-PR loop with coder/gnhf, no-mistakes initial and
+post-address gates, reviewer re-review, coder responding mode, single
+`director-watch` observation, local no-mistakes config propagation, and
+current-head READY agreement. Deferred: preflight, counterfactual automerge
+log, treehouse pools, ACP role driving, and multi-combo dashboarding.
