@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { appendEvent, type ComboEvent } from "../core/events.js";
+import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import {
   activateReviewer,
@@ -13,6 +13,7 @@ import {
   latestOpenedPrUrl,
   livePinnedLgtmSha,
   terminalReviewerEvent,
+  tickReviewer,
 } from "./reviewer.js";
 
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
@@ -140,5 +141,52 @@ describe("activateReviewer", () => {
         cli: "node /repo/dist/cli.mjs",
       }),
     ).toThrow("Cannot activate reviewer for o-r-7: no pr_opened event in the journal");
+  });
+});
+
+describe("tickReviewer", () => {
+  it("journals a closed PR and stops the combo without local git cleanup", async () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        gh: (args) => {
+          calls.push(["gh", ...args]);
+          return {
+            status: 0,
+            stdout: '{"headRefOid":"def456","state":"CLOSED","mergedBy":null}',
+            stderr: "",
+          };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir).slice(-2)).toMatchObject([
+      { event: "needs_human", reason: "pr_closed" },
+      { event: "combo_closed" },
+    ]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    expect(out).toEqual(["reviewer: closed"]);
   });
 });

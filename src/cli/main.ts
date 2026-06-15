@@ -37,12 +37,10 @@ import {
   hasSessionArgs,
   killSessionArgs,
   newSessionArgs,
-  newWindowArgs,
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
 import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../roles/gatekeeper.js";
-import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import { parseEventFields } from "./args.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
@@ -50,23 +48,14 @@ import {
   ensureGatekeeperWindow,
   startGatekeeperWindow,
 } from "./gate.js";
-import { fetchIssueDetails, latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
-import { teardownMergedCombo } from "./lifecycle.js";
+import { fetchIssueDetails, remoteSlug } from "./github.js";
 import {
   activateReviewer,
-  canonicalLgtmShaForHead,
-  hasJournaledLgtm,
-  hasMergedEvent,
-  latestOpenedPrUrl,
-  livePinnedLgtmSha,
-  terminalReviewerEvent,
+  tickReviewer,
 } from "./reviewer.js";
 import {
   CODER_WINDOW,
-  REVIEWER_WINDOW,
   ensureJournalPane,
-  killComboSession,
-  killWindowIfPresent,
   resolveAttachCombo,
 } from "./sessions.js";
 import { resolvePollMs } from "./watchers.js";
@@ -277,135 +266,11 @@ export function createProgram(deps: Deps): Command {
     .description("Poll reviewer hard signals once")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
-      const runDir = runDirFor(comboHome(deps.env), options.name);
-      const combo = readCombo(runDir);
-      const prUrl = latestOpenedPrUrl(runDir);
-      if (!prUrl) {
-        throw new Error(`Cannot tick reviewer for ${combo.id}: no pr_opened event in the journal`);
-      }
-
-      let events = readEvents(runDir);
-      const terminalEvent = terminalReviewerEvent(events);
-      if (terminalEvent) {
-        deps.out(`reviewer: already terminal at ${terminalEvent.event}`);
-        return;
-      }
-
-      const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy,baseRefName,mergeCommit"]);
-      if (pr.status !== 0) {
-        deps.out(`reviewer: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
-        return;
-      }
-
-      let prView: PrView;
-      try {
-        prView = parsePrView(pr.stdout);
-      } catch (error) {
-        deps.out(
-          `reviewer: failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        return;
-      }
-      const headSha = prView.headSha;
-
-      if (prView.state === "MERGED") {
-        const by = prView.mergedBy ?? "unknown";
-        const mergeSha = prView.mergeSha;
-        if (!mergeSha) {
-          throw new Error(`Cannot tear down ${combo.id}: merged PR did not report mergeCommit.oid`);
-        }
-        const baseRefName = prView.baseRefName;
-        if (!baseRefName) {
-          throw new Error(`Cannot tear down ${combo.id}: merged PR did not report baseRefName`);
-        }
-        if (!hasMergedEvent(events, [mergeSha, headSha])) {
-          appendEvent(runDir, "merged", { sha: mergeSha, by });
-        }
-        const config = loadConfig({ repoDir: combo.repoDir });
-        try {
-          await teardownMergedCombo({
-            deps,
-            combo,
-            mergeSha,
-            baseRefName,
-            retries: config.limits.teardownGitRetries,
-            backoffSeconds: config.limits.teardownGitBackoffSeconds,
-          });
-        } catch (error) {
-          deps.out(
-            `reviewer: teardown pending for ${combo.id}: ` +
-              `${error instanceof Error ? error.message : String(error)}`,
-          );
-          return;
-        }
-        appendEvent(runDir, "combo_closed", {});
-        deps.out(`reviewer: merged ${mergeSha} by ${by}`);
-        killComboSession(deps, combo);
-        return;
-      }
-
-      if (prView.state === "CLOSED") {
-        appendEvent(runDir, "needs_human", { reason: "pr_closed" });
-        appendEvent(runDir, "combo_closed", {});
-        deps.out(`reviewer: closed`);
-        killComboSession(deps, combo);
-        return;
-      }
-
-      let githubPinnedSha: string | undefined;
-      try {
-        githubPinnedSha = latestGitHubLgtmSha(deps.gh, prUrl);
-      } catch (error) {
-        deps.out(
-          `reviewer: failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        return;
-      }
-      if (githubPinnedSha) {
-        const canonicalPinnedSha = canonicalLgtmShaForHead(githubPinnedSha, headSha);
-        if (!hasJournaledLgtm(events, canonicalPinnedSha)) {
-          appendEvent(runDir, "lgtm", { sha: canonicalPinnedSha });
-          events = readEvents(runDir);
-        }
-      }
-
-      const pinnedSha = livePinnedLgtmSha(events);
-      if (!pinnedSha) {
-        deps.out(`reviewer: no pinned lgtm for ${combo.id}`);
-        return;
-      }
-      if (pinnedSha === headSha) {
-        deps.out(`reviewer: lgtm current at ${headSha}`);
-        return;
-      }
-
-      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      const reviewerCommand = buildReviewerInvocation({
-        combo,
-        prUrl,
-        protocol: config.reviewerProtocol,
-        reviewerCommand: config.reviewerCommand,
-        prompt: incrementalReviewerPrompt({
-          combo,
-          prUrl,
-          protocol: config.reviewerProtocol,
-          oldSha: pinnedSha,
-          newSha: headSha,
-        }),
+      await tickReviewer({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
       });
-
-      killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
-
-      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
-      if (created.status !== 0) {
-        throw new Error(
-          `tmux failed to start reviewer re-review in "${combo.tmuxSession}": ` +
-            `${created.stderr.trim() || "unknown error"}`,
-        );
-      }
-
-      appendEvent(runDir, "lgtm_stale", { old_sha: pinnedSha, new_sha: headSha });
-      deps.out(`reviewer: lgtm_stale ${pinnedSha} -> ${headSha}; re-reviewing ${prUrl}`);
     });
 
   program
