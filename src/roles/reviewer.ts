@@ -46,7 +46,7 @@ export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
     `Use this review protocol: ${input.protocol}.`,
     "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
     "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
-    'Pin every verdict to the current PR head SHA as "lgtm @ <sha>" only when that HEAD is acceptable.',
+    'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',
     "On a new push, treat any earlier LGTM as stale and re-review only the delta since the last reviewed SHA.",
     "If anything is intent-touching, emit needs_human instead of deciding product intent.",
   ].join(" ");
