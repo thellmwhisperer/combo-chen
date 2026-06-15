@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.25](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.24...combo-chen-v0.0.25) (2026-06-15)
+
+
+### Features
+
+* **cli:** add reconcile command to repair frozen merged journals ([260265f](https://github.com/thellmwhisperer/combo-chen/commit/260265ff2e24ebdd4d1a0e0fe4c1c435182b4fe2))
+
 ## [0.0.24](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.23...combo-chen-v0.0.24) (2026-06-15)
 
 
