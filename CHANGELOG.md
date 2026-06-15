@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.0.25](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.24...combo-chen-v0.0.25) (2026-06-15)
+
+
+### Features
+
+* **cli:** add reconcile command to repair frozen merged journals ([260265f](https://github.com/thellmwhisperer/combo-chen/commit/260265ff2e24ebdd4d1a0e0fe4c1c435182b4fe2))
+
+## [0.0.24](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.23...combo-chen-v0.0.24) (2026-06-15)
+
+
+### Features
+
+* **core:** fetch and rebase origin/main before coder startup ([07047f2](https://github.com/thellmwhisperer/combo-chen/commit/07047f2be314c7c7515499a3e9d00cd261e9d701))
+
+
+### Bug Fixes
+
+* **runner:** Implemented issue [#61](https://github.com/thellmwhisperer/combo-chen/issues/61) by making runner.sh fetch and rebase origin/main before coder startup, aborting with a rebase_conflict journal event on failure, with full validation green. ([b1e8296](https://github.com/thellmwhisperer/combo-chen/commit/b1e829661073e58a3468d91e31e5c265e155a17e))
+
 ## [0.0.23](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.22...combo-chen-v0.0.23) (2026-06-15)
 
 
@@ -246,6 +265,9 @@
 
 ### Features
 
+* **reconcile:** Implemented the issue [#57](https://github.com/thellmwhisperer/combo-chen/issues/57) reconcile slice end-to-end: frozen merged journals can now be repaired with source-marked terminal events and teardown, with full validation green.
+* **reconcile:** Hardened reconcile loop against loadConfig and killSession failures.
+* **runner:** pre-coder fetch and rebase onto `origin/main` before coder startup, with `rebase_failed` (fetch failure) and `rebase_conflict` (merge conflict) journal events that transition the combo to STALLED ([#61](https://github.com/thellmwhisperer/combo-chen/issues/61))
 * **sitter:** no-mistakes mirror freshness guard — the review-comment watcher fast-forwards a stale `no-mistakes` mirror from `origin` before each polling cycle, gated on the hodor `fix_inflight` semaphore ([#40](https://github.com/thellmwhisperer/combo-chen/issues/40))
 * **attach:** `combo-chen attach` command for attaching to a running combo's tmux session, with auto-resolution when only one combo is running and journal pane recreation on attach.
 * **cli:** journal pane in rower window replaces the separate watch window; cleanup on failure.
