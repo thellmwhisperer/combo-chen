@@ -62,6 +62,7 @@ import {
 import { fetchIssueDetails, latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
 import { teardownMergedCombo } from "./lifecycle.js";
 import {
+  activateReviewer,
   canonicalLgtmShaForHead,
   hasJournaledLgtm,
   hasMergedEvent,
@@ -71,14 +72,13 @@ import {
 } from "./reviewer.js";
 import {
   CODER_WINDOW,
-  REVIEWER_WATCH_WINDOW,
   REVIEWER_WINDOW,
   ensureJournalPane,
   killComboSession,
   killWindowIfPresent,
   resolveAttachCombo,
 } from "./sessions.js";
-import { buildReviewerWatchCommand, resolvePollMs } from "./watchers.js";
+import { resolvePollMs } from "./watchers.js";
 
 export { resolvePollMs } from "./watchers.js";
 
@@ -273,54 +273,12 @@ export function createProgram(deps: Deps): Command {
     .description("Start the configured reviewer window for an opened PR")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
-      const home = comboHome(deps.env);
-      const runDir = runDirFor(home, options.name);
-      const combo = readCombo(runDir);
-      const prUrl = latestOpenedPrUrl(runDir);
-      if (!prUrl) {
-        throw new Error(`Cannot activate reviewer for ${combo.id}: no pr_opened event in the journal`);
-      }
-
-      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      const reviewerCommand = buildReviewerInvocation({
-        combo,
-        prUrl,
-        protocol: config.reviewerProtocol,
-        reviewerCommand: config.reviewerCommand,
+      activateReviewer({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+        cli: cliInvocation(),
       });
-
-      killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
-      killWindowIfPresent(deps, combo, REVIEWER_WATCH_WINDOW);
-
-      const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
-      if (created.status !== 0) {
-        throw new Error(
-          `tmux failed to start reviewer in "${combo.tmuxSession}": ` +
-            `${created.stderr.trim() || "unknown error"}`,
-        );
-      }
-
-      const watcher = deps.tmux(
-        newWindowArgs(
-          combo.tmuxSession,
-          REVIEWER_WATCH_WINDOW,
-          buildReviewerWatchCommand({
-            cli: cliInvocation(),
-            comboHome: home,
-            comboId: combo.id,
-            pollSeconds: config.limits.babysitPollSeconds,
-          }),
-        ),
-      );
-      if (watcher.status !== 0) {
-        throw new Error(
-          `tmux failed to start reviewer watcher in "${combo.tmuxSession}": ` +
-            `${watcher.stderr.trim() || "unknown error"}`,
-        );
-      }
-
-      deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
-      deps.out(`${REVIEWER_WATCH_WINDOW}: polling reviewer hard signals every ${config.limits.babysitPollSeconds}s`);
     });
 
   program

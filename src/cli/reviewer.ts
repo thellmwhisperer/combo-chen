@@ -1,4 +1,76 @@
 import { readEvents, type ComboEvent } from "../core/events.js";
+import { runDirFor, readCombo } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { buildReviewerInvocation } from "../roles/reviewer.js";
+import {
+  REVIEWER_WATCH_WINDOW,
+  REVIEWER_WINDOW,
+  killWindowIfPresent,
+} from "./sessions.js";
+import { buildReviewerWatchCommand } from "./watchers.js";
+
+export interface ActivateReviewerDeps {
+  env: Record<string, string | undefined>;
+  out: (line: string) => void;
+  tmux: (args: string[]) => TmuxResult;
+}
+
+export function activateReviewer(input: {
+  deps: ActivateReviewerDeps;
+  home: string;
+  comboId: string;
+  cli: string;
+}): void {
+  const { deps, home, comboId, cli } = input;
+  const runDir = runDirFor(home, comboId);
+  const combo = readCombo(runDir);
+  const prUrl = latestOpenedPrUrl(runDir);
+  if (!prUrl) {
+    throw new Error(`Cannot activate reviewer for ${combo.id}: no pr_opened event in the journal`);
+  }
+
+  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const reviewerCommand = buildReviewerInvocation({
+    combo,
+    prUrl,
+    protocol: config.reviewerProtocol,
+    reviewerCommand: config.reviewerCommand,
+  });
+
+  killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
+  killWindowIfPresent(deps, combo, REVIEWER_WATCH_WINDOW);
+
+  const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to start reviewer in "${combo.tmuxSession}": ` +
+        `${created.stderr.trim() || "unknown error"}`,
+    );
+  }
+
+  const watcher = deps.tmux(
+    newWindowArgs(
+      combo.tmuxSession,
+      REVIEWER_WATCH_WINDOW,
+      buildReviewerWatchCommand({
+        cli,
+        comboHome: home,
+        comboId: combo.id,
+        pollSeconds: config.limits.babysitPollSeconds,
+      }),
+    ),
+  );
+  if (watcher.status !== 0) {
+    throw new Error(
+      `tmux failed to start reviewer watcher in "${combo.tmuxSession}": ` +
+        `${watcher.stderr.trim() || "unknown error"}`,
+    );
+  }
+
+  deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
+  deps.out(`${REVIEWER_WATCH_WINDOW}: polling reviewer hard signals every ${config.limits.babysitPollSeconds}s`);
+}
 
 export function latestOpenedPrUrl(runDir: string): string | undefined {
   const events = readEvents(runDir);

@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, type ComboEvent } from "../core/events.js";
+import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import {
+  activateReviewer,
   canonicalLgtmShaForHead,
   hasJournaledLgtm,
   hasMergedEvent,
@@ -12,6 +14,19 @@ import {
   livePinnedLgtmSha,
   terminalReviewerEvent,
 } from "./reviewer.js";
+
+function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
+  return {
+    id: "o-r-7",
+    issueUrl: "https://github.com/o/r/issues/7",
+    repoDir: mkdtempSync(join(tmpdir(), "combo-chen-repo-")),
+    worktree: join(tmpdir(), "combo-chen-worktree"),
+    branch: "combo/issue-7",
+    tmuxSession: "combo-chen-o-r-7",
+    createdAt: new Date(0).toISOString(),
+    ...overrides,
+  };
+}
 
 describe("cli reviewer journal helpers", () => {
   it("tracks the currently live LGTM pin through stale events", () => {
@@ -58,5 +73,72 @@ describe("cli reviewer journal helpers", () => {
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
 
     expect(latestOpenedPrUrl(runDir)).toBe("https://github.com/o/r/pull/8");
+  });
+});
+
+describe("activateReviewer", () => {
+  it("starts the reviewer and watcher windows for the latest opened PR", () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "coder\ngatekeeper\n", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls[0]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
+    expect(calls[1]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
+    expect(calls[2]?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "reviewer"]);
+    expect(calls[2]?.at(-1)).toContain("https://github.com/o/r/pull/7");
+    expect(calls[3]?.slice(0, 5)).toEqual([
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "reviewer-watch",
+    ]);
+    expect(calls[3]?.at(-1)).toContain(
+      `COMBO_CHEN_HOME='${home}' node /repo/dist/cli.mjs reviewer-tick -n 'o-r-7'`,
+    );
+    expect(out).toEqual([
+      "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
+      "reviewer-watch: polling reviewer hard signals every 120s",
+    ]);
+  });
+
+  it("rejects activation before a PR has opened", () => {
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+
+    writeCombo(runDir, record);
+
+    expect(() =>
+      activateReviewer({
+        deps: {
+          env: { COMBO_CHEN_HOME: home },
+          out: () => undefined,
+          tmux: () => ({ status: 0, stdout: "", stderr: "" }),
+        },
+        home,
+        comboId: record.id,
+        cli: "node /repo/dist/cli.mjs",
+      }),
+    ).toThrow("Cannot activate reviewer for o-r-7: no pr_opened event in the journal");
   });
 });
