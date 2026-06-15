@@ -34,11 +34,11 @@
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
  *   │ bodyText, meaningfulLines, isCodeRabbitRetriggerBookkeeping,       │
- *   │ isCodeRabbitRateLimitComment, isPinnedLgtmReview, isRecord, PullRef│
+ *   │ isCodeRabbitRateLimitComment, isPinnedLgtmReview, isRecord        │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
- * @deps node:fs, node:path, ../core/combo, ../core/events, ../infra/config,
+ * @deps node:fs, node:path, ../core/combo, ../core/events, ../core/pr-url, ../infra/config,
  *   ../infra/tmux, ./coder
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -46,6 +46,10 @@ import { join } from "node:path";
 
 import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
+import {
+  parseGitHubPullRequestUrl,
+  type GitHubPullRequestRef,
+} from "../core/pr-url.js";
 import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
@@ -59,12 +63,6 @@ export interface ReviewCommentSignal {
   author: string;
   kind: string;
   url: string;
-}
-
-interface PullRef {
-  owner: string;
-  repo: string;
-  number: number;
 }
 
 export function buildReviewNudgePrompt(
@@ -209,14 +207,12 @@ function routedReviewCommentUrls(runDir: string): Set<string> {
   return urls;
 }
 
-export function parsePullRequestUrl(url: string): PullRef {
-  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(
-    url.trim(),
-  );
-  if (!match) {
+export function parsePullRequestUrl(url: string): GitHubPullRequestRef {
+  const ref = parseGitHubPullRequestUrl(url.trim());
+  if (ref === undefined) {
     throw new Error(`Not a GitHub pull request URL: "${url}"`);
   }
-  return { owner: match[1]!, repo: match[2]!, number: Number(match[3]!) };
+  return ref;
 }
 
 export function readGhArray(gh: (args: string[]) => TmuxResult, endpoint: string): unknown[] {
