@@ -56,6 +56,8 @@ export const EVENT_TYPES = {
   combo_closed: { required: [] },
   coder_retry: { required: [] },
   stopped: { required: ["by"] },
+  watch_error: { required: ["exit_code", "stderr"] },
+  watch_dead: { required: ["exit_code", "stderr"] },
 } as const satisfies Record<string, { required: readonly string[] }>;
 
 export type CanonicalEventName = keyof typeof EVENT_TYPES;
