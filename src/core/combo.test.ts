@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~660 lines, testing
+ * @overview Unit tests for core combo orchestration. ~911 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -102,9 +102,15 @@ describe("deriveStatus", () => {
   });
 
   it("marks failures as STALLED and needing a human", () => {
-    const status = deriveStatus([ev("coder_started"), ev("coder_failed", { exit_code: 1, has_new_commits: false })]);
-    expect(status.phase).toBe("STALLED");
-    expect(status.needsHuman).toBe(true);
+    for (const failed of [
+      ev("coder_failed", { exit_code: 1, has_new_commits: false }),
+      ev("gate_failed", { exit_code: 17 }),
+      ev("rebase_conflict", { base: "base-sha" }),
+    ]) {
+      const status = deriveStatus([failed]);
+      expect(status.phase).toBe("STALLED");
+      expect(status.needsHuman).toBe(true);
+    }
   });
 
   it("terminal stop wins over everything", () => {
@@ -199,6 +205,161 @@ describe("buildRunnerScript", () => {
     expect(coderDone).toBeGreaterThan(redirected);
   });
 
+  it("fetches and rebases origin/main before the coder starts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const tracePath = join(dir, "trace.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf 'emit %s\\n' "$*" >> "$TRACE_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+printf 'git %s\\n' "$*" >> "$TRACE_LOG"
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then printf 'fake-head\\n'; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeCoder = join(bin, "fake-coder");
+    writeFileSync(
+      fakeCoder,
+      `#!/bin/sh
+printf 'coder ran\\n' >> "$TRACE_LOG"
+`,
+    );
+    chmodSync(fakeCoder, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TRACE_LOG: tracePath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(tracePath, "utf8").trim().split("\n").slice(0, 5)).toEqual([
+      "git fetch origin main",
+      "git rebase origin/main",
+      "git rev-parse HEAD",
+      "emit coder_started",
+      "coder ran",
+    ]);
+  });
+
+  it("journals rebase_conflict and exits before coder starts when the rebase fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const tracePath = join(dir, "trace.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf 'emit %s\\n' "$*" >> "$TRACE_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+printf 'git %s\\n' "$*" >> "$TRACE_LOG"
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 42; fi
+if [ "$1" = "merge-base" ]; then printf 'merge-base-sha\\n'; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeCoder = join(bin, "fake-coder");
+    writeFileSync(
+      fakeCoder,
+      `#!/bin/sh
+printf 'coder ran\\n' >> "$TRACE_LOG"
+`,
+    );
+    chmodSync(fakeCoder, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        TRACE_LOG: tracePath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 1,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(tracePath, "utf8").trim().split("\n")).toEqual([
+      "git fetch origin main",
+      "git rebase origin/main",
+      "git merge-base HEAD origin/main",
+      "emit rebase_conflict --field base=merge-base-sha",
+    ]);
+  });
+
   it("emits coder_done when a fake coder exits after seeing non-TTY stdout", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
@@ -234,6 +395,18 @@ exit 0
     const fakeGh = join(bin, "gh");
     writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
     chmodSync(fakeGh, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then exit 1; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
 
     const runnerPath = join(dir, "runner.sh");
     writeFileSync(
@@ -302,6 +475,8 @@ if [ "$1" = "push" ]; then
   printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 17
 fi
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
 if [ "$1" = "remote" ]; then
   printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 0
@@ -396,6 +571,8 @@ if [ "$1" = "push" ]; then
   printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 17
 fi
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
 if [ "$1" = "rev-parse" ]; then
   printf 'fake-head\\n'
   exit 0
@@ -500,6 +677,8 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     writeFileSync(
       fakeGit,
       `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
 if [ "$1" = "rev-parse" ]; then
   printf '${headSha}\\n'
   exit 0
@@ -588,6 +767,16 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
     for (const args of [
       ["add", "README.md"],
       ["commit", "-m", "base"],
+    ]) {
+      const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
+      expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+    }
+    const origin = join(dir, "origin.git");
+    for (const args of [
+      ["init", "--bare", origin],
+      ["branch", "-M", "main"],
+      ["remote", "add", "origin", origin],
+      ["push", "-u", "origin", "main"],
     ]) {
       const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
       expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
