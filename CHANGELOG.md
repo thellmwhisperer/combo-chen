@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.21](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.20...combo-chen-v0.0.21) (2026-06-15)
+
+
+### Bug Fixes
+
+* **watcher:** back off on transient reviewer ticks ([e2276b8](https://github.com/thellmwhisperer/combo-chen/commit/e2276b8b004e2273d5eef82f98e37d7e3471ec61))
+* **watcher:** Implemented the reviewer-watch retry loop for issue [#56](https://github.com/thellmwhisperer/combo-chen/issues/56) with visible journal events and full validation green. ([bc49f65](https://github.com/thellmwhisperer/combo-chen/commit/bc49f65cb1c1d1d0a106b01b6ec0a10fd842734c))
+
 ## [0.0.20](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.19...combo-chen-v0.0.20) (2026-06-15)
 
 
