@@ -248,6 +248,7 @@
 
 * **reconcile:** Implemented the issue [#57](https://github.com/thellmwhisperer/combo-chen/issues/57) reconcile slice end-to-end: frozen merged journals can now be repaired with source-marked terminal events and teardown, with full validation green.
 * **reconcile:** Hardened reconcile loop against loadConfig and killSession failures.
+* **runner:** pre-coder fetch and rebase onto `origin/main` before coder startup, with `rebase_failed` (fetch failure) and `rebase_conflict` (merge conflict) journal events that transition the combo to STALLED ([#61](https://github.com/thellmwhisperer/combo-chen/issues/61))
 * **sitter:** no-mistakes mirror freshness guard — the review-comment watcher fast-forwards a stale `no-mistakes` mirror from `origin` before each polling cycle, gated on the hodor `fix_inflight` semaphore ([#40](https://github.com/thellmwhisperer/combo-chen/issues/40))
 * **attach:** `combo-chen attach` command for attaching to a running combo's tmux session, with auto-resolution when only one combo is running and journal pane recreation on attach.
 * **cli:** journal pane in rower window replaces the separate watch window; cleanup on failure.
