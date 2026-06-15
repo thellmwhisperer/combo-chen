@@ -103,8 +103,11 @@ detects the stall by comparing the worktree HEAD against
 `latestPublishedGateSha` on each tick.
 
 When the director detects committed but unpublished addressing changes in the
-worktree, it journals `address_done` (required field `head_sha`) to lock in
-the addressing commit before starting a post-address no-mistakes gate.  The
+worktree after an actionable `review_comment` nudge, it journals `address_done`
+(required field `head_sha`) to lock in the addressing commit before starting a
+post-address no-mistakes gate. `review_comment` records the nudge URL plus the
+optional `head_sha` baseline observed when the coder was nudged, so LGTM reviews
+and bookkeeping comments cannot by themselves trigger an addressing gate. The
 companion `address_noop` event (same required field `head_sha`) is defined for
 empty-addressing paths and transitions the combo out of READY the same way.
 After the PR exists, `director-watch` is the single observer. It repeatedly
