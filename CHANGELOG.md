@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.27](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.26...combo-chen-v0.0.27) (2026-06-15)
+
+
+### Features
+
+* **forensics:** read-only combo forensics CLI with markdown and JSON reports ([8041ad2](https://github.com/thellmwhisperer/combo-chen/commit/8041ad266f5fd92147bd88adfa310f2f5b52defa))
+
 ## [0.0.26](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.25...combo-chen-v0.0.26) (2026-06-15)
 
 
