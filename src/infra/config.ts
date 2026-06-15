@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~395 lines, 5 exports.
+ *   Repo wins on policy, user wins on local setup. ~460 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -24,9 +24,10 @@
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
- *   │ pickNumberAlias, pickNonNegativeInteger, pickNonEmptyString,     │
- *   │ normalizeLimitAliases, ROLE_ALIASES, DEFAULTS, PLACEHOLDER       │
- *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig           │
+ *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
+ *   │ pickNonEmptyString, normalizeLimitAliases, ROLE_ALIASES,        │
+ *   │ DEFAULTS, PLACEHOLDER                                            │
+ *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
  * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, renderCommand

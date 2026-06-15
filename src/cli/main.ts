@@ -31,7 +31,7 @@
  *   │ nudge-review-comments  Route new review comments → coder       │
  *   └────────────────────────────────────────────────────────────────┘
  *
- *   HELPERS (~lines 99-720, on-demand reading)
+ *   HELPERS (~lines 99-773, on-demand reading)
  *   ────────────────────────────────────────--
  *   All live before createProgram. They are called by the commands.
  *   Grouped with // -- N/9 markers. Don't read top-to-bottom;
@@ -61,7 +61,7 @@
  *
  *   See // -- N/9 markers inline for quick scroll navigation.
  *
- * @exports createProgram, defaultDeps, resolvePollMs, Deps
+ * @exports createProgram, defaultDeps, resolvePollMs, buildReviewerWatchCommand, Deps
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux},
  *   ../roles/{gatekeeper,reviewer,coder,coder-responding}
