@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.26](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.25...combo-chen-v0.0.26) (2026-06-15)
+
+
+### Bug Fixes
+
+* **cli:** harden LGTM pin extraction to exclude quoted, code-fixture, and invalid short/inline pins ([9da607e](https://github.com/thellmwhisperer/combo-chen/commit/9da607ea05379e5539300e8fd1a217bd02ec488f))
+
 ## [0.0.25](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.24...combo-chen-v0.0.25) (2026-06-15)
 
 
