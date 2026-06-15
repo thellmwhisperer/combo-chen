@@ -2483,13 +2483,13 @@ describe("reviewer-tick", () => {
       createdAt: new Date().toISOString(),
     });
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "lgtm", { sha: "abc123" });
+    appendEvent(dir, "lgtm", { sha: "abc1230" });
 
     const { deps, calls, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
         calls.push(["gh", ...args]);
-        return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+        return { status: 0, stdout: '{"headRefOid":"def4560"}', stderr: "" };
       },
     });
 
@@ -2498,8 +2498,8 @@ describe("reviewer-tick", () => {
     const stale = readEvents(dir).at(-1);
     expect(stale).toMatchObject({
       event: "lgtm_stale",
-      old_sha: "abc123",
-      new_sha: "def456",
+      old_sha: "abc1230",
+      new_sha: "def4560",
     });
 
     const judgeWindow = calls.find(
@@ -2509,10 +2509,10 @@ describe("reviewer-tick", () => {
 
     const command = judgeWindow?.at(-1) ?? "";
     expect(command).toContain("judge-bot");
-    expect(command).toContain("abc123..def456");
-    expect(command).toContain("lgtm @ def456");
+    expect(command).toContain("abc1230..def4560");
+    expect(command).toContain("lgtm @ def4560");
     expect(command).toContain("COMMENT reviews");
-    expect(out.join("\n")).toContain("lgtm_stale abc123 -> def456");
+    expect(out.join("\n")).toContain("lgtm_stale abc1230 -> def4560");
   });
 
   it("derives a pinned LGTM from GitHub comments and stales it on a new PR head", async () => {
@@ -2546,12 +2546,12 @@ describe("reviewer-tick", () => {
       gh: (args) => {
         calls.push(["gh", ...args]);
         if (args[0] === "pr") {
-          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+          return { status: 0, stdout: '{"headRefOid":"def4560"}', stderr: "" };
         }
         if (args.join(" ").includes("issues/7/comments")) {
           return {
             status: 0,
-            stdout: '[{"body":"lgtm @ abc123","created_at":"2026-06-11T00:00:00Z"}]',
+            stdout: '[{"body":"lgtm @ abc1230","created_at":"2026-06-11T00:00:00Z"}]',
             stderr: "",
           };
         }
@@ -2569,11 +2569,11 @@ describe("reviewer-tick", () => {
       "lgtm",
       "lgtm_stale",
     ]);
-    expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc123" });
+    expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc1230" });
     expect(readEvents(dir)[2]).toMatchObject({
       event: "lgtm_stale",
-      old_sha: "abc123",
-      new_sha: "def456",
+      old_sha: "abc1230",
+      new_sha: "def4560",
     });
     expect(calls.some((c) => c.join(" ").includes("issues/7/comments"))).toBe(true);
     expect(calls.some((c) => c.join(" ").includes("pulls/7/reviews"))).toBe(true);
@@ -2598,16 +2598,16 @@ describe("reviewer-tick", () => {
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
         if (args[0] === "pr") {
-          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+          return { status: 0, stdout: '{"headRefOid":"def4560"}', stderr: "" };
         }
         if (args.join(" ").includes("issues/7/comments")) {
           return {
             status: 0,
             stdout: JSON.stringify([
-              { body: "no lgtm @ aa11bb", created_at: "2026-06-11T00:00:00Z" },
-              { body: "NO LGTM @ cc22dd", created_at: "2026-06-11T00:01:00Z" },
-              { body: "review result: not lgtm @ ee33ff", created_at: "2026-06-11T00:02:00Z" },
-              { body: "sin lgtm @ 123abc", created_at: "2026-06-11T00:03:00Z" },
+              { body: "no lgtm @ aa11bb0", created_at: "2026-06-11T00:00:00Z" },
+              { body: "NO LGTM @ cc22dd0", created_at: "2026-06-11T00:01:00Z" },
+              { body: "review result: not lgtm @ ee33ff0", created_at: "2026-06-11T00:02:00Z" },
+              { body: "sin lgtm @ 123abc0", created_at: "2026-06-11T00:03:00Z" },
             ]),
             stderr: "",
           };
@@ -2644,19 +2644,19 @@ describe("reviewer-tick", () => {
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
         if (args[0] === "pr") {
-          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+          return { status: 0, stdout: '{"headRefOid":"def4560"}', stderr: "" };
         }
         if (args.join(" ").includes("issues/7/comments")) {
           return {
             status: 0,
             stdout: JSON.stringify([
-              { body: "no, lgtm @ aa11bb", created_at: "2026-06-11T00:00:00Z" },
-              { body: "lgtm @ def456", created_at: "2026-06-11T00:01:00Z" },
-              { body: "no. lgtm @ bb22cc", created_at: "2026-06-11T00:02:00Z" },
-              { body: "no! lgtm @ cc33dd", created_at: "2026-06-11T00:03:00Z" },
-              { body: "no - lgtm @ dd44ee", created_at: "2026-06-11T00:04:00Z" },
-              { body: "no: lgtm @ ee55ff", created_at: "2026-06-11T00:05:00Z" },
-              { body: "no; lgtm @ ff66aa", created_at: "2026-06-11T00:06:00Z" },
+              { body: "no, lgtm @ aa11bb0", created_at: "2026-06-11T00:00:00Z" },
+              { body: "lgtm @ def4560", created_at: "2026-06-11T00:01:00Z" },
+              { body: "no. lgtm @ bb22cc0", created_at: "2026-06-11T00:02:00Z" },
+              { body: "no! lgtm @ cc33dd0", created_at: "2026-06-11T00:03:00Z" },
+              { body: "no - lgtm @ dd44ee0", created_at: "2026-06-11T00:04:00Z" },
+              { body: "no: lgtm @ ee55ff0", created_at: "2026-06-11T00:05:00Z" },
+              { body: "no; lgtm @ ff66aa0", created_at: "2026-06-11T00:06:00Z" },
             ]),
             stderr: "",
           };
@@ -2670,10 +2670,10 @@ describe("reviewer-tick", () => {
 
     await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
-    expect(out.join("\n")).toContain("reviewer: lgtm current at def456");
+    expect(out.join("\n")).toContain("reviewer: lgtm current at def4560");
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window")).toBe(false);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "lgtm"]);
-    expect(readEvents(dir)[1]).toMatchObject({ sha: "def456" });
+    expect(readEvents(dir)[1]).toMatchObject({ sha: "def4560" });
   });
 
   it("finds a GitHub LGTM pin from paginated comment arrays", async () => {
@@ -2706,13 +2706,13 @@ describe("reviewer-tick", () => {
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
         if (args[0] === "pr") {
-          return { status: 0, stdout: '{"headRefOid":"def456"}', stderr: "" };
+          return { status: 0, stdout: '{"headRefOid":"def4560"}', stderr: "" };
         }
         if (args.join(" ").includes("issues/7/comments")) {
           return {
             status: 0,
             stdout:
-              '[]\n[{"body":"lgtm @ abc123","created_at":"2026-06-11T00:01:00Z"}]',
+              '[]\n[{"body":"lgtm @ abc1230","created_at":"2026-06-11T00:01:00Z"}]',
             stderr: "",
           };
         }
@@ -2725,7 +2725,7 @@ describe("reviewer-tick", () => {
 
     await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
-    expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc123" });
+    expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc1230" });
   });
 
   it("treats a short GitHub LGTM pin as current when it prefixes the full PR head", async () => {

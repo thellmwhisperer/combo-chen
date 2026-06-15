@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for GitHub CLI parsing helpers. ~110 lines, gh JSON and URL parsing.
+ * @overview Unit tests for GitHub CLI parsing helpers. ~170 lines, gh JSON and URL parsing.
  *
  *   READING GUIDE
  *   -------------
@@ -80,8 +80,8 @@ describe("cli GitHub helpers", () => {
         return {
           status: 0,
           stdout: JSON.stringify([
-            { body: "no lgtm @ aa11bb", created_at: "2026-06-11T00:00:00Z" },
-            { body: "lgtm @ cc33dd", created_at: "2026-06-11T00:01:00Z" },
+            { body: "no lgtm @ aa11bb0", created_at: "2026-06-11T00:00:00Z" },
+            { body: "lgtm @ cc33dd0", created_at: "2026-06-11T00:01:00Z" },
           ]),
           stderr: "",
         };
@@ -90,7 +90,7 @@ describe("cli GitHub helpers", () => {
         return {
           status: 0,
           stdout: JSON.stringify([
-            { body: "lgtm @ ee55ff", submitted_at: "2026-06-11T00:02:00Z" },
+            { body: "lgtm @ ee55ff0", submitted_at: "2026-06-11T00:02:00Z" },
           ]),
           stderr: "",
         };
@@ -98,11 +98,80 @@ describe("cli GitHub helpers", () => {
       return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
     };
 
-    expect(latestGitHubLgtmSha(gh, "https://github.com/o/r/pull/7")).toBe("ee55ff");
+    expect(latestGitHubLgtmSha(gh, "https://github.com/o/r/pull/7")).toBe("ee55ff0");
     expect(calls).toEqual([
       ["api", "--paginate", "repos/o/r/issues/7/comments"],
       ["api", "--paginate", "repos/o/r/pulls/7/reviews"],
     ]);
+  });
+
+  it("ignores fixture pins inside code spans, fenced code blocks, and quoted prose", () => {
+    const fixtureSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const gh = (args: string[]) => {
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: `Regression fixture: \`lgtm @ ${fixtureSha}\``,
+              created_at: "2026-06-11T00:00:00Z",
+            },
+            {
+              body: ["```ts", `const fixture = "lgtm @ ${fixtureSha}";`, "```"].join("\n"),
+              created_at: "2026-06-11T00:01:00Z",
+            },
+            {
+              body: [`> Fixture review body: lgtm @ ${fixtureSha}`, `> no lgtm @ ${fixtureSha}`].join(
+                "\n",
+              ),
+              created_at: "2026-06-11T00:02:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(latestGitHubLgtmSha(gh, "https://github.com/o/r/pull/7")).toBeUndefined();
+  });
+
+  it("requires LGTM pins to be own-line verdicts with at least seven hex characters", () => {
+    const validSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const inlineSha = "9af80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const gh = (args: string[]) => {
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            { body: "lgtm @ def456", created_at: "2026-06-11T00:00:00Z" },
+            {
+              body: `Inline mention lgtm @ ${inlineSha} is just prose.`,
+              created_at: "2026-06-11T00:03:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: ["Runtime review complete.", "", `lgtm @ ${validSha}`].join("\n"),
+              submitted_at: "2026-06-11T00:02:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(latestGitHubLgtmSha(gh, "https://github.com/o/r/pull/7")).toBe(validSha);
   });
 });
 // -/ 1/1
