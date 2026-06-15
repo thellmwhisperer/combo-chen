@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3030 lines.
+ *   deps so tests run without a real terminal or network. ~3100 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -21,6 +21,7 @@
  *   │ emit                  Event append to journal                  │
  *   │ reconcile             Frozen journal repair command            │
  *   │ status                Table format output                      │
+ *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
@@ -140,6 +141,7 @@ describe("command surface", () => {
         "emit",
         "ensure-pr-autoclose",
         "events",
+        "forensics",
         "reviewer-tick",
         "nudge-review-comments",
         "reconcile",
@@ -1628,6 +1630,177 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("CODING");
     expect(text).toContain("gate_decision");
+  });
+});
+
+describe("forensics", () => {
+  function seedCombo(homeDir: string, id: string, issueNumber: number): string {
+    const dir = runDirFor(homeDir, id);
+    writeCombo(dir, {
+      id,
+      issueUrl: `https://github.com/o/r/issues/${issueNumber}`,
+      repoDir: "/repos/r",
+      worktree: `/repos/r/.worktrees/issue-${issueNumber}`,
+      branch: `combo/issue-${issueNumber}`,
+      tmuxSession: `combo-chen-${id}`,
+      createdAt: "2026-06-11T10:00:00.000Z",
+    });
+    return dir;
+  }
+
+  it("renders a markdown report for selected issue numbers from local run logs", async () => {
+    const h = home();
+    const dir = seedCombo(h, "o-r-7", 7);
+    seedCombo(h, "o-r-8", 8);
+    writeFileSync(
+      join(dir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        { t: "2026-06-11T10:01:00.000Z", event: "coder_started" },
+        { t: "2026-06-11T10:05:00.000Z", event: "coder_done" },
+        { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+        { t: "2026-06-11T10:10:00.000Z", event: "lgtm", sha: "abc123" },
+        { t: "2026-06-11T10:12:00.000Z", event: "lgtm_stale", old_sha: "abc123", new_sha: "def456" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["forensics", "--issues", "7"]);
+
+    expect(out.join("\n")).toContain("# combo-chen forensics");
+    expect(out.join("\n")).toContain("## o-r-7");
+    expect(out.join("\n")).toContain("Coder: 4m");
+    expect(out.join("\n")).toContain("stale_lgtm_after_push");
+    expect(out.join("\n")).not.toContain("## o-r-8");
+  });
+
+  it("emits JSON reports with the same core facts", async () => {
+    const h = home();
+    const dir = seedCombo(h, "o-r-7", 7);
+    writeFileSync(
+      join(dir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["forensics", "--issues", "7", "--format", "json"]);
+
+    const parsed = JSON.parse(out.join("\n")) as { reports: Array<{ id: string; prUrl?: string }> };
+    expect(parsed.reports).toHaveLength(1);
+    expect(parsed.reports[0]).toMatchObject({
+      id: "o-r-7",
+      prUrl: "https://github.com/o/r/pull/9",
+    });
+  });
+
+  it("enriches reports with live GitHub PR and issue facts", async () => {
+    const h = home();
+    const openDir = seedCombo(h, "o-r-7", 7);
+    const mergedDir = seedCombo(h, "o-r-8", 8);
+    writeFileSync(
+      join(openDir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        { t: "2026-06-11T10:07:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+        { t: "2026-06-11T10:08:00.000Z", event: "gate_validated", sha: "def456" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    writeFileSync(
+      join(mergedDir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T11:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/8" },
+        { t: "2026-06-11T11:07:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/10" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(args);
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/9") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "def456",
+              state: "OPEN",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
+                { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/10") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "999aaa",
+              state: "MERGED",
+              mergedAt: "2026-06-11T11:20:00.000Z",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ state: "OPEN", closedAt: null }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["forensics", "--issues", "7,8", "--format", "json"]);
+
+    const parsed = JSON.parse(out.join("\n")) as {
+      reports: Array<{
+        id: string;
+        timeline: { mergedAt?: string };
+        gates: { ci: string; issueClosed: boolean | "unknown"; reviewer: { current: boolean; headSha?: string } };
+        incidents: Array<{ id: string }>;
+      }>;
+    };
+    const open = parsed.reports.find((report) => report.id === "o-r-7");
+    const merged = parsed.reports.find((report) => report.id === "o-r-8");
+    expect(open).toMatchObject({
+      gates: {
+        ci: "success",
+        reviewer: { current: false, headSha: "def456" },
+        issueClosed: false,
+      },
+    });
+    expect(open?.incidents.map((incident) => incident.id)).toContain("missing_reviewer_verdict");
+    expect(merged).toMatchObject({
+      timeline: { mergedAt: "2026-06-11T11:20:00.000Z" },
+      gates: { ci: "success", issueClosed: false },
+    });
+    expect(merged?.incidents.map((incident) => incident.id)).toContain("merged_pr_open_issue");
+    expect(ghCalls).toContainEqual([
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/9",
+      "--json",
+      "headRefOid,state,mergedAt,mergeStateStatus,statusCheckRollup",
+    ]);
+    expect(ghCalls).toContainEqual([
+      "issue",
+      "view",
+      "https://github.com/o/r/issues/8",
+      "--json",
+      "state,closedAt",
+    ]);
   });
 });
 
