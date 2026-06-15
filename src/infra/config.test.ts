@@ -54,6 +54,7 @@ describe("loadConfig", () => {
     expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(10);
     expect(config.limits.teardownGitRetries).toBe(2);
     expect(config.limits.teardownGitBackoffSeconds).toBe(2);
+    expect(config.limits.watchFailureLimit).toBe(5);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.coderCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
@@ -161,6 +162,21 @@ describe("loadConfig", () => {
 
     expect(config.limits.teardownGitRetries).toBe(1);
     expect(config.limits.teardownGitBackoffSeconds).toBe(3);
+  });
+
+  it("loads the watcher failure limit from repo config or env", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[limits]\nwatch_failure_limit = 3\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.limits.watchFailureLimit).toBe(3);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_WATCH_FAILURE_LIMIT: "2" },
+    });
+    expect(envConfig.limits.watchFailureLimit).toBe(2);
   });
 
   it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {

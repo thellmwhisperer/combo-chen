@@ -232,21 +232,40 @@ export function resolvePollMs(env: Record<string, string | undefined>): number |
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function buildReviewerWatchCommand(input: {
+export function buildReviewerWatchCommand(input: {
   cli: string;
   comboHome: string;
   comboId: string;
   pollSeconds: number;
+  watchFailureLimit: number;
 }): string {
   const env = `COMBO_CHEN_HOME=${shellQuote(input.comboHome)}`;
+  const emit = `${env} ${input.cli} emit -n ${shellQuote(input.comboId)}`;
+  const failureLimit = Math.max(1, Math.trunc(input.watchFailureLimit));
+  const initialBackoffSeconds = Math.max(0, Math.ceil(input.pollSeconds));
   return [
+    "failures=0",
+    `backoff=${initialBackoffSeconds}`,
     "while :; do",
     `  output=$(${env} ${input.cli} reviewer-tick -n ${shellQuote(input.comboId)} 2>&1)`,
     "  rc=$?",
     '  printf "%s\\n" "$output"',
     `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("reviewer: (merged|closed|already terminal)")} && exit 0`,
-    '  [ "$rc" -eq 0 ] || exit "$rc"',
-    `  sleep ${input.pollSeconds}`,
+    '  if [ "$rc" -eq 0 ]; then',
+    "    failures=0",
+    `    backoff=${initialBackoffSeconds}`,
+    `    sleep ${input.pollSeconds}`,
+    "    continue",
+    "  fi",
+    "  failures=$((failures + 1))",
+    '  stderr=$(printf "%s\\n" "$output" | tail -c 500)',
+    `  ${emit} watch_error --field "exit_code=$rc" --field "stderr=$stderr" --field "consecutive_failures=$failures" --field "watcher=reviewer" >/dev/null 2>&1 || true`,
+    `  if [ "$failures" -ge ${failureLimit} ]; then`,
+    `    ${emit} watch_dead --field "exit_code=$rc" --field "stderr=$stderr" --field "consecutive_failures=$failures" --field "watcher=reviewer" >/dev/null 2>&1 || true`,
+    '    exit "$rc"',
+    "  fi",
+    '  sleep "$backoff"',
+    "  backoff=$((backoff * 2))",
     "done",
   ].join("\n");
 }
@@ -929,6 +948,7 @@ export function createProgram(deps: Deps): Command {
             comboHome: home,
             comboId: combo.id,
             pollSeconds: config.limits.babysitPollSeconds,
+            watchFailureLimit: config.limits.watchFailureLimit,
           }),
         ),
       );

@@ -73,4 +73,5 @@ command = "claude {prompt}"
 
 [limits]
 babysit_poll_seconds = 120  # review-comment poll interval
+watch_failure_limit = 5     # consecutive reviewer-watch tick failures before visible death
 coder_timeout_minutes = 180

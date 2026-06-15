@@ -66,6 +66,8 @@ describe("event schema", () => {
         "combo_closed",
         "coder_retry",
         "stopped",
+        "watch_dead",
+        "watch_error",
       ].sort(),
     );
   });
@@ -82,6 +84,8 @@ describe("event schema", () => {
     expect(EVENT_TYPES.merged.required).toEqual(["sha", "by"]);
     expect(EVENT_TYPES.combo_closed.required).toEqual([]);
     expect(EVENT_TYPES.coder_retry.required).toEqual([]);
+    expect(EVENT_TYPES.watch_error.required).toEqual(["exit_code", "stderr"]);
+    expect(EVENT_TYPES.watch_dead.required).toEqual(["exit_code", "stderr"]);
   });
 
   it("rejects unknown event names", () => {
