@@ -130,8 +130,8 @@ async function reconcileCombo(input: {
     changed = true;
   }
 
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
   try {
+    const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
     await teardownMergedCombo({
       deps,
       combo,
@@ -149,7 +149,14 @@ async function reconcileCombo(input: {
   }
 
   appendEvent(runDir, "combo_closed", { source: "reconcile" });
-  killComboSession(deps, combo);
+  try {
+    killComboSession(deps, combo);
+  } catch (error) {
+    deps.out(
+      `reconcile: ${combo.id} session kill failed: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   deps.out(`reconcile: ${combo.id} merged ${mergeSha} by ${by}; teardown complete`);
   return { changed: true, reported: true };
 }
