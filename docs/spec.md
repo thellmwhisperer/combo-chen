@@ -92,7 +92,21 @@ successful tick the failure counter and backoff reset.
 `gate_status` event records the gatekeeper's ongoing lifecycle: `fix_inflight`
 (gatekeeper started and no-mistakes is running), `awaiting_approval` (gate requires
 human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper completed
-successfully, awaiting PR detection).
+successfully, awaiting PR detection).  On successful completion the gate emits
+`gate_validated` (required field `sha`) alongside the `idle` gate status,
+recording the validated head SHA.
+
+When the worktree HEAD moves past the last validated or published SHA, the
+director journals `gate_stale` (fields `old_sha`, `new_sha`) to mark the old
+validation as superseded and trigger a post-address gate.  The director
+detects the stall by comparing the worktree HEAD against
+`latestPublishedGateSha` on each tick.
+
+When the director detects committed but unpublished addressing changes in the
+worktree, it journals `address_done` (required field `head_sha`) to lock in
+the addressing commit before starting a post-address no-mistakes gate.  The
+companion `address_noop` event (same required field `head_sha`) is defined for
+empty-addressing paths and transitions the combo out of READY the same way.
 After the PR exists, `director-watch` is the single observer. It repeatedly
 runs `director-tick` to poll reviewer hard signals, route new review comments
 to the resumed coder, detect committed local HEAD changes, and run a

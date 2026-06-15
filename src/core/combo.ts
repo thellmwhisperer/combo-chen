@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   188 lines, 3 exports, 1 critical function.
+ *   232 lines, 6 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
