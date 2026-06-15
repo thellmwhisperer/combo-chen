@@ -68,6 +68,14 @@ another path.
 - **coder responding mode** (the resumed coder): conversation signals only.
   Reads new review comments, answers them, pushes addressing commits.
 
+The generated reviewer-watch polling loop (`reviewer-tick`) has built-in
+resilience: on transient failures (rate limits, network errors), it journals
+a `watch_error` event and retries with exponential backoff (base poll
+interval × 2ⁿ, capped at 3600 s). After `watch_failure_limit` consecutive
+failures (default 5, configurable via `[limits].watch_failure_limit`), it
+journals `watch_dead` and exits — the director sees the dead watcher and can
+escalate. On a successful tick the failure counter and backoff reset.
+
 **Push semaphore:** the coder must not push while the gatekeeper has a CI
 fix in flight (the gatekeeper force-pushes). Before pushing: check gatekeeper
 state (`no-mistakes axi status` or `gate_status` with `state=fix_inflight`).
@@ -135,6 +143,11 @@ successfully, awaiting PR detection).
   each plan; limits are the contract.
 - `rate_limited(role, until)` is a first-class event: the role pauses, the
   director knows, the role resumes at reset.
+- Watcher resilience: the reviewer-watch loop journals `watch_error` on each
+  transient failure (rate limits, network errors) with the exit code and
+  stderr snippet, and `watch_dead` after `[limits].watch_failure_limit`
+  consecutive failures. The watcher doubles its backoff on each failure
+  (capped at 3600 s) and resets both counter and backoff on a healthy tick.
 - Priority under scarcity: coder coding mode > coder responding mode > reviewer > sweeps.
 - Roles spread across independent budgets by design (Claude subscription,
   Codex subscription, Hermes API providers).
