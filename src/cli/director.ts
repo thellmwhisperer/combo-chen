@@ -24,7 +24,7 @@
  *   runReadyForMergeIfNeeded, hasCleanCodeRabbitSignal, rollup helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../roles/coder-responding, ./gate, ./github, ./reviewer, ./coder
+ * @deps ../core/{events,gh-api,state}, ../infra/tmux, ../roles/coder-responding, ./gate, ./github, ./reviewer, ./coder
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache, readGhArray, type GhApiCache } from "../core/gh-api.js";
