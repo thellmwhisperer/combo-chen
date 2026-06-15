@@ -143,12 +143,14 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
   findings.
-- READY requires current-head agreement across all four signals:
-  gatekeeper has validated the current PR head SHA; the reviewer has a live
-  pinned LGTM for that SHA; CodeRabbit has a SUCCESS status context/check for
-  that SHA and its latest `coderabbitai` comment for that SHA is not a
-  rate-limit/skipped/no-review message; and all non-CodeRabbit status
-  contexts/checks in the rollup are successful for that SHA.
+- When all four signals agree on the current head SHA — gatekeeper has
+  validated the SHA, the reviewer has a live pinned LGTM for that SHA,
+  CodeRabbit has a SUCCESS status context/check for that SHA and its
+  latest `coderabbitai` comment for that SHA is not a rate-limit/skipped/
+  no-review message, and all non-CodeRabbit status contexts/checks in the
+  rollup are successful for that SHA — the director journals
+  `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
+  transitions to READY.
 
 ## 6. Merge policy and the counterfactual log
 

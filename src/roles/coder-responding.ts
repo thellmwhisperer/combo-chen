@@ -1,7 +1,7 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
  *   journal and delivers prompts to the coder tmux window via paste-buffer.
- *   Reads only; never mutates GitHub or the repo. ~276 lines, 11 exports.
+ *   Reads only; never mutates GitHub or the repo. ~274 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
