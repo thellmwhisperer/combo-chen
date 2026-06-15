@@ -44,17 +44,11 @@ import {
 import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../roles/gatekeeper.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
-import {
-  fetchReviewCommentSignals,
-  latestPrUrl,
-  routeReviewComments,
-} from "../roles/coder-responding.js";
 import { parseEventFields } from "./args.js";
-import { activateCoder } from "./coder.js";
+import { activateCoder, nudgeReviewComments } from "./coder.js";
 import {
   ensureGatekeeperWindow,
   startGatekeeperWindow,
-  syncNoMistakesMirror,
 } from "./gate.js";
 import { fetchIssueDetails, latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
 import { teardownMergedCombo } from "./lifecycle.js";
@@ -550,34 +544,11 @@ export function createProgram(deps: Deps): Command {
     .description("One-shot sweep: route new PR comments to the coder responding window")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
-      const runDir = runDirFor(comboHome(deps.env), options.name);
-      const combo = readCombo(runDir);
-      const prUrl = latestPrUrl(readEvents(runDir));
-      if (prUrl === undefined) {
-        throw new Error(`No pr_opened event for combo "${options.name}"`);
-      }
-      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-      try {
-        const synced = syncNoMistakesMirror(deps, combo, runDir);
-        if (synced) {
-          deps.out(`mirror synced for ${combo.id}`);
-        }
-      } catch (err) {
-        deps.out(
-          `mirror sync failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      const routed = routeReviewComments({
-        runDir,
-        tmuxSession: combo.tmuxSession,
-        comments: fetchReviewCommentSignals(prUrl, deps.gh),
-        reviewNudgePrompt: config.reviewNudgePrompt,
-        windowName: config.coderRespondingWindowName,
-        tmux: deps.tmux,
+      nudgeReviewComments({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
       });
-      for (const comment of routed) {
-        deps.out(`nudged ${comment.url}`);
-      }
     });
 
   return program;
