@@ -97,6 +97,7 @@ function lgtmCandidateLines(body: string): string[] {
       continue;
     }
     if (inCodeFence || trimmed.startsWith(">")) continue;
+    if (line.startsWith("    ")) continue;
 
     lines.push(line.replace(/`[^`\r\n]*`/g, ""));
   }
