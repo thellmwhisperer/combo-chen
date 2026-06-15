@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { activateCoder } from "./coder.js";
+import { activateCoder, nudgeReviewComments } from "./coder.js";
 
 const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
 
@@ -118,5 +119,91 @@ describe("activateCoder", () => {
     ).toThrow("tmux failed to start sitter-watch: duplicate window");
 
     expect(calls).toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:sitter"]);
+  });
+});
+
+describe("nudgeReviewComments", () => {
+  it("syncs the mirror, routes fetched PR comments, and reports routed nudges", () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+    );
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    nudgeReviewComments({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+            return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        gh: (args) => {
+          calls.push(["gh", ...args]);
+          const endpoint = args.at(-1);
+          if (endpoint === "repos/o/r/issues/7/comments") {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                  user: { login: "coderabbitai" },
+                  body: "Please handle this.",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          return { status: 0, stdout: "[]", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+    });
+
+    const events = readEvents(runDir).filter((event) => event.event === "review_comment");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      author: "coderabbitai",
+      kind: "pr_comment",
+      url: "https://github.com/o/r/pull/7#issuecomment-1",
+    });
+    expect(calls.filter((call) => call[0] === "git")).toEqual([
+      ["git", `cwd=${record.worktree}`, "remote", "get-url", "no-mistakes"],
+    ]);
+    expect(calls.filter((call) => call[0] === "tmux")).toEqual([
+      [
+        "tmux",
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "Please address 'https://github.com/o/r/pull/7#issuecomment-1'",
+      ],
+      [
+        "tmux",
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "-t",
+        "combo-chen-owned-session:sitter",
+      ],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
+    ]);
+    expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
 });
