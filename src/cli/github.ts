@@ -1,5 +1,5 @@
 /**
- * @overview GitHub CLI parsing helpers. ~222 lines, 8 exports, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~206 lines, 8 exports, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
@@ -18,11 +18,12 @@
  *
  *   INTERNALS
  *   ---------
- *   GitHubPin, lgtmPinFromBody, pinsFromPayload
+ *   GitHubPin, lgtmPinFromBody, pinsFromItems
  *
  * @exports GhResult, GhRunner, IssueDetails, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, PrView, parsePrView
- * @deps ../core/pr-url
+ * @deps ../core/gh-api, ../core/pr-url
  */
+import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { parseGitHubPullRequestUrl } from "../core/pr-url.js";
 
 // -- 1/4 CORE · Issue metadata and remoteSlug <- START HERE --
@@ -95,19 +96,7 @@ function lgtmPinFromBody(body: string): string | undefined {
   return undefined;
 }
 
-function pinsFromPayload(stdout: string): GitHubPin[] {
-  let parsed: unknown[];
-  try {
-    parsed = [JSON.parse(stdout)];
-  } catch {
-    parsed = stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line));
-  }
-
-  const entries = parsed.flatMap((entry) => (Array.isArray(entry) ? entry : [entry]));
+function pinsFromItems(entries: unknown[]): GitHubPin[] {
   const pins: GitHubPin[] = [];
   for (const entry of entries) {
     if (typeof entry !== "object" || entry === null) continue;
@@ -130,29 +119,25 @@ function pinsFromPayload(stdout: string): GitHubPin[] {
 // -/ 2/4
 
 // -- 3/4 CORE · latestGitHubLgtmSha --
-export function latestGitHubLgtmSha(gh: GhRunner, prUrl: string): string | undefined {
+export function latestGitHubLgtmSha(
+  gh: GhRunner,
+  prUrl: string,
+  cache?: GhApiCache,
+): string | undefined {
   const ref = parseGitHubPullRequestUrl(prUrl);
   if (!ref) return undefined;
 
-  const comments = gh([
-    "api",
+  const comments = readGhArray(
+    gh,
     `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`,
-    "--paginate",
-  ]);
-  if (comments.status !== 0) {
-    throw new Error(`gh issue comments failed for ${prUrl}: ${comments.stderr.trim() || "unknown error"}`);
-  }
-
-  const reviews = gh([
-    "api",
+    cache,
+  );
+  const reviews = readGhArray(
+    gh,
     `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
-    "--paginate",
-  ]);
-  if (reviews.status !== 0) {
-    throw new Error(`gh pull reviews failed for ${prUrl}: ${reviews.stderr.trim() || "unknown error"}`);
-  }
-
-  const pins = [...pinsFromPayload(comments.stdout), ...pinsFromPayload(reviews.stdout)];
+    cache,
+  );
+  const pins = [...pinsFromItems(comments), ...pinsFromItems(reviews)];
   pins.sort((a, b) => a.t - b.t);
   return pins.at(-1)?.sha;
 }
