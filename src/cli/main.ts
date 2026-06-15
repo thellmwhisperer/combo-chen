@@ -272,7 +272,7 @@ export function buildReviewerWatchCommand(input: {
     '  failure_rc="$rc"',
     `  [ "$failure_rc" -eq 0 ] && failure_rc=${REVIEWER_TRANSIENT_EXIT_CODE}`,
     "  failures=$((failures + 1))",
-    '  output_snippet=$(printf "%s\\n" "$output" | tail -c 500)',
+    '  output_snippet=$(printf "%s\\n" "$output" | head -c 500)',
     '  output_snippet_escaped=$(printf \'%s\\n\' "$output_snippet" | sed "s/\'/\'\\\\\\\\\'\'/g")',
     `  ${emit} watch_error --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field 'stderr='"$output_snippet_escaped" --field "consecutive_failures=$failures" --field "watcher=reviewer" >/dev/null 2>&1 || true`,
     `  if [ "$failures" -ge ${failureLimit} ]; then`,

@@ -402,7 +402,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         "watch_failure_limit",
         DEFAULTS.limits.watch_failure_limit,
       ),
-      watchBackoffMaxSeconds: pickNumber(
+      watchBackoffMaxSeconds: pickPositiveInteger(
         limitsTable,
         "watch_backoff_max_seconds",
         DEFAULTS.limits.watch_backoff_max_seconds,
