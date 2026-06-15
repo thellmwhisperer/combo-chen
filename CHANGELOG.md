@@ -281,6 +281,7 @@
 
 ### Bug Fixes
 
+* **lgtm:** harden LGTM pin extraction to require own-line verdicts with at least seven hex characters and filter out code fences, quoted text, indented code blocks, and inline code span fixtures ([#58](https://github.com/thellmwhisperer/combo-chen/issues/58))
 * **hodor:** recreate missing hodor tmux window on `hodor_started` event so the live role window survives an early attach watcher exit ([#62](https://github.com/thellmwhisperer/combo-chen/issues/62))
 * **thread-sitter:** replace send-keys with paste-buffer for nudge transport ([b9170eb](https://github.com/thellmwhisperer/combo-chen/commit/b9170eb4b231e58909712f921abcaf378f86cd12))
 

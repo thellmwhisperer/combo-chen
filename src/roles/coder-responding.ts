@@ -277,7 +277,7 @@ function isCodeRabbitRateLimitComment(author: string, body: string): boolean {
 }
 
 function isPinnedLgtmReview(body: string): boolean {
-  return /^\s*lgtm\s*@\s*[0-9a-f]{6,40}\b/i.test(body);
+  return /^\s*lgtm\s*@\s*[0-9a-f]{7,40}\s*(?:\r?\n|$)/i.test(body);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
