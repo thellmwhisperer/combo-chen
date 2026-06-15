@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.23](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.22...combo-chen-v0.0.23) (2026-06-15)
+
+
+### Bug Fixes
+
+* **cli:** harden director pipeline with shared PR URL parser, per-tick gh api cache, and direct-run fix ([d96c271](https://github.com/thellmwhisperer/combo-chen/commit/d96c2719ca71358da18cb7815cae23d930809924))
+* **cli:** Implemented and validated the remaining direct-run robustness fix by switching CLI entrypoint URL comparison to `pathToFileURL(argv1)`. ([a806268](https://github.com/thellmwhisperer/combo-chen/commit/a806268caddc245ccb30ec30209025af97f00181))
+* **github:** Added a per-director-tick GitHub API cache and shared `gh api` failure classifier so overlapping PR endpoint reads are reused within a director pass. ([85904b0](https://github.com/thellmwhisperer/combo-chen/commit/85904b0d6ca146cb5247cf61e6c89df1cfdf9b9d))
+
 ## [0.0.22](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.21...combo-chen-v0.0.22) (2026-06-15)
 
 
