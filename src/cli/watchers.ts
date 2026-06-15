@@ -1,28 +1,28 @@
 /**
- * @overview Watch-loop command helpers. ~80 lines, 4 exports, reviewer watcher shell.
+ * @overview Watch-loop command helpers. ~93 lines, 4 exports, director watcher shell.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at buildReviewerWatchCommand <- renders retry/backoff shell loop.
+ *   1. Start at buildDirectorWatchCommand <- renders retry/backoff shell loop.
  *   2. Use reviewerTransientFailure       <- marker emitted by reviewer-tick.
  *   3. resolvePollMs                      <- optional events --follow cadence.
  *
  *   MAIN FLOW
  *   ---------
- *   reviewer-tick output -> terminal/transient detection -> watch_error/watch_dead or sleep
+ *   director-tick output -> terminal/transient detection -> watch_error/watch_dead or sleep
  *
  *   PUBLIC API
  *   ----------
  *   resolvePollMs                 Parse COMBO_CHEN_POLL_MS.
  *   REVIEWER_TRANSIENT_FAILURE    Prefix watched as transient failure marker.
  *   reviewerTransientFailure      Format transient reviewer messages.
- *   buildReviewerWatchCommand     Render reviewer-watch shell loop.
+ *   buildDirectorWatchCommand     Render director-watch shell loop.
  *
  *   INTERNALS
  *   ---------
  *   REVIEWER_TRANSIENT_EXIT_CODE
  *
- * @exports resolvePollMs, REVIEWER_TRANSIENT_FAILURE, reviewerTransientFailure, buildReviewerWatchCommand
+ * @exports resolvePollMs, REVIEWER_TRANSIENT_FAILURE, reviewerTransientFailure, buildDirectorWatchCommand
  * @deps ../core/combo
  */
 import { shellQuote } from "../core/combo.js";
@@ -44,8 +44,8 @@ export function reviewerTransientFailure(message: string): string {
 }
 // -/ 1/2
 
-// -- 2/2 CORE · buildReviewerWatchCommand <- START HERE --
-export function buildReviewerWatchCommand(input: {
+// -- 2/2 CORE · buildDirectorWatchCommand <- START HERE --
+export function buildDirectorWatchCommand(input: {
   cli: string;
   comboHome: string;
   comboId: string;
@@ -63,7 +63,7 @@ export function buildReviewerWatchCommand(input: {
     "failures=0",
     `backoff=${initialBackoffSeconds}`,
     "while :; do",
-    `  output=$(${env} ${input.cli} reviewer-tick -n ${shellQuote(input.comboId)} 2>&1)`,
+    `  output=$(${env} ${input.cli} director-tick -n ${shellQuote(input.comboId)} 2>&1)`,
     "  rc=$?",
     '  printf "%s\\n" "$output"',
     `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("reviewer: (merged|closed|already terminal)")} && exit 0`,
@@ -80,9 +80,9 @@ export function buildReviewerWatchCommand(input: {
     "  failures=$((failures + 1))",
     '  output_snippet=$(printf "%s\\n" "$output" | head -c 500)',
     '  output_snippet_escaped=$(printf \'%s\\n\' "$output_snippet" | sed "s/\'/\'\\\\\\\\\'\'/g")',
-    `  ${emit} watch_error --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field 'stderr='"$output_snippet_escaped" --field "consecutive_failures=$failures" --field "watcher=reviewer" >/dev/null 2>&1 || true`,
+    `  ${emit} watch_error --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field 'stderr='"$output_snippet_escaped" --field "consecutive_failures=$failures" --field "watcher=director" >/dev/null 2>&1 || true`,
     `  if [ "$failures" -ge ${failureLimit} ]; then`,
-    `    ${emit} watch_dead --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field 'stderr='"$output_snippet_escaped" --field "consecutive_failures=$failures" --field "watcher=reviewer" >/dev/null 2>&1 || true`,
+    `    ${emit} watch_dead --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field 'stderr='"$output_snippet_escaped" --field "consecutive_failures=$failures" --field "watcher=director" >/dev/null 2>&1 || true`,
     '    exit "$failure_rc"',
     "  fi",
     '  sleep "$backoff"',

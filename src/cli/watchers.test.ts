@@ -3,7 +3,7 @@
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at buildReviewerWatchCommand tests <- reviewer-watch retry/backoff shell.
+ *   1. Start at buildDirectorWatchCommand tests <- director-watch retry/backoff shell.
  *   2. resolvePollMs tests                      <- optional env override.
  *
  *   MAIN FLOW
@@ -23,7 +23,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { buildReviewerWatchCommand, resolvePollMs } from "./watchers.js";
+import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
 
 // -- 1/2 HELPER · resolvePollMs tests --
 describe("resolvePollMs", () => {
@@ -35,10 +35,10 @@ describe("resolvePollMs", () => {
 });
 // -/ 1/2
 
-// -- 2/2 CORE · buildReviewerWatchCommand tests <- START HERE --
-describe("buildReviewerWatchCommand", () => {
-  it("polls reviewer-tick until terminal reviewer output appears", () => {
-    const command = buildReviewerWatchCommand({
+// -- 2/2 CORE · buildDirectorWatchCommand tests <- START HERE --
+describe("buildDirectorWatchCommand", () => {
+  it("polls director-tick until terminal reviewer output appears", () => {
+    const command = buildDirectorWatchCommand({
       cli: `node "/repo/dist/cli.mjs"`,
       comboHome: "/tmp/combo home",
       comboId: "owner-repo-7",
@@ -50,11 +50,13 @@ describe("buildReviewerWatchCommand", () => {
     expect(command).toContain("failures=0");
     expect(command).toContain("backoff=12");
     expect(command).toContain(
-      `output=$(COMBO_CHEN_HOME='/tmp/combo home' node "/repo/dist/cli.mjs" reviewer-tick -n 'owner-repo-7' 2>&1)`,
+      `output=$(COMBO_CHEN_HOME='/tmp/combo home' node "/repo/dist/cli.mjs" director-tick -n 'owner-repo-7' 2>&1)`,
     );
     expect(command).toContain("reviewer: transient_failure:");
     expect(command).toContain("watch_error");
     expect(command).toContain("watch_dead");
+    expect(command).toContain('watcher=director');
+    expect(command).not.toContain("watcher=reviewer");
     expect(command).toContain('[ "$failures" -ge 3 ]');
     expect(command).toContain("sleep \"$backoff\"");
   });
