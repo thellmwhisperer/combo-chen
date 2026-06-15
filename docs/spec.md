@@ -247,7 +247,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
 1. **Claude codes v0**, TDD — Codex is the coder inside combos and the first
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
-3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer`, coder
+3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`forensics`/`activate-reviewer`, coder
    (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental re-review),
    director-owned tmux poll loop; manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo
