@@ -42,6 +42,12 @@ an equivalent GitHub autoclose keyword in the PR/body generation path.
 A recoverable coder failure journals `coder_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.
 
+Before the coder starts, the runner fetches and rebases the worktree onto
+`origin/main`. A fetch failure journals `rebase_failed` (required field
+`base`) and exits 1; a merge-conflict rebase failure journals
+`rebase_conflict` (required field `base`) and exits 1. Both events
+transition the combo immediately to `STALLED`.
+
 A terminal coder failure (non-zero exit) journals `coder_failed` (required
 fields: `exit_code`, `has_new_commits`). The runner captures the git HEAD
 before and after the coder run: `base_sha`, `head_sha`, and
@@ -159,9 +165,12 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 
 - Default: human merges. Always.
   - **Merged:** The combo journals `merged` (fields: `sha`=merge commit oid,
-    `by`), verifies the merge commit is in the base branch, removes the
-    local worktree and branch, then journals `combo_closed`. The remote
-    branch is left alone by default.
+    `by`, optional `source`), verifies the merge commit is in the base branch,
+    removes the local worktree and branch, then journals `combo_closed`
+    (fields: optional `source`). The remote branch is left alone by default.
+    When `source` is `"reconcile"`, the event was synthesized from GitHub PR
+    state during a frozen journal repair pass, not observed live by the
+    director loop.
   - **Closed without merge:** The combo journals `needs_human` (fields:
     `reason`=`"pr_closed"`), then `combo_closed`. The reviewer stops the tmux
     session but does NOT remove the worktree or local branch, preserving
@@ -224,6 +233,12 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
+- `combo-chen reconcile [--apply]` compares every persisted combo journal
+  against GitHub PR state. For merged PRs whose journal froze before the
+  director could record `merged`/`combo_closed`, it appends the missing
+  terminal events (marked `source: "reconcile"`) and runs teardown (worktree
+  removal, branch deletion, tmux session kill). Without `--apply` it reports
+  what would change without mutating state.
 
 ## 8b. Preflight
 
@@ -247,11 +262,11 @@ conversation, nothing else. Lingering processes die with the tmux session.
 1. **Claude codes v0**, TDD — Codex is the coder inside combos and the first
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
-3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer`, coder
-   (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental re-review),
-   director-owned tmux poll loop; manual director; treehouse, ACP,
-   counterfactual log, preflight and multi-combo
-   dashboard deferred to v1+.
+3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer`/
+    `reconcile`, coder (codex+gnhf), gatekeeper (no-mistakes), reviewer
+    (incremental re-review), director-owned tmux poll loop; manual director;
+    treehouse, ACP, counterfactual log, preflight and multi-combo dashboard
+    deferred to v1+.
 
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the
 contract describes each role directly before the project has external users.
