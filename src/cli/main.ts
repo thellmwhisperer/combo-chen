@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~520 lines, 13 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~530 lines, 14 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./coder, ./director, ./gate, ./github, ./reviewer, ./sessions, ./watchers
+ *   ./args, ./coder, ./director, ./gate, ./github, ./reconcile, ./reviewer, ./sessions, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -75,6 +75,7 @@ import {
   startGatekeeperWindow,
 } from "./gate.js";
 import { fetchIssueDetails, remoteSlug } from "./github.js";
+import { reconcileCombos } from "./reconcile.js";
 import {
   activateReviewer,
   tickReviewer,
@@ -344,6 +345,18 @@ export function createProgram(deps: Deps): Command {
         if (maxTicks !== undefined && ticks >= maxTicks) break;
         await deps.sleep(config.limits.babysitPollSeconds * 1000);
       }
+    });
+
+  program
+    .command("reconcile")
+    .description("Compare local combo journals with GitHub and repair missing terminal events")
+    .option("--apply", "Append reconcile events and run pending teardown", false)
+    .action(async (options: { apply: boolean }) => {
+      await reconcileCombos({
+        deps,
+        home: comboHome(deps.env),
+        apply: options.apply,
+      });
     });
 
   program
