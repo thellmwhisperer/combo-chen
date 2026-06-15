@@ -1,4 +1,15 @@
-import type { ComboEvent } from "../core/events.js";
+import { readEvents, type ComboEvent } from "../core/events.js";
+
+export function latestOpenedPrUrl(runDir: string): string | undefined {
+  const events = readEvents(runDir);
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "pr_opened" && typeof event["url"] === "string") {
+      return event["url"];
+    }
+  }
+  return undefined;
+}
 
 export function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
   let sha: string | undefined;
