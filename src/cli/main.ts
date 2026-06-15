@@ -42,6 +42,7 @@ import {
   canonicalEventName,
   followEvents,
   readEvents,
+  type ComboEvent,
   type EventName,
 } from "../core/events.js";
 import {
@@ -76,7 +77,7 @@ import {
   propagateNoMistakesConfig,
   startGatekeeperWindow,
 } from "./gate.js";
-import { fetchIssueDetails, remoteSlug } from "./github.js";
+import { fetchForensicsGithubFacts, fetchIssueDetails, remoteSlug } from "./github.js";
 import {
   activateReviewer,
   tickReviewer,
@@ -385,9 +386,11 @@ export function createProgram(deps: Deps): Command {
       });
       const reports = combos.map((combo) => {
         const runDir = runDirFor(home, combo.id);
+        const events = readEvents(runDir);
         return analyzeForensicsCombo({
           combo,
-          events: readEvents(runDir),
+          events,
+          github: fetchForensicsGithubFacts(deps.gh, combo.issueUrl, latestForensicsPrUrl(events)),
           tmux: collectForensicsTmuxFacts(deps, combo),
         });
       });
@@ -562,6 +565,14 @@ function collectForensicsTmuxFacts(deps: Deps, combo: ComboRecord): { sessionExi
   } catch {
     return undefined;
   }
+}
+
+function latestForensicsPrUrl(events: ComboEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "pr_opened" && typeof event.url === "string") return event.url;
+  }
+  return undefined;
 }
 
 export function isDirectRun(metaUrl: string, argv1: string | undefined): boolean {

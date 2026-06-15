@@ -1693,6 +1693,113 @@ describe("forensics", () => {
       prUrl: "https://github.com/o/r/pull/9",
     });
   });
+
+  it("enriches reports with live GitHub PR and issue facts", async () => {
+    const h = home();
+    const openDir = seedCombo(h, "o-r-7", 7);
+    const mergedDir = seedCombo(h, "o-r-8", 8);
+    writeFileSync(
+      join(openDir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        { t: "2026-06-11T10:07:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+        { t: "2026-06-11T10:08:00.000Z", event: "gate_validated", sha: "def456" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    writeFileSync(
+      join(mergedDir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T11:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/8" },
+        { t: "2026-06-11T11:07:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/10" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(args);
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/9") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "def456",
+              state: "OPEN",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
+                { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/10") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "999aaa",
+              state: "MERGED",
+              mergedAt: "2026-06-11T11:20:00.000Z",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ state: "OPEN", closedAt: null }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["forensics", "--issues", "7,8", "--format", "json"]);
+
+    const parsed = JSON.parse(out.join("\n")) as {
+      reports: Array<{
+        id: string;
+        timeline: { mergedAt?: string };
+        gates: { ci: string; issueClosed: boolean | "unknown"; reviewer: { current: boolean; headSha?: string } };
+        incidents: Array<{ id: string }>;
+      }>;
+    };
+    const open = parsed.reports.find((report) => report.id === "o-r-7");
+    const merged = parsed.reports.find((report) => report.id === "o-r-8");
+    expect(open).toMatchObject({
+      gates: {
+        ci: "success",
+        reviewer: { current: false, headSha: "def456" },
+        issueClosed: false,
+      },
+    });
+    expect(open?.incidents.map((incident) => incident.id)).toContain("missing_reviewer_verdict");
+    expect(merged).toMatchObject({
+      timeline: { mergedAt: "2026-06-11T11:20:00.000Z" },
+      gates: { ci: "success", issueClosed: false },
+    });
+    expect(merged?.incidents.map((incident) => incident.id)).toContain("merged_pr_open_issue");
+    expect(ghCalls).toContainEqual([
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/9",
+      "--json",
+      "headRefOid,state,mergedAt,mergeStateStatus,statusCheckRollup",
+    ]);
+    expect(ghCalls).toContainEqual([
+      "issue",
+      "view",
+      "https://github.com/o/r/issues/8",
+      "--json",
+      "state,closedAt",
+    ]);
+  });
 });
 
 describe("activate-reviewer", () => {
