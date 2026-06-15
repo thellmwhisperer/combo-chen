@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder responding mode. ~379 lines, testing
+ * @overview Unit tests for coder responding mode. ~433 lines, testing
  *   review nudge prompt rendering, activation/resume commands, thread
  *   artifact persistence, PR comment routing, URL parsing, gh array
  *   aggregation, and review comment/PR review signal extraction.
@@ -349,6 +349,23 @@ describe("signalFromComment", () => {
     expect(signalFromComment(null, "pr_comment")).toBeUndefined();
     expect(signalFromComment(42, "pr_comment")).toBeUndefined();
   });
+
+  it("ignores a pure CodeRabbit retrigger bookkeeping PR comment", () => {
+    expect(
+      signalFromComment(
+        {
+          body: [
+            "@coderabbitai review",
+            "",
+            "Codex -- Re-running CodeRabbit for current PR #82 head 73f80173 after the no-mistakes documentation commit.",
+          ].join("\n"),
+          html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+          user: { login: "teseo" },
+        },
+        "pr_comment",
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("signalFromReview", () => {
@@ -377,6 +394,21 @@ describe("signalFromReview", () => {
       signalFromReview({
         state: "APPROVED",
         body: "LGTM",
+        html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+        user: { login: "reviewer" },
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a COMMENTED review that is only a pinned LGTM", () => {
+    expect(
+      signalFromReview({
+        state: "COMMENTED",
+        body: [
+          "lgtm @ 73f80173a96fc2d70af0972c6ee936cc59ad5f19",
+          "",
+          "Runtime review. No findings.",
+        ].join("\n"),
         html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
         user: { login: "reviewer" },
       }),

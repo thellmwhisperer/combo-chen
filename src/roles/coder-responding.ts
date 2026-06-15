@@ -1,7 +1,7 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
  *   journal and delivers prompts to the coder tmux window via paste-buffer.
- *   Reads only; never mutates GitHub or the repo. ~274 lines, 11 exports.
+ *   Reads only; never mutates GitHub or the repo. ~314 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -127,6 +127,7 @@ export function routeReviewComments(input: {
   runDir: string;
   tmuxSession: string;
   comments: ReviewCommentSignal[];
+  headSha?: string;
   reviewNudgePrompt: string;
   tmux: (args: string[]) => TmuxResult;
   windowName: string;
@@ -143,11 +144,13 @@ export function routeReviewComments(input: {
         throw new Error(`tmux nudge failed: ${result.stderr.trim() || "unknown error"}`);
       }
     }
-    appendEvent(input.runDir, "review_comment", {
+    const payload: Record<string, unknown> = {
       author: comment.author,
       kind: comment.kind,
       url: comment.url,
-    });
+    };
+    if (input.headSha !== undefined) payload["head_sha"] = input.headSha;
+    appendEvent(input.runDir, "review_comment", payload);
     seen.add(comment.url);
     routed.push(comment);
   }
@@ -249,23 +252,61 @@ export function readGhArray(gh: (args: string[]) => TmuxResult, endpoint: string
 
 // -- 4/4 HELPER · Signal extraction from GitHub JSON --
 export function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | undefined {
-  if (!isRecord(item) || !hasNonEmptyBody(item)) return undefined;
+  if (!isRecord(item)) return undefined;
+  const body = bodyText(item);
+  if (body === undefined) return undefined;
   const url = item["html_url"];
   const user = item["user"];
   if (typeof url !== "string" || url.trim() === "") return undefined;
   if (!isRecord(user) || typeof user["login"] !== "string" || user["login"].trim() === "") {
     return undefined;
   }
-  return { author: user["login"], kind, url };
+  const author = user["login"];
+  if (kind === "pr_comment" && isCodeRabbitRetriggerBookkeeping(body)) return undefined;
+  if (kind === "pr_comment" && isCodeRabbitRateLimitComment(author, body)) return undefined;
+  return { author, kind, url };
 }
 
 export function signalFromReview(item: unknown): ReviewCommentSignal | undefined {
-  if (!isRecord(item) || item["state"] === "APPROVED") return undefined;
+  if (!isRecord(item)) return undefined;
+  const state = typeof item["state"] === "string" ? item["state"].toUpperCase() : "";
+  if (state === "APPROVED") return undefined;
+  const body = bodyText(item);
+  if (state === "COMMENTED" && body !== undefined && isPinnedLgtmReview(body)) return undefined;
   return signalFromComment(item, "review");
 }
 
-function hasNonEmptyBody(item: Record<string, unknown>): boolean {
-  return typeof item["body"] === "string" && item["body"].trim() !== "";
+function bodyText(item: Record<string, unknown>): string | undefined {
+  const body = item["body"];
+  return typeof body === "string" && body.trim() !== "" ? body : undefined;
+}
+
+function meaningfulLines(body: string): string[] {
+  return body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}
+
+function isCodeRabbitRetriggerBookkeeping(body: string): boolean {
+  const lines = meaningfulLines(body);
+  if (lines.length === 0 || !/^@coderabbitai\s+review\s*$/i.test(lines[0]!)) return false;
+  return lines.slice(1).every((line) => {
+    const lower = line.toLowerCase();
+    return lower.includes("codex") && lower.includes("coderabbit");
+  });
+}
+
+function isCodeRabbitRateLimitComment(author: string, body: string): boolean {
+  return (
+    author.toLowerCase().startsWith("coderabbit") &&
+    /\breview\s+limit\s+reached\b|rate[-\s]?limit(?:ed)?|\breview\s+skipped\b|couldn'?t start this review/i.test(body)
+  );
+}
+
+function isPinnedLgtmReview(body: string): boolean {
+  return /^\s*lgtm\s*@\s*[0-9a-f]{6,40}\b/i.test(body);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
