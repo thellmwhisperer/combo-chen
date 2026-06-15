@@ -36,13 +36,14 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { buildDirectorWatchCommand, createProgram, type Deps } from "./main.js";
+import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
 function home(): string {
@@ -117,6 +118,12 @@ function writeExecutable(path: string, body: string): void {
   chmodSync(path, 0o755);
 }
 describe("command surface", () => {
+  it("detects direct source execution when argv[1] needs file URL escaping", () => {
+    const script = "/repo/combo#chen/src/cli/main.ts";
+
+    expect(isDirectRun(pathToFileURL(script).href, script)).toBe(true);
+  });
+
   it("exposes the configured command surface", () => {
     const { deps } = fakeDeps();
     const names = createProgram(deps)
