@@ -1,3 +1,30 @@
+/**
+ * @overview Coder-response CLI helpers. ~140 lines, 4 exports, two command bodies.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at activateCoder         <- starts resumed coder + comment watcher.
+ *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
+ *   3. Dependency interfaces          <- test seams for tmux/git/gh.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   activateCoder -> tmux windows; nudgeReviewComments -> latest PR -> mirror sync -> route comments
+ *
+ *   PUBLIC API
+ *   ----------
+ *   ActivateCoderDeps          Dependencies for activateCoder.
+ *   NudgeReviewCommentsDeps    Dependencies for nudgeReviewComments.
+ *   activateCoder              Start coder responding mode.
+ *   nudgeReviewComments        Route fresh review comments to the coder.
+ *
+ *   INTERNALS
+ *   ---------
+ *   none
+ *
+ * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, activateCoder, nudgeReviewComments
+ * @deps ../core/{events,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./gate
+ */
 import { readEvents } from "../core/events.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
@@ -12,6 +39,7 @@ import {
 } from "../roles/coder-responding.js";
 import { syncNoMistakesMirror } from "./gate.js";
 
+// -- 1/3 HELPER · Dependency contracts --
 export interface ActivateCoderDeps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
@@ -25,7 +53,9 @@ export interface NudgeReviewCommentsDeps {
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
 }
+// -/ 1/3
 
+// -- 2/3 CORE · activateCoder <- START HERE --
 export function activateCoder(input: {
   deps: ActivateCoderDeps;
   home: string;
@@ -72,7 +102,9 @@ export function activateCoder(input: {
   }
   deps.out(`coder responding active for ${combo.id}`);
 }
+// -/ 2/3
 
+// -- 3/3 CORE · nudgeReviewComments --
 export function nudgeReviewComments(input: {
   deps: NudgeReviewCommentsDeps;
   home: string;
@@ -108,3 +140,4 @@ export function nudgeReviewComments(input: {
     deps.out(`nudged ${comment.url}`);
   }
 }
+// -/ 3/3

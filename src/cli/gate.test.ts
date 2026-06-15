@@ -1,3 +1,27 @@
+/**
+ * @overview Unit tests for gatekeeper CLI helpers. ~145 lines, attach window and mirror sync.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at gatekeeper attach window helpers <- tmux command rendering.
+ *   2. Then syncNoMistakesMirror                 <- missing mirror no-op.
+ *   3. remoteShaForRef                           <- exact ref parser.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   fake combo -> gate helper -> tmux/git argv contracts
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   combo
+ *
+ * @exports none
+ * @deps vitest, node:{fs,os,path}, ../core/state, ./gate
+ */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +35,7 @@ import {
 } from "./gate.js";
 import type { ComboRecord } from "../core/state.js";
 
+// -- 1/3 HELPER · combo and remoteShaForRef tests --
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
   return {
     id: "o-r-7",
@@ -37,7 +62,9 @@ describe("remoteShaForRef", () => {
     ).toBe("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   });
 });
+// -/ 1/3
 
+// -- 2/3 CORE · gatekeeper attach window helpers <- START HERE --
 describe("gatekeeper attach window helpers", () => {
   it("builds the polling attach command with shell-quoted worktree paths", () => {
     expect(
@@ -91,7 +118,9 @@ describe("gatekeeper attach window helpers", () => {
     ]);
   });
 });
+// -/ 2/3
 
+// -- 3/3 CORE · syncNoMistakesMirror tests --
 describe("syncNoMistakesMirror", () => {
   it("treats a missing no-mistakes remote as a no-op", () => {
     const calls: string[][] = [];
@@ -116,3 +145,4 @@ describe("syncNoMistakesMirror", () => {
     expect(calls).toEqual([[record.worktree, "remote", "get-url", "no-mistakes"]]);
   });
 });
+// -/ 3/3

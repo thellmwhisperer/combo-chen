@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~395 lines, 5 exports.
+ *   Repo wins on policy, user wins on local setup. ~460 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -24,9 +24,10 @@
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
- *   │ pickNumberAlias, pickNonNegativeInteger, pickNonEmptyString,     │
- *   │ normalizeLimitAliases, ROLE_ALIASES, DEFAULTS, PLACEHOLDER       │
- *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig           │
+ *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
+ *   │ pickNonEmptyString, normalizeLimitAliases, ROLE_ALIASES,        │
+ *   │ DEFAULTS, PLACEHOLDER                                            │
+ *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
  * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, renderCommand
@@ -54,6 +55,8 @@ export interface ComboLimits {
   coderTimeoutMinutes: number;
   teardownGitRetries: number;
   teardownGitBackoffSeconds: number;
+  watchFailureLimit: number;
+  watchBackoffMaxSeconds: number;
 }
 
 export interface ComboConfig {
@@ -116,6 +119,8 @@ const DEFAULTS = {
     coder_timeout_minutes: 180,
     teardown_git_retries: 2,
     teardown_git_backoff_seconds: 2,
+    watch_failure_limit: 5,
+    watch_backoff_max_seconds: 3600,
   },
   coder: {
     codex: {
@@ -228,6 +233,16 @@ function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number)
   return parsed;
 }
 
+function pickPositiveInteger(table: TomlTable, key: string, fallback: number): number {
+  const value = table[key];
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new ComboConfigError(`[limits] ${key} must be a positive integer`);
+  }
+  return parsed;
+}
+
 function pickNonEmptyString(value: unknown, description: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new ComboConfigError(`${description} must be a non-empty string`);
@@ -323,6 +338,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (gatekeeperAttachRetryInterval !== undefined) {
     gatekeeperTable["attach_retry_interval_seconds"] = gatekeeperAttachRetryInterval;
   }
+  if (env["COMBO_CHEN_WATCH_FAILURE_LIMIT"] !== undefined) {
+    limitsTable["watch_failure_limit"] = env["COMBO_CHEN_WATCH_FAILURE_LIMIT"];
+  }
+  if (env["COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS"] !== undefined) {
+    limitsTable["watch_backoff_max_seconds"] = env["COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS"];
+  }
 
   if (roles.reviewer.length === 0) {
     throw new ComboConfigError(
@@ -376,6 +397,16 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         limitsTable,
         "teardown_git_backoff_seconds",
         DEFAULTS.limits.teardown_git_backoff_seconds,
+      ),
+      watchFailureLimit: pickPositiveInteger(
+        limitsTable,
+        "watch_failure_limit",
+        DEFAULTS.limits.watch_failure_limit,
+      ),
+      watchBackoffMaxSeconds: pickPositiveInteger(
+        limitsTable,
+        "watch_backoff_max_seconds",
+        DEFAULTS.limits.watch_backoff_max_seconds,
       ),
     },
     coderCommand,

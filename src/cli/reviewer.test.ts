@@ -1,3 +1,27 @@
+/**
+ * @overview Unit tests for reviewer CLI helpers. ~220 lines, journal predicates and reviewer flows.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at reviewer journal helpers <- pure LGTM/terminal predicates.
+ *   2. Then activateReviewer             <- reviewer + watcher tmux windows.
+ *   3. Then tickReviewer                 <- PR state handling.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   fake journal/gh/tmux -> reviewer helper -> events, tmux calls, output
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   combo
+ *
+ * @exports none
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./reviewer
+ */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +40,7 @@ import {
   tickReviewer,
 } from "./reviewer.js";
 
+// -- 1/4 HELPER · combo fixture --
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
   return {
     id: "o-r-7",
@@ -28,7 +53,9 @@ function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
     ...overrides,
   };
 }
+// -/ 1/4
 
+// -- 2/4 HELPER · reviewer journal helpers --
 describe("cli reviewer journal helpers", () => {
   it("tracks the currently live LGTM pin through stale events", () => {
     const events = [
@@ -76,7 +103,9 @@ describe("cli reviewer journal helpers", () => {
     expect(latestOpenedPrUrl(runDir)).toBe("https://github.com/o/r/pull/8");
   });
 });
+// -/ 2/4
 
+// -- 3/4 CORE · activateReviewer tests <- START HERE --
 describe("activateReviewer", () => {
   it("starts the reviewer and watcher windows for the latest opened PR", () => {
     const calls: string[][] = [];
@@ -143,7 +172,9 @@ describe("activateReviewer", () => {
     ).toThrow("Cannot activate reviewer for o-r-7: no pr_opened event in the journal");
   });
 });
+// -/ 3/4
 
+// -- 4/4 CORE · tickReviewer tests --
 describe("tickReviewer", () => {
   it("journals a closed PR and stops the combo without local git cleanup", async () => {
     const calls: string[][] = [];
@@ -190,3 +221,4 @@ describe("tickReviewer", () => {
     expect(out).toEqual(["reviewer: closed"]);
   });
 });
+// -/ 4/4

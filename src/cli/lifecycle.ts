@@ -1,5 +1,30 @@
+/**
+ * @overview Merged-combo teardown helpers. ~90 lines, 2 exports, retrying git cleanup.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at teardownMergedCombo   <- verifies merge reachability before cleanup.
+ *   2. Then requireGit                <- retry wrapper for each git operation.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   teardownMergedCombo -> fetch base -> verify merge sha -> remove worktree -> delete branch
+ *
+ *   PUBLIC API
+ *   ----------
+ *   LifecycleDeps          Git/sleep deps for teardown.
+ *   teardownMergedCombo    Clean up local combo state after a merged PR.
+ *
+ *   INTERNALS
+ *   ---------
+ *   requireGit
+ *
+ * @exports LifecycleDeps, teardownMergedCombo
+ * @deps ../core/state
+ */
 import type { ComboRecord } from "../core/state.js";
 
+// -- 1/2 HELPER · LifecycleDeps and requireGit --
 export interface LifecycleDeps {
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   sleep: (ms: number) => Promise<void>;
@@ -21,7 +46,9 @@ async function requireGit(
     await deps.sleep(options.backoffSeconds * 1000 * (attempt + 1));
   }
 }
+// -/ 1/2
 
+// -- 2/2 CORE · teardownMergedCombo <- START HERE --
 export async function teardownMergedCombo(input: {
   deps: LifecycleDeps;
   combo: ComboRecord;
@@ -61,3 +88,4 @@ export async function teardownMergedCombo(input: {
     retryOptions,
   );
 }
+// -/ 2/2
