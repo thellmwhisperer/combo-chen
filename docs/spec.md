@@ -180,7 +180,7 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   each plan; limits are the contract.
 - `rate_limited(role, until)` is a first-class event: the role pauses, the
   director knows, the role resumes at reset.
-- Watcher resilience: the reviewer-watch loop journals `watch_error` on each
+- Watcher resilience: the director-watch loop journals `watch_error` on each
   transient failure (rate limits, network errors) with the exit code and
   stderr snippet, and `watch_dead` after `[limits].watch_failure_limit`
   consecutive failures. The watcher doubles its backoff on each failure
