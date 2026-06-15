@@ -307,9 +307,9 @@ function parseIssueView(stdout: string): ForensicsGithubFacts["issue"] | undefin
   };
 }
 
-function rollupSignal(rollup: unknown[] | undefined, codeRabbit: boolean): GithubSignalState {
+function rollupSignal(rollup: unknown[] | undefined, onlyCodeRabbit: boolean): GithubSignalState {
   if (rollup === undefined) return "unknown";
-  const items = rollup.filter((item) => isCodeRabbitCheck(item) === codeRabbit);
+  const items = rollup.filter((item) => isCodeRabbitCheck(item) === onlyCodeRabbit);
   if (items.length === 0) return "unknown";
   const states = items.map(checkSignalState);
   if (states.includes("failure")) return "failure";

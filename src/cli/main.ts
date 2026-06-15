@@ -41,6 +41,7 @@ import {
   appendEvent,
   canonicalEventName,
   followEvents,
+  latestPrUrlFromEvents,
   readEvents,
   type ComboEvent,
   type EventName,
@@ -382,7 +383,11 @@ export function createProgram(deps: Deps): Command {
       const combos = listCombos(home).filter((combo) => {
         if (options.name !== undefined && combo.id !== options.name) return false;
         if (issueFilter === undefined) return true;
-        return issueFilter.has(parseIssueUrl(combo.issueUrl).number);
+        try {
+          return issueFilter.has(parseIssueUrl(combo.issueUrl).number);
+        } catch {
+          return false;
+        }
       });
       const reports = combos.map((combo) => {
         const runDir = runDirFor(home, combo.id);
@@ -390,7 +395,7 @@ export function createProgram(deps: Deps): Command {
         return analyzeForensicsCombo({
           combo,
           events,
-          github: fetchForensicsGithubFacts(deps.gh, combo.issueUrl, latestForensicsPrUrl(events)),
+          github: fetchForensicsGithubFacts(deps.gh, combo.issueUrl, latestPrUrlFromEvents(events)),
           tmux: collectForensicsTmuxFacts(deps, combo),
         });
       });
@@ -565,14 +570,6 @@ function collectForensicsTmuxFacts(deps: Deps, combo: ComboRecord): { sessionExi
   } catch {
     return undefined;
   }
-}
-
-function latestForensicsPrUrl(events: ComboEvent[]): string | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]!;
-    if (event.event === "pr_opened" && typeof event.url === "string") return event.url;
-  }
-  return undefined;
 }
 
 export function isDirectRun(metaUrl: string, argv1: string | undefined): boolean {
