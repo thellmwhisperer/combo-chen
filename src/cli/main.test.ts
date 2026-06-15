@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~2585 lines.
+ *   deps so tests run without a real terminal or network. ~3020 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -29,8 +29,8 @@
  *   └────────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{child_process,fs,os,path}, ../../core/{events,state},
- *   ../../roles/coder, ../../roles/gatekeeper, ../../infra/config
+ * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state},
+ *   ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
