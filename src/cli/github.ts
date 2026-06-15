@@ -1,3 +1,29 @@
+/**
+ * @overview GitHub CLI parsing helpers. ~235 lines, 8 exports, gh JSON normalization.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at fetchIssueDetails     <- issue title/body for runner PR intent.
+ *   2. Then latestGitHubLgtmSha       <- latest LGTM pin from comments/reviews.
+ *   3. Finish at parsePrView          <- normalized PR state for reviewer tick.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   gh stdout -> JSON parse -> typed issue/PR/LGTM facts
+ *
+ *   PUBLIC API
+ *   ----------
+ *   GhResult, GhRunner, IssueDetails, remoteSlug, fetchIssueDetails
+ *   latestGitHubLgtmSha, PrView, parsePrView
+ *
+ *   INTERNALS
+ *   ---------
+ *   PullRequestRef, parsePullRequestUrl, GitHubPin, lgtmPinFromBody, pinsFromPayload
+ *
+ * @exports GhResult, GhRunner, IssueDetails, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, PrView, parsePrView
+ * @deps none
+ */
+// -- 1/4 CORE · Issue metadata and remoteSlug <- START HERE --
 export interface GhResult {
   status: number;
   stdout: string;
@@ -47,7 +73,9 @@ export function fetchIssueDetails(gh: GhRunner, issueUrl: string): IssueDetails 
   }
   return { title, body: body ?? "" };
 }
+// -/ 1/4
 
+// -- 2/4 HELPER · PR URL and LGTM pin parsing --
 interface PullRequestRef {
   owner: string;
   repo: string;
@@ -109,7 +137,9 @@ function pinsFromPayload(stdout: string): GitHubPin[] {
   }
   return pins;
 }
+// -/ 2/4
 
+// -- 3/4 CORE · latestGitHubLgtmSha --
 export function latestGitHubLgtmSha(gh: GhRunner, prUrl: string): string | undefined {
   const ref = parsePullRequestUrl(prUrl);
   if (!ref) return undefined;
@@ -136,7 +166,9 @@ export function latestGitHubLgtmSha(gh: GhRunner, prUrl: string): string | undef
   pins.sort((a, b) => a.t - b.t);
   return pins.at(-1)?.sha;
 }
+// -/ 3/4
 
+// -- 4/4 CORE · parsePrView --
 export interface PrView {
   headSha: string;
   state: string;
@@ -191,3 +223,4 @@ export function parsePrView(stdout: string): PrView {
 
   throw new Error("gh pr view did not return headRefOid");
 }
+// -/ 4/4

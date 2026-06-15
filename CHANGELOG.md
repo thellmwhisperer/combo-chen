@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.21](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.20...combo-chen-v0.0.21) (2026-06-15)
+
+
+### Bug Fixes
+
+* **watcher:** back off on transient reviewer ticks ([e2276b8](https://github.com/thellmwhisperer/combo-chen/commit/e2276b8b004e2273d5eef82f98e37d7e3471ec61))
+* **watcher:** Implemented the reviewer-watch retry loop for issue [#56](https://github.com/thellmwhisperer/combo-chen/issues/56) with visible journal events and full validation green. ([bc49f65](https://github.com/thellmwhisperer/combo-chen/commit/bc49f65cb1c1d1d0a106b01b6ec0a10fd842734c))
+
 ## [0.0.20](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.19...combo-chen-v0.0.20) (2026-06-15)
 
 
@@ -219,6 +227,7 @@
 * **hodor:** hodor output captured to `hodor.log`; runner detects `outcome: awaiting_approval` and emits `needs_human reason=gate_waiting` ([#24](https://github.com/thellmwhisperer/combo-chen/issues/24))
 * **hodor:** hodor tmux watcher window with retry loop attaches to the active no-mistakes run ([#24](https://github.com/thellmwhisperer/combo-chen/issues/24))
 * **judge:** gordon judge loop (activate-judge, judge-tick), incremental re-review on LGTM staleness, and merge/close detection
+* **watcher:** reviewer-watch retry loop with `watch_error`/`watch_dead` journal events, exponential backoff (doubling capped by configurable `[limits].watch_backoff_max_seconds`, default 3600 s), and configurable `[limits].watch_failure_limit` (default 5) for resilience against transient rate limits and network failures ([#56](https://github.com/thellmwhisperer/combo-chen/issues/56))
 
 ### Bug Fixes
 

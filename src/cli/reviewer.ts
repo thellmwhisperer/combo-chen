@@ -1,3 +1,29 @@
+/**
+ * @overview Reviewer CLI helpers. ~310 lines, 10 exports, reviewer activation and poll tick.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at activateReviewer      <- starts reviewer and reviewer-watch windows.
+ *   2. Then tickReviewer              <- one merge/close/LGTM/re-review poll.
+ *   3. Bottom helpers                 <- journal-derived PR/LGTM predicates.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   activateReviewer -> tmux windows; tickReviewer -> gh pr view -> journal events or re-review
+ *
+ *   PUBLIC API
+ *   ----------
+ *   ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer
+ *   latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm
+ *   canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
+ *
+ *   INTERNALS
+ *   ---------
+ *   none
+ *
+ * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
+ * @deps ../core/{events,state}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers
+ */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
@@ -11,8 +37,9 @@ import {
   killComboSession,
   killWindowIfPresent,
 } from "./sessions.js";
-import { buildReviewerWatchCommand } from "./watchers.js";
+import { buildReviewerWatchCommand, reviewerTransientFailure } from "./watchers.js";
 
+// -- 1/4 HELPER · Dependency contracts --
 export interface ActivateReviewerDeps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
@@ -27,7 +54,9 @@ export interface TickReviewerDeps {
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
   sleep: (ms: number) => Promise<void>;
 }
+// -/ 1/4
 
+// -- 2/4 CORE · activateReviewer <- START HERE --
 export function activateReviewer(input: {
   deps: ActivateReviewerDeps;
   home: string;
@@ -70,6 +99,8 @@ export function activateReviewer(input: {
         comboHome: home,
         comboId: combo.id,
         pollSeconds: config.limits.babysitPollSeconds,
+        watchFailureLimit: config.limits.watchFailureLimit,
+        watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
       }),
     ),
   );
@@ -83,7 +114,9 @@ export function activateReviewer(input: {
   deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
   deps.out(`${REVIEWER_WATCH_WINDOW}: polling reviewer hard signals every ${config.limits.babysitPollSeconds}s`);
 }
+// -/ 2/4
 
+// -- 3/4 CORE · tickReviewer --
 export async function tickReviewer(input: {
   deps: TickReviewerDeps;
   home: string;
@@ -106,7 +139,11 @@ export async function tickReviewer(input: {
 
   const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy,baseRefName,mergeCommit"]);
   if (pr.status !== 0) {
-    deps.out(`reviewer: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
+    deps.out(
+      reviewerTransientFailure(
+        `gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`,
+      ),
+    );
     return;
   }
 
@@ -115,7 +152,9 @@ export async function tickReviewer(input: {
     prView = parsePrView(pr.stdout);
   } catch (error) {
     deps.out(
-      `reviewer: failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+      reviewerTransientFailure(
+        `failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+      ),
     );
     return;
   }
@@ -170,7 +209,9 @@ export async function tickReviewer(input: {
     githubPinnedSha = latestGitHubLgtmSha(deps.gh, prUrl);
   } catch (error) {
     deps.out(
-      `reviewer: failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+      reviewerTransientFailure(
+        `failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+      ),
     );
     return;
   }
@@ -220,7 +261,9 @@ export async function tickReviewer(input: {
   appendEvent(runDir, "lgtm_stale", { old_sha: pinnedSha, new_sha: headSha });
   deps.out(`reviewer: lgtm_stale ${pinnedSha} -> ${headSha}; re-reviewing ${prUrl}`);
 }
+// -/ 3/4
 
+// -- 4/4 HELPER · Journal and LGTM predicates --
 export function latestOpenedPrUrl(runDir: string): string | undefined {
   const events = readEvents(runDir);
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -265,3 +308,4 @@ export function hasMergedEvent(events: ComboEvent[], shas: string[]): boolean {
   const accepted = new Set(shas);
   return events.some((event) => event.event === "merged" && accepted.has(String(event["sha"])));
 }
+// -/ 4/4

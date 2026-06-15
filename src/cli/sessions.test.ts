@@ -1,3 +1,27 @@
+/**
+ * @overview Unit tests for tmux session helpers. ~130 lines, attach selection and window cleanup.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at resolveAttachCombo tests <- running combo selection.
+ *   2. Then ensureJournalPane tests       <- event tail pane creation.
+ *   3. Then killWindowIfPresent tests     <- named window replacement.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   fake combo state -> session helper -> tmux argv contract
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   combo
+ *
+ * @exports none
+ * @deps vitest, node:{fs,os,path}, ../core/state, ./sessions
+ */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +35,7 @@ import {
   resolveAttachCombo,
 } from "./sessions.js";
 
+// -- 1/4 HELPER · combo fixture --
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
   return {
     id: "o-r-7",
@@ -23,7 +48,9 @@ function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
     ...overrides,
   };
 }
+// -/ 1/4
 
+// -- 2/4 CORE · resolveAttachCombo tests <- START HERE --
 describe("resolveAttachCombo", () => {
   it("selects the only running combo when no name is provided", () => {
     const home = mkdtempSync(join(tmpdir(), "combo-chen-sessions-"));
@@ -47,7 +74,9 @@ describe("resolveAttachCombo", () => {
     ).toEqual(running);
   });
 });
+// -/ 2/4
 
+// -- 3/4 CORE · ensureJournalPane tests --
 describe("ensureJournalPane", () => {
   it("splits a journal pane with the configured CLI invocation when only one pane exists", () => {
     const calls: string[][] = [];
@@ -80,7 +109,9 @@ describe("ensureJournalPane", () => {
     ]);
   });
 });
+// -/ 3/4
 
+// -- 4/4 CORE · killWindowIfPresent tests --
 describe("killWindowIfPresent", () => {
   it("kills an existing named window after listing windows", () => {
     const calls: string[][] = [];
@@ -104,3 +135,4 @@ describe("killWindowIfPresent", () => {
     ]);
   });
 });
+// -/ 4/4

@@ -1,3 +1,28 @@
+/**
+ * @overview tmux session helpers. ~150 lines, 8 exports, attach and journal-pane utilities.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at resolveAttachCombo    <- resolves explicit or sole running combo.
+ *   2. Then ensureJournalPane         <- keeps event tail visible in coder window.
+ *   3. Use kill helpers on demand     <- stop/reviewer cleanup paths.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   resolveAttachCombo -> running combo; ensureJournalPane -> inspect panes -> split event tail
+ *
+ *   PUBLIC API
+ *   ----------
+ *   CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, SessionDeps
+ *   killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
+ *
+ *   INTERNALS
+ *   ---------
+ *   paneCount
+ *
+ * @exports CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, SessionDeps, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
+ * @deps ../core/state, ../infra/tmux
+ */
 import { type ComboRecord, listCombos } from "../core/state.js";
 import {
   hasSessionArgs,
@@ -9,6 +34,7 @@ import {
   type TmuxResult,
 } from "../infra/tmux.js";
 
+// -- 1/3 HELPER · Window constants and kill helpers --
 export const CODER_WINDOW = "coder";
 export const REVIEWER_WINDOW = "reviewer";
 export const REVIEWER_WATCH_WINDOW = "reviewer-watch";
@@ -50,7 +76,9 @@ export function killWindowIfPresent(
     );
   }
 }
+// -/ 1/3
 
+// -- 2/3 CORE · resolveAttachCombo <- START HERE --
 export function resolveAttachCombo(
   deps: SessionDeps,
   home: string,
@@ -79,7 +107,9 @@ export function resolveAttachCombo(
   }
   return running[0]!;
 }
+// -/ 2/3
 
+// -- 3/3 CORE · ensureJournalPane --
 function paneCount(stdout: string): number {
   return stdout
     .split(/\r?\n/)
@@ -111,3 +141,4 @@ export function ensureJournalPane(
     );
   }
 }
+// -/ 3/3

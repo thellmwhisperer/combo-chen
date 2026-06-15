@@ -1,3 +1,27 @@
+/**
+ * @overview Unit tests for coder-response CLI helpers. ~235 lines, activate and nudge flows.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at activateCoder tests        <- tmux windows and cleanup.
+ *   2. Then nudgeReviewComments tests      <- mirror sync and comment routing.
+ *   3. Test harness helpers                <- combo and thread artifact setup.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   fake combo state -> activate/nudge helper -> tmux/git/gh calls + journal events
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   combo, writeThreadArtifact
+ *
+ * @exports none
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../roles/coder, ./coder
+ */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +32,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
 
+// -- 1/3 HELPER · Test harness --
 const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
 
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
@@ -34,7 +59,9 @@ function writeThreadArtifact(runDir: string): void {
     })}\n`,
   );
 }
+// -/ 1/3
 
+// -- 2/3 CORE · activateCoder tests <- START HERE --
 describe("activateCoder", () => {
   it("starts resumed coder and review-comment watcher windows from config", () => {
     const calls: string[][] = [];
@@ -121,7 +148,9 @@ describe("activateCoder", () => {
     expect(calls).toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:sitter"]);
   });
 });
+// -/ 2/3
 
+// -- 3/3 CORE · nudgeReviewComments tests --
 describe("nudgeReviewComments", () => {
   it("syncs the mirror, routes fetched PR comments, and reports routed nudges", () => {
     const calls: string[][] = [];
@@ -207,3 +236,4 @@ describe("nudgeReviewComments", () => {
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
 });
+// -/ 3/3

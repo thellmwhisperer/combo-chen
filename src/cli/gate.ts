@@ -1,8 +1,35 @@
+/**
+ * @overview Gatekeeper CLI helpers. ~195 lines, 9 exports, attach window + mirror sync.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at ensureGatekeeperWindow <- live no-mistakes attach window.
+ *   2. Then syncNoMistakesMirror       <- mirror freshness and push semaphore.
+ *   3. Pure helpers                    <- buildGatekeeperAttachCommand, remoteShaForRef.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   ensureGatekeeperWindow -> startGatekeeperWindow; syncNoMistakesMirror -> fetch -> compare -> guarded push
+ *
+ *   PUBLIC API
+ *   ----------
+ *   GateDeps, GatekeeperWindowDeps, GatekeeperAttachOptions
+ *   GATEKEEPER_WINDOW, buildGatekeeperAttachCommand, startGatekeeperWindow
+ *   ensureGatekeeperWindow, remoteShaForRef, syncNoMistakesMirror
+ *
+ *   INTERNALS
+ *   ---------
+ *   requireComboGit
+ *
+ * @exports GateDeps, GatekeeperWindowDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, syncNoMistakesMirror
+ * @deps ../core/{combo,events,state}, ../infra/tmux
+ */
 import { shellQuote } from "../core/combo.js";
 import { readEvents } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { listWindowsArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 
+// -- 1/4 HELPER · Types and constants --
 export interface GateDeps {
   out: (line: string) => void;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
@@ -18,7 +45,9 @@ export interface GatekeeperAttachOptions {
 }
 
 export const GATEKEEPER_WINDOW = "gatekeeper";
+// -/ 1/4
 
+// -- 2/4 CORE · Gatekeeper tmux window <- START HERE --
 export function buildGatekeeperAttachCommand(
   combo: ComboRecord,
   options: GatekeeperAttachOptions,
@@ -76,7 +105,9 @@ export function ensureGatekeeperWindow(
 
   startGatekeeperWindow(deps, combo, options);
 }
+// -/ 2/4
 
+// -- 3/4 HELPER · Mirror git helpers --
 export function remoteShaForRef(stdout: string, ref: string): string | undefined {
   for (const line of stdout.split(/\r?\n/)) {
     const [sha, candidate] = line.trim().split(/\s+/, 2);
@@ -99,7 +130,9 @@ function requireComboGit(
   }
   return { stdout: result.stdout };
 }
+// -/ 3/4
 
+// -- 4/4 CORE · syncNoMistakesMirror --
 export function syncNoMistakesMirror(deps: GateDeps, combo: ComboRecord, runDir: string): boolean {
   const remote = deps.git(["remote", "get-url", "no-mistakes"], combo.worktree);
   if (remote.status !== 0) {
@@ -154,3 +187,4 @@ export function syncNoMistakesMirror(deps: GateDeps, combo: ComboRecord, runDir:
   requireComboGit(deps, combo, pushArgs, "git push no-mistakes mirror");
   return true;
 }
+// -/ 4/4

@@ -1,7 +1,30 @@
+/**
+ * @overview Unit tests for GitHub CLI parsing helpers. ~110 lines, gh JSON and URL parsing.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at cli GitHub helpers tests <- remote slugs, issue JSON, PR JSON, LGTM pins.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   fake gh stdout -> helper parser -> normalized values
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   none
+ *
+ * @exports none
+ * @deps vitest, ./github
+ */
 import { describe, expect, it } from "vitest";
 
 import { fetchIssueDetails, latestGitHubLgtmSha, parsePrView, remoteSlug } from "./github.js";
 
+// -- 1/1 CORE · cli GitHub helpers tests <- START HERE --
 describe("cli GitHub helpers", () => {
   it("extracts owner/repo slugs from common origin remote URL shapes", () => {
     expect(remoteSlug("git@github.com:owner/repo.git")).toBe("owner/repo");
@@ -82,3 +105,4 @@ describe("cli GitHub helpers", () => {
     ]);
   });
 });
+// -/ 1/1

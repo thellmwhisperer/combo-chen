@@ -17,13 +17,14 @@
  *   createProgram     Build the Commander program and wire command handlers.
  *   defaultDeps       Provide production adapters for command handlers.
  *   Deps              Dependency interface used by CLI handlers and tests.
- *   resolvePollMs     Re-exported watcher cadence helper for compatibility.
+ *   resolvePollMs                 Re-exported watcher cadence helper for compatibility.
+ *   buildReviewerWatchCommand     Re-exported reviewer watcher helper for compatibility.
  *
  *   INTERNALS
  *   ---------
  *   cliInvocation; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
- * @exports createProgram, defaultDeps, Deps, resolvePollMs
+ * @exports createProgram, defaultDeps, Deps, resolvePollMs, buildReviewerWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
  *   ./args, ./coder, ./gate, ./github, ./reviewer, ./sessions, ./watchers
@@ -81,7 +82,7 @@ import {
 } from "./sessions.js";
 import { resolvePollMs } from "./watchers.js";
 
-export { resolvePollMs } from "./watchers.js";
+export { buildReviewerWatchCommand, resolvePollMs } from "./watchers.js";
 
 // -- 1/4 HELPER · Deps and production adapters --
 export interface Deps {

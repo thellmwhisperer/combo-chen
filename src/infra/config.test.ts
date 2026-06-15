@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~381 lines,
+ * @overview Unit tests for config loading and command rendering. ~456 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -54,6 +54,8 @@ describe("loadConfig", () => {
     expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(10);
     expect(config.limits.teardownGitRetries).toBe(2);
     expect(config.limits.teardownGitBackoffSeconds).toBe(2);
+    expect(config.limits.watchFailureLimit).toBe(5);
+    expect(config.limits.watchBackoffMaxSeconds).toBe(3600);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.coderCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
@@ -161,6 +163,54 @@ describe("loadConfig", () => {
 
     expect(config.limits.teardownGitRetries).toBe(1);
     expect(config.limits.teardownGitBackoffSeconds).toBe(3);
+  });
+
+  it("loads the watcher failure limit from repo config or env", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[limits]\nwatch_failure_limit = 3\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.limits.watchFailureLimit).toBe(3);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_WATCH_FAILURE_LIMIT: "2" },
+    });
+    expect(envConfig.limits.watchFailureLimit).toBe(2);
+
+    for (const value of ["0", "-1", "1.5", '"nope"']) {
+      const invalidRepoDir = tempDir();
+      writeToml(invalidRepoDir, "combo-chen.toml", `[limits]\nwatch_failure_limit = ${value}\n`);
+      expect(() =>
+        loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+      ).toThrow(/watch_failure_limit/);
+    }
+
+    for (const value of ["0", "-1", "1.5", "nope"]) {
+      expect(() =>
+        loadConfig({
+          repoDir,
+          userConfigPath: join(tempDir(), "missing.toml"),
+          env: { COMBO_CHEN_WATCH_FAILURE_LIMIT: value },
+        }),
+      ).toThrow(/watch_failure_limit/);
+    }
+  });
+
+  it("loads the watcher max backoff from repo config or env", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[limits]\nwatch_backoff_max_seconds = 30\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.limits.watchBackoffMaxSeconds).toBe(30);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS: "45" },
+    });
+    expect(envConfig.limits.watchBackoffMaxSeconds).toBe(45);
   });
 
   it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {

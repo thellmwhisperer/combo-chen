@@ -1,7 +1,30 @@
+/**
+ * @overview Unit tests for CLI argument helpers. ~55 lines, parseEventFields coverage.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at parseEventFields tests <- coercion and validation contract.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   string fields -> parseEventFields -> typed payload or error
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   none
+ *
+ * @exports none
+ * @deps vitest, ./args
+ */
 import { describe, expect, it } from "vitest";
 
 import { parseEventFields } from "./args.js";
 
+// -- 1/1 CORE · parseEventFields tests <- START HERE --
 describe("parseEventFields", () => {
   it("coerces booleans and integers while preserving string values", () => {
     expect(
@@ -25,3 +48,4 @@ describe("parseEventFields", () => {
     expect(() => parseEventFields(["state"])).toThrow('--field expects key=value, got "state"');
   });
 });
+// -/ 1/1

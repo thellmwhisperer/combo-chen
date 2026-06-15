@@ -67,6 +67,15 @@ listed reviewer agent must have a `[reviewer.<agent>]` `command` template. The
 top-level `[reviewer]` protocol reference is optional; it falls back to the
 default protocol reference when omitted.
 
+**Rate limits and watcher resilience:** The reviewer-watch polling loop
+handles transient failures (rate limits, network errors) with exponential
+backoff (doubling the poll interval, capped by
+`[limits].watch_backoff_max_seconds`, default 3600 s). After
+`[limits].watch_failure_limit` consecutive failures (default 5), the watcher
+journals `watch_dead` and exits — the director sees the dead-watcher event
+and can escalate. Environment overrides:
+`COMBO_CHEN_WATCH_FAILURE_LIMIT`, `COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS`.
+
 ## Status
 
 v0 implemented and test-verified; awaiting its first real combo (the fire
