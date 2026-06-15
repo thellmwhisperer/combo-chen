@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.24](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.23...combo-chen-v0.0.24) (2026-06-15)
+
+
+### Features
+
+* **core:** fetch and rebase origin/main before coder startup ([07047f2](https://github.com/thellmwhisperer/combo-chen/commit/07047f2be314c7c7515499a3e9d00cd261e9d701))
+
+
+### Bug Fixes
+
+* **runner:** Implemented issue [#61](https://github.com/thellmwhisperer/combo-chen/issues/61) by making runner.sh fetch and rebase origin/main before coder startup, aborting with a rebase_conflict journal event on failure, with full validation green. ([b1e8296](https://github.com/thellmwhisperer/combo-chen/commit/b1e829661073e58a3468d91e31e5c265e155a17e))
+
 ## [0.0.23](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.22...combo-chen-v0.0.23) (2026-06-15)
 
 
