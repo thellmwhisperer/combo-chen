@@ -1,3 +1,37 @@
+/**
+ * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
+ *   deps so tests run without a real terminal or network. ~2585 lines.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at fakeDeps            ← builds the fake universe (tmux, git, gh)
+ *   2. "run" describe block         ← the main combo launch flow
+ *   3. "nudge-review-comments"      ← most complex integration: mirror sync + routing
+ *   4. Pick any describe() block    ← each tests one CLI command in isolation
+ *
+ *   Each describe() block = one CLI command. Use the markers // -- N/M below
+ *   to jump between commands.
+ *
+ *   ┌─ TEST SECTIONS (by CLI command) ───────────────────────────────┐
+ *   │ command surface       Verifies all commands are registered     │
+ *   │ run                   Worktree + runner.sh + tmux session      │
+ *   │ attach                Session resolution and journal pane      │
+ *   │ activate-coder        Coder resume + comment watcher           │
+ *   │ nudge-review-comments Mirror sync + PR comment routing         │
+ *   │ emit                  Event append to journal                  │
+ *   │ status                Table format output                      │
+ *   │ activate-reviewer     Reviewer + watcher windows               │
+ *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
+ *   │ events                Journal JSONL read (no follow in tests)  │
+ *   │ stop                  kill-session + journal stopped event     │
+ *   │ resolvePollMs         Env variable resolution                  │
+ *   │ run ordering          Git worktree + branch safety             │
+ *   └────────────────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{child_process,fs,os,path}, ../../core/{events,state},
+ *   ../../roles/coder, ../../roles/gatekeeper, ../../infra/config
+ */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,6 +43,7 @@ import { runDirFor, writeCombo } from "../core/state.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { createProgram, type Deps } from "./main.js";
 
+// -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
 function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-cli-"));
 }
@@ -73,6 +108,9 @@ function seedCodexGnhfRun(worktree: string): void {
   );
 }
 
+// -/ 1/4
+
+// -- 2/4 CORE · Command surface + run (+ attach, activate-coder, nudge-comments, emit) --
 describe("command surface", () => {
   it("exposes the configured command surface", () => {
     const { deps } = fakeDeps();
@@ -1222,6 +1260,9 @@ describe("emit", () => {
   });
 });
 
+// -/ 2/4
+
+// -- 3/4 CORE · run (combo launch flow) --
 describe("run", () => {
   it("creates the record, the runner script, the tmux session, and the birth event", async () => {
     const h = home();
@@ -1538,6 +1579,9 @@ $(echo boom)'`);
   });
 });
 
+// -/ 3/4
+
+// -- 4/4 HELPER · Remaining commands: status, reviewer, events, stop, poll --
 describe("status", () => {
   it("prints one line per combo with phase and needs-human flag", async () => {
     const h = home();
@@ -2583,3 +2627,4 @@ describe("run ordering and safety", () => {
     }
   });
 });
+// -/ 4/4

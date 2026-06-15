@@ -1,3 +1,24 @@
+/**
+ * @overview Unit tests for the coder role. ~152 lines, testing
+ *   default prompt generation, coder invocation rendering, codex thread-id
+ *   extraction from JSONL, and thread artifact persistence.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("extractCodexThreadIdFromJsonl")   ← thread-id parsing
+ *   2. Then describe("coder thread artifact")               ← persistence
+ *   3. Then describe("buildCoderInvocation")                 ← command rendering
+ *
+ *   ┌─ TEST AREAS ───────────────────────────────────────┐
+ *   │ defaultPrompt              Issue-aware prompt text  │
+ *   │ buildCoderInvocation       Command template render  │
+ *   │ extractCodexThreadIdFromJsonl  JSONL thread-id scan │
+ *   │ coder thread artifact      Persist + artifact path  │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path,url}, ./coder
+ */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -35,6 +56,7 @@ function seedGnhfRun(worktree: string): void {
   writeFileSync(join(runDir, "iteration-1.jsonl"), readFileSync(codexJsonlFixture, "utf8"));
 }
 
+// -- 1/3 CORE · Prompt generation + invocation ← START HERE --
 describe("defaultPrompt", () => {
   it("tells the coder which issue to implement and to work test-first", () => {
     const prompt = defaultPrompt(combo.issueUrl);
@@ -65,6 +87,9 @@ describe("buildCoderInvocation", () => {
   });
 });
 
+// -/ 1/3
+
+// -- 2/3 HELPER · Thread ID extraction --
 describe("extractCodexThreadIdFromJsonl", () => {
   it("returns the thread_id from a thread.started event", () => {
     const dir = tempDir("coder-extract-");
@@ -128,6 +153,9 @@ describe("extractCodexThreadIdFromJsonl", () => {
   });
 });
 
+// -/ 2/3
+
+// -- 3/3 HELPER · Coder thread artifact --
 describe("coder thread artifact", () => {
   it("uses a coder-named artifact file", () => {
     expect(CODER_THREAD_ARTIFACT).toBe("coder-thread.json");
@@ -150,3 +178,4 @@ describe("coder thread artifact", () => {
     );
   });
 });
+// -/ 3/3

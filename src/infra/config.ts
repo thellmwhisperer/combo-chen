@@ -1,7 +1,36 @@
 /**
- * Config cascade: defaults ← user config ← repo config.
- * Repo wins on policy, user wins on local setup, nothing operational is
- * hardcoded beyond the in-code fallbacks defined here.
+ * @overview Config cascade: defaults ← user config ← repo config.
+ *   Repo wins on policy, user wins on local setup. ~395 lines, 5 exports.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at loadConfig              ← the cascade: reads + merges all layers
+ *   2. renderCommand                    ← placeholder → POSIX-safe shell token
+ *   3. ComboConfig / ComboRoles types   ← shape of the resolved config
+ *   4. DEFAULTS + mergeRoles + pick*    ← internal helpers, read on demand
+ *
+ *   MAIN FLOW
+ *   ─────────
+ *   cli/main.ts → loadConfig({repoDir, env})
+ *     → readTomlIfExists(user) → readTomlIfExists(repo)
+ *     → mergeRoles → pickNumber* → pickNonEmptyString
+ *     → returns ComboConfig used by buildCoderInvocation,
+ *       buildGatekeeperInvocation, buildReviewerInvocation
+ *
+ *   ┌─ PUBLIC API ──────────────────────────────────────────────────────┐
+ *   │ loadConfig                Cascade: defaults → user → repo → env   │
+ *   │ renderCommand             Substitute {placeholders} with safe vals │
+ *   │ defaultUserConfigPath     XDG-aware path to user config.toml      │
+ *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
+ *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
+ *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
+ *   │ pickNumberAlias, pickNonNegativeInteger, pickNonEmptyString,     │
+ *   │ normalizeLimitAliases, ROLE_ALIASES, DEFAULTS, PLACEHOLDER       │
+ *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig           │
+ *   └───────────────────────────────────────────────────────────────────┘
+ *
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, renderCommand
+ * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -10,6 +39,7 @@ import { parse as parseToml } from "smol-toml";
 
 import { shellQuote } from "../core/combo.js";
 
+// -- 1/4 HELPER · Types + role aliases + DEFAULTS --
 export class ComboConfigError extends Error {}
 
 export interface ComboRoles {
@@ -111,6 +141,9 @@ const DEFAULTS = {
   },
 };
 
+// -/ 1/4
+
+// -- 2/4 HELPER · Parsing helpers (TOML read, merge, pick) --
 export function defaultUserConfigPath(): string {
   const xdg = process.env["XDG_CONFIG_HOME"];
   const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".config");
@@ -202,6 +235,9 @@ function pickNonEmptyString(value: unknown, description: string): string {
   return value;
 }
 
+// -/ 2/4
+
+// -- 3/4 CORE · loadConfig (cascade) ← START HERE --
 export function loadConfig(options: LoadOptions): ComboConfig {
   const userPath = options.userConfigPath ?? defaultUserConfigPath();
   const repoPath = join(options.repoDir, "combo-chen.toml");
@@ -377,13 +413,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerProtocol,
   };
 }
+// -/ 3/4
 
+// -- 4/4 CORE · renderCommand --
 const PLACEHOLDER = /\{([a-z_]+)\}/g;
 
-/**
- * Each value is substituted as one single-quoted POSIX shell token, so
- * templates must not add their own quotes around {placeholders}.
- */
 export function renderCommand(template: string, vars: Record<string, string>): string {
   return template.replace(PLACEHOLDER, (_, name: string) => {
     const value = vars[name];
@@ -393,3 +427,4 @@ export function renderCommand(template: string, vars: Record<string, string>): s
     return shellQuote(value);
   });
 }
+// -/ 4/4

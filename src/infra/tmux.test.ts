@@ -1,3 +1,19 @@
+/**
+ * @overview Unit tests for tmux argument builders. ~99 lines, testing
+ *   the pure argument-vector contracts for session management, window
+ *   splitting, pane capture, and the nudge/paste-buffer mechanism.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("tmux argument builders")   ← single describe block
+ *
+ *   ┌─ TEST AREAS ───────────────────────────────────────┐
+ *   │ tmux argument builders  All tmux argv contracts    │
+ *   └─────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, ./tmux
+ */
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +32,7 @@ import {
   splitWindowArgs,
 } from "./tmux.js";
 
+// -- 1/1 CORE · tmux argument builders: argv contracts ← START HERE --
 describe("tmux argument builders (pure: what we ask tmux to do is contract)", () => {
   it("creates detached sessions with a first named window", () => {
     expect(newSessionArgs("combo-chen-o-r-7", "rower", "sh runner.sh")).toEqual([
@@ -97,3 +114,4 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     ]);
   });
 });
+// -/ 1/1
