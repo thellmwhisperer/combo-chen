@@ -1,11 +1,11 @@
 /**
- * @overview Director CLI helpers. ~275 lines, 2 exports, post-PR orchestration.
+ * @overview Director CLI helpers. ~290 lines, 5 exports, post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at tickDirector          <- one deterministic post-PR pass.
  *   2. Then runReadyForMergeIfNeeded <- current-head READY agreement.
- *   3. Bottom helpers                 <- check rollup and CodeRabbit parsing.
+ *   3. READY pure helpers            <- head, gate, and review predicates.
  *
  *   MAIN FLOW
  *   ---------
@@ -13,14 +13,17 @@
  *
  *   PUBLIC API
  *   ----------
- *   DirectorDeps     Dependencies for director ticks.
- *   tickDirector     Run one director-owned observer pass.
+ *   DirectorDeps              Dependencies for director ticks.
+ *   tickDirector              Run one director-owned observer pass.
+ *   headStateAllowsReady      Pure PR-head readiness predicate.
+ *   gateStateAllowsReady      Pure gate/current-head readiness predicate.
+ *   reviewStateAllowsReady    Pure reviewer/current-head readiness predicate.
  *
  *   INTERNALS
  *   ---------
  *   runReadyForMergeIfNeeded, hasCleanCodeRabbitSignal, rollup helpers
  *
- * @exports DirectorDeps, tickDirector
+ * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../roles/coder-responding, ./gate, ./github, ./reviewer, ./coder
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
@@ -229,6 +232,21 @@ function hasCurrentGateForHead(events: ComboEvent[], headSha: string): boolean {
   return latestPublishedGateSha(events) === headSha;
 }
 
+export function headStateAllowsReady(
+  events: ComboEvent[],
+  prView: { headSha: string; state: string },
+): boolean {
+  return prView.state === "OPEN" && !hasReadyForMerge(events, prView.headSha);
+}
+
+export function gateStateAllowsReady(events: ComboEvent[], headSha: string): boolean {
+  return hasCurrentGateForHead(events, headSha);
+}
+
+export function reviewStateAllowsReady(events: ComboEvent[], headSha: string): boolean {
+  return livePinnedLgtmSha(events) === headSha;
+}
+
 function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCache?: GhApiCache): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
   const events = readEvents(runDir);
@@ -253,10 +271,9 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCach
   }
 
   const headSha = prView.headSha;
-  if (prView.state !== "OPEN") return;
-  if (hasReadyForMerge(events, headSha)) return;
-  if (!hasCurrentGateForHead(events, headSha)) return;
-  if (livePinnedLgtmSha(events) !== headSha) return;
+  if (!headStateAllowsReady(events, prView)) return;
+  if (!gateStateAllowsReady(events, headSha)) return;
+  if (!reviewStateAllowsReady(events, headSha)) return;
   if (!ciRollupSucceeded(prView.statusCheckRollup)) return;
 
   let codeRabbitClean = false;
