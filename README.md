@@ -76,9 +76,9 @@ Useful behavior:
   events and run teardown.
 - `stop` kills the tmux session and leaves the journal/worktree for inspection.
 
-Hidden commands such as `activate-reviewer`, `activate-coder`,
-`director-tick`, `director-watch`, `ensure-pr-autoclose`, and
-`nudge-review-comments` are internal runner/director entry points.
+Hidden commands such as `activate-coder`, `director-tick`,
+`director-watch`, `ensure-pr-autoclose`, and `nudge-review-comments`
+are internal runner/director entry points.
 
 ## State And Logs
 
