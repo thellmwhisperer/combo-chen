@@ -24,8 +24,8 @@ Validation at launch (hard failures, the combo refuses to start):
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
-              └─▶ REVIEWING  reviewer loop + coder responding mode + gatekeeper ci-step in parallel
-                    └─▶ READY      lgtm_current ∧ rabbit_clean ∧ checks_passed
+              └─▶ REVIEWING  director-watch observes reviewer + coder responding + gatekeeper ci-step workers
+                    └─▶ READY      gate_current ∧ reviewer_current ∧ coderabbit_current_clean ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
 
@@ -93,10 +93,17 @@ successful tick the failure counter and backoff reset.
 (gatekeeper started and no-mistakes is running), `awaiting_approval` (gate requires
 human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper completed
 successfully, awaiting PR detection).
-After the PR exists, `director-tick` owns the deterministic loop: poll reviewer
-hard signals, route new review comments to the resumed coder, detect committed
-local HEAD changes, and run a post-address no-mistakes gate before anything is
-published again.
+After the PR exists, `director-watch` is the single observer. It repeatedly
+runs `director-tick` to poll reviewer hard signals, route new review comments
+to the resumed coder, detect committed local HEAD changes, and run a
+post-address no-mistakes gate before anything is published again.
+
+If the source checkout has an ignored local `.no-mistakes.yaml`, combo-chen
+copies it into the combo worktree as a local artifact before the initial gate.
+It preserves content and mode, never overwrites an existing worktree config,
+and repeats the same copy step before post-address gates so older worktrees can
+recover if the artifact is missing. The artifact carries repo-specific
+test/lint/build commands for no-mistakes; combo-chen only propagates it.
 
 ## 4. Coder responding contract
 
@@ -122,8 +129,12 @@ published again.
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
   findings.
-- READY requires: current LGTM on HEAD ∧ CodeRabbit clean ∧ gatekeeper
-  checks-passed.
+- READY requires current-head agreement across all four signals:
+  gatekeeper has validated the current PR head SHA; the reviewer has a live
+  pinned LGTM for that SHA; CodeRabbit has a SUCCESS status context/check for
+  that SHA and its latest `coderabbitai` comment for that SHA is not a
+  rate-limit/skipped/no-review message; and all non-CodeRabbit status
+  contexts/checks in the rollup are successful for that SHA.
 
 ## 6. Merge policy and the counterfactual log
 
@@ -173,6 +184,11 @@ published again.
   includes a short (12-line) journal pane showing live events. After PR open,
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
+- Post-address no-mistakes gates are launched with generated run scripts in
+  the combo run directory. The tmux command stays short (`sh <script>`), while
+  the script owns gate status events, log capture, PR autoclose repair, and
+  current-head validation. Transient GitHub, git, or tmux failures are logged
+  and re-evaluated on the next director tick where possible.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.
