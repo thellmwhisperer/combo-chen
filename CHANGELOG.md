@@ -219,7 +219,7 @@
 * **hodor:** hodor output captured to `hodor.log`; runner detects `outcome: awaiting_approval` and emits `needs_human reason=gate_waiting` ([#24](https://github.com/thellmwhisperer/combo-chen/issues/24))
 * **hodor:** hodor tmux watcher window with retry loop attaches to the active no-mistakes run ([#24](https://github.com/thellmwhisperer/combo-chen/issues/24))
 * **judge:** gordon judge loop (activate-judge, judge-tick), incremental re-review on LGTM staleness, and merge/close detection
-* **watcher:** reviewer-watch retry loop with `watch_error`/`watch_dead` journal events, exponential backoff (doubling capped at 3600 s), and configurable `[limits].watch_failure_limit` (default 5, env `COMBO_CHEN_WATCH_FAILURE_LIMIT`) for resilience against transient rate limits and network failures ([#56](https://github.com/thellmwhisperer/combo-chen/issues/56))
+* **watcher:** reviewer-watch retry loop with `watch_error`/`watch_dead` journal events, exponential backoff (doubling capped by configurable `[limits].watch_backoff_max_seconds`, default 3600 s), and configurable `[limits].watch_failure_limit` (default 5) for resilience against transient rate limits and network failures ([#56](https://github.com/thellmwhisperer/combo-chen/issues/56))
 
 ### Bug Fixes
 

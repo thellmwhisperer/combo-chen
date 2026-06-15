@@ -55,6 +55,7 @@ export interface ComboLimits {
   teardownGitRetries: number;
   teardownGitBackoffSeconds: number;
   watchFailureLimit: number;
+  watchBackoffMaxSeconds: number;
 }
 
 export interface ComboConfig {
@@ -118,6 +119,7 @@ const DEFAULTS = {
     teardown_git_retries: 2,
     teardown_git_backoff_seconds: 2,
     watch_failure_limit: 5,
+    watch_backoff_max_seconds: 3600,
   },
   coder: {
     codex: {
@@ -338,6 +340,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (env["COMBO_CHEN_WATCH_FAILURE_LIMIT"] !== undefined) {
     limitsTable["watch_failure_limit"] = env["COMBO_CHEN_WATCH_FAILURE_LIMIT"];
   }
+  if (env["COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS"] !== undefined) {
+    limitsTable["watch_backoff_max_seconds"] = env["COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS"];
+  }
 
   if (roles.reviewer.length === 0) {
     throw new ComboConfigError(
@@ -396,6 +401,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         limitsTable,
         "watch_failure_limit",
         DEFAULTS.limits.watch_failure_limit,
+      ),
+      watchBackoffMaxSeconds: pickNumber(
+        limitsTable,
+        "watch_backoff_max_seconds",
+        DEFAULTS.limits.watch_backoff_max_seconds,
       ),
     },
     coderCommand,
