@@ -1,5 +1,5 @@
 /**
- * @overview GitHub CLI parsing helpers. ~231 lines, 8 exports, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~222 lines, 8 exports, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
@@ -18,11 +18,13 @@
  *
  *   INTERNALS
  *   ---------
- *   PullRequestRef, parsePullRequestUrl, GitHubPin, lgtmPinFromBody, pinsFromPayload
+ *   GitHubPin, lgtmPinFromBody, pinsFromPayload
  *
  * @exports GhResult, GhRunner, IssueDetails, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, PrView, parsePrView
- * @deps none
+ * @deps ../core/pr-url
  */
+import { parseGitHubPullRequestUrl } from "../core/pr-url.js";
+
 // -- 1/4 CORE · Issue metadata and remoteSlug <- START HERE --
 export interface GhResult {
   status: number;
@@ -75,19 +77,7 @@ export function fetchIssueDetails(gh: GhRunner, issueUrl: string): IssueDetails 
 }
 // -/ 1/4
 
-// -- 2/4 HELPER · PR URL and LGTM pin parsing --
-interface PullRequestRef {
-  owner: string;
-  repo: string;
-  number: string;
-}
-
-function parsePullRequestUrl(prUrl: string): PullRequestRef | undefined {
-  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(prUrl);
-  if (!match) return undefined;
-  return { owner: match[1]!, repo: match[2]!, number: match[3]! };
-}
-
+// -- 2/4 HELPER · LGTM pin parsing --
 interface GitHubPin {
   sha: string;
   t: number;
@@ -141,7 +131,7 @@ function pinsFromPayload(stdout: string): GitHubPin[] {
 
 // -- 3/4 CORE · latestGitHubLgtmSha --
 export function latestGitHubLgtmSha(gh: GhRunner, prUrl: string): string | undefined {
-  const ref = parsePullRequestUrl(prUrl);
+  const ref = parseGitHubPullRequestUrl(prUrl);
   if (!ref) return undefined;
 
   const comments = gh([
