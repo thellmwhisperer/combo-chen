@@ -1844,6 +1844,112 @@ describe("reviewer-watch command", () => {
     expect(events).toContain("exit_code=7");
     expect(events).toContain("stderr=gh secondary rate limit");
   });
+
+  it("doubles backoff on each consecutive failure", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const sleepLog = join(h, "sleep-log");
+    const fakeCli = join(h, "fake-combo-chen");
+    const fakeSleep = join(h, "sleep");
+    writeExecutable(
+      fakeSleep,
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
+        "",
+      ].join("\n"),
+    );
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  echo "gh secondary rate limit" >&2',
+        "  exit 7",
+        "fi",
+        'echo "unexpected command: $command" >&2',
+        "exit 99",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 5,
+      watchFailureLimit: 6,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: { PATH: `${h}:/usr/bin:/bin`, HOME: process.env["HOME"] },
+    });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 7 });
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").map(Number);
+    expect(sleeps).toEqual([5, 10, 20, 40, 80]);
+  });
+
+  it("caps backoff at 3600 when the doubling exceeds 1800", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const sleepLog = join(h, "sleep-log");
+    const fakeCli = join(h, "fake-combo-chen");
+    const fakeSleep = join(h, "sleep");
+    writeExecutable(
+      fakeSleep,
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
+        "",
+      ].join("\n"),
+    );
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  echo "gh secondary rate limit" >&2',
+        "  exit 7",
+        "fi",
+        'echo "unexpected command: $command" >&2',
+        "exit 99",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 5,
+      watchFailureLimit: 12,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: { PATH: `${h}:/usr/bin:/bin`, HOME: process.env["HOME"] },
+    });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 7 });
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").map(Number);
+    expect(sleeps).toEqual([5, 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 3600]);
+  });
 });
 
 describe("reviewer-tick", () => {
