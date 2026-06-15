@@ -1,11 +1,42 @@
 /**
- * Run identity and persistence: one directory per combo under the combo
- * home, holding combo.json (the record) and journal.jsonl (the spine).
+ * @overview Run identity and persistence: one directory per combo under the
+ *   combo home, holding combo.json (the record) and journal.jsonl (the spine).
+ *   ~78 lines, 9 exports.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at parseIssueUrl           ← URL → owner/repo/number
+ *   2. comboHome / runDirFor            ← filesystem layout
+ *   3. writeCombo / readCombo           ← persist + load
+ *   4. listCombos                       ← enumerate all runs
+ *
+ *   MAIN FLOW
+ *   ─────────
+ *   cli/main.ts → parseIssueUrl → comboIdFromIssueUrl → comboHome → runDirFor
+ *     → writeCombo(record) → readCombo reads it back for status/attach/etc.
+ *
+ *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
+ *   │ parseIssueUrl        Parse GitHub issue URL → {owner,repo,number} │
+ *   │ comboIdFromIssueUrl  Derive combo id from issue URL              │
+ *   │ comboHome            Resolve COMBO_CHEN_HOME dir (env or ~)      │
+ *   │ runDirFor            Resolve run dir for a combo id             │
+ *   │ writeCombo           Persist a ComboRecord to disk              │
+ *   │ readCombo            Load a ComboRecord from disk               │
+ *   │ listCombos           Enumerate all persisted combos             │
+ *   │ ComboRecord          Identity + filesystem shape of a combo     │
+ *   │ ComboStateError      Thrown on malformed URLs, missing records  │
+ *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
+ *   │ IssueRef, ISSUE_URL                                             │
+ *   └──────────────────────────────────────────────────────────────────┘
+ *
+ * @exports ComboStateError, IssueRef, ComboRecord, parseIssueUrl, comboIdFromIssueUrl, comboHome, runDirFor, writeCombo, readCombo, listCombos
+ * @deps node:fs, node:os, node:path
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// -- 1/2 CORE · Identity + persistence ← START HERE --
 export class ComboStateError extends Error {}
 
 export interface IssueRef {
@@ -48,7 +79,9 @@ export function comboHome(env: Record<string, string | undefined> = process.env)
 export function runDirFor(home: string, comboId: string): string {
   return join(home, "runs", comboId);
 }
+// -/ 1/2
 
+// -- 2/2 CORE · Persistence (writeCombo, readCombo, listCombos) --
 const RECORD = "combo.json";
 
 export function writeCombo(runDir: string, combo: ComboRecord): void {
@@ -76,3 +109,4 @@ export function listCombos(home: string): ComboRecord[] {
   }
   return combos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
+// -/ 2/2

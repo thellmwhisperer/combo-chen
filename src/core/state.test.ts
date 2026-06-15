@@ -1,3 +1,22 @@
+/**
+ * @overview Unit tests for combo state persistence. ~75 lines, testing
+ *   GitHub issue URL parsing and combo-id derivation, combo home directory
+ *   resolution, and combo record read/write/list round-trips.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("combo records")   ← read/write/list round-trip
+ *   2. Then describe("issue identity")      ← URL parsing contract
+ *
+ *   ┌─ TEST AREAS ──────────────────────────────────┐
+ *   │ issue identity  parseIssueUrl + comboIdFromUrl │
+ *   │ combo home      COMBO_CHEN_HOME resolution    │
+ *   │ combo records   write/read/list round-trip    │
+ *   └────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path}, ./state
+ */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,14 +37,16 @@ function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-home-"));
 }
 
+// -- 1/2 HELPER · Issue identity + combo home --
 describe("issue identity", () => {
   it("parses a GitHub issue URL", () => {
     expect(parseIssueUrl("https://github.com/thellmwhisperer/roca-madre/issues/128")).toEqual({
       owner: "thellmwhisperer",
       repo: "roca-madre",
       number: 128,
-    });
   });
+});
+// -/ 2/2
 
   it("rejects anything that is not a GitHub issue URL", () => {
     expect(() => parseIssueUrl("https://github.com/o/r/pull/3")).toThrow(ComboStateError);
@@ -49,6 +70,9 @@ describe("combo home", () => {
   });
 });
 
+// -/ 1/2
+
+// -- 2/2 CORE · Combo records: read, write, list ← START HERE --
 describe("combo records", () => {
   it("round-trips a combo record and lists it", () => {
     const base = home();

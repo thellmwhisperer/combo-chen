@@ -1,11 +1,70 @@
 #!/usr/bin/env node
 /**
- * combo-chen — conductor for autonomous issue → PR pipelines.
+ * @overview combo-chen CLI — ~1300 lines, 11 commands, one execution flow.
  *
- * v0 surface: run | attach | status | stop | events (+ emit, the runner's pen).
- * The CLI is setup and introspection; the generated runner script inside
- * tmux is the combo's spine. The director — human or agent — drives with
- * these five commands.
+ *   READING GUIDE
+ *   ───────────--
+ *   1. Start at createProgram         ← registers all 11 subcommands
+ *   2. Pick the .command() you need
+ *   3. isDirectRun                    ← main(): boots the CLI
+ *   4. Everything else is helpers     ← only read when debugging one
+ *
+ *   MAIN FLOW
+ *   ───────--
+ *   isDirectRun
+ *     → createProgram(defaultDeps())
+ *       → parseAsync(process.argv)
+ *         → commander dispatches to your .command()
+ *
+ *   ┌─ PUBLIC COMMANDS ──────────────────────────────────────────────┐
+ *   │ run         Launch combo: worktree + runner.sh + tmux          │
+ *   │ attach      Reattach to a running tmux session                 │
+ *   │ status      Table: phase | needs-human | PR                    │
+ *   │ stop        Kill tmux session (journal survives)               │
+ *   │ events      Dump journal as JSONL, --follow to tail            │
+ *   ├─ HIDDEN (called by runner.sh) ─────────────────────────────────┤
+ *   │ emit                   Append event to journal                 │
+ *   │ activate-reviewer      Start reviewer + watcher windows        │
+ *   │ activate-coder         Resume coder + comment-watcher          │
+ *   │ reviewer-tick          Poll loop: merge/close/LGTM/re-review   │
+ *   │ ensure-pr-autoclose    Inject "closes #N" into PR body         │
+ *   │ nudge-review-comments  Route new review comments → coder       │
+ *   └────────────────────────────────────────────────────────────────┘
+ *
+ *   HELPERS (~lines 99-720, on-demand reading)
+ *   ────────────────────────────────────────--
+ *   All live before createProgram. They are called by the commands.
+ *   Grouped with // -- N/9 markers. Don't read top-to-bottom;
+ *   jump to the section a .command() calls when you trace its logic.
+ *
+ *   ┌─ 1/9 Tmux windows + Deps ─────────────────────────────────────┐
+ *   │ CODER_WINDOW ...  Deps, IssueDetails, defaultDeps              │
+ *   ├─ 2/9 Parse helpers ───────────────────────────────────────────┤
+ *   │ coerce, parseFields, cliInvocation, remoteSlug,                │
+ *   │ fetchIssueDetails, resolvePollMs, buildReviewerWatchCommand    │
+ *   ├─ 3/9 Git + mirror + PR detection ─────────────────────────────┤
+ *   │ remoteShaForRef, requireComboGit, syncNoMistakesMirror,        │
+ *   │ latestOpenedPrUrl                                              │
+ *   ├─ 4/9 LGTM logic ──────────────────────────────────────────────┤
+ *   │ livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead,  │
+ *   │ lgtmPinFromBody, pinsFromPayload, latestGitHubLgtmSha           │
+ *   ├─ 5/9 PR parsing ──────────────────────────────────────────────┤
+ *   │ PullRequestRef, parsePullRequestUrl, PrView, parsePrView       │
+ *   ├─ 6/9 Terminal + merge teardown ───────────────────────────────┤
+ *   │ terminalReviewerEvent, hasMergedEvent, requireGit,             │
+ *   │ teardownMergedCombo                                            │
+ *   ├─ 7/9 Tmux window management ──────────────────────────────────┤
+ *   │ killComboSession, killWindowIfPresent, startGatekeeperWindow,  │
+ *   │ buildGatekeeperAttachCommand, ensureGatekeeperWindow,          │
+ *   │ resolveAttachCombo, paneCount, ensureJournalPane               │
+ *   └────────────────────────────────────────────────────────────────┘
+ *
+ *   See // -- N/9 markers inline for quick scroll navigation.
+ *
+ * @exports createProgram, defaultDeps, resolvePollMs, Deps
+ * @deps commander, node:{child_process,fs,path,url},
+ *   ../core/{combo,events,state}, ../infra/{config,tmux},
+ *   ../roles/{gatekeeper,reviewer,coder,coder-responding}
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -58,6 +117,7 @@ import {
   routeReviewComments,
 } from "../roles/coder-responding.js";
 
+// -- 1/9 HELPER · Tmux windows + Deps --
 const CODER_WINDOW = "coder";
 const GATEKEEPER_WINDOW = "gatekeeper";
 const REVIEWER_WINDOW = "reviewer";
@@ -101,6 +161,9 @@ export function defaultDeps(): Deps {
   };
 }
 
+// -/ 1/9
+
+// -- 2/9 HELPER · Parse helpers --
 function coerce(value: string): unknown {
   if (value === "true") return true;
   if (value === "false") return false;
@@ -188,6 +251,9 @@ function buildReviewerWatchCommand(input: {
   ].join("\n");
 }
 
+// -/ 2/9
+
+// -- 3/9 HELPER · Git + mirror + PR detection --
 function remoteShaForRef(stdout: string, ref: string): string | undefined {
   for (const line of stdout.split(/\r?\n/)) {
     const [sha, candidate] = line.trim().split(/\s+/, 2);
@@ -282,6 +348,9 @@ function latestOpenedPrUrl(runDir: string): string | undefined {
   return undefined;
 }
 
+// -/ 3/9
+
+// -- 4/9 HELPER · LGTM logic --
 function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
   let sha: string | undefined;
   for (const event of events) {
@@ -392,6 +461,9 @@ function latestGitHubLgtmSha(deps: Deps, prUrl: string): string | undefined {
   return pins.at(-1)?.sha;
 }
 
+// -/ 4/9
+
+// -- 5/9 HELPER · PR parsing --
 interface PrView {
   headSha: string;
   state: string;
@@ -447,6 +519,9 @@ function parsePrView(stdout: string): PrView {
   throw new Error("gh pr view did not return headRefOid");
 }
 
+// -/ 5/9
+
+// -- 6/9 HELPER · Terminal + merge teardown --
 function terminalReviewerEvent(events: ComboEvent[]): ComboEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
@@ -517,6 +592,9 @@ async function teardownMergedCombo(input: {
   );
 }
 
+// -/ 6/9
+
+// -- 7/9 HELPER · Tmux window management --
 function killComboSession(deps: Deps, combo: ComboRecord): void {
   const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
   if (killed.status !== 0) {
@@ -656,11 +734,15 @@ function ensureJournalPane(deps: Deps, combo: ComboRecord): void {
   }
 }
 
+// -/ 7/9
+
+// -- 8/9 CORE · createProgram + 11 subcommands ← START HERE --
 export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
   program.description("Conductor for autonomous issue → PR pipelines.");
 
+  // .command("run") — Creates worktree + runner.sh + tmux session
   program
     .command("run")
     .description("Launch a combo for a GitHub issue")
@@ -788,6 +870,7 @@ export function createProgram(deps: Deps): Command {
       deps.out(`   journal: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
     });
 
+  // .command("attach") — Reattaches to running tmux session
   program
     .command("attach")
     .description("Attach to a running combo tmux session")
@@ -804,6 +887,7 @@ export function createProgram(deps: Deps): Command {
       }
     });
 
+  // .command("activate-reviewer") — Starts reviewer + watcher tmux windows
   program
     .command("activate-reviewer")
     .description("Start the configured reviewer window for an opened PR")
@@ -859,6 +943,7 @@ export function createProgram(deps: Deps): Command {
       deps.out(`${REVIEWER_WATCH_WINDOW}: polling reviewer hard signals every ${config.limits.babysitPollSeconds}s`);
     });
 
+  // .command("reviewer-tick") — Poll loop: merge/close/LGTM/re-review
   program
     .command("reviewer-tick", { hidden: true })
     .description("Poll reviewer hard signals once")
@@ -995,6 +1080,7 @@ export function createProgram(deps: Deps): Command {
       deps.out(`reviewer: lgtm_stale ${pinnedSha} -> ${headSha}; re-reviewing ${prUrl}`);
     });
 
+  // .command("status") — Table: phase, needs-human, PR per combo
   program
     .command("status")
     .description("One line per combo: phase, needs-human, PR")
@@ -1015,6 +1101,7 @@ export function createProgram(deps: Deps): Command {
       }
     });
 
+  // .command("stop") — Kills tmux session, journals stopped event
   program
     .command("stop")
     .description("Kill a combo's tmux session (journal survives)")
@@ -1034,6 +1121,7 @@ export function createProgram(deps: Deps): Command {
       deps.out(`stopped ${combo.id} (tmux session ${combo.tmuxSession} killed, journal kept)`);
     });
 
+  // .command("events") — Journal JSONL dump, --follow to tail
   program
     .command("events")
     .description("Print a combo's journal (JSONL); --follow to tail")
@@ -1051,6 +1139,7 @@ export function createProgram(deps: Deps): Command {
       }
     });
 
+  // .command("emit") — Appends event to journal (called by runner.sh)
   program
     .command("emit", { hidden: true })
     .description("Append a lifecycle event (used by the runner)")
@@ -1085,6 +1174,7 @@ export function createProgram(deps: Deps): Command {
       }
     });
 
+  // .command("ensure-pr-autoclose") — Injects "closes #N" into PR body
   program
     .command("ensure-pr-autoclose", { hidden: true })
     .description("Ensure the PR body visibly autocloses the combo source issue")
@@ -1113,6 +1203,7 @@ export function createProgram(deps: Deps): Command {
       deps.out(`pr autoclose ensured for ${combo.id}`);
     });
 
+  // .command("activate-coder") — Resumes coder + starts comment-watcher
   program
     .command("activate-coder", { hidden: true })
     .description("Start the resumed coder and its review-comment watcher")
@@ -1158,6 +1249,7 @@ export function createProgram(deps: Deps): Command {
       deps.out(`coder responding active for ${combo.id}`);
     });
 
+  // .command("nudge-review-comments") — Routes new comments → coder window
   program
     .command("nudge-review-comments", { hidden: true })
     .description("One-shot sweep: route new PR comments to the coder responding window")
@@ -1196,6 +1288,9 @@ export function createProgram(deps: Deps): Command {
   return program;
 }
 
+// -/ 8/9
+
+// -- 9/9 CORE · Entry point --
 const isDirectRun = (() => {
   const argv1 = process.argv[1];
   if (!argv1) return false;
@@ -1218,3 +1313,4 @@ if (isDirectRun) {
       process.exitCode = 1;
     });
 }
+// -/ 9/9
