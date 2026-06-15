@@ -1,15 +1,14 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
  *   journal and delivers prompts to the coder tmux window via paste-buffer.
- *   Reads only; never mutates GitHub or the repo. ~239 lines, 12 exports.
+ *   Reads only; never mutates GitHub or the repo. ~276 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at routeReviewComments      ← the core nudge pipeline
  *   2. fetchReviewCommentSignals         ← GitHub → ReviewCommentSignal[]
  *   3. buildCoderRespondingResumeCommand ← resume the coder from thread_id
- *   4. buildReviewWatchCommand           ← polling shell loop
- *   5. signalFromComment / signalFromReview ← signal extraction helpers
+ *   4. signalFromComment / signalFromReview ← signal extraction helpers
  *
  *   MAIN FLOW
  *   ─────────
@@ -25,7 +24,6 @@
  *   │ routeReviewComments           Route new comments → coder window   │
  *   │ fetchReviewCommentSignals     Pull review signals from GitHub     │
  *   │ buildCoderRespondingResumeCommand Resume coder from thread_id     │
- *   │ buildReviewWatchCommand       Polling shell loop for watcher      │
  *   │ buildReviewNudgePrompt        Render nudge prompt from template   │
  *   │ readCoderThreadArtifact       Load persisted thread_id            │
  *   │ latestPrUrl                   Find pr_opened URL in journal       │
@@ -38,7 +36,7 @@
  *   │ hasNonEmptyBody, isRecord, PullRef                               │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, buildReviewWatchCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
+ * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
  * @deps node:fs, node:path, ../core/combo, ../core/events, ../infra/config,
  *   ../infra/tmux, ./coder
  */
