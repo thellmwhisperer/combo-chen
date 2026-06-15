@@ -19,7 +19,6 @@ import {
   canonicalEventName,
   followEvents,
   readEvents,
-  type ComboEvent,
   type EventName,
 } from "../core/events.js";
 import {
@@ -59,6 +58,13 @@ import {
 } from "../roles/coder-responding.js";
 import { syncNoMistakesMirror } from "./gate.js";
 import { latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
+import {
+  canonicalLgtmShaForHead,
+  hasJournaledLgtm,
+  hasMergedEvent,
+  livePinnedLgtmSha,
+  terminalReviewerEvent,
+} from "./reviewer.js";
 import { buildReviewerWatchCommand, resolvePollMs } from "./watchers.js";
 
 export { resolvePollMs } from "./watchers.js";
@@ -165,40 +171,6 @@ function latestOpenedPrUrl(runDir: string): string | undefined {
     }
   }
   return undefined;
-}
-
-function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
-  let sha: string | undefined;
-  for (const event of events) {
-    if (event.event === "lgtm" && typeof event["sha"] === "string") {
-      sha = event["sha"];
-    }
-    if (event.event === "lgtm_stale" && event["old_sha"] === sha) {
-      sha = undefined;
-    }
-  }
-  return sha;
-}
-
-function hasJournaledLgtm(events: ComboEvent[], sha: string): boolean {
-  return events.some((event) => event.event === "lgtm" && event["sha"] === sha);
-}
-
-function canonicalLgtmShaForHead(pinSha: string, headSha: string): string {
-  return headSha.toLowerCase().startsWith(pinSha.toLowerCase()) ? headSha : pinSha;
-}
-
-function terminalReviewerEvent(events: ComboEvent[]): ComboEvent | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]!;
-    if (event.event === "combo_closed") return event;
-  }
-  return undefined;
-}
-
-function hasMergedEvent(events: ComboEvent[], shas: string[]): boolean {
-  const accepted = new Set(shas);
-  return events.some((event) => event.event === "merged" && accepted.has(String(event["sha"])));
 }
 
 async function requireGit(
