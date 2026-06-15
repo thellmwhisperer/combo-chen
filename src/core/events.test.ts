@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the event journal subsystem. ~210 lines, testing
+ * @overview Unit tests for the event journal subsystem. ~238 lines, testing
  *   event schema validation, JSONL append/read, legacy alias mapping,
  *   torn-line tolerance, and the async follow/followEvents stream.
  *
