@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3020 lines.
+ *   deps so tests run without a real terminal or network. ~3100 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -20,6 +20,7 @@
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
  *   │ status                Table format output                      │
+ *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
@@ -139,6 +140,7 @@ describe("command surface", () => {
         "emit",
         "ensure-pr-autoclose",
         "events",
+        "forensics",
         "reviewer-tick",
         "nudge-review-comments",
         "run",
@@ -1626,6 +1628,70 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("CODING");
     expect(text).toContain("gate_decision");
+  });
+});
+
+describe("forensics", () => {
+  function seedCombo(homeDir: string, id: string, issueNumber: number): string {
+    const dir = runDirFor(homeDir, id);
+    writeCombo(dir, {
+      id,
+      issueUrl: `https://github.com/o/r/issues/${issueNumber}`,
+      repoDir: "/repos/r",
+      worktree: `/repos/r/.worktrees/issue-${issueNumber}`,
+      branch: `combo/issue-${issueNumber}`,
+      tmuxSession: `combo-chen-${id}`,
+      createdAt: "2026-06-11T10:00:00.000Z",
+    });
+    return dir;
+  }
+
+  it("renders a markdown report for selected issue numbers from local run logs", async () => {
+    const h = home();
+    const dir = seedCombo(h, "o-r-7", 7);
+    seedCombo(h, "o-r-8", 8);
+    writeFileSync(
+      join(dir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        { t: "2026-06-11T10:01:00.000Z", event: "coder_started" },
+        { t: "2026-06-11T10:05:00.000Z", event: "coder_done" },
+        { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+        { t: "2026-06-11T10:10:00.000Z", event: "lgtm", sha: "abc123" },
+        { t: "2026-06-11T10:12:00.000Z", event: "lgtm_stale", old_sha: "abc123", new_sha: "def456" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["forensics", "--issues", "7"]);
+
+    expect(out.join("\n")).toContain("# combo-chen forensics");
+    expect(out.join("\n")).toContain("## o-r-7");
+    expect(out.join("\n")).toContain("Coder: 4m");
+    expect(out.join("\n")).toContain("stale_lgtm_after_push");
+    expect(out.join("\n")).not.toContain("## o-r-8");
+  });
+
+  it("emits JSON reports with the same core facts", async () => {
+    const h = home();
+    const dir = seedCombo(h, "o-r-7", 7);
+    writeFileSync(
+      join(dir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["forensics", "--issues", "7", "--format", "json"]);
+
+    const parsed = JSON.parse(out.join("\n")) as { reports: Array<{ id: string; prUrl?: string }> };
+    expect(parsed.reports).toHaveLength(1);
+    expect(parsed.reports[0]).toMatchObject({
+      id: "o-r-7",
+      prUrl: "https://github.com/o/r/pull/9",
+    });
   });
 });
 
