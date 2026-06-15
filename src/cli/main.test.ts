@@ -38,10 +38,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { createProgram, type Deps } from "./main.js";
+import { buildReviewerWatchCommand, createProgram, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
 function home(): string {
@@ -111,6 +112,10 @@ function seedCodexGnhfRun(worktree: string): void {
 // -/ 1/4
 
 // -- 2/4 CORE · Command surface + run (+ attach, activate-coder, nudge-comments, emit) --
+function writeExecutable(path: string, body: string): void {
+  writeFileSync(path, body);
+  chmodSync(path, 0o755);
+}
 describe("command surface", () => {
   it("exposes the configured command surface", () => {
     const { deps } = fakeDeps();
@@ -1626,6 +1631,7 @@ describe("activate-reviewer", () => {
         '',
         '[limits]',
         'babysit_poll_seconds = 17',
+        'watch_failure_limit = 4',
         '',
       ].join("\n"),
     );
@@ -1669,6 +1675,9 @@ describe("activate-reviewer", () => {
     expect(watchCommand).toContain("reviewer: (merged|closed|already terminal)");
     expect(watchCommand).not.toContain("status=$?");
     expect(watchCommand).not.toContain('"$status"');
+    expect(watchCommand).toContain("watch_error");
+    expect(watchCommand).toContain("watch_dead");
+    expect(watchCommand).toContain('[ "$failures" -ge 4 ]');
     expect(watchCommand).toContain("sleep 17");
     expect(out.join("\n")).toContain("reviewer");
     expect(out.join("\n")).toContain("reviewer-watch");
@@ -1730,7 +1739,385 @@ describe("activate-reviewer", () => {
   });
 });
 
+describe("reviewer-watch command", () => {
+  it("survives one failed reviewer tick, journals watch_error, and runs the next tick", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const watchEvents = join(h, "watch-events.log");
+    const fakeCli = join(h, "fake-combo-chen");
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        `watch_events=${shellQuote(watchEvents)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  if [ "$count" -eq 1 ]; then',
+        '    echo "secondary rate limit" >&2',
+        "    exit 2",
+        "  fi",
+        '  echo "reviewer: already terminal"',
+        "  exit 0",
+        "fi",
+        'if [ "$command" = "emit" ]; then',
+        '  printf "%s\\n" "$*" >> "$watch_events"',
+        "  exit 0",
+        "fi",
+        'echo "unexpected command: $command" >&2',
+        "exit 99",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 0,
+      watchFailureLimit: 3,
+      watchBackoffMaxSeconds: 3600,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8" });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+    expect(readFileSync(tickCount, "utf8").trim()).toBe("2");
+    const events = readFileSync(watchEvents, "utf8");
+    expect(events.match(/\bwatch_error\b/g)).toHaveLength(1);
+    expect(events).toContain("exit_code=2");
+    expect(events).toContain("stderr=secondary rate limit");
+    expect(events).not.toContain("watch_dead");
+  });
+
+  it("backs off when reviewer-tick reports an exit-zero transient failure marker", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const watchEvents = join(h, "watch-events.log");
+    const fakeCli = join(h, "fake-combo-chen");
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        `watch_events=${shellQuote(watchEvents)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  if [ "$count" -eq 1 ]; then',
+        '    echo "reviewer: transient_failure: gh pr view failed for o-r-7 (status 1): API rate limit exceeded"',
+        "    exit 0",
+        "  fi",
+        '  echo "reviewer: already terminal"',
+        "  exit 0",
+        "fi",
+        'if [ "$command" = "emit" ]; then',
+        '  printf "%s\\n" "$*" >> "$watch_events"',
+        "  exit 0",
+        "fi",
+        'echo "unexpected command: $command" >&2',
+        "exit 99",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 0,
+      watchFailureLimit: 3,
+      watchBackoffMaxSeconds: 3600,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8" });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+    expect(readFileSync(tickCount, "utf8").trim()).toBe("2");
+    const events = readFileSync(watchEvents, "utf8");
+    expect(events.match(/\bwatch_error\b/g)).toHaveLength(1);
+    expect(events).toContain("exit_code=75");
+    expect(events).toContain("gh pr view failed");
+    expect(events).not.toContain("watch_dead");
+  });
+
+  it("journals watch_dead and exits non-zero after the configured consecutive failure limit", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const watchEvents = join(h, "watch-events.log");
+    const fakeCli = join(h, "fake-combo-chen");
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        `watch_events=${shellQuote(watchEvents)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  echo "gh secondary rate limit" >&2',
+        "  exit 7",
+        "fi",
+        'if [ "$command" = "emit" ]; then',
+        '  printf "%s\\n" "$*" >> "$watch_events"',
+        "  exit 0",
+        "fi",
+        'echo "unexpected command: $command" >&2',
+        "exit 99",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 0,
+      watchFailureLimit: 3,
+      watchBackoffMaxSeconds: 3600,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8" });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 7 });
+    expect(readFileSync(tickCount, "utf8").trim()).toBe("3");
+    const events = readFileSync(watchEvents, "utf8");
+    expect(events.match(/\bwatch_error\b/g)).toHaveLength(3);
+    expect(events.match(/\bwatch_dead\b/g)).toHaveLength(1);
+    expect(events).toContain("consecutive_failures=3");
+    expect(events).toContain("exit_code=7");
+    expect(events).toContain("stderr=gh secondary rate limit");
+  });
+
+  it("doubles backoff on each consecutive failure", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const sleepLog = join(h, "sleep-log");
+    const fakeCli = join(h, "fake-combo-chen");
+    const fakeSleep = join(h, "sleep");
+    writeExecutable(
+      fakeSleep,
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
+        "",
+      ].join("\n"),
+    );
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  echo "gh secondary rate limit" >&2',
+        "  exit 7",
+        "fi",
+        'echo "unexpected command: $command" >&2',
+        "exit 99",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 5,
+      watchFailureLimit: 6,
+      watchBackoffMaxSeconds: 3600,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: { PATH: `${h}:/usr/bin:/bin`, HOME: process.env["HOME"] },
+    });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 7 });
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").map(Number);
+    expect(sleeps).toEqual([5, 10, 20, 40, 80]);
+  });
+
+  it("caps backoff at 3600 when the doubling exceeds 1800", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const sleepLog = join(h, "sleep-log");
+    const fakeCli = join(h, "fake-combo-chen");
+    const fakeSleep = join(h, "sleep");
+    writeExecutable(
+      fakeSleep,
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
+        "",
+      ].join("\n"),
+    );
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  echo "gh secondary rate limit" >&2',
+        "  exit 7",
+        "fi",
+        'echo "unexpected command: $command" >&2',
+        "exit 99",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 5,
+      watchFailureLimit: 12,
+      watchBackoffMaxSeconds: 3600,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: { PATH: `${h}:/usr/bin:/bin`, HOME: process.env["HOME"] },
+    });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 7 });
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").map(Number);
+    expect(sleeps).toEqual([5, 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 3600]);
+  });
+
+  it("uses the configured max backoff for the first failed sleep and later doublings", () => {
+    const h = home();
+    const tickCount = join(h, "tick-count");
+    const sleepLog = join(h, "sleep-log");
+    const fakeCli = join(h, "fake-combo-chen");
+    const fakeSleep = join(h, "sleep");
+    writeExecutable(
+      fakeSleep,
+      [
+        "#!/bin/sh",
+        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
+        "",
+      ].join("\n"),
+    );
+    writeExecutable(
+      fakeCli,
+      [
+        "#!/bin/sh",
+        `tick_count=${shellQuote(tickCount)}`,
+        'command="$1"',
+        "shift",
+        'if [ "$command" = "reviewer-tick" ]; then',
+        "  count=0",
+        '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
+        "  count=$((count + 1))",
+        '  printf "%s\\n" "$count" > "$tick_count"',
+        '  echo "reviewer: transient_failure: gh pr view failed for o-r-7 (status 1): rate limit"',
+        "  exit 0",
+        "fi",
+        "exit 0",
+        "",
+      ].join("\n"),
+    );
+
+    const command = buildReviewerWatchCommand({
+      cli: shellQuote(fakeCli),
+      comboHome: h,
+      comboId: "o-r-7",
+      pollSeconds: 99,
+      watchFailureLimit: 4,
+      watchBackoffMaxSeconds: 7,
+    });
+
+    const result = spawnSync("/bin/sh", ["-c", command], {
+      encoding: "utf8",
+      env: { PATH: `${h}:/usr/bin:/bin`, HOME: process.env["HOME"] },
+    });
+
+    expect({ status: result.status, stderr: result.stderr }).toMatchObject({ status: 75 });
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").map(Number);
+    expect(sleeps).toEqual([7, 7, 7]);
+  });
+});
+
 describe("reviewer-tick", () => {
+  it("marks gh pr view failures as transient for reviewer-watch backoff", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: () => ({ status: 1, stdout: "", stderr: "API rate limit exceeded" }),
+    });
+
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
+
+    expect(out.join("\n")).toContain("reviewer: transient_failure:");
+    expect(out.join("\n")).toContain("gh pr view failed");
+    expect(out.join("\n")).toContain("API rate limit exceeded");
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened"]);
+  });
+
+  it("marks invalid gh pr view JSON as transient for reviewer-watch backoff", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: () => ({ status: 0, stdout: "not json", stderr: "" }),
+    });
+
+    await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
+
+    expect(out.join("\n")).toContain("reviewer: transient_failure:");
+    expect(out.join("\n")).toContain("failed to parse PR data");
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened"]);
+  });
+
   it("journals a merged PR, tears down local state, and leaves the remote branch alone", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

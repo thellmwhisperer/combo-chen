@@ -31,7 +31,7 @@
  *   │ nudge-review-comments  Route new review comments → coder       │
  *   └────────────────────────────────────────────────────────────────┘
  *
- *   HELPERS (~lines 99-720, on-demand reading)
+ *   HELPERS (~lines 99-773, on-demand reading)
  *   ────────────────────────────────────────--
  *   All live before createProgram. They are called by the commands.
  *   Grouped with // -- N/9 markers. Don't read top-to-bottom;
@@ -61,7 +61,7 @@
  *
  *   See // -- N/9 markers inline for quick scroll navigation.
  *
- * @exports createProgram, defaultDeps, resolvePollMs, Deps
+ * @exports createProgram, defaultDeps, resolvePollMs, buildReviewerWatchCommand, Deps
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux},
  *   ../roles/{gatekeeper,reviewer,coder,coder-responding}
@@ -232,21 +232,55 @@ export function resolvePollMs(env: Record<string, string | undefined>): number |
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function buildReviewerWatchCommand(input: {
+const REVIEWER_TRANSIENT_FAILURE = "reviewer: transient_failure:";
+const REVIEWER_TRANSIENT_EXIT_CODE = 75;
+
+function reviewerTransientFailure(message: string): string {
+  return `${REVIEWER_TRANSIENT_FAILURE} ${message}`;
+}
+
+export function buildReviewerWatchCommand(input: {
   cli: string;
   comboHome: string;
   comboId: string;
   pollSeconds: number;
+  watchFailureLimit: number;
+  watchBackoffMaxSeconds: number;
 }): string {
   const env = `COMBO_CHEN_HOME=${shellQuote(input.comboHome)}`;
+  const emit = `${env} ${input.cli} emit -n ${shellQuote(input.comboId)}`;
+  const failureLimit = Math.max(1, Math.trunc(input.watchFailureLimit));
+  const maxBackoffSeconds = Math.max(1, Math.ceil(input.watchBackoffMaxSeconds));
+  const backoffCapThreshold = Math.ceil(maxBackoffSeconds / 2);
+  const initialBackoffSeconds = Math.min(maxBackoffSeconds, Math.max(0, Math.ceil(input.pollSeconds)));
   return [
+    "failures=0",
+    `backoff=${initialBackoffSeconds}`,
     "while :; do",
     `  output=$(${env} ${input.cli} reviewer-tick -n ${shellQuote(input.comboId)} 2>&1)`,
     "  rc=$?",
     '  printf "%s\\n" "$output"',
     `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("reviewer: (merged|closed|already terminal)")} && exit 0`,
-    '  [ "$rc" -eq 0 ] || exit "$rc"',
-    `  sleep ${input.pollSeconds}`,
+    "  transient=0",
+    `  printf "%s\\n" "$output" | grep -Eq ${shellQuote(`^${REVIEWER_TRANSIENT_FAILURE}`)} && transient=1`,
+    '  if [ "$rc" -eq 0 ] && [ "$transient" -eq 0 ]; then',
+    "    failures=0",
+    `    backoff=${initialBackoffSeconds}`,
+    `    sleep ${input.pollSeconds}`,
+    "    continue",
+    "  fi",
+    '  failure_rc="$rc"',
+    `  [ "$failure_rc" -eq 0 ] && failure_rc=${REVIEWER_TRANSIENT_EXIT_CODE}`,
+    "  failures=$((failures + 1))",
+    '  output_snippet=$(printf "%s\\n" "$output" | head -c 500)',
+    '  output_snippet_escaped=$(printf \'%s\\n\' "$output_snippet" | sed "s/\'/\'\\\\\\\\\'\'/g")',
+    `  ${emit} watch_error --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field 'stderr='"$output_snippet_escaped" --field "consecutive_failures=$failures" --field "watcher=reviewer" >/dev/null 2>&1 || true`,
+    `  if [ "$failures" -ge ${failureLimit} ]; then`,
+    `    ${emit} watch_dead --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field 'stderr='"$output_snippet_escaped" --field "consecutive_failures=$failures" --field "watcher=reviewer" >/dev/null 2>&1 || true`,
+    '    exit "$failure_rc"',
+    "  fi",
+    '  sleep "$backoff"',
+    `  if [ "$backoff" -ge ${backoffCapThreshold} ]; then backoff=${maxBackoffSeconds}; else backoff=$((backoff * 2)); fi`,
     "done",
   ].join("\n");
 }
@@ -929,6 +963,8 @@ export function createProgram(deps: Deps): Command {
             comboHome: home,
             comboId: combo.id,
             pollSeconds: config.limits.babysitPollSeconds,
+            watchFailureLimit: config.limits.watchFailureLimit,
+            watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
           }),
         ),
       );
@@ -965,7 +1001,11 @@ export function createProgram(deps: Deps): Command {
 
       const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy,baseRefName,mergeCommit"]);
       if (pr.status !== 0) {
-        deps.out(`reviewer: gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
+        deps.out(
+          reviewerTransientFailure(
+            `gh pr view failed for ${combo.id} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`,
+          ),
+        );
         return;
       }
 
@@ -974,7 +1014,9 @@ export function createProgram(deps: Deps): Command {
         prView = parsePrView(pr.stdout);
       } catch (error) {
         deps.out(
-          `reviewer: failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+          reviewerTransientFailure(
+            `failed to parse PR data for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         );
         return;
       }
@@ -1029,7 +1071,9 @@ export function createProgram(deps: Deps): Command {
         githubPinnedSha = latestGitHubLgtmSha(deps, prUrl);
       } catch (error) {
         deps.out(
-          `reviewer: failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+          reviewerTransientFailure(
+            `failed to read LGTM pins for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         );
         return;
       }
