@@ -126,7 +126,7 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 
 - On `coder_done`, combo-chen captures the implementing session's thread id
   (gnhf logs, or lookup in La Roca's ingested session metadata).
-- On `review_comment` (fields: `author`, `kind`, `url`), coder responding mode is the implementing thread resumed:
+- On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed:
   `codex resume <id>`, `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with issue + PR diff + the comment. Degraded, never blocking.

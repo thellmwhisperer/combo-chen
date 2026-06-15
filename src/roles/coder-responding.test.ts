@@ -12,7 +12,7 @@
  *
  *   ┌─ TEST AREAS ───────────────────────────────────────────────┐
  *   │ buildReviewNudgePrompt          Prompt template rendering  │
- *   │ coder responding activation commands  Resume + watcher     │
+ *   │ coder responding activation commands  Resume commands        │
  *   │ readCoderThreadArtifact         Legacy + canonical path    │
  *   │ routeReviewComments             Idempotent nudge + journal │
  *   │ parsePullRequestUrl             URL parsing variants       │

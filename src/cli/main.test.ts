@@ -16,7 +16,7 @@
  *   │ command surface       Verifies all commands are registered     │
  *   │ run                   Worktree + runner.sh + tmux session      │
  *   │ attach                Session resolution and journal pane      │
- *   │ activate-coder        Coder resume + comment watcher           │
+ *   │ activate-coder        Coder resume for responding mode          │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
  *   │ status                Table format output                      │
