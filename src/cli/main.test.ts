@@ -19,6 +19,7 @@
  *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
+ *   │ reconcile             Frozen journal repair command            │
  *   │ status                Table format output                      │
  *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
@@ -143,6 +144,7 @@ describe("command surface", () => {
         "forensics",
         "reviewer-tick",
         "nudge-review-comments",
+        "reconcile",
         "run",
         "status",
         "stop",

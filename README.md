@@ -24,8 +24,10 @@ wrote the code.
 
 1. **Setup**: validates the issue/repo match, creates `.worktrees/issue-N`,
    writes `runner.sh`, opens a tmux session, and journals `combo_created`.
-2. **Coder**: runs the configured coder command, normally gnhf. The coder
-   leaves local commits in the combo worktree.
+2. **Coder**: the runner fetches and rebases the worktree onto `origin/main`,
+   then runs the configured coder command, normally gnhf. The coder leaves
+   local commits in the combo worktree. A fetch or rebase failure journals
+   `rebase_failed` or `rebase_conflict` and transitions the combo to STALLED.
 3. **Initial gate**: runs the configured no-mistakes gate. If the worktree has
    a `no-mistakes` remote, the default command pushes to that remote before
    `no-mistakes axi run --intent ...`. The gate opens the PR and journals
@@ -60,6 +62,7 @@ combo-chen status
 combo-chen attach -n you-repo-128
 combo-chen events --follow -n you-repo-128
 combo-chen forensics --issues 128
+combo-chen reconcile [--apply]
 combo-chen stop -n you-repo-128
 ```
 
@@ -74,11 +77,14 @@ Useful behavior:
 - `forensics --issues <numbers>` produces a read-only markdown report with
   timelines, gates, process windows, and detected incidents across selected
   runs. Use `--format json` for machine-readable output.
+- `reconcile` compares local combo journals with GitHub and reports frozen
+  merged journals that need repair. Use `--apply` to append missing terminal
+  events and run teardown.
 - `stop` kills the tmux session and leaves the journal/worktree for inspection.
 
-Hidden commands such as `activate-reviewer`, `activate-coder`,
-`director-tick`, `director-watch`, `ensure-pr-autoclose`, and
-`nudge-review-comments` are internal runner/director entry points.
+Hidden commands such as `activate-coder`, `director-tick`,
+`director-watch`, `ensure-pr-autoclose`, and `nudge-review-comments`
+are internal runner/director entry points.
 
 ## State And Logs
 
@@ -100,6 +106,7 @@ Important artifacts:
 | `gatekeeper.log` | initial no-mistakes gate output |
 | `gatekeeper-post-<sha>.sh` | generated post-address gate script |
 | `gatekeeper-post-<sha>.log` | post-address no-mistakes output |
+| `rebase.log` | pre-coder fetch/rebase output |
 | `autoclose*.log` | PR body autoclose repair attempts |
 
 The journal is the source of truth for orchestration. Pane text is only a
@@ -171,6 +178,7 @@ when changing a file.
 ## Status
 
 v0 is implemented with `run`, `attach`, `status`, `stop`, `events`, `forensics`,
+`reconcile`,
 the hidden director loop, coder responding mode, no-mistakes initial and
 post-address gates, reviewer re-review, local no-mistakes config propagation,
 and current-head READY agreement. Deferred work: preflight, counterfactual
