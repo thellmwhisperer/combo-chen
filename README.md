@@ -96,6 +96,7 @@ Important artifacts:
 | `gatekeeper.log` | initial no-mistakes gate output |
 | `gatekeeper-post-<sha>.sh` | generated post-address gate script |
 | `gatekeeper-post-<sha>.log` | post-address no-mistakes output |
+| `rebase.log` | pre-coder fetch/rebase output |
 | `autoclose*.log` | PR body autoclose repair attempts |
 
 The journal is the source of truth for orchestration. Pane text is only a
