@@ -190,11 +190,12 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 ## 8. Director mechanics (v0)
 
 - One tmux session per combo: windows for coder, gatekeeper, and any
-  interactive agent roles (reviewer, coder responding mode). The gatekeeper window runs
-  `no-mistakes attach`, which exits when no active run exists — often
-  before the gatekeeper command starts one. On `gate_started` the emit
-  handler recreates the gatekeeper window so the live role window is visible
-  when the no-mistakes run becomes active. The coder window
+  interactive agent roles (reviewer, coder responding mode). The gatekeeper
+  window resolves the branch's no-mistakes run id from the local no-mistakes
+  state, then follows `no-mistakes axi status --run <id>` instead of using
+  global attach, so simultaneous combos cannot render each other's run. On
+  `gate_started` the emit handler recreates the gatekeeper window so the live
+  role window is visible when no-mistakes becomes active. The coder window
   includes a short (12-line) journal pane showing live events. After PR open,
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
