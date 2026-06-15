@@ -42,6 +42,12 @@ an equivalent GitHub autoclose keyword in the PR/body generation path.
 A recoverable coder failure journals `coder_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.
 
+Before the coder starts, the runner fetches and rebases the worktree onto
+`origin/main`. A fetch failure journals `rebase_failed` (required field
+`base`) and exits 1; a merge-conflict rebase failure journals
+`rebase_conflict` (required field `base`) and exits 1. Both events
+transition the combo immediately to `STALLED`.
+
 A terminal coder failure (non-zero exit) journals `coder_failed` (required
 fields: `exit_code`, `has_new_commits`). The runner captures the git HEAD
 before and after the coder run: `base_sha`, `head_sha`, and
