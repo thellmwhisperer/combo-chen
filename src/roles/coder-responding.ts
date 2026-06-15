@@ -38,7 +38,7 @@
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
- * @deps node:fs, node:path, ../core/combo, ../core/events, ../core/gh-api, ../core/pr-url, ../infra/config,
+ * @deps node:fs, node:path, ../core/events, ../core/gh-api, ../core/pr-url, ../infra/config,
  *   ../infra/tmux, ./coder
  */
 import { existsSync, readFileSync } from "node:fs";
