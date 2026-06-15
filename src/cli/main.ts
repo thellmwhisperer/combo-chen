@@ -62,6 +62,7 @@ import {
   syncNoMistakesMirror,
 } from "./gate.js";
 import { latestGitHubLgtmSha, parsePrView, remoteSlug, type PrView } from "./github.js";
+import { teardownMergedCombo } from "./lifecycle.js";
 import {
   canonicalLgtmShaForHead,
   hasJournaledLgtm,
@@ -164,63 +165,6 @@ function fetchIssueDetails(deps: Deps, issueUrl: string): IssueDetails {
     throw new Error(`Issue details not readable: ${issueUrl} (invalid body)`);
   }
   return { title, body: body ?? "" };
-}
-
-async function requireGit(
-  deps: Deps,
-  args: string[],
-  cwd: string,
-  description: string,
-  options: { retries: number; backoffSeconds: number },
-): Promise<void> {
-  for (let attempt = 0; ; attempt += 1) {
-    const result = deps.git(args, cwd);
-    if (result.status === 0) return;
-    if (attempt >= options.retries) {
-      throw new Error(`${description} failed: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
-    }
-    await deps.sleep(options.backoffSeconds * 1000 * (attempt + 1));
-  }
-}
-
-async function teardownMergedCombo(input: {
-  deps: Deps;
-  combo: ComboRecord;
-  mergeSha: string;
-  baseRefName: string;
-  retries: number;
-  backoffSeconds: number;
-}): Promise<void> {
-  const retryOptions = { retries: input.retries, backoffSeconds: input.backoffSeconds };
-  const baseRef = `origin/${input.baseRefName}`;
-  await requireGit(
-    input.deps,
-    ["fetch", "origin", input.baseRefName],
-    input.combo.repoDir,
-    "git fetch base branch",
-    retryOptions,
-  );
-  await requireGit(
-    input.deps,
-    ["merge-base", "--is-ancestor", input.mergeSha, baseRef],
-    input.combo.repoDir,
-    `merge verification for ${input.mergeSha} in ${baseRef}`,
-    retryOptions,
-  );
-  await requireGit(
-    input.deps,
-    ["worktree", "remove", "--force", input.combo.worktree],
-    input.combo.repoDir,
-    `git worktree remove ${input.combo.worktree}`,
-    retryOptions,
-  );
-  await requireGit(
-    input.deps,
-    ["branch", "-D", input.combo.branch],
-    input.combo.repoDir,
-    `git branch delete ${input.combo.branch}`,
-    retryOptions,
-  );
 }
 
 function killComboSession(deps: Deps, combo: ComboRecord): void {
