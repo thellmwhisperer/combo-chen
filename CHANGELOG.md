@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.0.22](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.21...combo-chen-v0.0.22) (2026-06-15)
+
+
+### Features
+
+* centralize post-pr director loop ([a221d37](https://github.com/thellmwhisperer/combo-chen/commit/a221d37af5dba68d9acc4a637887c0b13c37db24))
+* **cli:** centralize post-PR director observation loop ([e279bf3](https://github.com/thellmwhisperer/combo-chen/commit/e279bf3cb4375a7dd7c492507a2605d65a87f6f2))
+
+
+### Bug Fixes
+
+* **gatekeeper:** follow explicit no-mistakes run ([db0517c](https://github.com/thellmwhisperer/combo-chen/commit/db0517c7f178950abf0c6eede4ce87f72e15428a))
+* ignore non-actionable review artifacts ([dd884e2](https://github.com/thellmwhisperer/combo-chen/commit/dd884e2e0ccaea95700960459782f9b7db159764))
+* lease post-address mirror publish ([7eca93a](https://github.com/thellmwhisperer/combo-chen/commit/7eca93a0ca2397a6522ee5208af3def5520cb164))
+* port director loop to split cli ([a50a86e](https://github.com/thellmwhisperer/combo-chen/commit/a50a86ea87e3461cd549fa3227fca4d3395cc6bb))
+* propagate no-mistakes config artifacts ([5f82375](https://github.com/thellmwhisperer/combo-chen/commit/5f82375fd695b589d9c139fe918a34cd6690e914))
+* reconcile director watcher with main ([da09039](https://github.com/thellmwhisperer/combo-chen/commit/da090394cedfae415fbefcce4879714ffe655ff8))
+* wire ready-for-merge signal ([16939e2](https://github.com/thellmwhisperer/combo-chen/commit/16939e23260dc28bd1420cc1800bed72ecf11b7f))
+
 ## [0.0.21](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.20...combo-chen-v0.0.21) (2026-06-15)
 
 
