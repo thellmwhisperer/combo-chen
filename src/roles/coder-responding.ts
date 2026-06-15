@@ -1,8 +1,46 @@
 /**
- * Coder responding nudges: hard review signals in, interactive coder attention
- * out. This module does not mutate GitHub or the repo; it only writes the
- * combo journal and delivers prompts to the already-owned coder window
- * via paste-buffer (set-buffer, paste-buffer, send-keys C-m).
+ * @overview Coder responding mode: routes hard review signals into the combo
+ *   journal and delivers prompts to the coder tmux window via paste-buffer.
+ *   Reads only; never mutates GitHub or the repo. ~239 lines, 12 exports.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at routeReviewComments      ← the core nudge pipeline
+ *   2. fetchReviewCommentSignals         ← GitHub → ReviewCommentSignal[]
+ *   3. buildCoderRespondingResumeCommand ← resume the coder from thread_id
+ *   4. buildReviewWatchCommand           ← polling shell loop
+ *   5. signalFromComment / signalFromReview ← signal extraction helpers
+ *
+ *   MAIN FLOW
+ *   ─────────
+ *   nudge-review-comments command
+ *     → fetchReviewCommentSignals(prUrl, gh)
+ *       → readGhArray(gh, endpoint)
+ *         → signalFromComment / signalFromReview
+ *     → routeReviewComments({comments, tmuxSession, windowName})
+ *       → buildReviewNudgePrompt → nudgeWindowArgs → tmux(paste-buffer)
+ *       → appendEvent("review_comment", ...)
+ *
+ *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
+ *   │ routeReviewComments           Route new comments → coder window   │
+ *   │ fetchReviewCommentSignals     Pull review signals from GitHub     │
+ *   │ buildCoderRespondingResumeCommand Resume coder from thread_id     │
+ *   │ buildReviewWatchCommand       Polling shell loop for watcher      │
+ *   │ buildReviewNudgePrompt        Render nudge prompt from template   │
+ *   │ readCoderThreadArtifact       Load persisted thread_id            │
+ *   │ latestPrUrl                   Find pr_opened URL in journal       │
+ *   │ parsePullRequestUrl           Parse PR URL → {owner,repo,number}  │
+ *   │ readGhArray                   gh api --paginate → parsed array    │
+ *   │ signalFromComment             Extract signal from comment JSON    │
+ *   │ signalFromReview              Extract signal from review JSON     │
+ *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
+ *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
+ *   │ hasNonEmptyBody, isRecord, PullRef                               │
+ *   └──────────────────────────────────────────────────────────────────┘
+ *
+ * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, buildReviewWatchCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
+ * @deps node:fs, node:path, ../core/combo, ../core/events, ../infra/config,
+ *   ../infra/tmux, ./coder
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +56,7 @@ import {
   type CoderThreadArtifact,
 } from "./coder.js";
 
+// -- 1/4 HELPER · Types + buildReviewNudgePrompt + readCoderThreadArtifact --
 export interface ReviewCommentSignal {
   author: string;
   kind: string;
@@ -77,7 +116,9 @@ function artifactNameFor(runDir: string): string | undefined {
   if (existsSync(join(runDir, LEGACY_ROWER_THREAD_ARTIFACT))) return LEGACY_ROWER_THREAD_ARTIFACT;
   return undefined;
 }
+// -/ 1/4
 
+// -- 2/4 CORE · Resume + watch + route ← START HERE --
 export function buildCoderRespondingResumeCommand(
   artifact: CoderThreadArtifact,
   resumeCommand: string,
@@ -134,7 +175,9 @@ export function latestPrUrl(events: ComboEvent[]): string | undefined {
   }
   return undefined;
 }
+// -/ 2/4
 
+// -- 3/4 CORE · fetchReviewCommentSignals + readGhArray --
 export function fetchReviewCommentSignals(
   prUrl: string,
   gh: (args: string[]) => TmuxResult,
@@ -213,7 +256,9 @@ export function readGhArray(gh: (args: string[]) => TmuxResult, endpoint: string
   }
   return values;
 }
+// -/ 3/4
 
+// -- 4/4 HELPER · Signal extraction from GitHub JSON --
 export function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | undefined {
   if (!isRecord(item) || !hasNonEmptyBody(item)) return undefined;
   const url = item["html_url"];
@@ -237,3 +282,4 @@ function hasNonEmptyBody(item: Record<string, unknown>): boolean {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
+// -/ 4/4

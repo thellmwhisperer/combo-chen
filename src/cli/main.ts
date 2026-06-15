@@ -1,11 +1,32 @@
 #!/usr/bin/env node
 /**
- * combo-chen — conductor for autonomous issue → PR pipelines.
+ * @overview combo-chen CLI router — ~470 lines, 11 commands, dependency wiring only.
  *
- * v0 surface: run | attach | status | stop | events (+ emit, the runner's pen).
- * The CLI is setup and introspection; the generated runner script inside
- * tmux is the combo's spine. The director — human or agent — drives with
- * these five commands.
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at createProgram         <- registers every public/hidden command.
+ *   2. Use defaultDeps                <- real process/git/gh/tmux adapters.
+ *   3. Jump to extracted modules      <- command bodies delegate behavior out.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   isDirectRun -> createProgram(defaultDeps()) -> commander dispatch -> helper module
+ *
+ *   PUBLIC API
+ *   ----------
+ *   createProgram     Build the Commander program and wire command handlers.
+ *   defaultDeps       Provide production adapters for command handlers.
+ *   Deps              Dependency interface used by CLI handlers and tests.
+ *   resolvePollMs     Re-exported watcher cadence helper for compatibility.
+ *
+ *   INTERNALS
+ *   ---------
+ *   cliInvocation; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *
+ * @exports createProgram, defaultDeps, Deps, resolvePollMs
+ * @deps commander, node:{child_process,fs,path,url},
+ *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
+ *   ./args, ./coder, ./gate, ./github, ./reviewer, ./sessions, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -62,6 +83,7 @@ import { resolvePollMs } from "./watchers.js";
 
 export { resolvePollMs } from "./watchers.js";
 
+// -- 1/4 HELPER · Deps and production adapters --
 export interface Deps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
@@ -99,7 +121,9 @@ function cliInvocation(): string {
   const script = fileURLToPath(import.meta.url);
   return `"${process.execPath}" "${script}"`;
 }
+// -/ 1/4
 
+// -- 2/4 CORE · createProgram command registry <- START HERE --
 export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
@@ -418,13 +442,17 @@ export function createProgram(deps: Deps): Command {
 
   return program;
 }
+// -/ 2/4
 
+// -- 3/4 HELPER · Direct-run detection --
 const isDirectRun = (() => {
   const argv1 = process.argv[1];
   if (!argv1) return false;
   return import.meta.url === new URL(`file://${argv1}`).href || argv1.endsWith("cli.mjs");
 })();
+// -/ 3/4
 
+// -- 4/4 CORE · CLI process entrypoint --
 if (isDirectRun) {
   createProgram(defaultDeps())
     .parseAsync(process.argv)
@@ -441,3 +469,4 @@ if (isDirectRun) {
       process.exitCode = 1;
     });
 }
+// -/ 4/4

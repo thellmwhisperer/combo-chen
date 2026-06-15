@@ -1,3 +1,30 @@
+/**
+ * @overview Unit tests for coder responding mode. ~379 lines, testing
+ *   review nudge prompt rendering, activation/resume commands, thread
+ *   artifact persistence, PR comment routing, URL parsing, gh array
+ *   aggregation, and review comment/PR review signal extraction.
+ *
+ *   READING GUIDE
+ *   ─────────────
+ *   1. Start at describe("routeReviewComments")   ← core routing logic
+ *   2. Then describe("readGhArray")               ← paginated gh output parsing
+ *   3. Then describe("signalFromComment")         ← signal extraction contracts
+ *
+ *   ┌─ TEST AREAS ───────────────────────────────────────────────┐
+ *   │ buildReviewNudgePrompt          Prompt template rendering  │
+ *   │ coder responding activation commands  Resume + watcher     │
+ *   │ readCoderThreadArtifact         Legacy + canonical path    │
+ *   │ routeReviewComments             Idempotent nudge + journal │
+ *   │ parsePullRequestUrl             URL parsing variants       │
+ *   │ readGhArray                     gh api --paginate          │
+ *   │ signalFromComment               Author/kind/url extraction │
+ *   │ signalFromReview                PR review state → signal   │
+ *   └─────────────────────────────────────────────────────────────┘
+ *
+ * @exports none (test file)
+ * @deps vitest, node:{fs,os,path}, ../core/events, ./coder,
+ *   ./coder-responding
+ */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +54,8 @@ const comment: ReviewCommentSignal = {
   kind: "review_comment",
   url: "https://github.com/o/r/pull/7#discussion_r1",
 };
+
+// -- 1/3 HELPER · Nudge prompt + activation commands --
 
 describe("buildReviewNudgePrompt", () => {
   const promptTemplate = [
@@ -90,7 +119,9 @@ describe("coder responding activation commands", () => {
     );
   });
 });
+// -/ 1/3
 
+// -- 2/3 CORE · Thread artifact + review routing ← START HERE --
 describe("readCoderThreadArtifact", () => {
   it("reads the canonical coder thread artifact", () => {
     const dir = runDir();
@@ -190,7 +221,9 @@ describe("routeReviewComments", () => {
     expect(readEvents(dir)[0]).toMatchObject(comment);
   });
 });
+// -/ 2/3
 
+// -- 3/3 HELPER · URL parsing, gh array, signal extraction --
 describe("parsePullRequestUrl", () => {
   it("parses a standard GitHub PR URL", () => {
     const pr = parsePullRequestUrl("https://github.com/o/r/pull/7");
@@ -377,3 +410,4 @@ describe("signalFromReview", () => {
     expect(signalFromReview(null)).toBeUndefined();
   });
 });
+// -/ 3/3
