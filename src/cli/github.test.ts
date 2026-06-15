@@ -126,6 +126,10 @@ describe("cli GitHub helpers", () => {
               ),
               created_at: "2026-06-11T00:02:00Z",
             },
+            {
+              body: `          lgtm @ ${fixtureSha}`,
+              created_at: "2026-06-11T00:03:00Z",
+            },
           ]),
           stderr: "",
         };
