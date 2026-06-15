@@ -1,5 +1,5 @@
 /**
- * @overview Combo forensics report model and renderers. ~230 lines, pure analysis only.
+ * @overview Combo forensics report model and renderers. ~235 lines, pure analysis only.
  *
  *   READING GUIDE
  *   -------------
@@ -36,6 +36,7 @@ export type ForensicsSignalState = "success" | "failure" | "pending" | "unknown"
 export interface ForensicsGithubPrFacts {
   url: string;
   headSha?: string;
+  reviewerPinnedSha?: string | null;
   state?: string;
   mergedAt?: string;
   ci?: ForensicsSignalState;
@@ -131,7 +132,10 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
   const status = deriveStatus(events);
   const prUrl = input.github?.pr?.url ?? latestPrUrl(events);
   const headSha = input.github?.pr?.headSha;
-  const liveReviewerSha = livePinnedLgtmSha(events);
+  const probedReviewerSha = input.github?.pr?.reviewerPinnedSha;
+  const liveReviewerSha = probedReviewerSha === null
+    ? undefined
+    : probedReviewerSha ?? livePinnedLgtmSha(events);
   const publishedGateSha = latestPublishedGateSha(events);
   const gateStatus = latestGateStatus(events);
   const latestStaleLgtm = latestEvent(events, "lgtm_stale");
