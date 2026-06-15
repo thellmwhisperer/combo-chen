@@ -1,6 +1,6 @@
 /**
  * @overview Event journal: append-only JSONL spine per combo run.
- *   ~159 lines, 12 exports, 1 canonical schema.
+ *   ~202 lines, 12 exports, 1 canonical schema.
  *
  *   READING GUIDE
  *   ─────────────
@@ -56,6 +56,8 @@ export const EVENT_TYPES = {
   combo_closed: { required: [] },
   coder_retry: { required: [] },
   stopped: { required: ["by"] },
+  watch_error: { required: ["exit_code", "stderr"] },
+  watch_dead: { required: ["exit_code", "stderr"] },
 } as const satisfies Record<string, { required: readonly string[] }>;
 
 export type CanonicalEventName = keyof typeof EVENT_TYPES;
