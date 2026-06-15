@@ -108,6 +108,11 @@ export function activateReviewer(input: {
     ),
   );
   if (watcher.status !== 0) {
+    try {
+      killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
+    } catch {
+      // Preserve the watcher-start failure as the primary error.
+    }
     throw new Error(
       `tmux failed to start director watcher in "${combo.tmuxSession}": ` +
         `${watcher.stderr.trim() || "unknown error"}`,

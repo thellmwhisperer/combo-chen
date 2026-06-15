@@ -172,6 +172,42 @@ describe("activateReviewer", () => {
       }),
     ).toThrow("Cannot activate reviewer for o-r-7: no pr_opened event in the journal");
   });
+
+  it("rolls back the reviewer window when director watcher startup fails", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    let watcherFailed = false;
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    expect(() =>
+      activateReviewer({
+        deps: {
+          env: { COMBO_CHEN_HOME: home },
+          out: () => undefined,
+          tmux: (args) => {
+            calls.push(args);
+            if (args[0] === "new-window" && args.includes("director-watch")) {
+              watcherFailed = true;
+              return { status: 1, stdout: "", stderr: "watcher boom" };
+            }
+            if (args[0] === "list-windows" && watcherFailed) {
+              return { status: 0, stdout: "reviewer\n", stderr: "" };
+            }
+            return { status: 0, stdout: "", stderr: "" };
+          },
+        },
+        home,
+        comboId: record.id,
+        cli: "node /repo/dist/cli.mjs",
+      }),
+    ).toThrow('tmux failed to start director watcher in "combo-chen-o-r-7": watcher boom');
+
+    expect(calls.at(-1)).toEqual(["kill-window", "-t", "combo-chen-o-r-7:reviewer"]);
+  });
 });
 // -/ 3/4
 
