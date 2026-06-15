@@ -1,10 +1,14 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { ComboEvent } from "../core/events.js";
+import { appendEvent, type ComboEvent } from "../core/events.js";
 import {
   canonicalLgtmShaForHead,
   hasJournaledLgtm,
   hasMergedEvent,
+  latestOpenedPrUrl,
   livePinnedLgtmSha,
   terminalReviewerEvent,
 } from "./reviewer.js";
@@ -44,5 +48,15 @@ describe("cli reviewer journal helpers", () => {
     expect(terminalReviewerEvent(events)).toMatchObject({ event: "combo_closed" });
     expect(hasMergedEvent(events, ["squash789", "head456"])).toBe(true);
     expect(hasMergedEvent(events, ["squash789"])).toBe(false);
+  });
+
+  it("returns the latest opened PR URL from the journal", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-reviewer-"));
+
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "lgtm", { sha: "abc123" });
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
+
+    expect(latestOpenedPrUrl(runDir)).toBe("https://github.com/o/r/pull/8");
   });
 });

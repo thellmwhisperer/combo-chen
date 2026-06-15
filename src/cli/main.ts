@@ -66,6 +66,7 @@ import {
   canonicalLgtmShaForHead,
   hasJournaledLgtm,
   hasMergedEvent,
+  latestOpenedPrUrl,
   livePinnedLgtmSha,
   terminalReviewerEvent,
 } from "./reviewer.js";
@@ -163,17 +164,6 @@ function fetchIssueDetails(deps: Deps, issueUrl: string): IssueDetails {
     throw new Error(`Issue details not readable: ${issueUrl} (invalid body)`);
   }
   return { title, body: body ?? "" };
-}
-
-function latestOpenedPrUrl(runDir: string): string | undefined {
-  const events = readEvents(runDir);
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]!;
-    if (event.event === "pr_opened" && typeof event["url"] === "string") {
-      return event["url"];
-    }
-  }
-  return undefined;
 }
 
 async function requireGit(
