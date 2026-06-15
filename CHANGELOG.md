@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.20](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.19...combo-chen-v0.0.20) (2026-06-15)
+
+
+### Features
+
+* add sherpa navigable comment standard with CLI and audit ([5acb93b](https://github.com/thellmwhisperer/combo-chen/commit/5acb93b93febdfa400474236f98de30c8c9aedef))
+* Sherpa navigable comment standard + CLI (pilot) ([94e7fb0](https://github.com/thellmwhisperer/combo-chen/commit/94e7fb084f0e44e2f86dfc557ba4a6d5bae4d134))
+* Sherpa navigable comment standard applied to entire codebase ([dba6f45](https://github.com/thellmwhisperer/combo-chen/commit/dba6f451afaaa2ec3877c1c256e49035441bb157))
+
+
+### Bug Fixes
+
+* address PR [#78](https://github.com/thellmwhisperer/combo-chen/issues/78) review comments ([1660c5a](https://github.com/thellmwhisperer/combo-chen/commit/1660c5a64aab774da89d110c3c752f400feb4dc4))
+* normalize all markers to SPEC contract ([03af256](https://github.com/thellmwhisperer/combo-chen/commit/03af25628363c1fcbe5e87c30c349e1314d5be3b))
+* normalize markers to SPEC format, add missing test markers ([b0e57dd](https://github.com/thellmwhisperer/combo-chen/commit/b0e57ddd2d3c3dec153b43fec94e6a9c6cfcfb4d))
+
 ## [0.0.19](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.18...combo-chen-v0.0.19) (2026-06-13)
 
 
