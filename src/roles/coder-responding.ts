@@ -115,7 +115,7 @@ function artifactNameFor(runDir: string): string | undefined {
 }
 // -/ 1/4
 
-// -- 2/4 CORE · Resume + watch + route ← START HERE --
+// -- 2/4 CORE · Resume + route ← START HERE --
 export function buildCoderRespondingResumeCommand(
   artifact: CoderThreadArtifact,
   resumeCommand: string,
