@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~911 lines, testing
+ * @overview Unit tests for core combo orchestration. ~985 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
