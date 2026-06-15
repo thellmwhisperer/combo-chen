@@ -1,7 +1,7 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
  *   journal and delivers prompts to the coder tmux window via paste-buffer.
- *   Reads only; never mutates GitHub or the repo. ~316 lines, 11 exports.
+ *   Reads only; never mutates GitHub or the repo. ~290 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -14,7 +14,7 @@
  *   ─────────
  *   nudge-review-comments command
  *     → fetchReviewCommentSignals(prUrl, gh)
- *       → readGhArray(gh, endpoint)
+ *       → readGhArray(gh, endpoint, cache?)
  *         → signalFromComment / signalFromReview
  *     → routeReviewComments({comments, tmuxSession, windowName})
  *       → buildReviewNudgePrompt → nudgeWindowArgs → tmux(paste-buffer)
@@ -34,11 +34,11 @@
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
  *   │ bodyText, meaningfulLines, isCodeRabbitRetriggerBookkeeping,       │
- *   │ isCodeRabbitRateLimitComment, isPinnedLgtmReview, isRecord, PullRef│
+ *   │ isCodeRabbitRateLimitComment, isPinnedLgtmReview, isRecord        │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
- * @deps node:fs, node:path, ../core/combo, ../core/events, ../infra/config,
+ * @deps node:fs, node:path, ../core/events, ../core/gh-api, ../core/pr-url, ../infra/config,
  *   ../infra/tmux, ./coder
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -46,6 +46,11 @@ import { join } from "node:path";
 
 import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
+import { readGhArray, type GhApiCache } from "../core/gh-api.js";
+import {
+  parseGitHubPullRequestUrl,
+  type GitHubPullRequestRef,
+} from "../core/pr-url.js";
 import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
@@ -54,17 +59,13 @@ import {
   type CoderThreadArtifact,
 } from "./coder.js";
 
+export { readGhArray } from "../core/gh-api.js";
+
 // -- 1/4 HELPER · Types + buildReviewNudgePrompt + readCoderThreadArtifact --
 export interface ReviewCommentSignal {
   author: string;
   kind: string;
   url: string;
-}
-
-interface PullRef {
-  owner: string;
-  repo: string;
-  number: number;
 }
 
 export function buildReviewNudgePrompt(
@@ -170,10 +171,11 @@ export function latestPrUrl(events: ComboEvent[]): string | undefined {
 }
 // -/ 2/4
 
-// -- 3/4 CORE · fetchReviewCommentSignals + readGhArray --
+// -- 3/4 CORE · fetchReviewCommentSignals + PR URL parsing --
 export function fetchReviewCommentSignals(
   prUrl: string,
   gh: (args: string[]) => TmuxResult,
+  cache?: GhApiCache,
 ): ReviewCommentSignal[] {
   const pr = parsePullRequestUrl(prUrl);
   const endpoints = [
@@ -185,7 +187,7 @@ export function fetchReviewCommentSignals(
   const signals: ReviewCommentSignal[] = [];
 
   for (const endpoint of endpoints) {
-    for (const item of readGhArray(gh, endpoint.path)) {
+    for (const item of readGhArray(gh, endpoint.path, cache)) {
       const signal =
         endpoint.kind === "review"
           ? signalFromReview(item)
@@ -209,46 +211,14 @@ function routedReviewCommentUrls(runDir: string): Set<string> {
   return urls;
 }
 
-export function parsePullRequestUrl(url: string): PullRef {
-  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/.exec(
-    url.trim(),
-  );
-  if (!match) {
+export function parsePullRequestUrl(url: string): GitHubPullRequestRef {
+  const ref = parseGitHubPullRequestUrl(url.trim());
+  if (ref === undefined) {
     throw new Error(`Not a GitHub pull request URL: "${url}"`);
   }
-  return { owner: match[1]!, repo: match[2]!, number: Number(match[3]!) };
+  return ref;
 }
 
-export function readGhArray(gh: (args: string[]) => TmuxResult, endpoint: string): unknown[] {
-  const result = gh(["api", "--paginate", endpoint]);
-  if (result.status !== 0) {
-    throw new Error(`gh api failed for ${endpoint}: ${result.stderr.trim() || "unknown error"}`);
-  }
-  const chunks = result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== "");
-  if (chunks.length === 0) return [];
-
-  const values: unknown[] = [];
-  for (const chunk of chunks) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(chunk);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`gh api returned invalid JSON for ${endpoint}: ${message}`);
-    }
-    if (Array.isArray(parsed)) {
-      values.push(...parsed);
-    } else if (isRecord(parsed)) {
-      values.push(parsed);
-    } else {
-      throw new Error(`gh api returned non-array JSON for ${endpoint}`);
-    }
-  }
-  return values;
-}
 // -/ 3/4
 
 // -- 4/4 HELPER · Signal extraction from GitHub JSON --

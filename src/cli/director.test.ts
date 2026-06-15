@@ -1,10 +1,11 @@
 /**
- * @overview Unit tests for director CLI helpers. ~350 lines, READY and post-address orchestration.
+ * @overview Unit tests for director CLI helpers. ~410 lines, READY and post-address orchestration.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at tickDirector tests    <- current-head READY and gate routing.
- *   2. Test harness helpers           <- combo fixture and fake deps.
+ *   1. Start at READY pure helpers    <- extracted current-head predicates.
+ *   2. Then tickDirector tests        <- current-head READY and gate routing.
+ *   3. Test harness helpers           <- combo fixture and fake deps.
  *
  *   MAIN FLOW
  *   ---------
@@ -16,7 +17,7 @@
  *
  *   INTERNALS
  *   ---------
- *   combo, fakeDeps, seedReadyCandidate
+ *   combo, event, fakeDeps, seedReadyCandidate
  *
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./director
@@ -26,9 +27,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { appendEvent, readEvents } from "../core/events.js";
+import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
-import { tickDirector, type DirectorDeps } from "./director.js";
+import {
+  gateStateAllowsReady,
+  headStateAllowsReady,
+  reviewStateAllowsReady,
+  tickDirector,
+  type DirectorDeps,
+} from "./director.js";
 
 // -- 1/2 HELPER · Fixtures --
 const ISSUE = "https://github.com/o/r/issues/7";
@@ -53,6 +60,10 @@ function successfulRollup(): unknown[] {
     { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
     { __typename: "StatusContext", context: "coverage", state: "SUCCESS" },
   ];
+}
+
+function event(name: ComboEvent["event"], payload: Record<string, unknown> = {}): ComboEvent {
+  return { t: new Date(0).toISOString(), event: name, ...payload };
 }
 
 function seedReadyCandidate(input: {
@@ -164,7 +175,50 @@ function fakeDeps(input: {
 }
 // -/ 1/2
 
-// -- 2/2 CORE · tickDirector tests <- START HERE --
+// -- 2/2 CORE · READY helpers and tickDirector tests <- START HERE --
+describe("READY pure state helpers", () => {
+  it("allows only open, not-yet-ready PR heads through the head-state check", () => {
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    expect(headStateAllowsReady([], { headSha, state: "OPEN" })).toBe(true);
+    expect(headStateAllowsReady([], { headSha, state: "MERGED" })).toBe(false);
+    expect(
+      headStateAllowsReady(
+        [event("ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" })],
+        { headSha, state: "OPEN" },
+      ),
+    ).toBe(false);
+  });
+
+  it("requires the latest gate state to be published and non-blocking for the current head", () => {
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    expect(gateStateAllowsReady([event("gate_validated", { sha: headSha })], headSha)).toBe(true);
+    expect(gateStateAllowsReady([event("gate_validated", { sha: oldSha })], headSha)).toBe(false);
+    expect(
+      gateStateAllowsReady(
+        [event("gate_validated", { sha: headSha }), event("gate_status", { state: "failed", head_sha: headSha })],
+        headSha,
+      ),
+    ).toBe(false);
+  });
+
+  it("requires a live reviewer LGTM pinned to the current head", () => {
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    expect(reviewStateAllowsReady([event("lgtm", { sha: headSha })], headSha)).toBe(true);
+    expect(reviewStateAllowsReady([event("lgtm", { sha: oldSha })], headSha)).toBe(false);
+    expect(
+      reviewStateAllowsReady(
+        [event("lgtm", { sha: headSha }), event("lgtm_stale", { old_sha: headSha, new_sha: oldSha })],
+        headSha,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("tickDirector", () => {
   it("emits READY when gate, reviewer, CodeRabbit, and checks all agree on the current head", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
@@ -181,6 +235,25 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
       }),
     );
+  });
+
+  it("reuses each paginated GitHub API endpoint within one director tick", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record } = seedReadyCandidate({ homeDir: h, headSha });
+    const { deps, calls } = fakeDeps({ homeDir: h, record, prHeadSha: headSha });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    const apiEndpoints = calls
+      .filter((call) => call[0] === "gh" && call[1] === "api")
+      .map((call) => call.find((part) => part.startsWith("repos/")));
+
+    expect(apiEndpoints).toEqual([
+      "repos/o/r/issues/7/comments",
+      "repos/o/r/pulls/7/reviews",
+      "repos/o/r/pulls/7/comments",
+    ]);
   });
 
   it("does not emit READY when CodeRabbit only reports a rate-limited review skip", async () => {

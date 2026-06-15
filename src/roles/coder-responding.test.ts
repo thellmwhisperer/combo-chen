@@ -261,6 +261,11 @@ describe("readGhArray", () => {
     expect(() => readGhArray(gh, "repos/x")).toThrow("gh api failed");
   });
 
+  it("classifies rate limit failures from gh api", () => {
+    const gh = () => ({ status: 1, stdout: "", stderr: "API rate limit exceeded" });
+    expect(() => readGhArray(gh, "repos/x")).toThrow("rate_limit transient");
+  });
+
   it("throws when gh returns invalid JSON", () => {
     const gh = () => ({ status: 0, stdout: "not json", stderr: "" });
     expect(() => readGhArray(gh, "repos/x")).toThrow("invalid JSON");

@@ -100,8 +100,8 @@ describe("cli GitHub helpers", () => {
 
     expect(latestGitHubLgtmSha(gh, "https://github.com/o/r/pull/7")).toBe("ee55ff");
     expect(calls).toEqual([
-      ["api", "repos/o/r/issues/7/comments", "--paginate"],
-      ["api", "repos/o/r/pulls/7/reviews", "--paginate"],
+      ["api", "--paginate", "repos/o/r/issues/7/comments"],
+      ["api", "--paginate", "repos/o/r/pulls/7/reviews"],
     ]);
   });
 });
