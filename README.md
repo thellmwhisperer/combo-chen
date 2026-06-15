@@ -61,6 +61,7 @@ combo-chen run --issue https://github.com/you/repo/issues/128
 combo-chen status
 combo-chen attach -n you-repo-128
 combo-chen events --follow -n you-repo-128
+combo-chen reconcile [--apply]
 combo-chen stop -n you-repo-128
 ```
 
@@ -72,11 +73,14 @@ Useful behavior:
 - `attach` opens the combo tmux session and recreates the short journal pane if
   needed.
 - `events --follow` tails the JSONL journal without attaching to tmux.
+- `reconcile` compares local combo journals with GitHub and reports frozen
+  merged journals that need repair. Use `--apply` to append missing terminal
+  events and run teardown.
 - `stop` kills the tmux session and leaves the journal/worktree for inspection.
 
-Hidden commands such as `activate-reviewer`, `activate-coder`,
-`director-tick`, `director-watch`, `ensure-pr-autoclose`, and
-`nudge-review-comments` are internal runner/director entry points.
+Hidden commands such as `activate-coder`, `director-tick`,
+`director-watch`, `ensure-pr-autoclose`, and `nudge-review-comments`
+are internal runner/director entry points.
 
 ## State And Logs
 
@@ -169,9 +173,9 @@ when changing a file.
 
 ## Status
 
-v0 is implemented with `run`, `attach`, `status`, `stop`, `events`, the hidden
-director loop, coder responding mode, no-mistakes initial and post-address
-gates, reviewer re-review, local no-mistakes config propagation, and
-current-head READY agreement. Deferred work: preflight, counterfactual
+v0 is implemented with `run`, `attach`, `status`, `stop`, `events`, `reconcile`,
+the hidden director loop, coder responding mode, no-mistakes initial and
+post-address gates, reviewer re-review, local no-mistakes config propagation,
+and current-head READY agreement. Deferred work: preflight, counterfactual
 automerge log, treehouse worktree pools, ACP role driving, and multi-combo
 dashboarding.
