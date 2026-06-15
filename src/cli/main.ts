@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~520 lines, 13 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~590 lines, 14 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -23,12 +23,12 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./coder, ./director, ./gate, ./github, ./reviewer, ./sessions, ./watchers
+ *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./reviewer, ./sessions, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -59,6 +59,7 @@ import {
   attachSessionArgs,
   hasSessionArgs,
   killSessionArgs,
+  listWindowsArgs,
   newSessionArgs,
   tmux as realTmux,
   type TmuxResult,
@@ -68,6 +69,7 @@ import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder
 import { parseEventFields } from "./args.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
 import { tickDirector } from "./director.js";
+import { analyzeForensicsCombo, renderForensicsMarkdown } from "./forensics.js";
 import {
   ensureGatekeeperWindow,
   NO_MISTAKES_CONFIG_FILE,
@@ -367,6 +369,37 @@ export function createProgram(deps: Deps): Command {
     });
 
   program
+    .command("forensics")
+    .description("Produce a read-only combo forensics report")
+    .option("--issues <numbers>", "Comma-separated GitHub issue numbers to include")
+    .option("-n, --name <comboId>", "Combo id to include")
+    .option("--format <format>", "markdown or json", "markdown")
+    .action(async (options: { issues?: string; name?: string; format: string }) => {
+      const home = comboHome(deps.env);
+      const issueFilter = parseForensicsIssueFilter(options.issues);
+      const format = parseForensicsFormat(options.format);
+      const combos = listCombos(home).filter((combo) => {
+        if (options.name !== undefined && combo.id !== options.name) return false;
+        if (issueFilter === undefined) return true;
+        return issueFilter.has(parseIssueUrl(combo.issueUrl).number);
+      });
+      const reports = combos.map((combo) => {
+        const runDir = runDirFor(home, combo.id);
+        return analyzeForensicsCombo({
+          combo,
+          events: readEvents(runDir),
+          tmux: collectForensicsTmuxFacts(deps, combo),
+        });
+      });
+
+      if (format === "json") {
+        deps.out(JSON.stringify({ reports }, null, 2));
+        return;
+      }
+      deps.out(renderForensicsMarkdown(reports));
+    });
+
+  program
     .command("stop")
     .description("Kill a combo's tmux session (journal survives)")
     .requiredOption("-n, --name <comboId>", "Combo id")
@@ -493,7 +526,44 @@ export function createProgram(deps: Deps): Command {
 }
 // -/ 2/4
 
-// -- 3/4 HELPER · Direct-run detection --
+// -- 3/4 HELPER · Forensics parsing + direct-run detection --
+type ForensicsFormat = "markdown" | "json";
+
+function parseForensicsFormat(value: string): ForensicsFormat {
+  if (value === "markdown" || value === "json") return value;
+  throw new Error('--format must be "markdown" or "json"');
+}
+
+function parseForensicsIssueFilter(value: string | undefined): Set<number> | undefined {
+  if (value === undefined) return undefined;
+  const parts = value.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+  if (parts.length === 0) throw new Error("--issues must include at least one issue number");
+  const numbers = new Set<number>();
+  for (const part of parts) {
+    const number = Number(part);
+    if (!Number.isInteger(number) || number <= 0) {
+      throw new Error(`Invalid issue number in --issues: ${part}`);
+    }
+    numbers.add(number);
+  }
+  return numbers;
+}
+
+function collectForensicsTmuxFacts(deps: Deps, combo: ComboRecord): { sessionExists: boolean; windows?: string[] } | undefined {
+  try {
+    const sessionExists = deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0;
+    if (!sessionExists) return { sessionExists: false, windows: [] };
+    const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+    if (listed.status !== 0) return { sessionExists: true };
+    return {
+      sessionExists: true,
+      windows: listed.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export function isDirectRun(metaUrl: string, argv1: string | undefined): boolean {
   if (!argv1) return false;
   return metaUrl === pathToFileURL(argv1).href || argv1.endsWith("cli.mjs");
