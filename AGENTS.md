@@ -31,7 +31,9 @@ Hard rule: `reviewer != coder`.
 5. Review comments are routed to the resumed coder thread. Mechanical fixes are
    handled locally; intent-touching decisions emit `needs_human`.
 6. Local addressing commits trigger a generated-script post-address
-   no-mistakes gate. The tmux command stays short (`sh <script>`).
+   no-mistakes gate. The script publishes `HEAD:refs/heads/<branch>` to the
+   no-mistakes mirror with `--force-with-lease` when replacing an existing
+   mirror branch; the tmux command stays short (`sh <script>`).
 7. READY is journaled only when all current-head signals agree:
    gate validated the PR head SHA, reviewer LGTM is pinned to that SHA,
    CodeRabbit has SUCCESS plus a non-rate-limited/non-skipped current-head
