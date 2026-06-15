@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.26](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.25...combo-chen-v0.0.26) (2026-06-15)
+
+
+### Bug Fixes
+
+* **cli:** harden LGTM pin extraction to exclude quoted, code-fixture, and invalid short/inline pins ([9da607e](https://github.com/thellmwhisperer/combo-chen/commit/9da607ea05379e5539300e8fd1a217bd02ec488f))
+
 ## [0.0.25](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.24...combo-chen-v0.0.25) (2026-06-15)
 
 
@@ -282,6 +289,7 @@
 
 ### Bug Fixes
 
+* **lgtm:** harden LGTM pin extraction to require own-line verdicts with at least seven hex characters and filter out code fences, quoted text, indented code blocks, and inline code span fixtures ([#58](https://github.com/thellmwhisperer/combo-chen/issues/58))
 * **hodor:** recreate missing hodor tmux window on `hodor_started` event so the live role window survives an early attach watcher exit ([#62](https://github.com/thellmwhisperer/combo-chen/issues/62))
 * **thread-sitter:** replace send-keys with paste-buffer for nudge transport ([b9170eb](https://github.com/thellmwhisperer/combo-chen/commit/b9170eb4b231e58909712f921abcaf378f86cd12))
 
