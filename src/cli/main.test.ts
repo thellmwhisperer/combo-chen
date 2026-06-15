@@ -16,11 +16,11 @@
  *   │ command surface       Verifies all commands are registered     │
  *   │ run                   Worktree + runner.sh + tmux session      │
  *   │ attach                Session resolution and journal pane      │
- *   │ activate-coder        Coder resume + comment watcher           │
+ *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
  *   │ status                Table format output                      │
- *   │ activate-reviewer     Reviewer + watcher windows               │
+ *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
  *   │ stop                  kill-session + journal stopped event     │
@@ -42,7 +42,7 @@ import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { buildReviewerWatchCommand, createProgram, type Deps } from "./main.js";
+import { buildDirectorWatchCommand, createProgram, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
 function home(): string {
@@ -127,6 +127,8 @@ describe("command surface", () => {
         "activate-coder",
         "activate-reviewer",
         "attach",
+        "director-tick",
+        "director-watch",
         "emit",
         "ensure-pr-autoclose",
         "events",
@@ -388,7 +390,7 @@ describe("attach", () => {
 });
 
 describe("activate-coder", () => {
-  it("uses OSS-friendly default coder responding and comment-watch windows", async () => {
+  it("uses OSS-friendly default coder responding worker", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
@@ -414,12 +416,12 @@ describe("activate-coder", () => {
     await exec(deps, ["activate-coder", "-n", "o-r-7"]);
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows).toHaveLength(1);
     expect(newWindows[0]).toContain("coder-responding");
-    expect(newWindows[1]).toContain("comment-watch");
     expect(out.join("\n")).toContain("coder responding active for o-r-7");
   });
 
-  it("starts the resumed sitter window and the review-comment watcher from the coder thread artifact", async () => {
+  it("starts the resumed sitter window from the coder thread artifact", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
@@ -449,17 +451,14 @@ describe("activate-coder", () => {
     await exec(deps, ["activate-coder", "-n", "o-r-7"]);
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
-    expect(newWindows).toHaveLength(2);
+    expect(newWindows).toHaveLength(1);
     expect(newWindows[0]).toContain("sitter");
     expect(newWindows[0]?.at(-1)).toBe(`codex --profile sitter resume '${CODEX_THREAD_ID}'`);
-    expect(newWindows[1]).toContain("sitter-watch");
-    expect(newWindows[1]?.at(-1)).toContain("nudge-review-comments -n 'o-r-7'");
-    expect(newWindows[1]?.at(-1)).toContain("sleep 7");
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "gh")).toBe(false);
   });
 
-  it("kills the sitter window when the watcher window fails to start", async () => {
+  it("reports resumed coder startup failures", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
@@ -488,7 +487,7 @@ describe("activate-coder", () => {
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
-        if (args[0] === "new-window" && args.includes("sitter-watch")) {
+        if (args[0] === "new-window" && args.includes("sitter")) {
           return { status: 1, stdout: "", stderr: "duplicate window" };
         }
         return { status: 0, stdout: "", stderr: "" };
@@ -496,10 +495,10 @@ describe("activate-coder", () => {
     });
 
     await expect(exec(deps, ["activate-coder", "-n", "o-r-7"])).rejects.toThrow(
-      /tmux failed to start sitter-watch: duplicate window/,
+      /tmux failed to start sitter: duplicate window/,
     );
 
-    expect(calls).toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:sitter"]);
+    expect(calls).not.toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:sitter"]);
   });
 });
 
@@ -743,6 +742,9 @@ describe("nudge-review-comments", () => {
         if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
           return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
         }
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: "abc123\n", stderr: "" };
+        }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
       },
     });
@@ -756,6 +758,7 @@ describe("nudge-review-comments", () => {
       author: "coderabbitai",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
+      head_sha: "abc123",
     });
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux");
@@ -780,7 +783,9 @@ describe("nudge-review-comments", () => {
     ]);
     expect(calls.filter((call) => call[0] === "git")).toEqual([
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
+      ["git", `cwd=${worktree}`, "rev-parse", "HEAD"],
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
+      ["git", `cwd=${worktree}`, "rev-parse", "HEAD"],
     ]);
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
@@ -834,6 +839,9 @@ describe("nudge-review-comments", () => {
         if (args[0] === "fetch") {
           return { status: 128, stdout: "", stderr: "network down" };
         }
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: "abc123\n", stderr: "" };
+        }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
       },
     });
@@ -846,6 +854,7 @@ describe("nudge-review-comments", () => {
       author: "coderabbitai",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
+      head_sha: "abc123",
     });
     expect(out.some((line) => line.includes("mirror sync failed"))).toBe(true);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "paste-buffer")).toBe(true);
@@ -1664,14 +1673,14 @@ describe("activate-reviewer", () => {
     expect(command).toContain("lgtm @ <sha>");
 
     const watchWindow = calls.find(
-      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("reviewer-watch"),
+      (c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("director-watch"),
     );
     expect(watchWindow).toBeDefined();
     expect(watchWindow).toContain("combo-chen-o-r-7");
 
     const watchCommand = watchWindow?.at(-1) ?? "";
     expect(watchCommand).toContain(`COMBO_CHEN_HOME='${h}'`);
-    expect(watchCommand).toContain("reviewer-tick -n 'o-r-7'");
+    expect(watchCommand).toContain("director-tick -n 'o-r-7'");
     expect(watchCommand).toContain("reviewer: (merged|closed|already terminal)");
     expect(watchCommand).not.toContain("status=$?");
     expect(watchCommand).not.toContain('"$status"');
@@ -1680,7 +1689,7 @@ describe("activate-reviewer", () => {
     expect(watchCommand).toContain('[ "$failures" -ge 4 ]');
     expect(watchCommand).toContain("sleep 17");
     expect(out.join("\n")).toContain("reviewer");
-    expect(out.join("\n")).toContain("reviewer-watch");
+    expect(out.join("\n")).toContain("director-watch");
   });
 
   it("refuses activation before the combo has an opened PR in the journal", async () => {
@@ -1720,7 +1729,7 @@ describe("activate-reviewer", () => {
       tmux: (args) => {
         calls.push(["tmux", ...args]);
         if (args[0] === "list-windows") {
-          return { status: 0, stdout: "coder\nreviewer\nreviewer-watch\n", stderr: "" };
+          return { status: 0, stdout: "coder\nreviewer\nreviewer-watch\ndirector-watch\n", stderr: "" };
         }
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -1739,8 +1748,8 @@ describe("activate-reviewer", () => {
   });
 });
 
-describe("reviewer-watch command", () => {
-  it("survives one failed reviewer tick, journals watch_error, and runs the next tick", () => {
+describe("director-watch command", () => {
+  it("survives one failed director tick, journals watch_error, and runs the next tick", () => {
     const h = home();
     const tickCount = join(h, "tick-count");
     const watchEvents = join(h, "watch-events.log");
@@ -1753,7 +1762,7 @@ describe("reviewer-watch command", () => {
         `watch_events=${shellQuote(watchEvents)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -1775,7 +1784,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -1795,7 +1804,7 @@ describe("reviewer-watch command", () => {
     expect(events).not.toContain("watch_dead");
   });
 
-  it("backs off when reviewer-tick reports an exit-zero transient failure marker", () => {
+  it("backs off when director-tick reports an exit-zero transient failure marker", () => {
     const h = home();
     const tickCount = join(h, "tick-count");
     const watchEvents = join(h, "watch-events.log");
@@ -1808,7 +1817,7 @@ describe("reviewer-watch command", () => {
         `watch_events=${shellQuote(watchEvents)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -1830,7 +1839,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -1863,7 +1872,7 @@ describe("reviewer-watch command", () => {
         `watch_events=${shellQuote(watchEvents)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -1881,7 +1890,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -1923,7 +1932,7 @@ describe("reviewer-watch command", () => {
         `tick_count=${shellQuote(tickCount)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -1937,7 +1946,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -1977,7 +1986,7 @@ describe("reviewer-watch command", () => {
         `tick_count=${shellQuote(tickCount)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -1991,7 +2000,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2031,7 +2040,7 @@ describe("reviewer-watch command", () => {
         `tick_count=${shellQuote(tickCount)}`,
         'command="$1"',
         "shift",
-        'if [ "$command" = "reviewer-tick" ]; then',
+        'if [ "$command" = "director-tick" ]; then',
         "  count=0",
         '  [ -f "$tick_count" ] && count=$(cat "$tick_count")',
         "  count=$((count + 1))",
@@ -2044,7 +2053,7 @@ describe("reviewer-watch command", () => {
       ].join("\n"),
     );
 
-    const command = buildReviewerWatchCommand({
+    const command = buildDirectorWatchCommand({
       cli: shellQuote(fakeCli),
       comboHome: h,
       comboId: "o-r-7",
@@ -2065,7 +2074,7 @@ describe("reviewer-watch command", () => {
 });
 
 describe("reviewer-tick", () => {
-  it("marks gh pr view failures as transient for reviewer-watch backoff", async () => {
+  it("marks gh pr view failures as transient for director-watch backoff", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
@@ -2092,7 +2101,7 @@ describe("reviewer-tick", () => {
     expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened"]);
   });
 
-  it("marks invalid gh pr view JSON as transient for reviewer-watch backoff", async () => {
+  it("marks invalid gh pr view JSON as transient for director-watch backoff", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");

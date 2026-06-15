@@ -1,11 +1,12 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~145 lines, attach window and mirror sync.
+ * @overview Unit tests for gatekeeper CLI helpers. ~205 lines, attach, config artifact, and mirror sync.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at gatekeeper attach window helpers <- tmux command rendering.
  *   2. Then syncNoMistakesMirror                 <- missing mirror no-op.
- *   3. remoteShaForRef                           <- exact ref parser.
+ *   3. propagateNoMistakesConfig                 <- local config artifact copy.
+ *   4. remoteShaForRef/sync helpers              <- exact refs and safe pushes.
  *
  *   MAIN FLOW
  *   ---------
@@ -22,20 +23,22 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/state, ./gate
  */
-import { mkdtempSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildPostAddressGateScript,
   buildGatekeeperAttachCommand,
   ensureGatekeeperWindow,
+  propagateNoMistakesConfig,
   remoteShaForRef,
   syncNoMistakesMirror,
 } from "./gate.js";
 import type { ComboRecord } from "../core/state.js";
 
-// -- 1/3 HELPER · combo and remoteShaForRef tests --
+// -- 1/4 HELPER · combo and remoteShaForRef tests --
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
   return {
     id: "o-r-7",
@@ -62,9 +65,9 @@ describe("remoteShaForRef", () => {
     ).toBe("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   });
 });
-// -/ 1/3
+// -/ 1/4
 
-// -- 2/3 CORE · gatekeeper attach window helpers <- START HERE --
+// -- 2/4 CORE · gatekeeper attach window helpers <- START HERE --
 describe("gatekeeper attach window helpers", () => {
   it("builds the polling attach command with shell-quoted worktree paths", () => {
     expect(
@@ -118,9 +121,45 @@ describe("gatekeeper attach window helpers", () => {
     ]);
   });
 });
-// -/ 2/3
+// -/ 2/4
 
-// -- 3/3 CORE · syncNoMistakesMirror tests --
+// -- 3/4 CORE · no-mistakes config artifact propagation --
+describe("propagateNoMistakesConfig", () => {
+  it("copies the source local config into the worktree preserving content and mode", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = mkdtempSync(join(tmpdir(), "combo-chen-worktree-"));
+    const source = join(repoDir, ".no-mistakes.yaml");
+    const target = join(worktree, ".no-mistakes.yaml");
+    writeFileSync(source, "commands:\n  test: pnpm test\n");
+    chmodSync(source, 0o640);
+
+    expect(propagateNoMistakesConfig(repoDir, worktree)).toBe(true);
+
+    expect(readFileSync(target, "utf8")).toBe("commands:\n  test: pnpm test\n");
+    expect(statSync(target).mode & 0o777).toBe(0o640);
+  });
+
+  it("does not overwrite an existing worktree config", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = mkdtempSync(join(tmpdir(), "combo-chen-worktree-"));
+    writeFileSync(join(repoDir, ".no-mistakes.yaml"), "commands:\n  test: pnpm test\n");
+    writeFileSync(join(worktree, ".no-mistakes.yaml"), "commands:\n  test: custom\n");
+
+    expect(propagateNoMistakesConfig(repoDir, worktree)).toBe(false);
+    expect(readFileSync(join(worktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: custom\n");
+  });
+
+  it("is a no-op when the source local config is absent", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = mkdtempSync(join(tmpdir(), "combo-chen-worktree-"));
+
+    expect(propagateNoMistakesConfig(repoDir, worktree)).toBe(false);
+    expect(existsSync(join(worktree, ".no-mistakes.yaml"))).toBe(false);
+  });
+});
+// -/ 3/4
+
+// -- 4/4 CORE · syncNoMistakesMirror and post-address push safety --
 describe("syncNoMistakesMirror", () => {
   it("treats a missing no-mistakes remote as a no-op", () => {
     const calls: string[][] = [];
@@ -145,4 +184,22 @@ describe("syncNoMistakesMirror", () => {
     expect(calls).toEqual([[record.worktree, "remote", "get-url", "no-mistakes"]]);
   });
 });
-// -/ 3/3
+
+describe("buildPostAddressGateScript", () => {
+  it("publishes rewritten local HEAD to an existing mirror branch with force-with-lease", () => {
+    const script = buildPostAddressGateScript({
+      combo: combo(),
+      runDir: mkdtempSync(join(tmpdir(), "combo-chen-run-")),
+      gatekeeperCommand: "no-mistakes axi run --intent 'post-address gate'",
+      headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      prUrl: "https://github.com/o/r/pull/7",
+      emit: "combo-chen emit -n o-r-7",
+      ensurePrAutoclose: "combo-chen ensure-pr-autoclose -n o-r-7 --pr-url",
+    });
+
+    expect(script).toContain('git push no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"');
+    expect(script).toContain('git push no-mistakes "HEAD:$mirror_ref"');
+    expect(script).not.toContain("git push no-mistakes HEAD");
+  });
+});
+// -/ 4/4

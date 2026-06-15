@@ -1,15 +1,14 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
  *   journal and delivers prompts to the coder tmux window via paste-buffer.
- *   Reads only; never mutates GitHub or the repo. ~239 lines, 12 exports.
+ *   Reads only; never mutates GitHub or the repo. ~316 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at routeReviewComments      ← the core nudge pipeline
  *   2. fetchReviewCommentSignals         ← GitHub → ReviewCommentSignal[]
  *   3. buildCoderRespondingResumeCommand ← resume the coder from thread_id
- *   4. buildReviewWatchCommand           ← polling shell loop
- *   5. signalFromComment / signalFromReview ← signal extraction helpers
+ *   4. signalFromComment / signalFromReview ← signal extraction helpers
  *
  *   MAIN FLOW
  *   ─────────
@@ -25,7 +24,6 @@
  *   │ routeReviewComments           Route new comments → coder window   │
  *   │ fetchReviewCommentSignals     Pull review signals from GitHub     │
  *   │ buildCoderRespondingResumeCommand Resume coder from thread_id     │
- *   │ buildReviewWatchCommand       Polling shell loop for watcher      │
  *   │ buildReviewNudgePrompt        Render nudge prompt from template   │
  *   │ readCoderThreadArtifact       Load persisted thread_id            │
  *   │ latestPrUrl                   Find pr_opened URL in journal       │
@@ -35,17 +33,17 @@
  *   │ signalFromReview              Extract signal from review JSON     │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
- *   │ hasNonEmptyBody, isRecord, PullRef                               │
+ *   │ bodyText, meaningfulLines, isCodeRabbitRetriggerBookkeeping,       │
+ *   │ isCodeRabbitRateLimitComment, isPinnedLgtmReview, isRecord, PullRef│
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, buildReviewWatchCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
+ * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
  * @deps node:fs, node:path, ../core/combo, ../core/events, ../infra/config,
  *   ../infra/tmux, ./coder
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { shellQuote } from "../core/combo.js";
 import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { renderCommand } from "../infra/config.js";
@@ -118,7 +116,7 @@ function artifactNameFor(runDir: string): string | undefined {
 }
 // -/ 1/4
 
-// -- 2/4 CORE · Resume + watch + route ← START HERE --
+// -- 2/4 CORE · Resume + route ← START HERE --
 export function buildCoderRespondingResumeCommand(
   artifact: CoderThreadArtifact,
   resumeCommand: string,
@@ -126,18 +124,11 @@ export function buildCoderRespondingResumeCommand(
   return renderCommand(resumeCommand, { thread_id: artifact.thread_id });
 }
 
-export function buildReviewWatchCommand(input: {
-  cli: string;
-  comboId: string;
-  pollSeconds: number;
-}): string {
-  return `while :; do ${input.cli} nudge-review-comments -n ${shellQuote(input.comboId)}; sleep ${input.pollSeconds}; done`;
-}
-
 export function routeReviewComments(input: {
   runDir: string;
   tmuxSession: string;
   comments: ReviewCommentSignal[];
+  headSha?: string;
   reviewNudgePrompt: string;
   tmux: (args: string[]) => TmuxResult;
   windowName: string;
@@ -154,11 +145,13 @@ export function routeReviewComments(input: {
         throw new Error(`tmux nudge failed: ${result.stderr.trim() || "unknown error"}`);
       }
     }
-    appendEvent(input.runDir, "review_comment", {
+    const payload: Record<string, unknown> = {
       author: comment.author,
       kind: comment.kind,
       url: comment.url,
-    });
+    };
+    if (input.headSha !== undefined) payload["head_sha"] = input.headSha;
+    appendEvent(input.runDir, "review_comment", payload);
     seen.add(comment.url);
     routed.push(comment);
   }
@@ -260,23 +253,61 @@ export function readGhArray(gh: (args: string[]) => TmuxResult, endpoint: string
 
 // -- 4/4 HELPER · Signal extraction from GitHub JSON --
 export function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | undefined {
-  if (!isRecord(item) || !hasNonEmptyBody(item)) return undefined;
+  if (!isRecord(item)) return undefined;
+  const body = bodyText(item);
+  if (body === undefined) return undefined;
   const url = item["html_url"];
   const user = item["user"];
   if (typeof url !== "string" || url.trim() === "") return undefined;
   if (!isRecord(user) || typeof user["login"] !== "string" || user["login"].trim() === "") {
     return undefined;
   }
-  return { author: user["login"], kind, url };
+  const author = user["login"];
+  if (kind === "pr_comment" && isCodeRabbitRetriggerBookkeeping(body)) return undefined;
+  if (kind === "pr_comment" && isCodeRabbitRateLimitComment(author, body)) return undefined;
+  return { author, kind, url };
 }
 
 export function signalFromReview(item: unknown): ReviewCommentSignal | undefined {
-  if (!isRecord(item) || item["state"] === "APPROVED") return undefined;
+  if (!isRecord(item)) return undefined;
+  const state = typeof item["state"] === "string" ? item["state"].toUpperCase() : "";
+  if (state === "APPROVED") return undefined;
+  const body = bodyText(item);
+  if (state === "COMMENTED" && body !== undefined && isPinnedLgtmReview(body)) return undefined;
   return signalFromComment(item, "review");
 }
 
-function hasNonEmptyBody(item: Record<string, unknown>): boolean {
-  return typeof item["body"] === "string" && item["body"].trim() !== "";
+function bodyText(item: Record<string, unknown>): string | undefined {
+  const body = item["body"];
+  return typeof body === "string" && body.trim() !== "" ? body : undefined;
+}
+
+function meaningfulLines(body: string): string[] {
+  return body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+}
+
+function isCodeRabbitRetriggerBookkeeping(body: string): boolean {
+  const lines = meaningfulLines(body);
+  if (lines.length === 0 || !/^@coderabbitai\s+review\s*$/i.test(lines[0]!)) return false;
+  return lines.slice(1).every((line) => {
+    const lower = line.toLowerCase();
+    return lower.includes("codex") && lower.includes("coderabbit");
+  });
+}
+
+function isCodeRabbitRateLimitComment(author: string, body: string): boolean {
+  return (
+    author.toLowerCase().startsWith("coderabbit") &&
+    /\breview\s+limit\s+reached\b|rate[-\s]?limit(?:ed)?|\breview\s+skipped\b|couldn'?t start this review/i.test(body)
+  );
+}
+
+function isPinnedLgtmReview(body: string): boolean {
+  return /^\s*lgtm\s*@\s*[0-9a-f]{6,40}\b/i.test(body);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

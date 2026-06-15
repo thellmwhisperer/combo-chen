@@ -52,14 +52,13 @@ attach_retry_interval_seconds = 10
 
 [coder_responding]
 window_name = "coder-responding"
-watch_window_name = "comment-watch"
 # {placeholders}: author, kind, url.
 review_nudge_prompt = '''
 New review comment for coder responding mode:
 {url}
 
-Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, push, and PR replies; escalate intent-touching decisions with needs_human before changing code.
-Before pushing, check the gatekeeper push semaphore.
+Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.
+Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.
 '''
 
 [reviewer]
@@ -72,7 +71,7 @@ protocol = "La Roca review protocol 7989 + project overlay"
 command = "claude {prompt}"
 
 [limits]
-babysit_poll_seconds = 120  # review-comment poll interval
-watch_failure_limit = 5     # consecutive reviewer-watch tick failures before visible death
-watch_backoff_max_seconds = 3600 # cap for reviewer-watch failure backoff
+babysit_poll_seconds = 120  # director-watch poll interval
+watch_failure_limit = 5     # consecutive director-watch tick failures before visible death
+watch_backoff_max_seconds = 3600 # cap for director-watch failure backoff
 coder_timeout_minutes = 180

@@ -24,8 +24,8 @@ Validation at launch (hard failures, the combo refuses to start):
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
-              └─▶ REVIEWING  reviewer loop + coder responding mode + gatekeeper ci-step in parallel
-                    └─▶ READY      lgtm_current ∧ rabbit_clean ∧ checks_passed
+              └─▶ REVIEWING  director-watch observes reviewer + coder responding + gatekeeper ci-step workers
+                    └─▶ READY      gate_current ∧ reviewer_current ∧ coderabbit_current_clean ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
 
@@ -66,37 +66,67 @@ another path.
   force-pushes; rebases over merge conflicts. Verified: it never reads or
   answers review threads.
 - **coder responding mode** (the resumed coder): conversation signals only.
-  Reads new review comments, answers them, pushes addressing commits.
+  Reads new review comments, answers them, and leaves committed local changes.
 
-The generated reviewer-watch polling loop (`reviewer-tick`) has built-in
+**Publish boundary:** coder responding mode never pushes directly to origin or
+the PR branch. Any addressing commit it creates is routed back through the
+gatekeeper/no-mistakes gate, which validates the new HEAD, publishes it, and
+waits for CI. If the gatekeeper already has a CI fix in flight, combo-chen
+defers the next gate instead of starting a second publisher.
+On every director tick, combo-chen also compares `origin/<branch>`
+with the `no-mistakes` mirror and syncs the mirror when it is stale, using
+`--force-with-lease` when reconciling an existing mirror branch.
+The gatekeeper is the only normal publisher for both CI-red fixes and review
+addressing commits.
+
+The generated director-watch polling loop (`director-tick`) has built-in
 resilience: on transient failures (rate limits, network errors), it journals
 a `watch_error` event and retries with exponential backoff (base poll
 interval × 2ⁿ, capped by `[limits].watch_backoff_max_seconds`, default
 3600 s). After `watch_failure_limit` consecutive failures (default 5,
 configurable via `[limits].watch_failure_limit`), it journals `watch_dead`
-and exits — the director sees the dead watcher and can escalate. On a
+and exits so the human/operator can restart or inspect the combo. On a
 successful tick the failure counter and backoff reset.
-
-**Push semaphore:** the coder must not push while the gatekeeper has a CI
-fix in flight (the gatekeeper force-pushes). Before pushing: check gatekeeper
-state (`no-mistakes axi status` or `gate_status` with `state=fix_inflight`).
-On every review-comment watcher cycle, combo-chen also compares `origin/<branch>`
-with the `no-mistakes` mirror and syncs the mirror when it is stale, using
-`--force-with-lease` when reconciling an existing mirror branch.
-The gatekeeper needs no symmetric check; it owns CI-red moments, while coder
-responding mode owns CI-green moments.
 
 `gate_started` marks the beginning of the gatekeeper lifecycle.  The
 `gate_status` event records the gatekeeper's ongoing lifecycle: `fix_inflight`
 (gatekeeper started and no-mistakes is running), `awaiting_approval` (gate requires
 human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper completed
-successfully, awaiting PR detection).
+successfully, awaiting PR detection).  On successful completion the gate emits
+`gate_validated` (required field `sha`) alongside the `idle` gate status,
+recording the validated head SHA.
+
+When the worktree HEAD moves past the last validated or published SHA, the
+director journals `gate_stale` (fields `old_sha`, `new_sha`) to mark the old
+validation as superseded and trigger a post-address gate.  The director
+detects the stall by comparing the worktree HEAD against
+`latestPublishedGateSha` on each tick.
+
+When the director detects committed but unpublished addressing changes in the
+worktree after an actionable `review_comment` nudge, it journals `address_done`
+(required field `head_sha`) to lock in the addressing commit before starting a
+post-address no-mistakes gate. `review_comment` records the nudge URL plus the
+optional `head_sha` baseline observed when the coder was nudged, so LGTM reviews
+and bookkeeping comments cannot by themselves trigger an addressing gate. The
+companion `address_noop` event (same required field `head_sha`) is defined for
+empty-addressing paths and transitions the combo out of READY the same way.
+After the PR exists, `director-watch` is the single observer. It repeatedly
+runs `director-tick` to poll reviewer hard signals, route new review comments
+to the resumed coder, detect committed local HEAD changes, and run a
+post-address no-mistakes gate before anything is published again.
+
+If the source checkout has an ignored local `.no-mistakes.yaml`, combo-chen
+copies it into the combo worktree as a local artifact before the initial gate.
+It preserves content and mode, never overwrites an existing worktree config,
+and repeats the same copy step before post-address gates so older worktrees can
+recover if the artifact is missing. The artifact carries repo-specific
+test/lint/build commands for no-mistakes; combo-chen only propagates it.
 
 ## 4. Coder responding contract
 
 - On `coder_done`, combo-chen captures the implementing session's thread id
   (gnhf logs, or lookup in La Roca's ingested session metadata).
-- On `review_comment` (fields: `author`, `kind`, `url`), coder responding mode is the implementing thread resumed:
+- On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed:
   `codex resume <id>`, `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with issue + PR diff + the comment. Degraded, never blocking.
@@ -116,8 +146,14 @@ successfully, awaiting PR detection).
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
   findings.
-- READY requires: current LGTM on HEAD ∧ CodeRabbit clean ∧ gatekeeper
-  checks-passed.
+- When all four signals agree on the current head SHA — gatekeeper has
+  validated the SHA, the reviewer has a live pinned LGTM for that SHA,
+  CodeRabbit has a SUCCESS status context/check for that SHA and its
+  latest `coderabbitai` comment for that SHA is not a rate-limit/skipped/
+  no-review message, and all non-CodeRabbit status contexts/checks in the
+  rollup are successful for that SHA — the director journals
+  `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
+  transitions to READY.
 
 ## 6. Merge policy and the counterfactual log
 
@@ -144,7 +180,7 @@ successfully, awaiting PR detection).
   each plan; limits are the contract.
 - `rate_limited(role, until)` is a first-class event: the role pauses, the
   director knows, the role resumes at reset.
-- Watcher resilience: the reviewer-watch loop journals `watch_error` on each
+- Watcher resilience: the director-watch loop journals `watch_error` on each
   transient failure (rate limits, network errors) with the exit code and
   stderr snippet, and `watch_dead` after `[limits].watch_failure_limit`
   consecutive failures. The watcher doubles its backoff on each failure
@@ -159,12 +195,24 @@ successfully, awaiting PR detection).
 ## 8. Director mechanics (v0)
 
 - One tmux session per combo: windows for coder, gatekeeper, and any
-  interactive agent roles (reviewer, coder responding mode). The gatekeeper window runs
-  `no-mistakes attach`, which exits when no active run exists — often
-  before the gatekeeper command starts one. On `gate_started` the emit
-  handler recreates the gatekeeper window so the live role window is visible
-  when the no-mistakes run becomes active. The coder window
-  includes a short (12-line) journal pane showing live events.
+  interactive agent roles (reviewer, coder responding mode). The gatekeeper
+  window resolves the branch's no-mistakes run id from the local no-mistakes
+  state, then follows `no-mistakes axi status --run <id>` instead of using
+  global attach, so simultaneous combos cannot render each other's run. On
+  `gate_started` the emit handler recreates the gatekeeper window so the live
+  role window is visible when no-mistakes becomes active. The coder window
+  includes a short (12-line) journal pane showing live events. After PR open,
+  one `director-watch` window runs the polling loop; reviewer and coder
+  responding mode are worker windows, not independent babysitters.
+- Post-address no-mistakes gates are launched with generated run scripts in
+  the combo run directory. The tmux command stays short (`sh <script>`), while
+  the script owns gate status events, log capture, PR autoclose repair, and
+  current-head validation. Before running no-mistakes, the script publishes
+  `HEAD:refs/heads/<branch>` to the no-mistakes mirror; when the mirror branch
+  already exists, it uses `--force-with-lease` against the observed mirror SHA
+  instead of a broad force or plain `git push no-mistakes HEAD`. Transient
+  GitHub, git, or tmux failures are logged and re-evaluated on the next
+  director tick where possible.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.
@@ -200,8 +248,8 @@ conversation, nothing else. Lingering processes die with the tmux session.
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
 3. **v0 scope as proposed**: `run`/`attach`/`status`/`stop`/`events`/`activate-reviewer`, coder
-   (codex+gnhf), gatekeeper (no-mistakes), reviewer (tmux poll loop +
-   incremental re-review); manual director; treehouse, ACP,
+   (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental re-review),
+   director-owned tmux poll loop; manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo
    dashboard deferred to v1+.
 

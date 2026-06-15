@@ -3,13 +3,13 @@
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at activateCoder         <- starts resumed coder + comment watcher.
+ *   1. Start at activateCoder         <- starts resumed coder worker.
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
  *   3. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
- *   activateCoder -> tmux windows; nudgeReviewComments -> latest PR -> mirror sync -> route comments
+ *   activateCoder -> tmux worker; nudgeReviewComments -> latest PR -> mirror sync -> route comments
  *
  *   PUBLIC API
  *   ----------
@@ -28,10 +28,9 @@
 import { readEvents } from "../core/events.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
-import { killWindowArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildCoderRespondingResumeCommand,
-  buildReviewWatchCommand,
   fetchReviewCommentSignals,
   latestPrUrl,
   readCoderThreadArtifact,
@@ -55,6 +54,14 @@ export interface NudgeReviewCommentsDeps {
 }
 // -/ 1/3
 
+function worktreeHeadSha(deps: NudgeReviewCommentsDeps, combo: { id: string; worktree: string }): string {
+  const result = deps.git(["rev-parse", "HEAD"], combo.worktree);
+  if (result.status !== 0) {
+    throw new Error(`git rev-parse HEAD failed for ${combo.id}: ${result.stderr.trim() || "unknown error"}`);
+  }
+  return result.stdout.trim();
+}
+
 // -- 2/3 CORE · activateCoder <- START HERE --
 export function activateCoder(input: {
   deps: ActivateCoderDeps;
@@ -62,7 +69,7 @@ export function activateCoder(input: {
   comboId: string;
   cli: string;
 }): void {
-  const { deps, home, comboId, cli } = input;
+  const { deps, home, comboId } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
@@ -77,27 +84,6 @@ export function activateCoder(input: {
   if (coderResponding.status !== 0) {
     throw new Error(
       `tmux failed to start ${config.coderRespondingWindowName}: ${coderResponding.stderr.trim() || "unknown error"}`,
-    );
-  }
-  const watcher = deps.tmux(
-    newWindowArgs(
-      combo.tmuxSession,
-      config.coderRespondingWatchWindowName,
-      buildReviewWatchCommand({
-        cli,
-        comboId: combo.id,
-        pollSeconds: config.limits.babysitPollSeconds,
-      }),
-    ),
-  );
-  if (watcher.status !== 0) {
-    try {
-      deps.tmux(killWindowArgs(combo.tmuxSession, config.coderRespondingWindowName));
-    } catch {
-      // Preserve the watcher startup failure; cleanup errors are secondary.
-    }
-    throw new Error(
-      `tmux failed to start ${config.coderRespondingWatchWindowName}: ${watcher.stderr.trim() || "unknown error"}`,
     );
   }
   deps.out(`coder responding active for ${combo.id}`);
@@ -128,16 +114,25 @@ export function nudgeReviewComments(input: {
       `mirror sync failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  const routed = routeReviewComments({
-    runDir,
-    tmuxSession: combo.tmuxSession,
-    comments: fetchReviewCommentSignals(prUrl, deps.gh),
-    reviewNudgePrompt: config.reviewNudgePrompt,
-    windowName: config.coderRespondingWindowName,
-    tmux: deps.tmux,
-  });
-  for (const comment of routed) {
-    deps.out(`nudged ${comment.url}`);
+  try {
+    const comments = fetchReviewCommentSignals(prUrl, deps.gh);
+    const headSha = comments.length === 0 ? undefined : worktreeHeadSha(deps, combo);
+    const routed = routeReviewComments({
+      runDir,
+      tmuxSession: combo.tmuxSession,
+      comments,
+      headSha,
+      reviewNudgePrompt: config.reviewNudgePrompt,
+      windowName: config.coderRespondingWindowName,
+      tmux: deps.tmux,
+    });
+    for (const comment of routed) {
+      deps.out(`nudged ${comment.url}`);
+    }
+  } catch (err) {
+    deps.out(
+      `review comment fetch failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 // -/ 3/3
