@@ -71,10 +71,11 @@ another path.
 The generated reviewer-watch polling loop (`reviewer-tick`) has built-in
 resilience: on transient failures (rate limits, network errors), it journals
 a `watch_error` event and retries with exponential backoff (base poll
-interval × 2ⁿ, capped at 3600 s). After `watch_failure_limit` consecutive
-failures (default 5, configurable via `[limits].watch_failure_limit`), it
-journals `watch_dead` and exits — the director sees the dead watcher and can
-escalate. On a successful tick the failure counter and backoff reset.
+interval × 2ⁿ, capped by `[limits].watch_backoff_max_seconds`, default
+3600 s). After `watch_failure_limit` consecutive failures (default 5,
+configurable via `[limits].watch_failure_limit`), it journals `watch_dead`
+and exits — the director sees the dead watcher and can escalate. On a
+successful tick the failure counter and backoff reset.
 
 **Push semaphore:** the coder must not push while the gatekeeper has a CI
 fix in flight (the gatekeeper force-pushes). Before pushing: check gatekeeper
@@ -147,7 +148,8 @@ successfully, awaiting PR detection).
   transient failure (rate limits, network errors) with the exit code and
   stderr snippet, and `watch_dead` after `[limits].watch_failure_limit`
   consecutive failures. The watcher doubles its backoff on each failure
-  (capped at 3600 s) and resets both counter and backoff on a healthy tick.
+  (capped by `[limits].watch_backoff_max_seconds`) and resets both counter
+  and backoff on a healthy tick.
 - Priority under scarcity: coder coding mode > coder responding mode > reviewer > sweeps.
 - Roles spread across independent budgets by design (Claude subscription,
   Codex subscription, Hermes API providers).
