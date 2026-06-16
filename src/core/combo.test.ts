@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1005 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1030 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -83,6 +83,23 @@ describe("deriveStatus", () => {
           pr_url: "https://github.com/o/r/pull/9",
         }),
         staleEvent,
+      ]);
+
+      expect(status.phase).toBe("REVIEWING");
+      expect(status.needsHuman).toBe(false);
+      expect(status.pr).toBe("https://github.com/o/r/pull/9");
+    }
+  });
+
+  it("returns an existing PR to REVIEWING when a follow-up gate completes", () => {
+    for (const gateDone of [
+      ev("gate_status", { state: "idle", head_sha: "fedcba" }),
+      ev("gate_validated", { sha: "fedcba" }),
+    ]) {
+      const status = deriveStatus([
+        ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+        ev("gate_started"),
+        gateDone,
       ]);
 
       expect(status.phase).toBe("REVIEWING");
