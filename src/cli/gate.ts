@@ -24,9 +24,9 @@
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, renderScriptedMirrorGatekeeperCommand, renderGatekeeperCommand
+ *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, renderGatekeeperCommand
  *
- * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/gatekeeper, ./github, ./sessions
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
@@ -294,7 +294,7 @@ function renderGatekeeperCommand(
 
 const DAEMON_START_PREFIX = "no-mistakes daemon start && ";
 
-function scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand: string): string {
+export function scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand: string): string {
   if (!gatekeeperCommand.startsWith(DAEMON_START_PREFIX)) return gatekeeperCommand;
   const remainder = gatekeeperCommand.slice(DAEMON_START_PREFIX.length);
   return 'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
