@@ -127,7 +127,7 @@ function ensurePrOpenedForLiveCi(input: {
   events: ComboEvent[];
   downstream: string;
 }): string | undefined {
-  if (input.downstream !== `${NO_MISTAKES_RUNNING} ci`) return undefined;
+  if (!input.downstream.startsWith(NO_MISTAKES_RUNNING)) return undefined;
   const existing = latestPrUrlFromEvents(input.events);
   if (existing !== undefined) return existing;
   const discovered = branchPrUrl(input.deps.gh, input.combo.branch);

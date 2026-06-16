@@ -35,7 +35,7 @@ import { join } from "node:path";
 import { buildNoMistakesMirrorPublishScript, shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
-import { DEFAULT_GATEKEEPER_COMMAND, loadConfig } from "../infra/config.js";
+import { loadConfig } from "../infra/config.js";
 import { listWindowsArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildGatekeeperInvocation,
@@ -292,15 +292,14 @@ function renderGatekeeperCommand(
   };
 }
 
-const DEFAULT_SCRIPTED_MIRROR_GATEKEEPER_COMMAND =
-  'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
-  "no-mistakes axi run --intent {issue_pr_intent}; " +
-  "else no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}; fi";
+const DAEMON_START_PREFIX = "no-mistakes daemon start && ";
 
 function scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand: string): string {
-  return gatekeeperCommand === DEFAULT_GATEKEEPER_COMMAND
-    ? DEFAULT_SCRIPTED_MIRROR_GATEKEEPER_COMMAND
-    : gatekeeperCommand;
+  if (!gatekeeperCommand.startsWith(DAEMON_START_PREFIX)) return gatekeeperCommand;
+  const remainder = gatekeeperCommand.slice(DAEMON_START_PREFIX.length);
+  return 'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
+    `${remainder}; ` +
+    `else no-mistakes daemon start && ${remainder}; fi`;
 }
 
 function renderScriptedMirrorGatekeeperCommand(
