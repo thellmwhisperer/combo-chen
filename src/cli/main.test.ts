@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3350 lines.
+ *   deps so tests run without a real terminal or network. ~3450 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -20,6 +20,7 @@
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
  *   │ reconcile             Frozen journal repair command            │
+ *   │ resume                Recovery routing without fresh run setup  │
  *   │ status                Table format + downstream deep output    │
  *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
@@ -149,6 +150,7 @@ describe("command surface", () => {
         "reviewer-tick",
         "nudge-review-comments",
         "reconcile",
+        "resume",
         "run",
         "status",
         "stop",
@@ -1610,7 +1612,150 @@ $(echo boom)'`);
 
 // -/ 3/4
 
-// -- 4/4 HELPER · Remaining commands: status, reviewer, events, stop, poll --
+// -- 4/4 HELPER · Remaining commands: resume, status, reviewer, events, stop, poll --
+describe("resume", () => {
+  it("starts reviewer and director monitoring for an existing reviewer-ready PR without a fresh run", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: ["run:", "  branch: combo/issue-7", "  status: completed"].join("\n"),
+        stderr: "",
+      }),
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: "OPEN",
+              statusCheckRollup: [{ name: "test", conclusion: "SUCCESS" }],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
+    expect(newWindows.some((call) => call.includes("director-watch"))).toBe(true);
+    expect(out.join("\n")).toContain("resume: PR ready for reviewer");
+  });
+
+  it("monitors a live no-mistakes run instead of relaunching gatekeeper work", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: [
+          "run:",
+          "  branch: combo/issue-7",
+          "  status: running",
+          "  steps[2]{step,status,findings,duration_ms}:",
+          "    review,completed,0,1",
+          "    ci,running,0,0",
+        ].join("\n"),
+        stderr: "",
+      }),
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))).toBe(true);
+    const gatekeeperCommand = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    )?.at(-1) ?? "";
+    expect(gatekeeperCommand).toContain("no-mistakes attach");
+    expect(gatekeeperCommand).not.toContain("axi run");
+    expect(out.join("\n")).toContain("resume: no-mistakes running ci");
+  });
+
+  it("surfaces exact no-mistakes gate findings and the respond command", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "needs_human", { reason: "gate_waiting" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: [
+          "run:",
+          "  id: \"01KV-GATE\"",
+          "  branch: combo/issue-7",
+          "  status: waiting",
+          "  findings: \"2 awaiting\"",
+          "findings[2]{id,status,title}:",
+          "  NM-1,awaiting,\"missing test\"",
+          "  NM-2,awaiting,\"needs docs\"",
+          "outcome: awaiting_approval",
+          "next_step: \"no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes\"",
+        ].join("\n"),
+        stderr: "",
+      }),
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("resume: awaiting review gate: NM-1, NM-2");
+    expect(text).toContain("respond: no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes");
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+  });
+});
+
 describe("status", () => {
   it("prints one line per combo with phase and needs-human flag", async () => {
     const h = home();
