@@ -76,7 +76,8 @@ over as the single observer.
                                       ▼
         ┌─────────────────────────────────────────────────────────┐
         │  GATE   emit gate_started; emit gate_status fix_inflight   │
-        │  run gatekeeperCommand (no-mistakes: push, axi run)        │
+        │  mirror publish → run gatekeeperCommand                    │
+        │  (no-mistakes: daemon start, axi run)                      │
         │                                                           │
         │   "awaiting_approval" ▶ emit gate_status awaiting_approval │
         │                         emit needs_human gate_waiting      │

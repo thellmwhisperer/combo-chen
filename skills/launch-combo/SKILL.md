@@ -106,7 +106,6 @@ After emitting: re-run `combo-chen status` to confirm the phase flipped, then co
 
 ## Known workarounds (until fixed upstream)
 
-- Gate-push bug: ensure `git push no-mistakes HEAD` happens before `axi run` on a branch the gate has never seen.
 - Mirror clobber: after a sibling merge the gate auto-rebases the PR branch from ITS mirror and force-pushes. If the coder pushed to origin but not the mirror, the force-push discards those commits. Coder must push to BOTH remotes.
 - codex tmux nudges: send-keys text, then a SEPARATE bare Enter; bracketed paste swallows the first one.
 - no-mistakes CI monitoring times out at 4h and parks silently at `awaiting_approval`. If a run is older than that, assume a silent gate and check `axi status`.
