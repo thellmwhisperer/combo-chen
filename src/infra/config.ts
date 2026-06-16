@@ -260,7 +260,7 @@ function pickNonEmptyString(value: unknown, description: string): string {
 }
 
 function hasGnhfCommand(command: string): boolean {
-  return /(?:^|\s)gnhf(?:@[\w.-]+)?(?:\s|$)/.test(command);
+  return /(?:^|\s)gnhf(?:@[-\w.]+)?(?:\s|$)/.test(command);
 }
 
 function hasPinnedGnhfPackage(command: string): boolean {
