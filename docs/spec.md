@@ -28,7 +28,7 @@ Validation at launch (hard failures, the combo refuses to start):
 ```text
 SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
-        └─▶ GATING     gate_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
+        └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline; ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
               └─▶ REVIEWING  director-watch observes reviewer + coder responding + gatekeeper ci-step workers
                     └─▶ READY      gate_current ∧ reviewer_current ∧ coderabbit_current_clean ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
