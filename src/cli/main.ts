@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~620 lines, 14 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~635 lines, 15 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./reconcile, ./reviewer, ./sessions, ./status, ./watchers
+ *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -80,6 +80,7 @@ import {
 } from "./gate.js";
 import { fetchForensicsGithubFacts, fetchIssueDetails, remoteSlug } from "./github.js";
 import { reconcileCombos } from "./reconcile.js";
+import { resumeCombo } from "./resume.js";
 import {
   activateReviewer,
   tickReviewer,
@@ -366,6 +367,19 @@ export function createProgram(deps: Deps): Command {
         deps,
         home: comboHome(deps.env),
         apply: options.apply,
+      });
+    });
+
+  program
+    .command("resume")
+    .description("Resume a persisted combo without starting a fresh run")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      resumeCombo({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+        cli: cliInvocation(),
       });
     });
 
