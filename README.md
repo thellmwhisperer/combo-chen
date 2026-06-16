@@ -26,7 +26,7 @@ A combo is a small division of labor. Each role has one job and one contract.
 | Role | Tooling | Contract |
 | --- | --- | --- |
 | **coder** | gnhf + Codex by default | implements the issue, then resumes the same thread to answer review comments. Commits locally; does not push. |
-| **gatekeeper** | no-mistakes | validates, publishes, watches CI, republishes fixes. The sole normal publisher. |
+| **gatekeeper** | no-mistakes | validates and publishes. The sole normal publisher. |
 | **reviewer** | configured reviewer + CodeRabbit | comments and records a SHA-pinned LGTM signal. No merge authority. |
 | **director** | combo-chen | orchestrates and observes only. Never edits code, never merges. |
 | **human** | you | owns the merge decision and any intent-touching escalation. |
