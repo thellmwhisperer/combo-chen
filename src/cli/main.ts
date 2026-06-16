@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./reconcile, ./reviewer, ./sessions, ./watchers
+ *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./reconcile, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -89,6 +89,7 @@ import {
   ensureJournalPane,
   resolveAttachCombo,
 } from "./sessions.js";
+import { deepNoMistakesStatus, type CommandResult } from "./status.js";
 import { resolvePollMs } from "./watchers.js";
 
 export { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
@@ -100,6 +101,7 @@ export interface Deps {
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  noMistakes: (args: string[], cwd: string) => CommandResult;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
 }
@@ -115,6 +117,10 @@ export function defaultDeps(): Deps {
     },
     gh: (args) => {
       const result = spawnSync("gh", args, { encoding: "utf8" });
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    },
+    noMistakes: (args, cwd) => {
+      const result = spawnSync("no-mistakes", args, { cwd, encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -366,20 +372,21 @@ export function createProgram(deps: Deps): Command {
   program
     .command("status")
     .description("One line per combo: phase, needs-human, PR")
-    .action(async () => {
+    .option("--deep", "Probe downstream no-mistakes state")
+    .action(async (options: { deep?: boolean }) => {
       const combos = listCombos(comboHome(deps.env));
       if (combos.length === 0) {
         deps.out("no combos. start one: combo-chen run --issue <url>");
         return;
       }
-      deps.out("COMBO                          PHASE     NEEDS-HUMAN      PR");
+      const deep = options.deep === true;
+      deps.out(deep ? "COMBO                          PHASE     NEEDS-HUMAN      PR DOWNSTREAM" : "COMBO                          PHASE     NEEDS-HUMAN      PR");
       for (const combo of combos) {
         const status = deriveStatus(readEvents(runDirFor(comboHome(deps.env), combo.id)));
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const pr = status.pr ?? "—";
-        deps.out(
-          `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`,
-        );
+        const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`;
+        deps.out(deep ? `${line} ${deepNoMistakesStatus(combo, deps.noMistakes) ?? "—"}` : line);
       }
     });
 
