@@ -31,6 +31,10 @@ import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
 
+export const PR_READY_FOR_REVIEWER = "PR ready for reviewer";
+export const NO_MISTAKES_RUNNING = "no-mistakes running";
+export const AWAITING_REVIEW_GATE = "awaiting review gate";
+
 // -- 1/4 HELPER · Types + scalar parsing --
 export interface CommandResult {
   status: number;
@@ -142,13 +146,13 @@ function summarizeNoMistakesStatus(facts: NoMistakesAxiStatus, branch: string): 
   if (facts.outcome === "awaiting_approval" || hasAwaitingSummary || facts.awaitingFindingIds.length > 0) {
     const ids = facts.awaitingFindingIds.length > 0 ? `: ${facts.awaitingFindingIds.join(", ")}` : "";
     const respond = facts.nextStep !== undefined ? `; respond: ${facts.nextStep}` : "";
-    return `awaiting review gate${ids}${respond}`;
+    return `${AWAITING_REVIEW_GATE}${ids}${respond}`;
   }
 
   if (facts.runStatus !== undefined && ACTIVE_STATUSES.has(facts.runStatus)) {
     return facts.activeStep === undefined
-      ? "no-mistakes running"
-      : `no-mistakes running ${facts.activeStep}`;
+      ? NO_MISTAKES_RUNNING
+      : `${NO_MISTAKES_RUNNING} ${facts.activeStep}`;
   }
 
   return undefined;
@@ -236,7 +240,7 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner): string | u
     const detail = error instanceof Error ? error.message : String(error);
     return `GitHub review unavailable: ${firstLine(detail)}`;
   }
-  return shaMatchesHead(reviewerPin, pr.headSha) ? undefined : "PR ready for reviewer";
+  return shaMatchesHead(reviewerPin, pr.headSha) ? undefined : PR_READY_FOR_REVIEWER;
 }
 
 export function deepComboStatus(
