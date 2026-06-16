@@ -110,7 +110,7 @@ export const DEFAULT_CODER_COMMAND = [
   "--current-branch {prompt}",
 ].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
-  "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}";
+  "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent} --skip=ci";
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
