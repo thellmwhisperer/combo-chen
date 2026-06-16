@@ -47,6 +47,30 @@ describe("buildGatekeeperInvocation", () => {
     );
   });
 
+  it("does not match --skip inside single-quoted arguments", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --intent 'use --skip=lint to skip'" })).toBe(
+      "no-mistakes axi run --intent 'use --skip=lint to skip' --skip=ci",
+    );
+  });
+
+  it("does not match --skip inside double-quoted arguments", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: 'no-mistakes axi run --intent "use --skip=lint to skip"' })).toBe(
+      'no-mistakes axi run --intent "use --skip=lint to skip" --skip=ci',
+    );
+  });
+
+  it("modifies real --skip outside quotes while ignoring --skip inside quotes", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip=lint --intent 'use --skip=test'" })).toBe(
+      "no-mistakes axi run --skip=lint,ci --intent 'use --skip=test'",
+    );
+  });
+
+  it("handles --skip with quoted value outside of intent quotes", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip='lint,test' --intent 'some value'" })).toBe(
+      "no-mistakes axi run --skip='lint,test,ci' --intent 'some value'",
+    );
+  });
+
   it("builds an issue-derived PR intent with an autoclose keyword", () => {
     const intent = buildIssuePrIntent({
       combo: { issueUrl: "https://github.com/o/r/issues/53" },
