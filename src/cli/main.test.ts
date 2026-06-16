@@ -20,7 +20,7 @@
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
  *   │ reconcile             Frozen journal repair command            │
- *   │ status                Table format output                      │
+ *   │ status                Table format + downstream deep output    │
  *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
@@ -84,6 +84,10 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
         };
       }
       return { status: 0, stdout: "[]", stderr: "" };
+    },
+    noMistakes: (args, cwd) => {
+      calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+      return { status: 1, stdout: "", stderr: "no no-mistakes status" };
     },
     sleep: (ms) => {
       calls.push(["sleep", String(ms)]);
@@ -1630,6 +1634,94 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("CODING");
     expect(text).toContain("gate_decision");
+  });
+
+  it("prints downstream no-mistakes CI state in deep mode for stale stalled combos", async () => {
+    const h = home();
+    const worktree = "/repos/r/.worktrees/issue-7";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: (args: string[], cwd: string) => {
+        expect(args).toEqual(["axi", "status"]);
+        expect(cwd).toBe(worktree);
+        return {
+          status: 0,
+          stdout: [
+            "run:",
+            "  id: \"01KV-CI\"",
+            "  branch: combo/issue-7",
+            "  status: running",
+            "  head: abc1234",
+            "  steps[9]{step,status,findings,duration_ms}:",
+            "    intent,completed,0,1",
+            "    review,completed,0,1",
+            "    ci,running,0,0",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    });
+    await exec(deps, ["status", "--deep"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("STALLED");
+    expect(text).toContain("gate_failed");
+    expect(text).toContain("no-mistakes running ci");
+  });
+
+  it("prints awaiting no-mistakes gate finding ids and respond command in deep mode", async () => {
+    const h = home();
+    const worktree = "/repos/r/.worktrees/issue-7";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "needs_human", { reason: "gate_waiting" });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: [
+          "run:",
+          "  id: \"01KV-GATE\"",
+          "  branch: combo/issue-7",
+          "  status: waiting",
+          "  findings: \"2 awaiting\"",
+          "findings[2]{id,status,title}:",
+          "  NM-1,awaiting,\"missing test\"",
+          "  NM-2,awaiting,\"needs docs\"",
+          "outcome: awaiting_approval",
+          "next_step: \"no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes\"",
+        ].join("\n"),
+        stderr: "",
+      }),
+    });
+    await exec(deps, ["status", "--deep"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("awaiting review gate: NM-1, NM-2");
+    expect(text).toContain("respond: no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes");
   });
 });
 
