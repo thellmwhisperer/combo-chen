@@ -81,6 +81,7 @@ import {
   ensureGatekeeperWindow,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
+  scriptedMirrorGatekeeperCommandTemplate,
   startGatekeeperWindow,
 } from "./gate.js";
 import { fetchForensicsGithubFacts, fetchIssueDetails, remoteSlug } from "./github.js";
@@ -225,15 +226,16 @@ export function createProgram(deps: Deps): Command {
 
       writeCombo(runDir, combo);
 
+      const gatekeeperCommand = buildGatekeeperInvocation({
+        gatekeeperCommand: config.gatekeeperCommand,
+        combo,
+        issueTitle: issueDetails.title,
+        issueBody: issueDetails.body,
+      });
       const runner = buildRunnerScript({
         combo,
         coderCommand,
-        gatekeeperCommand: buildGatekeeperInvocation({
-          gatekeeperCommand: config.gatekeeperCommand,
-          combo,
-          issueTitle: issueDetails.title,
-          issueBody: issueDetails.body,
-        }),
+        gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
         gatekeeperMirrorIntent: buildNoMistakesPushIntent(issuePrIntent),
         activateCoder: `${cliInvocation()} activate-coder -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
