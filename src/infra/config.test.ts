@@ -1,16 +1,18 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~456 lines,
+ * @overview Unit tests for config loading and command rendering. ~470 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at describe("loadConfig")   ← config cascade contract
- *   2. Then describe("renderCommand")    ← shell-safe placeholder interpolation
+ *   2. Then describe("unsafeCoderInvocationReasons") <- runner safety policy
+ *   3. Then describe("renderCommand")    ← shell-safe placeholder interpolation
  *
  *   ┌─ TEST AREAS ──────────────────────────────────────────────┐
  *   │ loadConfig      Defaults, cascade, legacy aliases,        │
  *   │                 validation rejections                      │
+ *   │ safety guard    Unsafe gnhf invocation detection           │
  *   │ renderCommand   Placeholder interpolation, shell quoting   │
  *   └────────────────────────────────────────────────────────────┘
  *
@@ -22,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ComboConfigError, loadConfig, renderCommand } from "./config.js";
+import { ComboConfigError, loadConfig, renderCommand, unsafeCoderInvocationReasons } from "./config.js";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-test-"));
@@ -34,7 +36,7 @@ function writeToml(dir: string, name: string, body: string): string {
   return path;
 }
 
-// -- 1/2 CORE · Config loading cascade tests ← START HERE --
+// -- 1/3 CORE · Config loading cascade tests ← START HERE --
 
 
 describe("loadConfig", () => {
@@ -432,9 +434,27 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
   });
 });
-// -/ 1/2
+// -/ 1/3
 
-// -- 2/2 HELPER · Command rendering tests --
+// -- 2/3 HELPER · Coder safety guard tests --
+describe("unsafeCoderInvocationReasons", () => {
+  it("treats path-based gnhf invocations as gnhf commands that require safeguards", () => {
+    expect(
+      unsafeCoderInvocationReasons(
+        "/usr/local/bin/gnhf@1.2.3 --max-iterations 12 --stop-when done --prevent-sleep on --meteor-frequency 0",
+      ),
+    ).toEqual([]);
+    expect(unsafeCoderInvocationReasons("./gnhf --max-iterations 12")).toEqual([
+      "pinned gnhf package version",
+      "--stop-when",
+      "--prevent-sleep on",
+      "telemetry off (--meteor-frequency 0)",
+    ]);
+  });
+});
+// -/ 2/3
+
+// -- 3/3 HELPER · Command rendering tests --
 describe("renderCommand", () => {
   it("interpolates the documented placeholders as single-quoted shell tokens", () => {
     const rendered = renderCommand("gnhf --x {issue_url} in {worktree} for {repo} on {branch}: {prompt}", {
@@ -462,4 +482,4 @@ describe("renderCommand", () => {
     expect(() => renderCommand("gnhf {isue_url}", { issue_url: "x" })).toThrow(/isue_url/);
   });
 });
-// -/ 2/2
+// -/ 3/3

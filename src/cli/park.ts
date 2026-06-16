@@ -1,5 +1,5 @@
 /**
- * @overview Parking command for reboot-safe combo handoff. ~104 lines,
+ * @overview Parking command for reboot-safe combo handoff. ~112 lines,
  *   2 exports, non-terminal shutdown semantics.
  *
  *   READING GUIDE
@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   park -n -> read combo+journal -> kill tmux -> write summary -> journal parked
+ *   park -n -> read combo+journal -> stop/confirm tmux gone -> write summary -> journal parked
  *
  *   PUBLIC API
  *   ----------
@@ -30,7 +30,7 @@ import { join } from "node:path";
 import { deriveStatus, shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
-import { killSessionArgs, type TmuxResult } from "../infra/tmux.js";
+import { hasSessionArgs, killSessionArgs, type TmuxResult } from "../infra/tmux.js";
 import type { GhRunner } from "./github.js";
 import { deepComboStatus, type CommandResult } from "./status.js";
 
@@ -92,9 +92,12 @@ export function parkCombo(input: {
 
   const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
   if (killed.status !== 0) {
-    throw new Error(
-      `tmux kill-session failed for "${combo.tmuxSession}": ${killed.stderr.trim() || "unknown error"}`,
-    );
+    const stillAlive = deps.tmux(hasSessionArgs(combo.tmuxSession));
+    if (stillAlive.status === 0) {
+      throw new Error(
+        `tmux kill-session failed for "${combo.tmuxSession}": ${killed.stderr.trim() || "unknown error"}`,
+      );
+    }
   }
 
   writeFileSync(summaryPath, buildParkSummary({ combo, events, home, cli, by, downstream }));

@@ -260,11 +260,11 @@ function pickNonEmptyString(value: unknown, description: string): string {
 }
 
 function hasGnhfCommand(command: string): boolean {
-  return /(?:^|\s)gnhf(?:@[-\w.]+)?(?:\s|$)/.test(command);
+  return /(?:^|\s)(?:\S*\/)?gnhf(?:@[-\w.]+)?(?:\s|$)/.test(command);
 }
 
 function hasPinnedGnhfPackage(command: string): boolean {
-  return /(?:^|\s)gnhf@[0-9]+(?:\.[0-9]+){1,2}(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)/.test(command);
+  return /(?:^|\s)(?:\S*\/)?gnhf@[0-9]+(?:\.[0-9]+){1,2}(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)/.test(command);
 }
 
 function hasFlagValue(command: string, flag: string, value: string): boolean {
