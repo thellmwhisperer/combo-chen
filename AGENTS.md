@@ -15,7 +15,7 @@ work. It coordinates existing tools; it does not collapse their roles.
   when clean. It does not use GitHub approval as the merge contract, does not
   review its own code, and does not publish.
 - **Gatekeeper**: no-mistakes is the normal publisher. It validates, pushes,
-  opens/updates the PR, watches CI, and republishes fixes through its gate.
+  and opens/updates the PR.
 - **Human**: owns merge decisions and intent-touching escalations.
 
 Hard rule: `reviewer != coder`.
