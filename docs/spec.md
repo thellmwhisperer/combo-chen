@@ -17,6 +17,10 @@ schema, and the config schema must conform to it, not the other way around.
 Validation at launch (hard failures, the combo refuses to start):
 - `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
+- gnhf coder commands must be safe runner commands before any worktree is
+  created: pinned `gnhf@<version>`, `--max-iterations`, `--stop-when`,
+  `--prevent-sleep on`, and telemetry/noise disabled with
+  `--meteor-frequency 0`. The runner also closes coder stdin.
 
 ## 2. Phases and transitions
 

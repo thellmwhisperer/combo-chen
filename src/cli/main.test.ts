@@ -3470,6 +3470,24 @@ describe("resolvePollMs", () => {
 });
 
 describe("run ordering and safety", () => {
+  it("rejects an unsafe gnhf coder command before creating a worktree or tmux session", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[coder.codex]\ncommand = "npx -y gnhf --agent codex --current-branch {prompt}"\n',
+    );
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /Unsafe coder invocation/,
+    );
+
+    expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
+    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+  });
+
   it("journals combo_created before the tmux session starts", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

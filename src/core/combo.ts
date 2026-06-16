@@ -176,7 +176,7 @@ ${emit} coder_started
 
 if (
   ${coderCommand}
-) > "$coder_log" 2>&1; then
+) < /dev/null > "$coder_log" 2>&1; then
   ${emit} coder_done
 else
   code=$?

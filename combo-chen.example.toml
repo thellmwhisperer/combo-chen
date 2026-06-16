@@ -21,7 +21,7 @@ merge = "human"                   # hard default: earn automerge with data first
 [coder.codex]
 # {placeholders}: issue_url, worktree, repo, branch, prompt. Each value is
 # substituted as a single-quoted shell token; don't add quotes around them.
-command = 'npx -y gnhf --agent codex --current-branch {prompt}'
+command = '''npx -y gnhf@0.1.41 --agent codex --max-iterations 12 --stop-when 'Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.' --prevent-sleep on --meteor-frequency 0 --current-branch {prompt}'''
 # {placeholders}: thread_id. Used by coder responding mode to resume the same
 # implementation context after PR review comments land.
 resume_command = 'codex resume {thread_id}'

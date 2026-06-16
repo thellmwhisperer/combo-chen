@@ -58,7 +58,12 @@ describe("loadConfig", () => {
     expect(config.limits.watchBackoffMaxSeconds).toBe(3600);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
-    expect(config.coderCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
+    expect(config.coderCommand).toContain("npx -y gnhf@0.1.41");
+    expect(config.coderCommand).toContain("--max-iterations 12");
+    expect(config.coderCommand).toContain("--stop-when");
+    expect(config.coderCommand).toContain("--prevent-sleep on");
+    expect(config.coderCommand).toContain("--meteor-frequency 0");
+    expect(config.coderCommand).toContain("--current-branch {prompt}");
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
     expect(config).not.toHaveProperty("rowerCommand");
     expect(config).not.toHaveProperty("rowerResumeCommand");
