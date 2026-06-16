@@ -222,6 +222,7 @@ combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen forensics --issues <numbers> [--format json]
 combo-chen reconcile [--apply]
+combo-chen park -n <combo-id>
 combo-chen stop -n <combo-id>
 ```
 
@@ -233,6 +234,7 @@ combo-chen stop -n <combo-id>
 | `events --follow` | tails the JSONL journal without attaching to tmux. |
 | `forensics --issues <n>` | read-only markdown report with timelines, gates, process windows, and detected incidents across selected runs. `--format json` for machine output. |
 | `reconcile` | compares local journals with GitHub and reports frozen merged journals that need repair. `--apply` appends missing terminal events and runs teardown. |
+| `park` | writes a local reboot handoff, kills the combo tmux session, and keeps the journal resumable through `resume -n`. |
 | `stop` | kills the tmux session and leaves the journal and worktree for inspection. |
 
 ### Internal entry points
@@ -381,8 +383,8 @@ when you edit a file.
 
 ## Status
 
-v0 implements the issue-to-PR loop: `run`, `attach`, `status`, `stop`, `events`,
-`forensics`, `reconcile`, the hidden director loop, coder responding mode,
+v0 implements the issue-to-PR loop: `run`, `attach`, `status`, `park`, `stop`,
+`events`, `forensics`, `reconcile`, the hidden director loop, coder responding mode,
 no-mistakes initial and post-address gates, reviewer re-review, single
 `director-watch` observation, local no-mistakes config propagation, and
 current-head READY agreement.
