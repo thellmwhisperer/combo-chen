@@ -1,12 +1,12 @@
 /**
- * @overview First-class resume routing for persisted combos. ~110 lines,
+ * @overview First-class resume routing for persisted combos. ~150 lines,
  *   2 exports, downstream-state driven safe actions.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resumeCombo             <- CLI-facing recovery dispatcher.
  *   2. ensureResumeSession              <- recreates only tmux monitoring shell.
- *   3. Output fallbacks                 <- explicit salvage/audit guidance.
+ *   3. salvageCoderStoppedBeforeHandoff <- explicit salvage/audit guidance.
  *
  *   MAIN FLOW
  *   ---------
@@ -19,13 +19,13 @@
  *
  *   INTERNALS
  *   ---------
- *   ensureResumeSession
+ *   ensureResumeSession, salvageCoderStoppedBeforeHandoff, event field helpers
  *
  * @exports ResumeDeps, resumeCombo
  * @deps ../core/{combo,events,state}, ../infra/{config,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status
  */
 import { shellQuote } from "../core/combo.js";
-import { latestPrUrlFromEvents, readEvents } from "../core/events.js";
+import { latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { hasSessionArgs, newSessionArgs, type TmuxResult } from "../infra/tmux.js";
@@ -66,6 +66,70 @@ function ensureResumeSession(input: {
 // -/ 1/2
 
 // -- 2/2 CORE · resumeCombo <- START HERE --
+function lastEvent(events: ComboEvent[], eventName: ComboEvent["event"]): ComboEvent | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === eventName) return event;
+  }
+  return undefined;
+}
+
+function eventFieldString(event: ComboEvent | undefined, field: string): string | undefined {
+  const value = event?.[field];
+  if (typeof value === "string" && value.trim() !== "") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
+
+function eventFieldNumber(event: ComboEvent | undefined, field: string): number | undefined {
+  const value = event?.[field];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
+  return undefined;
+}
+
+function hasEvent(events: ComboEvent[], eventName: ComboEvent["event"]): boolean {
+  return events.some((event) => event.event === eventName);
+}
+
+function salvageCoderStoppedBeforeHandoff(input: {
+  combo: ComboRecord;
+  events: ComboEvent[];
+  home: string;
+  cli: string;
+}): string[] | undefined {
+  const { combo, events, home, cli } = input;
+  const coderStarted = hasEvent(events, "coder_started") || hasEvent(events, "coder_failed");
+  const handedOff = hasEvent(events, "gate_started") || latestPrUrlFromEvents(events) !== undefined;
+  if (!coderStarted || handedOff) return undefined;
+
+  const failed = lastEvent(events, "coder_failed");
+  const exitCode = eventFieldString(failed, "exit_code") ?? "unknown";
+  const commitCount = eventFieldNumber(failed, "new_commit_count");
+  const commitSummary =
+    commitCount === undefined
+      ? "with an unknown number of new commits"
+      : `after ${commitCount} new ${commitCount === 1 ? "commit" : "commits"}`;
+  const baseSha = eventFieldString(failed, "base_sha");
+  const headSha = eventFieldString(failed, "head_sha");
+  const detail =
+    failed === undefined
+      ? "detail: coder started but no handoff event was journaled"
+      : `detail: coder failed with exit ${exitCode} ${commitSummary}`;
+
+  const lines = [
+    `resume: salvage required for ${combo.id}; coder stopped before handoff`,
+    detail,
+    `next: cd ${shellQuote(combo.worktree)}`,
+    "next: git status --short",
+  ];
+  if (baseSha !== undefined && headSha !== undefined) {
+    lines.push(`next: git log --oneline ${shellQuote(`${baseSha}..${headSha}`)}`);
+  }
+  lines.push(`next: COMBO_CHEN_HOME=${shellQuote(home)} ${cli} status --deep`);
+  return lines;
+}
+
 export function resumeCombo(input: {
   deps: ResumeDeps;
   home: string;
@@ -107,6 +171,12 @@ export function resumeCombo(input: {
   const prUrl = latestPrUrlFromEvents(events);
   if (prUrl !== undefined) {
     deps.out(`resume: PR already exists at ${prUrl}; inspect combo-chen status --deep before relaunching work`);
+    return;
+  }
+
+  const salvage = salvageCoderStoppedBeforeHandoff({ combo, events, home, cli });
+  if (salvage !== undefined) {
+    for (const line of salvage) deps.out(line);
     return;
   }
 
