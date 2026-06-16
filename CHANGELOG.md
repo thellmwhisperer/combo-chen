@@ -279,6 +279,12 @@
 
 ### Features
 
+* **park:** first-class park command for reboot-safe combo handoff with handoff summary and tmux cleanup ([#76](https://github.com/thellmwhisperer/combo-chen/issues/76))
+* **resume:** first-class resume command that reconstructs state from journal, tmux, worktree, no-mistakes, and GitHub PR state; never starts a fresh run on an existing combo ([#76](https://github.com/thellmwhisperer/combo-chen/issues/76))
+* **status:** `status --deep` distinguishes stale combo state from real downstream state with no-mistakes and GitHub probes ([#76](https://github.com/thellmwhisperer/combo-chen/issues/76))
+* **coder:** pin gnhf@0.1.41 with `--max-iterations`, `--stop-when`, `--prevent-sleep on`, and `--meteor-frequency 0`; validate safe coder invocation before launch
+* **runner:** close coder stdin so the runner cannot block for input
+* **gatekeeper:** publish HEAD to no-mistakes mirror with base64-encoded `no-mistakes.intent=` git push option before running the gate; use `--force-with-lease` when replacing an existing mirror branch
 * **reconcile:** Implemented the issue [#57](https://github.com/thellmwhisperer/combo-chen/issues/57) reconcile slice end-to-end: frozen merged journals can now be repaired with source-marked terminal events and teardown, with full validation green.
 * **reconcile:** Hardened reconcile loop against loadConfig and killSession failures.
 * **runner:** pre-coder fetch and rebase onto `origin/main` before coder startup, with `rebase_failed` (fetch failure) and `rebase_conflict` (merge conflict) journal events that transition the combo to STALLED ([#61](https://github.com/thellmwhisperer/combo-chen/issues/61))
