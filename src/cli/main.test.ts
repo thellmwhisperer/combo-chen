@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3100 lines.
+ *   deps so tests run without a real terminal or network. ~3350 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -1722,6 +1722,55 @@ describe("status", () => {
     const text = out.join("\n");
     expect(text).toContain("awaiting review gate: NM-1, NM-2");
     expect(text).toContain("respond: no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes");
+  });
+
+  it("prints PR ready for reviewer in deep mode when GitHub checks are green and no reviewer pin exists", async () => {
+    const h = home();
+    const worktree = "/repos/r/.worktrees/issue-7";
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: ["run:", "  branch: combo/issue-7", "  status: completed"].join("\n"),
+        stderr: "",
+      }),
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: "OPEN",
+              statusCheckRollup: [{ name: "test", conclusion: "SUCCESS" }],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+    await exec(deps, ["status", "--deep"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("STALLED");
+    expect(text).toContain("gate_failed");
+    expect(text).toContain("PR ready for reviewer");
   });
 });
 
