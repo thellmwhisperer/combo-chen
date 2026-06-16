@@ -758,6 +758,92 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     expect(gatekeeperOutput).toContain("Fixes #7");
   });
 
+  it("exits the gate subshell when the mirror push fails, preventing the gatekeeper command from running", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const gatekeeperLog = join(dir, "gatekeeper.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "remote" ]; then
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\trefs/heads/combo/issue-7\\n'
+  exit 0
+fi
+if [ "$1" = "push" ]; then
+  exit 128
+fi
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const mirrorIntent = Buffer.from("Test intent", "utf8").toString("base64");
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: "true",
+        gatekeeperCommand: `${shellQuote(fakeNoMistakes)} axi run --intent test`,
+        gatekeeperMirrorIntent: mirrorIntent,
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        GATEKEEPER_LOG: gatekeeperLog,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect(result.status).toBe(1);
+    const events = readFileSync(eventsPath, "utf8").trim().split("\n");
+    expect(events.filter((l) => l.startsWith("gate_failed"))).toHaveLength(1);
+    const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
+    expect(gatekeeperOutput).not.toContain("no-mistakes axi run");
+  });
+
   it("emits gate_waiting when no-mistakes stops at an axi approval gate", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
