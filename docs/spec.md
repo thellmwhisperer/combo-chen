@@ -7,7 +7,7 @@ schema, and the config schema must conform to it, not the other way around.
 ## 1. Roles
 
 | Role | Does | Never does | Default agent |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **coder** | implements the issue (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
 | **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR; then ci-step: watch CI, auto-fix failures/conflicts. The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
@@ -15,6 +15,7 @@ schema, and the config schema must conform to it, not the other way around.
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
+
 - `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
 - gnhf coder commands must be safe runner commands before any worktree is

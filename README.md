@@ -24,7 +24,7 @@ agents and humans.
 A combo is a small division of labor. Each role has one job and one contract.
 
 | Role | Tooling | Contract |
-|---|---|---|
+| --- | --- | --- |
 | **coder** | gnhf + Codex by default | implements the issue, then resumes the same thread to answer review comments. Commits locally; does not push. |
 | **gatekeeper** | no-mistakes | validates, publishes, watches CI, republishes fixes. The sole normal publisher. |
 | **reviewer** | configured reviewer + CodeRabbit | comments and records a SHA-pinned LGTM signal. No merge authority. |
@@ -45,8 +45,8 @@ after the real work, so the journal always reflects where the runner is. A
 terminal stage ends the runner; from `pr_opened` onward, `director-watch` takes
 over as the single observer.
 
-```
-                          combo-chen run --issue <url>
+```text
+                           combo-chen run --issue <url>
                                       │
                                       ▼
         ┌─────────────────────────────────────────────────────────┐
@@ -124,8 +124,8 @@ phase. `combo-chen status` and `director-watch` both read this. The phase is a
 pure function of the events seen so far, which is why any observer can replay
 the journal and agree on where the combo is.
 
-```
-                  ┌─────────┐
+```text
+                   ┌─────────┐
                   │  SETUP  │  combo_created, no coder yet
                   └────┬────┘
         coder_started  │
@@ -164,7 +164,7 @@ the journal and agree on where the combo is.
 ### Phases
 
 | Phase | Meaning | Entered by |
-|---|---|---|
+| --- | --- | --- |
 | `SETUP` | worktree created, coder not started | initial state (`combo_created`) |
 | `CODING` | coder is implementing the issue | `coder_started` |
 | `GATING` | no-mistakes is validating and publishing | `gate_started` |
@@ -228,7 +228,7 @@ combo-chen stop -n <combo-id>
 ```
 
 | Command | What it does |
-|---|---|
+| --- | --- |
 | `run` | creates the worktree and tmux session, writes `runner.sh`, and starts it. `--prompt` overrides the coder prompt derived from the issue. |
 | `status` | one line per combo: phase, human-needed reason, and PR URL. `--deep` probes downstream no-mistakes and GitHub state. |
 | `attach` | opens the combo tmux session and recreates the short journal pane if needed. |
@@ -292,7 +292,7 @@ Per-run state lives under:
 ```
 
 | Path | Purpose |
-|---|---|
+| --- | --- |
 | `combo.json` | combo identity: repo, worktree, branch, tmux session |
 | `journal.jsonl` | ordered lifecycle and hard-signal events (source of truth) |
 | `runner.sh` | generated initial coder/gate script |
