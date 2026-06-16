@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3450 lines.
+ *   deps so tests run without a real terminal or network. ~3575 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -26,6 +26,7 @@
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
+ *   │ park                  reboot handoff + non-terminal tmux stop  │
  *   │ stop                  kill-session + journal stopped event     │
  *   │ resolvePollMs         Env variable resolution                  │
  *   │ run ordering          Git worktree + branch safety             │
@@ -149,6 +150,7 @@ describe("command surface", () => {
         "forensics",
         "reviewer-tick",
         "nudge-review-comments",
+        "park",
         "reconcile",
         "resume",
         "run",
@@ -1612,7 +1614,7 @@ $(echo boom)'`);
 
 // -/ 3/4
 
-// -- 4/4 HELPER · Remaining commands: resume, status, reviewer, events, stop, poll --
+// -- 4/4 HELPER · Remaining commands: resume, status, reviewer, events, park, stop, poll --
 describe("resume", () => {
   it("starts reviewer and director monitoring for an existing reviewer-ready PR without a fresh run", async () => {
     const h = home();
@@ -3417,6 +3419,44 @@ describe("stop", () => {
 
     await expect(exec(deps, ["stop", "-n", "o-r-7"])).rejects.toThrow(/kill/i);
     expect(readEvents(dir)).toEqual([]);
+  });
+});
+
+describe("park", () => {
+  it("writes a resumable handoff summary and stops tmux without terminally stopping the combo", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "coder_failed", { exit_code: 124, has_new_commits: true });
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["park", "-n", "o-r-7", "--by", "javi"]);
+
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "kill-session")).toBe(true);
+    const events = readEvents(dir);
+    expect(events.at(-1)?.event).toBe("parked");
+    expect(events.some((event) => event.event === "stopped")).toBe(false);
+    expect(events.at(-1)).toMatchObject({ by: "javi" });
+    const summaryPath = events.at(-1)?.summary_path;
+    expect(typeof summaryPath).toBe("string");
+    const summary = readFileSync(summaryPath as string, "utf8");
+    expect(summary).toContain("# Parked combo o-r-7");
+    expect(summary).toContain("branch: combo/issue-7");
+    expect(summary).toContain("phase: STALLED");
+    expect(summary).toContain(`COMBO_CHEN_HOME=${shellQuote(h)}`);
+    expect(summary).toContain(`resume -n ${shellQuote("o-r-7")}`);
+    expect(summary).toContain("status --deep");
+    expect(out).toEqual([`parked o-r-7 (handoff ${summaryPath}; resume with combo-chen resume -n o-r-7)`]);
   });
 });
 

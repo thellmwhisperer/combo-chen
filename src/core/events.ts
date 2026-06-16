@@ -1,6 +1,6 @@
 /**
  * @overview Event journal: append-only JSONL spine per combo run.
- *   ~208 lines, 12 exports, 1 canonical schema.
+ *   ~219 lines, 12 exports, 1 canonical schema.
  *
  *   READING GUIDE
  *   ─────────────
@@ -62,6 +62,7 @@ export const EVENT_TYPES = {
   ready_for_merge: { required: ["sha", "pr_url"] },
   merged: { required: ["sha", "by"] },
   combo_closed: { required: [] },
+  parked: { required: ["by", "summary_path"] },
   coder_retry: { required: [] },
   stopped: { required: ["by"] },
   watch_error: { required: ["exit_code", "stderr"] },

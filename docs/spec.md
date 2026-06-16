@@ -263,7 +263,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
 3. **v0 scope as proposed**:
-   `run`/`attach`/`status`/`stop`/`events`/`forensics`/`reconcile`/`activate-reviewer`,
+   `run`/`attach`/`status`/`park`/`stop`/`events`/`forensics`/`reconcile`/`activate-reviewer`,
    coder (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental
    re-review), director-owned tmux poll loop; manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo dashboard deferred to v1+.

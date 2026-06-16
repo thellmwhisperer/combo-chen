@@ -124,6 +124,17 @@ describe("deriveStatus", () => {
     expect(status.needsHuman).toBe(false);
   });
 
+  it("does not treat parking for reboot as terminal", () => {
+    const status = deriveStatus([
+      ev("coder_started"),
+      ev("coder_failed", { exit_code: 124, has_new_commits: true }),
+      ev("parked", { by: "javi", summary_path: "/runs/o-r-7/park-handoff.md" }),
+    ]);
+    expect(status.phase).toBe("STALLED");
+    expect(status.needsHuman).toBe(true);
+    expect(status.reason).toBe("coder_failed");
+  });
+
   it("treats merged and closed PR events as terminal", () => {
     for (const terminal of [
       ev("merged", { sha: "def456", by: "javi" }),
