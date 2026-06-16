@@ -217,24 +217,26 @@ combo-chen events --follow -n you-repo-128
 
 ```sh
 combo-chen run --issue <issue-url> [--repo <dir>] [--prompt <text>]
-combo-chen status
+combo-chen status [--deep]
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen forensics --issues <numbers> [--format json]
 combo-chen reconcile [--apply]
 combo-chen park -n <combo-id>
+combo-chen resume -n <combo-id>
 combo-chen stop -n <combo-id>
 ```
 
 | Command | What it does |
 |---|---|
 | `run` | creates the worktree and tmux session, writes `runner.sh`, and starts it. `--prompt` overrides the coder prompt derived from the issue. |
-| `status` | one line per combo: phase, human-needed reason, and PR URL. |
+| `status` | one line per combo: phase, human-needed reason, and PR URL. `--deep` probes downstream no-mistakes and GitHub state. |
 | `attach` | opens the combo tmux session and recreates the short journal pane if needed. |
 | `events --follow` | tails the JSONL journal without attaching to tmux. |
 | `forensics --issues <n>` | read-only markdown report with timelines, gates, process windows, and detected incidents across selected runs. `--format json` for machine output. |
 | `reconcile` | compares local journals with GitHub and reports frozen merged journals that need repair. `--apply` appends missing terminal events and runs teardown. |
 | `park` | writes a local reboot handoff, kills the combo tmux session, and keeps the journal resumable through `resume -n`. |
+| `resume` | resumes a parked or interrupted combo from its journal and downstream state. Never starts a fresh `run` on an existing combo. |
 | `stop` | kills the tmux session and leaves the journal and worktree for inspection. |
 
 ### Internal entry points
@@ -300,6 +302,7 @@ Per-run state lives under:
 | `gatekeeper-post-<sha>.sh` | generated post-address gate script |
 | `gatekeeper-post-<sha>.log` | post-address no-mistakes output |
 | `rebase.log` | pre-coder fetch/rebase output |
+| `park-handoff.md` | parked combo handoff summary for resumable reboot |
 | `autoclose*.log` | PR body autoclose repair attempts |
 
 The journal is the source of truth for orchestration. Pane text is only a
@@ -389,8 +392,8 @@ when you edit a file.
 
 ## Status
 
-v0 implements the issue-to-PR loop: `run`, `attach`, `status`, `park`, `stop`,
-`events`, `forensics`, `reconcile`, the hidden director loop, coder responding mode,
+v0 implements the issue-to-PR loop: `run`, `attach`, `status`, `park`, `resume`,
+`stop`, `events`, `forensics`, `reconcile`, the hidden director loop, coder responding mode,
 no-mistakes initial and post-address gates, reviewer re-review, single
 `director-watch` observation, local no-mistakes config propagation, and
 current-head READY agreement.
