@@ -91,6 +91,14 @@ describe("buildGatekeeperInvocation", () => {
     const intent = "Implement issue\n\nTitle: Fix\tbug\nFixes #53";
     expect(Buffer.from(buildNoMistakesPushIntent(intent), "base64").toString("utf8")).toBe(intent);
   });
+
+  it("truncates intent before base64 encoding when it exceeds the push limit", () => {
+    const longIntent = "x".repeat(5000);
+    const encoded = buildNoMistakesPushIntent(longIntent);
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    expect(decoded.length).toBe(4000);
+    expect(decoded.endsWith("x...")).toBe(true);
+  });
 });
 
 describe("parseAxiOutcome", () => {

@@ -29,7 +29,7 @@
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
  *   │ visiblePrBodyMarkdown, escapeRegExp, PLACEHOLDER,                      │
  *   │ KNOWN_GATEKEEPER_PLACEHOLDERS, MAX_INTENT_BODY_LENGTH,                 │
- *   │ AUTOCLOSE_KEYWORDS                                                      │
+ *   │ MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS                               │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports GatekeeperInput, buildIssuePrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
@@ -58,6 +58,7 @@ const KNOWN_GATEKEEPER_PLACEHOLDERS = new Set([
 ]);
 
 const MAX_INTENT_BODY_LENGTH = 8000;
+const MAX_PUSH_INTENT_INPUT = 4000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
 const NO_MISTAKES_AXI_RUN = /\bno-mistakes\s+axi\s+run\b/;
 const SKIP_EQUALS = /(^|\s)--skip=("[^"]+"|'[^']+'|[^\s]+)/;
@@ -90,7 +91,10 @@ export function buildIssuePrIntent(input: {
 }
 
 export function buildNoMistakesPushIntent(intent: string): string {
-  return Buffer.from(intent, "utf8").toString("base64");
+  const capped = intent.length > MAX_PUSH_INTENT_INPUT
+    ? `${intent.slice(0, MAX_PUSH_INTENT_INPUT - 3)}...`
+    : intent;
+  return Buffer.from(capped, "utf8").toString("base64");
 }
 // -/ 1/3
 
