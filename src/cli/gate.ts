@@ -1,16 +1,17 @@
 /**
- * @overview Gatekeeper CLI helpers. ~535 lines, 16 exports, attach window, mirror sync, post-address gates.
+ * @overview Gatekeeper CLI helpers. ~675 lines, 17 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at ensureGatekeeperWindow <- live no-mistakes attach window.
  *   2. Then syncNoMistakesMirror       <- mirror freshness and push semaphore.
- *   3. Then runPostAddressGateIfNeeded <- validates local addressing commits through no-mistakes.
- *   4. Pure helpers                    <- buildGatekeeperAttachCommand, remoteShaForRef.
+ *   3. Then startInitialGateRetry      <- relaunches coder-finished/no-PR gates.
+ *   4. Then runPostAddressGateIfNeeded <- validates local addressing commits through no-mistakes.
+ *   5. Pure helpers                    <- buildGatekeeperAttachCommand, remoteShaForRef.
  *
  *   MAIN FLOW
  *   ---------
- *   ensureGatekeeperWindow -> startGatekeeperWindow; syncNoMistakesMirror -> fetch -> compare -> guarded push; runPostAddressGateIfNeeded -> generated script -> tmux gatekeeper
+ *   ensureGatekeeperWindow -> startGatekeeperWindow; resume/director -> generated gate script -> mirror push with intent -> tmux gatekeeper; syncNoMistakesMirror -> fetch -> compare -> guarded push
  *
  *   PUBLIC API
  *   ----------
@@ -19,28 +20,32 @@
  *   buildGatekeeperAttachCommand, startGatekeeperWindow
  *   ensureGatekeeperWindow, remoteShaForRef, latestGateStatus
  *   latestPublishedGateSha, propagateNoMistakesConfig
- *   buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ *   startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, renderPostAddressGatekeeperCommand
+ *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, renderScriptedMirrorGatekeeperCommand, renderGatekeeperCommand
  *
- * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/gatekeeper, ./github, ./sessions
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { shellQuote } from "../core/combo.js";
+import { buildNoMistakesMirrorPublishScript, shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { DEFAULT_GATEKEEPER_COMMAND, loadConfig } from "../infra/config.js";
 import { listWindowsArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
-import { buildGatekeeperInvocation } from "../roles/gatekeeper.js";
+import {
+  buildGatekeeperInvocation,
+  buildIssuePrIntent,
+  buildNoMistakesPushIntent,
+} from "../roles/gatekeeper.js";
 import { fetchIssueDetails } from "./github.js";
 import { killWindowIfPresent } from "./sessions.js";
 
-// -- 1/4 HELPER · Types and constants --
+// -- 1/5 HELPER · Types and constants --
 export interface GateDeps {
   out: (line: string) => void;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
@@ -62,9 +67,9 @@ export interface GatekeeperAttachOptions {
 
 export const GATEKEEPER_WINDOW = "gatekeeper";
 export const NO_MISTAKES_CONFIG_FILE = ".no-mistakes.yaml";
-// -/ 1/4
+// -/ 1/5
 
-// -- 2/4 CORE · Gatekeeper tmux window <- START HERE --
+// -- 2/5 CORE · Gatekeeper tmux window <- START HERE --
 export function buildGatekeeperAttachCommand(
   combo: ComboRecord,
   options: GatekeeperAttachOptions,
@@ -122,9 +127,9 @@ export function ensureGatekeeperWindow(
 
   startGatekeeperWindow(deps, combo, options);
 }
-// -/ 2/4
+// -/ 2/5
 
-// -- 3/4 HELPER · Mirror git helpers --
+// -- 3/5 HELPER · Gate state, git, and command rendering --
 export function remoteShaForRef(stdout: string, ref: string): string | undefined {
   for (const line of stdout.split(/\r?\n/)) {
     const [sha, candidate] = line.trim().split(/\s+/, 2);
@@ -147,8 +152,6 @@ function requireComboGit(
   }
   return { stdout: result.stdout };
 }
-// -/ 3/4
-
 interface LatestGateStatus {
   state: string;
   headSha?: string;
@@ -241,13 +244,25 @@ function hasUncommittedChanges(deps: GateDeps, combo: ComboRecord): boolean {
   ).stdout.trim() !== "";
 }
 
+interface RenderedGatekeeperCommand {
+  command: string;
+  pushIntent: string;
+}
+
 function renderGatekeeperCommand(
   deps: PostAddressGateDeps,
   combo: ComboRecord,
   gatekeeperCommand: string,
-): string {
+): RenderedGatekeeperCommand {
+  let issueDetails: { title: string; body: string } | undefined;
+  const loadIssueDetails = (): { title: string; body: string } => {
+    issueDetails ??= fetchIssueDetails(deps.gh, combo.issueUrl);
+    return issueDetails;
+  };
+
+  let command: string;
   try {
-    return buildGatekeeperInvocation({ gatekeeperCommand });
+    command = buildGatekeeperInvocation({ gatekeeperCommand });
   } catch (error) {
     if (
       !(error instanceof Error) ||
@@ -255,61 +270,179 @@ function renderGatekeeperCommand(
     ) {
       throw error;
     }
+    const details = loadIssueDetails();
+    command = buildGatekeeperInvocation({
+      gatekeeperCommand,
+      combo,
+      issueTitle: details.title,
+      issueBody: details.body,
+    });
   }
 
-  const issueDetails = fetchIssueDetails(deps.gh, combo.issueUrl);
-  return buildGatekeeperInvocation({
-    gatekeeperCommand,
-    combo,
-    issueTitle: issueDetails.title,
-    issueBody: issueDetails.body,
-  });
+  const details = loadIssueDetails();
+  return {
+    command,
+    pushIntent: buildNoMistakesPushIntent(
+      buildIssuePrIntent({
+        combo,
+        issueTitle: details.title,
+        issueBody: details.body,
+      }),
+    ),
+  };
 }
 
-const DEFAULT_POST_ADDRESS_GATEKEEPER_COMMAND = "no-mistakes axi run --intent {issue_pr_intent}";
+const DEFAULT_SCRIPTED_MIRROR_GATEKEEPER_COMMAND =
+  "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}";
 
-function postAddressGatekeeperCommandTemplate(gatekeeperCommand: string): string {
+function scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand: string): string {
   return gatekeeperCommand === DEFAULT_GATEKEEPER_COMMAND
-    ? DEFAULT_POST_ADDRESS_GATEKEEPER_COMMAND
+    ? DEFAULT_SCRIPTED_MIRROR_GATEKEEPER_COMMAND
     : gatekeeperCommand;
 }
 
-function renderPostAddressGatekeeperCommand(
+function renderScriptedMirrorGatekeeperCommand(
   deps: PostAddressGateDeps,
   combo: ComboRecord,
   gatekeeperCommand: string,
-): string {
-  return renderGatekeeperCommand(deps, combo, postAddressGatekeeperCommandTemplate(gatekeeperCommand));
+): RenderedGatekeeperCommand {
+  return renderGatekeeperCommand(deps, combo, scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand));
 }
 
-function buildPostAddressMirrorPublishScript(combo: ComboRecord): string[] {
+function gateAlreadyRunningGuardScript(input: {
+  combo: ComboRecord;
+  headSha: string;
+  emit: string;
+}): string[] {
   return [
-    "if git remote get-url no-mistakes >/dev/null 2>&1; then",
-    `  mirror_branch=${shellQuote(combo.branch)}`,
-    `  mirror_ref=${shellQuote(`refs/heads/${combo.branch}`)}`,
-    `  if mirror_line=$(git ls-remote --heads no-mistakes "$mirror_branch" 2>/dev/null); then`,
-    "    mirror_sha=",
-    `    if [ -n "$mirror_line" ]; then`,
-    "      set -- $mirror_line",
-    `      mirror_sha=\${1:-}`,
-    "    fi",
-    `    if [ -n "$mirror_sha" ]; then`,
-    `      git push no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"`,
-    "    else",
-    `      git push no-mistakes "HEAD:$mirror_ref"`,
-    "    fi",
-    "  else",
-    `    printf '%s\\n' "no-mistakes mirror lookup failed for $mirror_branch" >&2`,
-    "    exit 1",
+    "if [ \"$gatekeeper_code\" -ne 0 ]; then",
+    "  status_probe_log=\"${gatekeeper_log}.status\"",
+    `  if no-mistakes axi status > "$status_probe_log" 2>&1 && grep -F ${shellQuote(`branch: ${input.combo.branch}`)} "$status_probe_log" >/dev/null && grep -F ${shellQuote(`head: ${input.headSha.slice(0, 8)}`)} "$status_probe_log" >/dev/null && grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$' "$status_probe_log"; then`,
+    "    gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    `    ${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_head_sha"`,
+    "    exec no-mistakes attach",
     "  fi",
+    "  cat \"$status_probe_log\" >> \"$gatekeeper_log\" 2>/dev/null || true",
     "fi",
   ];
+}
+// -/ 3/5
+
+// -- 4/5 CORE · Initial and post-address gate scripts --
+function buildInitialGateRetryScript(input: {
+  combo: ComboRecord;
+  runDir: string;
+  gatekeeperCommand: string;
+  gatekeeperMirrorIntent: string;
+  headSha: string;
+  emit: string;
+  activateCoder: string;
+  activateReviewer: string;
+  ensurePrAutoclose: string;
+}): string {
+  const shortSha = input.headSha.slice(0, 12);
+  const gatekeeperLog = join(input.runDir, `gatekeeper-initial-${shortSha}.log`);
+  const autocloseLog = join(input.runDir, `autoclose-initial-${shortSha}.log`);
+  return [
+    "#!/bin/sh",
+    "set -u",
+    `printf '%s\\n' ${shellQuote(`initial gate retry for ${input.combo.id} at ${input.headSha}`)}`,
+    `gatekeeper_log=${shellQuote(gatekeeperLog)}`,
+    `autoclose_log=${shellQuote(autocloseLog)}`,
+    `cd ${shellQuote(input.combo.worktree)}`,
+    `${input.emit} gate_started`,
+    "gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    `${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"`,
+    "gatekeeper_code=0",
+    "(",
+    ...buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent).map((line) => `  ${line}`),
+    `  ${input.gatekeeperCommand}`,
+    `) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?`,
+    ...gateAlreadyRunningGuardScript(input),
+    "if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' \"$gatekeeper_log\"; then",
+    "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    `  ${input.emit} gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"`,
+    `  ${input.emit} needs_human --field reason=gate_waiting`,
+    "  exit 0",
+    "fi",
+    "if [ \"$gatekeeper_code\" -ne 0 ]; then",
+    "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    `  ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
+    `  ${input.emit} gate_failed --field exit_code="$gatekeeper_code"`,
+    "  exit \"$gatekeeper_code\"",
+    "fi",
+    "gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
+    `pr_url=$(gh pr list --head ${shellQuote(input.combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)`,
+    `if [ -n "\${pr_url:-}" ]; then`,
+    `  if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
+    "    :",
+    "  else",
+    "    autoclose_code=$?",
+    `    printf '%s\\n' "autoclose guard skipped with exit code $autoclose_code" >> "$autoclose_log"`,
+    "  fi",
+    `  ${input.emit} pr_opened --field url="$pr_url"`,
+    `  ${input.activateCoder}`,
+    `  ${input.activateReviewer}`,
+    `  ${input.emit} needs_human --field reason=pr_ready`,
+    "else",
+    `  ${input.emit} needs_human --field reason=pr_missing`,
+    "fi",
+  ].join("\n");
+}
+
+export function startInitialGateRetry(input: {
+  deps: PostAddressGateDeps;
+  combo: ComboRecord;
+  runDir: string;
+  cli: string;
+}): { started: boolean; headSha: string } {
+  const { deps, combo, runDir, cli } = input;
+  if (propagateNoMistakesConfig(combo.repoDir, combo.worktree)) {
+    deps.out(`no-mistakes: copied local config to ${combo.worktree}/${NO_MISTAKES_CONFIG_FILE}`);
+  }
+
+  const headSha = worktreeHeadSha(deps, combo);
+  if (hasUncommittedChanges(deps, combo)) {
+    deps.out(`resume: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate retry`);
+    return { started: false, headSha };
+  }
+
+  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
+  const scriptPath = join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.sh`);
+  writeFileSync(
+    scriptPath,
+    `${buildInitialGateRetryScript({
+      combo,
+      runDir,
+      gatekeeperCommand: renderedGatekeeper.command,
+      gatekeeperMirrorIntent: renderedGatekeeper.pushIntent,
+      headSha,
+      emit: `${cli} emit -n ${shellQuote(combo.id)}`,
+      activateCoder: `${cli} activate-coder -n ${shellQuote(combo.id)}`,
+      activateReviewer: `${cli} activate-reviewer -n ${shellQuote(combo.id)}`,
+      ensurePrAutoclose: `${cli} ensure-pr-autoclose -n ${shellQuote(combo.id)} --pr-url`,
+    })}\n`,
+  );
+  chmodSync(scriptPath, 0o755);
+
+  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
+  const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, `sh ${shellQuote(scriptPath)}`));
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to start initial gatekeeper retry in "${combo.tmuxSession}": ` +
+        `${created.stderr.trim() || "unknown error"}`,
+    );
+  }
+  return { started: true, headSha };
 }
 
 export function buildPostAddressGateScript(input: {
   combo: ComboRecord;
   runDir: string;
   gatekeeperCommand: string;
+  gatekeeperMirrorIntent: string;
   headSha: string;
   prUrl: string;
   emit: string;
@@ -334,13 +467,14 @@ export function buildPostAddressGateScript(input: {
     "(",
     "  gatekeeper_code=0",
     "  (",
-    ...buildPostAddressMirrorPublishScript(input.combo).map((line) => `    ${line}`),
+    ...buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent).map((line) => `    ${line}`),
     `    ${input.gatekeeperCommand}`,
     "  ) || gatekeeper_code=$?",
     `  printf '%s\\n' "$gatekeeper_code" > "$status_file"`,
     `) 2>&1 | tee "$gatekeeper_log"`,
     `gatekeeper_code=$(cat "$status_file" 2>/dev/null || printf '1')`,
     `rm -f "$status_file"`,
+    ...gateAlreadyRunningGuardScript(input),
     "if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' \"$gatekeeper_log\"; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     `  ${input.emit} gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"`,
@@ -376,6 +510,7 @@ function startPostAddressGate(input: {
   combo: ComboRecord;
   runDir: string;
   gatekeeperCommand: string;
+  gatekeeperMirrorIntent: string;
   headSha: string;
   prUrl: string;
   cli: string;
@@ -387,6 +522,7 @@ function startPostAddressGate(input: {
       combo: input.combo,
       runDir: input.runDir,
       gatekeeperCommand: input.gatekeeperCommand,
+      gatekeeperMirrorIntent: input.gatekeeperMirrorIntent,
       headSha: input.headSha,
       prUrl: input.prUrl,
       emit: `${input.cli} emit -n ${shellQuote(input.combo.id)}`,
@@ -465,19 +601,22 @@ export function runPostAddressGateIfNeeded(input: {
   }
 
   const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
   startPostAddressGate({
     deps,
     combo,
     runDir,
-    gatekeeperCommand: renderPostAddressGatekeeperCommand(deps, combo, config.gatekeeperCommand),
+    gatekeeperCommand: renderedGatekeeper.command,
+    gatekeeperMirrorIntent: renderedGatekeeper.pushIntent,
     headSha,
     prUrl,
     cli,
   });
   deps.out(`director: post-address gate started for ${combo.id} at ${headSha}`);
 }
+// -/ 4/5
 
-// -- 4/4 CORE · syncNoMistakesMirror --
+// -- 5/5 CORE · syncNoMistakesMirror --
 export function syncNoMistakesMirror(deps: GateDeps, combo: ComboRecord, runDir: string): boolean {
   const remote = deps.git(["remote", "get-url", "no-mistakes"], combo.worktree);
   if (remote.status !== 0) {
@@ -532,4 +671,4 @@ export function syncNoMistakesMirror(deps: GateDeps, combo: ComboRecord, runDir:
   requireComboGit(deps, combo, pushArgs, "git push no-mistakes mirror");
   return true;
 }
-// -/ 4/4
+// -/ 5/5

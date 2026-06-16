@@ -65,6 +65,12 @@ describe("loadConfig", () => {
     expect(config.coderCommand).toContain("--meteor-frequency 0");
     expect(config.coderCommand).toContain("--current-branch {prompt}");
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
+    expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
+    expect(config.gatekeeperCommand.indexOf("no-mistakes daemon start")).toBeLessThan(
+      config.gatekeeperCommand.indexOf("no-mistakes axi run"),
+    );
+    expect(config.gatekeeperCommand).not.toContain("git push no-mistakes");
     expect(config).not.toHaveProperty("rowerCommand");
     expect(config).not.toHaveProperty("rowerResumeCommand");
     expect(config).not.toHaveProperty("hodorCommand");

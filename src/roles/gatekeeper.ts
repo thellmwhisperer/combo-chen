@@ -1,15 +1,16 @@
 /**
  * @overview Gatekeeper adapter: invokes no-mistakes' blocking agent
- *   interface. Expands {placeholders} in commands and reads TOON outcomes
- *   tolerantly. ~170 lines, 6 exports.
+ *   interface. Expands {placeholders} in commands, prepares push-safe
+ *   base64 intent, and reads TOON outcomes tolerantly. ~205 lines, 7 exports.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at buildGatekeeperInvocation ← the command the runner executes
  *   2. buildIssuePrIntent                  ← the intent payload for no-mistakes
- *   3. ensureIssueAutocloseInPrBody        ← injects "Fixes #N" into PR body
- *   4. parseAxiOutcome                     ← read no-mistakes outcome line
- *   5. visiblePrBodyMarkdown               ← HTML/Markdown visibility parser
+ *   3. buildNoMistakesPushIntent           ← base64 intent for git push options
+ *   4. ensureIssueAutocloseInPrBody        ← injects "Fixes #N" into PR body
+ *   5. parseAxiOutcome                     ← read no-mistakes outcome line
+ *   6. visiblePrBodyMarkdown               ← HTML/Markdown visibility parser
  *
  *   MAIN FLOW
  *   ─────────
@@ -21,6 +22,7 @@
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
  *   │ buildGatekeeperInvocation  Expand {placeholders} in gatekeeper command │
  *   │ buildIssuePrIntent         Format issue facts for no-mistakes intent   │
+ *   │ buildNoMistakesPushIntent  Base64 encode intent for git push option    │
  *   │ ensureIssueAutocloseInPrBody Inject "Fixes #N" if missing from PR body │
  *   │ hasIssueAutocloseInPrBody  Check if PR body already autocloses issue   │
  *   │ parseAxiOutcome            Extract TOON "outcome:" line from raw text  │
@@ -30,7 +32,7 @@
  *   │ AUTOCLOSE_KEYWORDS                                                      │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
- * @exports GatekeeperInput, buildIssuePrIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
+ * @exports GatekeeperInput, buildIssuePrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
  * @deps ../core/state, ../core/combo, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
@@ -82,6 +84,10 @@ export function buildIssuePrIntent(input: {
   }
   intent.push("", `Fixes #${issue.number}`);
   return intent.join("\n");
+}
+
+export function buildNoMistakesPushIntent(intent: string): string {
+  return Buffer.from(intent, "utf8").toString("base64");
 }
 // -/ 1/3
 

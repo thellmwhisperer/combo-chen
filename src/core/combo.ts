@@ -1,28 +1,31 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   240 lines, 6 exports, 1 critical function.
+ *   275 lines, 7 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at buildRunnerScript    ← generates runner.sh, the combo spine
  *   2. deriveStatus                  ← event → phase state machine
- *   3. shellQuote                    ← POSIX-safe shell quoting
+ *   3. buildNoMistakesMirrorPublishScript ← gate mirror push with intent
+ *   4. shellQuote                    ← POSIX-safe shell quoting
  *
  *   MAIN FLOW (called from cli/main.ts)
  *   ───────────────────────────────────
  *   main.run()
  *     → buildRunnerScript(input)     ← generates the shell script
+ *       → buildNoMistakesMirrorPublishScript() when gate mirror intent exists
  *       → shellQuote() for safety
  *     → writes runner.sh to disk
  *     → tmux executes it
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
  *     fetch/rebase origin/main → coder_started → coderCommand → coder_done
- *     → gate_started → gatekeeperCommand → pr_opened
+ *     → gate_started → mirror publish → gatekeeperCommand → pr_opened
  *     → activateCoder + activateReviewer → needs_human
  *
  *   ┌─ CORE ─────────────────────────────────────────────────────────┐
  *   │ buildRunnerScript   Generates the runner shell script          │
+ *   │ buildNoMistakesMirrorPublishScript Git push to local gate repo │
  *   │ shellQuote           POSIX-safe single-quoting                 │
  *   ├─ PHASE DERIVATION ────────────────────────────────────────────┤
  *   │ deriveStatus         Maps event journal → ComboStatus          │
@@ -31,7 +34,7 @@
  *   │ RunnerInput          Input shape for buildRunnerScript         │
  *   └────────────────────────────────────────────────────────────────┘
  *
- * @exports buildRunnerScript, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
+ * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
  * @deps ./events, ./state
  */
 import type { ComboEvent } from "./events.js";
@@ -123,6 +126,8 @@ export interface RunnerInput {
   combo: ComboRecord;
   coderCommand: string;
   gatekeeperCommand: string;
+  /** One-line no-mistakes.intent push option for the local gate mirror. */
+  gatekeeperMirrorIntent?: string;
   /** Full invocation for creating the resumed coder and its comment watcher. */
   activateCoder: string;
   /** Full invocation prefix for emitting events, e.g. "node /x/cli.mjs emit -n <id>". */
@@ -138,6 +143,32 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+export function buildNoMistakesMirrorPublishScript(combo: ComboRecord, pushIntent: string): string[] {
+  return [
+    "if git remote get-url no-mistakes >/dev/null 2>&1; then",
+    `  mirror_branch=${shellQuote(combo.branch)}`,
+    `  mirror_ref=${shellQuote(`refs/heads/${combo.branch}`)}`,
+    `  mirror_intent=${shellQuote(`no-mistakes.intent=${pushIntent}`)}`,
+    "  no-mistakes daemon start",
+    `  if mirror_line=$(git ls-remote --heads no-mistakes "$mirror_branch" 2>/dev/null); then`,
+    "    mirror_sha=",
+    `    if [ -n "$mirror_line" ]; then`,
+    "      set -- $mirror_line",
+    `      mirror_sha=\${1:-}`,
+    "    fi",
+    `    if [ -n "$mirror_sha" ]; then`,
+    `      git push -o "$mirror_intent" no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"`,
+    "    else",
+    `      git push -o "$mirror_intent" no-mistakes "HEAD:$mirror_ref"`,
+    "    fi",
+    "  else",
+    `    printf '%s\\n' "no-mistakes mirror lookup failed for $mirror_branch" >&2`,
+    "    exit 1",
+    "  fi",
+    "fi",
+  ];
+}
+
 // -/ 2/3
 
 // -- 3/3 CORE · buildRunnerScript ← START HERE --
@@ -147,6 +178,7 @@ export function buildRunnerScript(input: RunnerInput): string {
     combo,
     coderCommand,
     gatekeeperCommand,
+    gatekeeperMirrorIntent,
     emit,
     activateCoder,
     activateReviewer,
@@ -203,6 +235,7 @@ ${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_sta
 
 gatekeeper_code=0
 (
+${gatekeeperMirrorIntent === undefined ? ":" : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n")}
   ${gatekeeperCommand}
 ) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
