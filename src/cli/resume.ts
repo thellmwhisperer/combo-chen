@@ -1,16 +1,17 @@
 /**
- * @overview First-class resume routing for persisted combos. ~150 lines,
- *   2 exports, downstream-state driven safe actions.
+ * @overview First-class resume routing for persisted combos. ~290 lines,
+ *   2 exports, state-machine driven safe actions.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resumeCombo             <- CLI-facing recovery dispatcher.
- *   2. ensureResumeSession              <- recreates only tmux monitoring shell.
- *   3. salvageCoderStoppedBeforeHandoff <- explicit salvage/audit guidance.
+ *   2. classifyResumeState              <- single-state precedence contract.
+ *   3. ensureResumeSession              <- recreates only tmux monitoring shell.
+ *   4. salvageCoderStoppedBeforeHandoff <- explicit salvage/audit guidance.
  *
  *   MAIN FLOW
  *   ---------
- *   resume -n -> read combo+journal -> deepComboStatus -> reviewer/gate monitor/salvage
+ *   resume -n -> read combo+journal -> classifyResumeState -> exactly one transition
  *
  *   PUBLIC API
  *   ----------
@@ -19,7 +20,7 @@
  *
  *   INTERNALS
  *   ---------
- *   ensureResumeSession, salvageCoderStoppedBeforeHandoff, event field helpers
+ *   classifyResumeState, ensureResumeSession, salvageCoderStoppedBeforeHandoff, event field helpers
  *
  * @exports ResumeDeps, resumeCombo
  * @deps ../core/{combo,events,state}, ../infra/{config,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status
@@ -29,17 +30,23 @@ import { latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/even
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { hasSessionArgs, newSessionArgs, type TmuxResult } from "../infra/tmux.js";
-import { ensureGatekeeperWindow, GATEKEEPER_WINDOW } from "./gate.js";
+import {
+  ensureGatekeeperWindow,
+  GATEKEEPER_WINDOW,
+  latestGateStatus,
+  startInitialGateRetry,
+} from "./gate.js";
 import type { GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
 import { CODER_WINDOW } from "./sessions.js";
 import { deepComboStatus, type CommandResult } from "./status.js";
 
-// -- 1/2 HELPER · Dependencies and tmux session recovery --
+// -- 1/3 HELPER · Dependencies and tmux session recovery --
 export interface ResumeDeps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
+  git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: GhRunner;
   noMistakes: (args: string[], cwd: string) => CommandResult;
 }
@@ -63,9 +70,9 @@ function ensureResumeSession(input: {
   }
   return true;
 }
-// -/ 1/2
+// -/ 1/3
 
-// -- 2/2 CORE · resumeCombo <- START HERE --
+// -- 2/3 HELPER · Resume state classification --
 function lastEvent(events: ComboEvent[], eventName: ComboEvent["event"]): ComboEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
@@ -90,6 +97,39 @@ function eventFieldNumber(event: ComboEvent | undefined, field: string): number 
 
 function hasEvent(events: ComboEvent[], eventName: ComboEvent["event"]): boolean {
   return events.some((event) => event.event === eventName);
+}
+
+function currentWorktreeHeadSha(deps: Pick<ResumeDeps, "git">, combo: ComboRecord): string | undefined {
+  const result = deps.git(["rev-parse", "HEAD"], combo.worktree);
+  if (result.status !== 0) {
+    throw new Error(`git rev-parse HEAD failed for ${combo.id}: ${result.stderr.trim() || "unknown error"}`);
+  }
+  const headSha = result.stdout.trim();
+  return headSha === "" ? undefined : headSha;
+}
+
+type ResumeState =
+  | { kind: "reviewer_ready" }
+  | { kind: "gate_running"; downstream: string }
+  | { kind: "gate_waiting"; downstream: string }
+  | { kind: "initial_gate_retry" }
+  | { kind: "pr_exists"; prUrl: string }
+  | { kind: "coder_salvage"; lines: string[] }
+  | { kind: "gate_ambiguous"; state: string }
+  | { kind: "unknown_salvage" };
+
+function shouldRetryInitialGate(events: ComboEvent[], headSha: string | undefined): boolean {
+  if (!hasEvent(events, "coder_done") || latestPrUrlFromEvents(events) !== undefined) return false;
+  const status = latestGateStatus(events);
+  if (
+    (status?.state === "fix_inflight" || status?.state === "awaiting_approval") &&
+    status.headSha !== undefined &&
+    headSha !== undefined &&
+    status.headSha !== headSha
+  ) {
+    return true;
+  }
+  return status?.state !== "fix_inflight" && status?.state !== "awaiting_approval";
 }
 
 function salvageCoderStoppedBeforeHandoff(input: {
@@ -130,6 +170,41 @@ function salvageCoderStoppedBeforeHandoff(input: {
   return lines;
 }
 
+function classifyResumeState(input: {
+  combo: ComboRecord;
+  events: ComboEvent[];
+  downstream: string | undefined;
+  headSha: string | undefined;
+  home: string;
+  cli: string;
+}): ResumeState {
+  const { combo, events, downstream, headSha, home, cli } = input;
+  if (downstream === "PR ready for reviewer") return { kind: "reviewer_ready" };
+  if (downstream?.startsWith("no-mistakes running")) {
+    return { kind: "gate_running", downstream };
+  }
+  if (downstream?.startsWith("awaiting review gate")) {
+    return { kind: "gate_waiting", downstream };
+  }
+
+  const prUrl = latestPrUrlFromEvents(events);
+  if (prUrl !== undefined) return { kind: "pr_exists", prUrl };
+
+  if (shouldRetryInitialGate(events, headSha)) return { kind: "initial_gate_retry" };
+
+  const status = latestGateStatus(events);
+  if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") {
+    return { kind: "gate_ambiguous", state: status.state };
+  }
+
+  const salvage = salvageCoderStoppedBeforeHandoff({ combo, events, home, cli });
+  if (salvage !== undefined) return { kind: "coder_salvage", lines: salvage };
+
+  return { kind: "unknown_salvage" };
+}
+// -/ 2/3
+
+// -- 3/3 CORE · resumeCombo <- START HERE --
 export function resumeCombo(input: {
   deps: ResumeDeps;
   home: string;
@@ -141,15 +216,17 @@ export function resumeCombo(input: {
   const combo = readCombo(runDir);
   const events = readEvents(runDir);
   const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh);
+  const headSha = currentWorktreeHeadSha(deps, combo);
+  const state = classifyResumeState({ combo, events, downstream, headSha, home, cli });
 
-  if (downstream === "PR ready for reviewer") {
+  if (state.kind === "reviewer_ready") {
     const recreated = ensureResumeSession({ deps, combo, home, cli });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(`resume: PR ready for reviewer${recreated ? " (recreated tmux session)" : ""}`);
     return;
   }
 
-  if (downstream?.startsWith("no-mistakes running")) {
+  if (state.kind === "gate_running") {
     const recreated = ensureResumeSession({ deps, combo, home, cli });
     const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
     ensureGatekeeperWindow(deps, combo, {
@@ -157,26 +234,49 @@ export function resumeCombo(input: {
       retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
     });
     deps.out(
-      `resume: ${downstream}; monitoring in ${combo.tmuxSession}:${GATEKEEPER_WINDOW}` +
+      `resume: ${state.downstream}; monitoring in ${combo.tmuxSession}:${GATEKEEPER_WINDOW}` +
         `${recreated ? " (recreated tmux session)" : ""}`,
     );
     return;
   }
 
-  if (downstream?.startsWith("awaiting review gate")) {
-    deps.out(`resume: ${downstream}`);
+  if (state.kind === "gate_waiting") {
+    deps.out(`resume: ${state.downstream}`);
     return;
   }
 
-  const prUrl = latestPrUrlFromEvents(events);
-  if (prUrl !== undefined) {
-    deps.out(`resume: PR already exists at ${prUrl}; inspect combo-chen status --deep before relaunching work`);
+  if (state.kind === "initial_gate_retry") {
+    const recreated = ensureResumeSession({ deps, combo, home, cli });
+    const result = startInitialGateRetry({ deps, combo, runDir, cli });
+    if (result.started) {
+      deps.out(
+        `resume: initial gate relaunched for ${combo.id} at ${result.headSha}` +
+          `${recreated ? " (recreated tmux session)" : ""}`,
+      );
+    }
     return;
   }
 
-  const salvage = salvageCoderStoppedBeforeHandoff({ combo, events, home, cli });
-  if (salvage !== undefined) {
-    for (const line of salvage) deps.out(line);
+  if (state.kind === "pr_exists") {
+    const recreated = ensureResumeSession({ deps, combo, home, cli });
+    activateReviewer({ deps, home, comboId: combo.id, cli });
+    deps.out(
+      `resume: PR exists at ${state.prUrl}; reviewer/director monitoring ensured` +
+        `${recreated ? " (recreated tmux session)" : ""}`,
+    );
+    return;
+  }
+
+  if (state.kind === "coder_salvage") {
+    for (const line of state.lines) deps.out(line);
+    return;
+  }
+
+  if (state.kind === "gate_ambiguous") {
+    deps.out(
+      `resume: gate journal is ${state.state} for ${combo.id}, but no live gate was confirmed. ` +
+        `Inspect ${runDir} and no-mistakes status before relaunching.`,
+    );
     return;
   }
 
@@ -185,4 +285,4 @@ export function resumeCombo(input: {
       `Inspect ${runDir} and ${combo.worktree} before continuing coder work.`,
   );
 }
-// -/ 2/2
+// -/ 3/3

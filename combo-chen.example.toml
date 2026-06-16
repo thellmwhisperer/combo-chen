@@ -32,9 +32,11 @@ resume_command = 'codex resume {thread_id}'
 # resume_command = 'hermes --resume {thread_id}'
 
 [gatekeeper]
-# The default command pushes to the no-mistakes remote (if one exists)
-# before running the gate, then passes an issue-derived intent ending in
-# `Fixes #N` so GitHub closes the source issue when the PR is merged.
+# Before this command runs, combo-chen publishes local HEAD to the
+# no-mistakes mirror with a base64-encoded `no-mistakes.intent=` git push
+# option. The command then starts the daemon and drives the gate with the full
+# issue-derived intent ending in `Fixes #N` so GitHub closes the source issue
+# when the PR is merged.
 # Override this to use a custom gatekeeper pipeline.
 # {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent,
 # branch. Each value is substituted as a single-quoted shell token; don't
@@ -43,7 +45,7 @@ resume_command = 'codex resume {thread_id}'
 # {issue_pr_intent} or another explicit GitHub autoclose keyword.
 # Example with placeholders:
 # command = "no-mistakes axi run --yes --intent {issue_pr_intent}"
-command = "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi"
+command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}"
 # The gatekeeper tmux window retries until no-mistakes has an active run to attach.
 # Environment overrides: COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS,
 # COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS.

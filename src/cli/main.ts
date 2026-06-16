@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~645 lines, 16 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~665 lines, 16 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -66,7 +66,12 @@ import {
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
-import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../roles/gatekeeper.js";
+import {
+  buildGatekeeperInvocation,
+  buildIssuePrIntent,
+  buildNoMistakesPushIntent,
+  ensureIssueAutocloseInPrBody,
+} from "../roles/gatekeeper.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import { parseEventFields } from "./args.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
@@ -204,6 +209,11 @@ export function createProgram(deps: Deps): Command {
       if (options.prompt !== undefined) coderInput.prompt = options.prompt;
       assertSafeCoderInvocation(config.coderCommand);
       const coderCommand = buildCoderInvocation(coderInput);
+      const issuePrIntent = buildIssuePrIntent({
+        combo,
+        issueTitle: issueDetails.title,
+        issueBody: issueDetails.body,
+      });
 
       const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch], options.repo);
       if (worktreeResult.status !== 0) {
@@ -224,6 +234,7 @@ export function createProgram(deps: Deps): Command {
           issueTitle: issueDetails.title,
           issueBody: issueDetails.body,
         }),
+        gatekeeperMirrorIntent: buildNoMistakesPushIntent(issuePrIntent),
         activateCoder: `${cliInvocation()} activate-coder -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
         activateReviewer: `${cliInvocation()} activate-reviewer -n ${id}`,

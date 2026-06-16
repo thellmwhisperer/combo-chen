@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~205 lines, attach, config artifact, and mirror sync.
+ * @overview Unit tests for gatekeeper CLI helpers. ~210 lines, attach, config artifact, and mirror sync.
  *
  *   READING GUIDE
  *   -------------
@@ -191,15 +191,20 @@ describe("buildPostAddressGateScript", () => {
       combo: combo(),
       runDir: mkdtempSync(join(tmpdir(), "combo-chen-run-")),
       gatekeeperCommand: "no-mistakes axi run --intent 'post-address gate'",
+      gatekeeperMirrorIntent: "SW1wbGVtZW50IGlzc3VlIDc=",
       headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       prUrl: "https://github.com/o/r/pull/7",
       emit: "combo-chen emit -n o-r-7",
       ensurePrAutoclose: "combo-chen ensure-pr-autoclose -n o-r-7 --pr-url",
     });
 
-    expect(script).toContain('git push no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"');
-    expect(script).toContain('git push no-mistakes "HEAD:$mirror_ref"');
+    expect(script).toContain("mirror_intent='no-mistakes.intent=SW1wbGVtZW50IGlzc3VlIDc='");
+    expect(script).toContain('git push -o "$mirror_intent" no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"');
+    expect(script).toContain('git push -o "$mirror_intent" no-mistakes "HEAD:$mirror_ref"');
     expect(script).not.toContain("git push no-mistakes HEAD");
+    expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
+    expect(script).toContain("exec no-mistakes attach");
+    expect(script).toContain("branch: combo/issue-7");
   });
 });
 // -/ 4/4

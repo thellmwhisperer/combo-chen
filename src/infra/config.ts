@@ -110,7 +110,7 @@ export const DEFAULT_CODER_COMMAND = [
   "--current-branch {prompt}",
 ].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
-  "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi";
+  "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}";
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",

@@ -1,8 +1,8 @@
 /**
- * @overview Unit tests for the gatekeeper role. ~113 lines, testing
+ * @overview Unit tests for the gatekeeper role. ~145 lines, testing
  *   gatekeeper invocation building, issue→PR intent generation (with
- *   autoclose keywords and truncation), axi TOON outcome parsing, and
- *   the PR body issue autoclose contract.
+ *   autoclose keywords, truncation, and push-safe base64 encoding), axi
+ *   TOON outcome parsing, and the PR body issue autoclose contract.
  *
  *   READING GUIDE
  *   ─────────────
@@ -11,6 +11,7 @@
  *
  *   ┌─ TEST AREAS ────────────────────────────────────────┐
  *   │ buildGatekeeperInvocation     Invocation + intent    │
+ *   │ buildNoMistakesPushIntent    Base64 push-option intent │
  *   │ parseAxiOutcome              TOON outcome extraction │
  *   │ PR body issue autoclose contract  Keyword detection  │
  *   └──────────────────────────────────────────────────────┘
@@ -23,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
+  buildNoMistakesPushIntent,
   ensureIssueAutocloseInPrBody,
   hasIssueAutocloseInPrBody,
   parseAxiOutcome,
@@ -74,6 +76,11 @@ describe("buildGatekeeperInvocation", () => {
     expect(intent).toContain("...");
     expect(intent).toContain("Fixes #53");
     expect(intent.length).toBeLessThan(body.length + 200);
+  });
+
+  it("base64-encodes multiline intent for git push options", () => {
+    const intent = "Implement issue\n\nTitle: Fix\tbug\nFixes #53";
+    expect(Buffer.from(buildNoMistakesPushIntent(intent), "base64").toString("utf8")).toBe(intent);
   });
 });
 
