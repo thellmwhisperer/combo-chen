@@ -372,7 +372,7 @@ function buildInitialGateRetryScript(input: {
     "  exit \"$gatekeeper_code\"",
     "fi",
     "gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
-    `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
+    `${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
     `pr_url=$(gh pr list --head ${shellQuote(input.combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)`,
     `if [ -n "\${pr_url:-}" ]; then`,
     `  if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,

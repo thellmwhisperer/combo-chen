@@ -268,8 +268,9 @@ function hasPinnedGnhfPackage(command: string): boolean {
 }
 
 function hasFlagValue(command: string, flag: string, value: string): boolean {
-  const escaped = flag.replaceAll("-", "\\-");
-  return new RegExp(`(?:^|\\s)${escaped}(?:=|\\s+)${value}(?:\\s|$)`).test(command);
+  const escapedFlag = flag.replaceAll("-", "\\-");
+  const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|\\s)${escapedFlag}(?:=|\\s+)${escapedValue}(?:\\s|$)`).test(command);
 }
 
 function hasPositiveIntegerFlag(command: string, flag: string): boolean {

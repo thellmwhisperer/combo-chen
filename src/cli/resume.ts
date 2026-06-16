@@ -39,7 +39,7 @@ import {
 import type { GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
 import { CODER_WINDOW } from "./sessions.js";
-import { deepComboStatus, type CommandResult } from "./status.js";
+import { deepComboStatus, type CommandResult, PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE } from "./status.js";
 
 // -- 1/3 HELPER · Dependencies and tmux session recovery --
 export interface ResumeDeps {
@@ -179,11 +179,11 @@ function classifyResumeState(input: {
   cli: string;
 }): ResumeState {
   const { combo, events, downstream, headSha, home, cli } = input;
-  if (downstream === "PR ready for reviewer") return { kind: "reviewer_ready" };
-  if (downstream?.startsWith("no-mistakes running")) {
+  if (downstream === PR_READY_FOR_REVIEWER) return { kind: "reviewer_ready" };
+  if (downstream?.startsWith(NO_MISTAKES_RUNNING)) {
     return { kind: "gate_running", downstream };
   }
-  if (downstream?.startsWith("awaiting review gate")) {
+  if (downstream?.startsWith(AWAITING_REVIEW_GATE)) {
     return { kind: "gate_waiting", downstream };
   }
 
@@ -222,7 +222,7 @@ export function resumeCombo(input: {
   if (state.kind === "reviewer_ready") {
     const recreated = ensureResumeSession({ deps, combo, home, cli });
     activateReviewer({ deps, home, comboId: combo.id, cli });
-    deps.out(`resume: PR ready for reviewer${recreated ? " (recreated tmux session)" : ""}`);
+    deps.out(`resume: ${PR_READY_FOR_REVIEWER}${recreated ? " (recreated tmux session)" : ""}`);
     return;
   }
 
