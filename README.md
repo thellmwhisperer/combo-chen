@@ -334,6 +334,12 @@ gatekeeper commands support `{issue_url}`, `{issue_title}`, `{issue_body}`,
 is generated. Reviewer config must define `[roles].reviewer` and a command
 template under `[reviewer.<agent>]`.
 
+The default coder command is a pinned `gnhf@0.1.41` invocation with
+`--max-iterations`, `--stop-when`, `--prevent-sleep on`, and
+`--meteor-frequency 0`. `combo-chen run` refuses unsafe gnhf coder commands
+before creating the worktree, and the generated runner closes coder stdin while
+capturing stdout/stderr in `coder.log`.
+
 **Watcher resilience.** The `director-watch` loop handles transient failures
 (rate limits, network errors) with exponential backoff, doubling the poll
 interval up to `[limits].watch_backoff_max_seconds` (default 3600 s). After

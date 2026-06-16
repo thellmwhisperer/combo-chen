@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~454 lines, 8 exports.
+ *   Repo wins on policy, user wins on local setup. ~500 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -26,11 +26,11 @@
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
  *   │ pickNonEmptyString, normalizeLimitAliases, ROLE_ALIASES,        │
- *   │ DEFAULTS, PLACEHOLDER                                            │
+ *   │ DEFAULTS, PLACEHOLDER, gnhf safety predicates                    │
  *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -97,6 +97,18 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROTOCOL = "La Roca review protocol 7989 + project overlay";
+export const DEFAULT_CODER_STOP_WHEN =
+  "Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. " +
+  "If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
+export const DEFAULT_CODER_COMMAND = [
+  "npx -y gnhf@0.1.41",
+  "--agent codex",
+  "--max-iterations 12",
+  `--stop-when ${shellQuote(DEFAULT_CODER_STOP_WHEN)}`,
+  "--prevent-sleep on",
+  "--meteor-frequency 0",
+  "--current-branch {prompt}",
+].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
   "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi";
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
@@ -122,7 +134,7 @@ const DEFAULTS = {
   },
   coder: {
     codex: {
-      command: "npx -y gnhf --agent codex --current-branch {prompt}",
+      command: DEFAULT_CODER_COMMAND,
       resume_command: "codex resume {thread_id}",
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
@@ -245,6 +257,48 @@ function pickNonEmptyString(value: unknown, description: string): string {
     throw new ComboConfigError(`${description} must be a non-empty string`);
   }
   return value;
+}
+
+function hasGnhfCommand(command: string): boolean {
+  return /(?:^|\s)gnhf(?:@[\w.-]+)?(?:\s|$)/.test(command);
+}
+
+function hasPinnedGnhfPackage(command: string): boolean {
+  return /(?:^|\s)gnhf@[0-9]+(?:\.[0-9]+){1,2}(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)/.test(command);
+}
+
+function hasFlagValue(command: string, flag: string, value: string): boolean {
+  const escaped = flag.replaceAll("-", "\\-");
+  return new RegExp(`(?:^|\\s)${escaped}(?:=|\\s+)${value}(?:\\s|$)`).test(command);
+}
+
+function hasPositiveIntegerFlag(command: string, flag: string): boolean {
+  const escaped = flag.replaceAll("-", "\\-");
+  const match = new RegExp(`(?:^|\\s)${escaped}(?:=|\\s+)(\\d+)(?:\\s|$)`).exec(command);
+  return match !== null && Number(match[1]) > 0;
+}
+
+function hasStopWhenFlag(command: string): boolean {
+  return /(?:^|\s)--stop-when(?:=|\s+)(?:'[^']+'|"[^"]+"|\S+)(?:\s|$)/.test(command);
+}
+
+export function unsafeCoderInvocationReasons(command: string): string[] {
+  if (!hasGnhfCommand(command)) return [];
+
+  const reasons: string[] = [];
+  if (!hasPinnedGnhfPackage(command)) reasons.push("pinned gnhf package version");
+  if (!hasPositiveIntegerFlag(command, "--max-iterations")) reasons.push("--max-iterations");
+  if (!hasStopWhenFlag(command)) reasons.push("--stop-when");
+  if (!hasFlagValue(command, "--prevent-sleep", "on")) reasons.push("--prevent-sleep on");
+  if (!hasFlagValue(command, "--meteor-frequency", "0")) reasons.push("telemetry off (--meteor-frequency 0)");
+  return reasons;
+}
+
+export function assertSafeCoderInvocation(command: string): void {
+  const reasons = unsafeCoderInvocationReasons(command);
+  if (reasons.length > 0) {
+    throw new ComboConfigError(`Unsafe coder invocation: missing ${reasons.join(", ")}`);
+  }
 }
 
 // -/ 2/4

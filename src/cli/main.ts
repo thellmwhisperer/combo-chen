@@ -56,7 +56,7 @@ import {
   writeCombo,
   type ComboRecord,
 } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { assertSafeCoderInvocation, loadConfig } from "../infra/config.js";
 import {
   attachSessionArgs,
   hasSessionArgs,
@@ -197,6 +197,14 @@ export function createProgram(deps: Deps): Command {
         createdAt: new Date().toISOString(),
       };
 
+      const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
+        coderCommand: config.coderCommand,
+        combo,
+      };
+      if (options.prompt !== undefined) coderInput.prompt = options.prompt;
+      assertSafeCoderInvocation(config.coderCommand);
+      const coderCommand = buildCoderInvocation(coderInput);
+
       const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch], options.repo);
       if (worktreeResult.status !== 0) {
         throw new Error(`git worktree add failed: ${worktreeResult.stderr.trim()}`);
@@ -207,15 +215,9 @@ export function createProgram(deps: Deps): Command {
 
       writeCombo(runDir, combo);
 
-      const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
-        coderCommand: config.coderCommand,
-        combo,
-      };
-      if (options.prompt !== undefined) coderInput.prompt = options.prompt;
-
       const runner = buildRunnerScript({
         combo,
-        coderCommand: buildCoderInvocation(coderInput),
+        coderCommand,
         gatekeeperCommand: buildGatekeeperInvocation({
           gatekeeperCommand: config.gatekeeperCommand,
           combo,

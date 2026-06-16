@@ -207,14 +207,18 @@ describe("buildRunnerScript", () => {
 
   it("runs the coder with stdout and stderr redirected to coder.log beside the runner", () => {
     expect(script).toContain('coder_log="$(dirname "$0")/coder.log"');
-    expect(script).toContain(') > "$coder_log" 2>&1; then');
+    expect(script).toContain(') < /dev/null > "$coder_log" 2>&1; then');
 
     const coder = script.indexOf("gnhf");
-    const redirected = script.indexOf(') > "$coder_log" 2>&1; then');
+    const redirected = script.indexOf(') < /dev/null > "$coder_log" 2>&1; then');
     const coderDone = script.indexOf("emit -n o-r-7 coder_done");
     expect(coder).toBeGreaterThan(-1);
     expect(redirected).toBeGreaterThan(coder);
     expect(coderDone).toBeGreaterThan(redirected);
+  });
+
+  it("runs the coder with stdin closed so the runner cannot block for input", () => {
+    expect(script).toContain(') < /dev/null > "$coder_log" 2>&1; then');
   });
 
   it("fetches and rebases origin/main before the coder starts", () => {
