@@ -110,13 +110,13 @@ export function parseNoMistakesAxiStatus(raw: string): NoMistakesAxiStatus {
       continue;
     }
 
-    const outcome = /^outcome:\s*(.+)\s*$/.exec(line);
+    const outcome = /^\s*outcome:\s*(.+)\s*$/.exec(line);
     if (outcome?.[1] !== undefined) {
       facts.outcome = cleanScalar(outcome[1]).toLowerCase();
       continue;
     }
 
-    const nextStep = /^next_step:\s*(.+)\s*$/.exec(line);
+    const nextStep = /^\s*next_step:\s*(.+)\s*$/.exec(line);
     if (nextStep?.[1] !== undefined) {
       facts.nextStep = cleanScalar(nextStep[1]);
       continue;
