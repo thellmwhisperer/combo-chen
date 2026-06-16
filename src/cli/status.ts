@@ -1,16 +1,16 @@
 /**
- * @overview Status helpers for local combo rows plus downstream no-mistakes facts.
- *   ~120 lines, 4 exports, one parser for `no-mistakes axi status`.
+ * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
+ *   ~250 lines, 5 exports, parsers for deep recovery status.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at deepNoMistakesStatus       <- CLI-facing probe + summary.
+ *   1. Start at deepComboStatus            <- CLI-facing downstream probe orchestration.
  *   2. parseNoMistakesAxiStatus            <- tolerant TOON-ish parser.
- *   3. summarizeNoMistakesStatus           <- user-facing downstream phrase.
+ *   3. deepGithubPrStatus                  <- PR/check/reviewer summary.
  *
  *   MAIN FLOW
  *   ---------
- *   status --deep -> deepNoMistakesStatus -> no-mistakes axi status -> parser -> summary
+ *   status --deep -> deepComboStatus -> no-mistakes/GitHub probes -> downstream phrase
  *
  *   PUBLIC API
  *   ----------
@@ -18,17 +18,20 @@
  *   NoMistakesAxiStatus           Parsed subset of no-mistakes status output.
  *   parseNoMistakesAxiStatus      Extract branch, run state, active step, gate IDs, respond command.
  *   deepNoMistakesStatus          Run no-mistakes and return a concise downstream status string.
+ *   deepComboStatus               Prefer live no-mistakes state, otherwise summarize GitHub PR readiness.
  *
  *   INTERNALS
  *   ---------
- *   summarizeNoMistakesStatus, cleanScalar, unquote, firstLine
+ *   summarizeNoMistakesStatus, deepGithubPrStatus, check helpers, cleanScalar, unquote, firstLine
  *
- * @exports CommandResult, NoMistakesAxiStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus
- * @deps ../core/state
+ * @exports CommandResult, NoMistakesAxiStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
+ * @deps ../core/events, ../core/state, ./github
  */
+import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
+import { latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
 
-// -- 1/3 HELPER · Types + scalar parsing --
+// -- 1/4 HELPER · Types + scalar parsing --
 export interface CommandResult {
   status: number;
   stdout: string;
@@ -65,9 +68,9 @@ function cleanScalar(value: string): string {
 function firstLine(value: string): string {
   return value.trim().split(/\r?\n/)[0]?.trim() ?? "";
 }
-// -/ 1/3
+// -/ 1/4
 
-// -- 2/3 CORE · parseNoMistakesAxiStatus --
+// -- 2/4 CORE · parseNoMistakesAxiStatus --
 const ACTIVE_STATUSES = new Set(["active", "in_progress", "running"]);
 
 export function parseNoMistakesAxiStatus(raw: string): NoMistakesAxiStatus {
@@ -129,9 +132,9 @@ export function parseNoMistakesAxiStatus(raw: string): NoMistakesAxiStatus {
 
   return facts;
 }
-// -/ 2/3
+// -/ 2/4
 
-// -- 3/3 CORE · deepNoMistakesStatus <- START HERE --
+// -- 3/4 CORE · deepNoMistakesStatus --
 function summarizeNoMistakesStatus(facts: NoMistakesAxiStatus, branch: string): string | undefined {
   if (facts.branch !== undefined && facts.branch !== branch) return undefined;
 
@@ -159,4 +162,93 @@ export function deepNoMistakesStatus(combo: Pick<ComboRecord, "branch" | "worktr
   }
   return summarizeNoMistakesStatus(parseNoMistakesAxiStatus(result.stdout), combo.branch);
 }
-// -/ 3/3
+// -/ 3/4
+
+// -- 4/4 CORE · deepComboStatus <- START HERE --
+const SUCCESSFUL_CHECK_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
+const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function upperString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
+}
+
+function checkName(item: unknown): string {
+  if (!isRecord(item)) return "";
+  const parts = [item["name"], item["context"], item["workflowName"]];
+  const app = item["app"];
+  if (isRecord(app)) parts.push(app["name"], app["slug"]);
+  return parts.filter((part): part is string => typeof part === "string").join(" ");
+}
+
+function isCodeRabbitCheck(item: unknown): boolean {
+  return checkName(item).toLowerCase().includes("coderabbit");
+}
+
+function checkSignalSucceeded(item: unknown): boolean {
+  if (!isRecord(item)) return false;
+  const conclusion = upperString(item["conclusion"]);
+  if (conclusion !== undefined) return SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion);
+  const state = upperString(item["state"] ?? item["status"]);
+  if (state !== undefined) return SUCCESSFUL_STATUS_STATES.has(state);
+  return false;
+}
+
+function nonCodeRabbitChecksSucceeded(rollup: unknown[] | undefined): boolean {
+  if (rollup === undefined) return false;
+  const checks = rollup.filter((item) => !isCodeRabbitCheck(item));
+  return checks.length > 0 && checks.every(checkSignalSucceeded);
+}
+
+function shaMatchesHead(candidate: string | undefined, headSha: string): boolean {
+  if (candidate === undefined) return false;
+  const pin = candidate.trim().toLowerCase();
+  const head = headSha.trim().toLowerCase();
+  return pin.length >= 7 && (pin === head || head.startsWith(pin));
+}
+
+function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner): string | undefined {
+  if (prUrl === undefined) return undefined;
+
+  const result = gh(["pr", "view", prUrl, "--json", "headRefOid,state,statusCheckRollup"]);
+  if (result.status !== 0) {
+    const detail = firstLine(result.stderr) || firstLine(result.stdout) || `exit ${result.status}`;
+    return `GitHub unavailable: ${detail}`;
+  }
+
+  let pr;
+  try {
+    pr = parsePrView(result.stdout);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `GitHub unavailable: ${firstLine(detail)}`;
+  }
+
+  if (pr.state !== "OPEN" || !nonCodeRabbitChecksSucceeded(pr.statusCheckRollup)) return undefined;
+
+  let reviewerPin: string | undefined;
+  try {
+    reviewerPin = latestGitHubLgtmSha(gh, prUrl);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return `GitHub review unavailable: ${firstLine(detail)}`;
+  }
+  return shaMatchesHead(reviewerPin, pr.headSha) ? undefined : "PR ready for reviewer";
+}
+
+export function deepComboStatus(
+  combo: Pick<ComboRecord, "branch" | "worktree">,
+  events: ComboEvent[],
+  run: NoMistakesRunner,
+  gh: GhRunner,
+): string | undefined {
+  const noMistakes = deepNoMistakesStatus(combo, run);
+  if (noMistakes !== undefined && !noMistakes.startsWith("no-mistakes unavailable:")) {
+    return noMistakes;
+  }
+  return deepGithubPrStatus(latestPrUrlFromEvents(events), gh) ?? noMistakes;
+}
+// -/ 4/4

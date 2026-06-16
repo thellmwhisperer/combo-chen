@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~590 lines, 14 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~620 lines, 14 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -89,7 +89,7 @@ import {
   ensureJournalPane,
   resolveAttachCombo,
 } from "./sessions.js";
-import { deepNoMistakesStatus, type CommandResult } from "./status.js";
+import { deepComboStatus, type CommandResult } from "./status.js";
 import { resolvePollMs } from "./watchers.js";
 
 export { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
@@ -382,11 +382,12 @@ export function createProgram(deps: Deps): Command {
       const deep = options.deep === true;
       deps.out(deep ? "COMBO                          PHASE     NEEDS-HUMAN      PR DOWNSTREAM" : "COMBO                          PHASE     NEEDS-HUMAN      PR");
       for (const combo of combos) {
-        const status = deriveStatus(readEvents(runDirFor(comboHome(deps.env), combo.id)));
+        const events = readEvents(runDirFor(comboHome(deps.env), combo.id));
+        const status = deriveStatus(events);
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const pr = status.pr ?? "—";
         const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`;
-        deps.out(deep ? `${line} ${deepNoMistakesStatus(combo, deps.noMistakes) ?? "—"}` : line);
+        deps.out(deep ? `${line} ${deepComboStatus(combo, events, deps.noMistakes, deps.gh) ?? "—"}` : line);
       }
     });
 
