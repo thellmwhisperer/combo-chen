@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3840 lines.
+ *   deps so tests run without a real terminal or network. ~3930 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -1507,7 +1507,7 @@ exit 0
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
-  it("keeps a no-placeholder repo-level gatekeeper command byte-identical in the runner", async () => {
+  it("forces publish-only mode on a no-placeholder repo-level no-mistakes gatekeeper command", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const customGatekeeper =
@@ -1519,6 +1519,7 @@ exit 0
 
     const runner = readFileSync(join(runDirFor(h, "o-r-7"), "runner.sh"), "utf8");
     expect(runner).toContain(customGatekeeper);
+    expect(runner).toContain('no-mistakes axi run --intent "${intent}" --skip=ci');
     expect(runner).not.toContain("git push no-mistakes HEAD");
   });
 
@@ -1582,6 +1583,7 @@ $(echo boom)`,
     const runnerPath = join(runDirFor(h, "o-r-7"), "runner.sh");
     const runner = readFileSync(runnerPath, "utf8");
     expect(runner).toContain("--url 'https://github.com/o/r/issues/7'");
+    expect(runner).toContain("--skip=ci");
     expect(runner).toContain(`--title 'Title "double" and '\\''single'\\'''`);
     expect(runner).toContain(`--body 'First line
 It'\\''s "quoted"; touch /tmp/gatekeeper-owned

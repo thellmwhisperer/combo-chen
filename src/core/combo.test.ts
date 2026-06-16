@@ -640,6 +640,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     ]);
     const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
     expect(gatekeeperOutput).toContain("no-mistakes daemon start\nno-mistakes axi run --intent");
+    expect(gatekeeperOutput).toContain("--skip=ci");
     expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
     expect(gatekeeperOutput).not.toContain("git push no-mistakes");
   });
@@ -752,6 +753,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       `git push -o no-mistakes.intent=${mirrorIntent} no-mistakes --force-with-lease=refs/heads/combo/issue-7:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HEAD:refs/heads/combo/issue-7`,
     );
     expect(gatekeeperOutput).toContain("no-mistakes axi run --intent");
+    expect(gatekeeperOutput).toContain("--skip=ci");
     expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
     expect(gatekeeperOutput).toContain("Fixes #7");
   });

@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~470 lines,
+ * @overview Unit tests for config loading and command rendering. ~485 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -69,6 +69,7 @@ describe("loadConfig", () => {
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
     expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
     expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
+    expect(config.gatekeeperCommand).toContain("--skip=ci");
     expect(config.gatekeeperCommand.indexOf("no-mistakes daemon start")).toBeLessThan(
       config.gatekeeperCommand.indexOf("no-mistakes axi run"),
     );

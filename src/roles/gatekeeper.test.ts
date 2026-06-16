@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the gatekeeper role. ~145 lines, testing
+ * @overview Unit tests for the gatekeeper role. ~155 lines, testing
  *   gatekeeper invocation building, issue→PR intent generation (with
  *   autoclose keywords, truncation, and push-safe base64 encoding), axi
  *   TOON outcome parsing, and the PR body issue autoclose contract.
@@ -32,9 +32,18 @@ import {
 
 // -- 1/2 CORE · Gatekeeper invocation + parseAxiOutcome ← START HERE --
 describe("buildGatekeeperInvocation", () => {
-  it("uses the configured gate command", () => {
+  it("forces no-mistakes publish-only mode", () => {
     expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run" })).toBe(
-      "no-mistakes axi run",
+      "no-mistakes axi run --skip=ci",
+    );
+  });
+
+  it("adds ci to existing no-mistakes skip flags", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip=lint" })).toBe(
+      "no-mistakes axi run --skip=lint,ci",
+    );
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip test,ci" })).toBe(
+      "no-mistakes axi run --skip test,ci",
     );
   });
 

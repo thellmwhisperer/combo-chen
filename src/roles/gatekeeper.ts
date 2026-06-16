@@ -1,7 +1,7 @@
 /**
  * @overview Gatekeeper adapter: invokes no-mistakes' blocking agent
  *   interface. Expands {placeholders} in commands, prepares push-safe
- *   base64 intent, and reads TOON outcomes tolerantly. ~205 lines, 7 exports.
+ *   base64 intent, and reads TOON outcomes tolerantly. ~260 lines, 7 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -59,6 +59,9 @@ const KNOWN_GATEKEEPER_PLACEHOLDERS = new Set([
 
 const MAX_INTENT_BODY_LENGTH = 8000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
+const NO_MISTAKES_AXI_RUN = /\bno-mistakes\s+axi\s+run\b/;
+const SKIP_EQUALS = /(^|\s)--skip=("[^"]+"|'[^']+'|[^\s]+)/;
+const SKIP_SEPARATE = /(^|\s)--skip\s+("[^"]+"|'[^']+'|[^\s]+)/;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -90,6 +93,55 @@ export function buildNoMistakesPushIntent(intent: string): string {
   return Buffer.from(intent, "utf8").toString("base64");
 }
 // -/ 1/3
+
+function stripShellQuotes(value: string): string {
+  if (
+    (value.startsWith("'") && value.endsWith("'")) ||
+    (value.startsWith('"') && value.endsWith('"'))
+  ) {
+    return value.slice(1, -1);
+  }
+  return value;
+}
+
+function skipValueHasCi(value: string): boolean {
+  return stripShellQuotes(value).split(",").some((item) => item.trim() === "ci");
+}
+
+function appendCiToSkipValue(value: string): string {
+  if (skipValueHasCi(value)) return value;
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return `'${value.slice(1, -1)},ci'`;
+  }
+  if (value.startsWith('"') && value.endsWith('"')) {
+    return `"${value.slice(1, -1)},ci"`;
+  }
+  return `${value},ci`;
+}
+
+function forceNoMistakesPublishOnly(command: string): string {
+  if (!NO_MISTAKES_AXI_RUN.test(command)) return command;
+
+  const equals = SKIP_EQUALS.exec(command);
+  if (equals !== null) {
+    const prefix = equals[1] ?? "";
+    const value = equals[2] ?? "";
+    return command.slice(0, equals.index) +
+      `${prefix}--skip=${appendCiToSkipValue(value)}` +
+      command.slice(equals.index + equals[0].length);
+  }
+
+  const separate = SKIP_SEPARATE.exec(command);
+  if (separate !== null) {
+    const prefix = separate[1] ?? "";
+    const value = separate[2] ?? "";
+    return command.slice(0, separate.index) +
+      `${prefix}--skip ${appendCiToSkipValue(value)}` +
+      command.slice(separate.index + separate[0].length);
+  }
+
+  return `${command} --skip=ci`;
+}
 
 // -- 2/3 HELPER · PR body visibility + autoclose --
 function visiblePrBodyMarkdown(body: string): string {
@@ -180,7 +232,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
       throw new ComboConfigError(`Unknown gatekeeper placeholder {${name}} in command template`);
     }
   }
-  if (!hasPlaceholders) return input.gatekeeperCommand;
+  if (!hasPlaceholders) return forceNoMistakesPublishOnly(input.gatekeeperCommand);
   if (input.combo === undefined || input.issueTitle === undefined || input.issueBody === undefined) {
     throw new ComboConfigError("Gatekeeper command placeholders require issue facts during runner generation");
   }
@@ -195,7 +247,9 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
     }),
     branch: input.combo.branch,
   };
-  return input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => shellQuote(vars[name]!));
+  return forceNoMistakesPublishOnly(
+    input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => shellQuote(vars[name]!)),
+  );
 }
 
 const OUTCOME = /^outcome:\s*(.+)\s*$/m;
