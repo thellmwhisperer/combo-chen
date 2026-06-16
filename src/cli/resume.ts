@@ -101,9 +101,7 @@ function hasEvent(events: ComboEvent[], eventName: ComboEvent["event"]): boolean
 
 function currentWorktreeHeadSha(deps: Pick<ResumeDeps, "git">, combo: ComboRecord): string | undefined {
   const result = deps.git(["rev-parse", "HEAD"], combo.worktree);
-  if (result.status !== 0) {
-    throw new Error(`git rev-parse HEAD failed for ${combo.id}: ${result.stderr.trim() || "unknown error"}`);
-  }
+  if (result.status !== 0) return undefined;
   const headSha = result.stdout.trim();
   return headSha === "" ? undefined : headSha;
 }
@@ -120,6 +118,7 @@ type ResumeState =
 
 function shouldRetryInitialGate(events: ComboEvent[], headSha: string | undefined): boolean {
   if (!hasEvent(events, "coder_done") || latestPrUrlFromEvents(events) !== undefined) return false;
+  if (headSha === undefined) return false;
   const status = latestGateStatus(events);
   if (
     (status?.state === "fix_inflight" || status?.state === "awaiting_approval") &&
