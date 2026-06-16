@@ -1,13 +1,14 @@
 /**
- * @overview First-class resume routing for persisted combos. ~290 lines,
+ * @overview First-class resume routing for persisted combos. ~330 lines,
  *   2 exports, state-machine driven safe actions.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resumeCombo             <- CLI-facing recovery dispatcher.
  *   2. classifyResumeState              <- single-state precedence contract.
- *   3. ensureResumeSession              <- recreates only tmux monitoring shell.
- *   4. salvageCoderStoppedBeforeHandoff <- explicit salvage/audit guidance.
+ *   3. ensurePrOpenedForLiveCi          <- bridge PRs opened by no-mistakes.
+ *   4. ensureResumeSession              <- recreates only tmux monitoring shell.
+ *   5. salvageCoderStoppedBeforeHandoff <- explicit salvage/audit guidance.
  *
  *   MAIN FLOW
  *   ---------
@@ -20,13 +21,13 @@
  *
  *   INTERNALS
  *   ---------
- *   classifyResumeState, ensureResumeSession, salvageCoderStoppedBeforeHandoff, event field helpers
+ *   classifyResumeState, ensureResumeSession, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers
  *
  * @exports ResumeDeps, resumeCombo
  * @deps ../core/{combo,events,state}, ../infra/{config,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status
  */
 import { shellQuote } from "../core/combo.js";
-import { latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
+import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { hasSessionArgs, newSessionArgs, type TmuxResult } from "../infra/tmux.js";
@@ -39,7 +40,13 @@ import {
 import type { GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
 import { CODER_WINDOW } from "./sessions.js";
-import { deepComboStatus, type CommandResult, PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE } from "./status.js";
+import {
+  AWAITING_REVIEW_GATE,
+  deepComboStatus,
+  NO_MISTAKES_RUNNING,
+  PR_READY_FOR_REVIEWER,
+  type CommandResult,
+} from "./status.js";
 
 // -- 1/3 HELPER · Dependencies and tmux session recovery --
 export interface ResumeDeps {
@@ -104,6 +111,29 @@ function currentWorktreeHeadSha(deps: Pick<ResumeDeps, "git">, combo: ComboRecor
   if (result.status !== 0) return undefined;
   const headSha = result.stdout.trim();
   return headSha === "" ? undefined : headSha;
+}
+
+function branchPrUrl(gh: GhRunner, branch: string): string | undefined {
+  const result = gh(["pr", "list", "--head", branch, "--json", "url", "--jq", ".[0].url"]);
+  if (result.status !== 0) return undefined;
+  const url = result.stdout.trim();
+  return url === "" || url === "null" ? undefined : url;
+}
+
+function ensurePrOpenedForLiveCi(input: {
+  deps: Pick<ResumeDeps, "gh">;
+  combo: ComboRecord;
+  runDir: string;
+  events: ComboEvent[];
+  downstream: string;
+}): string | undefined {
+  if (input.downstream !== `${NO_MISTAKES_RUNNING} ci`) return undefined;
+  const existing = latestPrUrlFromEvents(input.events);
+  if (existing !== undefined) return existing;
+  const discovered = branchPrUrl(input.deps.gh, input.combo.branch);
+  if (discovered === undefined) return undefined;
+  appendEvent(input.runDir, "pr_opened", { url: discovered });
+  return discovered;
 }
 
 type ResumeState =
@@ -232,8 +262,13 @@ export function resumeCombo(input: {
       timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
       retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
     });
+    const prUrl = ensurePrOpenedForLiveCi({ deps, combo, runDir, events, downstream: state.downstream });
+    if (prUrl !== undefined) {
+      activateReviewer({ deps, home, comboId: combo.id, cli });
+    }
     deps.out(
       `resume: ${state.downstream}; monitoring in ${combo.tmuxSession}:${GATEKEEPER_WINDOW}` +
+        `${prUrl !== undefined ? "; reviewer/director monitoring ensured" : ""}` +
         `${recreated ? " (recreated tmux session)" : ""}`,
     );
     return;

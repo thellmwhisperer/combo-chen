@@ -293,7 +293,9 @@ function renderGatekeeperCommand(
 }
 
 const DEFAULT_SCRIPTED_MIRROR_GATEKEEPER_COMMAND =
-  "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}";
+  'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
+  "no-mistakes axi run --intent {issue_pr_intent}; " +
+  "else no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}; fi";
 
 function scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand: string): string {
   return gatekeeperCommand === DEFAULT_GATEKEEPER_COMMAND
