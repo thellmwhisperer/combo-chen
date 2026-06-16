@@ -1754,6 +1754,47 @@ describe("resume", () => {
     expect(text).toContain("respond: no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes");
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
   });
+
+  it("marks a stopped coder before handoff as salvage-required with exact commands", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const baseSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "coder_failed", {
+      exit_code: 124,
+      has_new_commits: true,
+      base_sha: baseSha,
+      head_sha: headSha,
+      new_commit_count: 42,
+    });
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("resume: salvage required for o-r-7; coder stopped before handoff");
+    expect(text).toContain("coder failed with exit 124 after 42 new commits");
+    expect(text).toContain(`cd ${shellQuote(worktree)}`);
+    expect(text).toContain("git status --short");
+    expect(text).toContain(`git log --oneline ${shellQuote(`${baseSha}..${headSha}`)}`);
+    expect(text).toContain(`COMBO_CHEN_HOME=${shellQuote(h)}`);
+    expect(text).toContain(" status --deep");
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+  });
 });
 
 describe("status", () => {
