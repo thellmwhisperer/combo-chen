@@ -162,7 +162,7 @@ export function buildNoMistakesMirrorPublishScript(combo: ComboRecord, pushInten
     `  mirror_ref=${shellQuote(`refs/heads/${combo.branch}`)}`,
     `  mirror_intent=${shellQuote(`no-mistakes.intent=${pushIntent}`)}`,
     "  no-mistakes daemon start || exit 1",
-    "  COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED=1",
+    "  trap 'no-mistakes daemon stop 2>/dev/null || true' EXIT",
     `  if mirror_line=$(git ls-remote --heads no-mistakes "$mirror_branch" 2>/dev/null); then`,
     "    mirror_sha=",
     `    if [ -n "$mirror_line" ]; then`,

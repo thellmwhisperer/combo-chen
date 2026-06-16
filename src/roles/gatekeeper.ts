@@ -61,8 +61,6 @@ const MAX_INTENT_BODY_LENGTH = 8000;
 const MAX_PUSH_INTENT_INPUT = 4000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
 const NO_MISTAKES_AXI_RUN = /\bno-mistakes\s+axi\s+run\b/;
-const SKIP_EQUALS = /(^|\s)--skip=("[^"]+"|'[^']+'|[^\s]+)/;
-const SKIP_SEPARATE = /(^|\s)--skip\s+("[^"]+"|'[^']+'|[^\s]+)/;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -123,25 +121,42 @@ function appendCiToSkipValue(value: string): string {
   return `${value},ci`;
 }
 
+function findSkipFlag(command: string): { fullStart: number; prefix: string; value: string; fullLength: number } | null {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (c === "'" && !inDouble) { inSingle = !inSingle; continue; }
+    if (c === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (inSingle || inDouble) continue;
+    if (i > 0 && !/\s/.test(command.charAt(i - 1))) continue;
+
+    const rest = command.slice(i);
+    const eq = /^--skip=("[^"]*"|'[^']*'|[^\s]+)/.exec(rest);
+    if (eq) {
+      const fullStart = i === 0 ? 0 : i - 1;
+      const fullLength = eq[0].length + (i === 0 ? 0 : 1);
+      return { fullStart, prefix: "--skip=", value: eq[1]!, fullLength };
+    }
+    const sp = /^--skip\s+("[^"]*"|'[^']*'|[^\s]+)/.exec(rest);
+    if (sp) {
+      const fullStart = i === 0 ? 0 : i - 1;
+      const fullLength = sp[0].length + (i === 0 ? 0 : 1);
+      return { fullStart, prefix: "--skip ", value: sp[1]!, fullLength };
+    }
+  }
+  return null;
+}
+
 function forceNoMistakesPublishOnly(command: string): string {
   if (!NO_MISTAKES_AXI_RUN.test(command)) return command;
 
-  const equals = SKIP_EQUALS.exec(command);
-  if (equals !== null) {
-    const prefix = equals[1] ?? "";
-    const value = equals[2] ?? "";
-    return command.slice(0, equals.index) +
-      `${prefix}--skip=${appendCiToSkipValue(value)}` +
-      command.slice(equals.index + equals[0].length);
-  }
-
-  const separate = SKIP_SEPARATE.exec(command);
-  if (separate !== null) {
-    const prefix = separate[1] ?? "";
-    const value = separate[2] ?? "";
-    return command.slice(0, separate.index) +
-      `${prefix}--skip ${appendCiToSkipValue(value)}` +
-      command.slice(separate.index + separate[0].length);
+  const flag = findSkipFlag(command);
+  if (flag !== null) {
+    const beforeFlag = command.slice(0, flag.fullStart);
+    const afterFlag = command.slice(flag.fullStart + flag.fullLength);
+    const ws = flag.fullStart === 0 ? "" : command[flag.fullStart];
+    return beforeFlag + ws + flag.prefix + appendCiToSkipValue(flag.value) + afterFlag;
   }
 
   return `${command} --skip=ci`;
