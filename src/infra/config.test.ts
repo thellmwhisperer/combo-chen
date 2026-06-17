@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~540 lines,
+ * @overview Unit tests for config loading and command rendering. ~590 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -77,6 +77,8 @@ describe("loadConfig", () => {
     expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
     expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
     expect(config.gatekeeperCommand).toContain("--skip=ci");
+    expect(config.gatekeeperInitialGateRetryAttempts).toBe(2);
+    expect(config.gatekeeperInitialGateRetryBackoffSeconds).toBe(10);
     expect(config.gatekeeperCommand.indexOf("no-mistakes daemon start")).toBeLessThan(
       config.gatekeeperCommand.indexOf("no-mistakes axi run"),
     );
@@ -216,6 +218,51 @@ describe("loadConfig", () => {
     });
     expect(newEnvConfig.gatekeeperAttachTimeoutSeconds).toBe(45);
     expect(newEnvConfig.gatekeeperAttachRetryIntervalSeconds).toBe(9);
+  });
+
+  it("loads initial gate retry settings through env, repo, user, fallback order", () => {
+    const userDir = tempDir();
+    const userConfig = writeToml(
+      userDir,
+      "config.toml",
+      "[gatekeeper]\ninitial_gate_retry_attempts = 4\ninitial_gate_retry_backoff_seconds = 30\n",
+    );
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      "[gatekeeper]\ninitial_gate_retry_attempts = 1\ninitial_gate_retry_backoff_seconds = 5\n",
+    );
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: userConfig, env: {} });
+    expect(repoConfig.gatekeeperInitialGateRetryAttempts).toBe(1);
+    expect(repoConfig.gatekeeperInitialGateRetryBackoffSeconds).toBe(5);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: userConfig,
+      env: {
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS: "3",
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS: "0",
+      },
+    });
+    expect(envConfig.gatekeeperInitialGateRetryAttempts).toBe(3);
+    expect(envConfig.gatekeeperInitialGateRetryBackoffSeconds).toBe(0);
+
+    for (const [key, value] of [
+      ["initial_gate_retry_attempts", "-1"],
+      ["initial_gate_retry_attempts", "1.5"],
+      ["initial_gate_retry_attempts", '"nope"'],
+      ["initial_gate_retry_backoff_seconds", "-1"],
+      ["initial_gate_retry_backoff_seconds", "1.5"],
+      ["initial_gate_retry_backoff_seconds", '"nope"'],
+    ]) {
+      const invalidRepoDir = tempDir();
+      writeToml(invalidRepoDir, "combo-chen.toml", `[gatekeeper]\n${key} = ${value}\n`);
+      expect(() =>
+        loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+      ).toThrow(key);
+    }
   });
 
   it("loads teardown retry limits from the standard limits cascade", () => {
