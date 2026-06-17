@@ -460,7 +460,7 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("status")
-    .description("One line per actionable combo: phase, needs-human, PR")
+    .description("Show combo status; auto-cleans up merged/closed combos (destroys worktrees, deletes branches, kills tmux sessions)")
     .option("--deep", "Probe downstream no-mistakes state")
     .option("--all", "Include terminal historical combos", false)
     .action(async (options: { deep?: boolean; all?: boolean }) => {
