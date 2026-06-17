@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~150 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~180 lines, detects permission prompts,
  *   dead panes, and unchanged panes before the director silently waits.
  *
  *   READING GUIDE
@@ -17,13 +17,14 @@
  *   ----------
  *   WorkerMonitorDeps       Minimal deps for tmux capture + output.
  *   WorkerPaneInspection    Summary returned to director.
+ *   WorkerPaneMonitorInput  Inputs for one worker-monitor tick.
  *   inspectWorkerPanes      Inspect active worker windows once.
  *
  *   INTERNALS
  *   ---------
- *   readSnapshot, writeSnapshot, paneFingerprint, hasEscalation
+ *   readSnapshot, writeSnapshot, paneFingerprint, hasPermissionPrompt, hasEscalation
  *
- * @exports WorkerMonitorDeps, WorkerPaneInspection, inspectWorkerPanes
+ * @exports WorkerMonitorDeps, WorkerPaneInspection, WorkerPaneMonitorInput, inspectWorkerPanes
  * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/tmux
  */
 import { createHash } from "node:crypto";
@@ -53,9 +54,12 @@ interface WorkerSnapshotEntry {
 type WorkerSnapshot = Record<string, WorkerSnapshotEntry>;
 
 const SNAPSHOT_FILE = "worker-panes.json";
-const STALL_TICKS = 3;
-const PERMISSION_PROMPT =
-  /do you want to proceed|allow\?|permission|approve\?|press y|continue\?|confirm|\[y\/n\]|\[y\/N\]/i;
+const DEFAULT_STALL_TICKS = 3;
+const PERMISSION_PROMPTS = [
+  /^\s*Do you want to (?:proceed|continue)\?\s*(?:\[[yn]\/[yn]\])?\s*$/i,
+  /^\s*(?:Allow|Approve|Confirm)\?\s*\[[yn]\/[yn]\]\s*$/i,
+  /^\s*(?:Press|Type)\s+(?:y|yes)\s+to\s+(?:continue|proceed|confirm)\.?\s*$/i,
+];
 
 function snapshotPath(runDir: string): string {
   return join(runDir, SNAPSHOT_FILE);
@@ -83,6 +87,10 @@ function activeWindowNames(stdout: string): Set<string> {
   return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
 }
 
+function hasPermissionPrompt(pane: string): boolean {
+  return pane.split(/\r?\n/).some((line) => PERMISSION_PROMPTS.some((pattern) => pattern.test(line)));
+}
+
 function hasEscalation(runDir: string, reason: string, worker: string): boolean {
   return readEvents(runDir).some(
     (event) =>
@@ -99,25 +107,33 @@ function escalate(runDir: string, deps: WorkerMonitorDeps, worker: string, reaso
   deps.out(`director: worker ${worker} ${detail}`);
 }
 
-export function inspectWorkerPanes(input: {
+export interface WorkerPaneMonitorInput {
   deps: WorkerMonitorDeps;
   combo: ComboRecord;
   runDir: string;
   workerWindows: string[];
-}): WorkerPaneInspection {
+  stallTicks?: number;
+}
+
+export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneInspection {
   const { deps, combo, runDir } = input;
   const summaries: string[] = [];
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) {
-    summaries.push(`workers unavailable: ${listed.stderr.trim() || "tmux list-windows failed"}`);
-    return { escalated: false, summaries };
+    const detail = listed.stderr.trim() || "tmux list-windows failed";
+    for (const worker of new Set(input.workerWindows)) {
+      escalate(runDir, deps, worker, "worker_dead", detail);
+    }
+    summaries.push(`workers unavailable: ${detail}`);
+    return { escalated: true, summaries };
   }
 
   const active = activeWindowNames(listed.stdout);
   const snapshot = readSnapshot(runDir);
+  const stallTicks = input.stallTicks ?? DEFAULT_STALL_TICKS;
   let escalated = false;
 
-  for (const worker of input.workerWindows) {
+  for (const worker of new Set(input.workerWindows)) {
     if (!active.has(worker)) continue;
 
     const panePids = deps.tmux(listPanesArgs(combo.tmuxSession, worker));
@@ -135,7 +151,7 @@ export function inspectWorkerPanes(input: {
     }
 
     const pane = captured.stdout;
-    if (PERMISSION_PROMPT.test(pane)) {
+    if (hasPermissionPrompt(pane)) {
       escalate(runDir, deps, worker, "worker_permission_prompt", "permission prompt");
       escalated = true;
       continue;
@@ -149,7 +165,7 @@ export function inspectWorkerPanes(input: {
     snapshot[worker] = { fingerprint, unchangedTicks };
     summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}`);
 
-    if (unchangedTicks >= STALL_TICKS) {
+    if (unchangedTicks >= stallTicks) {
       escalate(runDir, deps, worker, "worker_stalled", `unchanged pane for ${unchangedTicks} ticks`);
       escalated = true;
     }

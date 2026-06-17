@@ -2,7 +2,7 @@
  * @overview Unit tests for the reviewer role. ~78 lines, testing
  *   the default reviewer prompt contract (COMMENT-only, never-APPROVE,
  *   lgtm convention, reviewer!=coder rule), shell-safe review submission,
- *   skill loading, and reviewer invocation command rendering.
+ *   local skill routing, and reviewer invocation command rendering.
  *
  *   READING GUIDE
  *   ─────────────
@@ -10,7 +10,7 @@
  *   2. Then describe("buildReviewerInvocation")     ← command rendering
  *
  *   ┌─ TEST AREAS ──────────────────────────────────────┐
- *   │ defaultReviewerPrompt    Prompt contract rules + skill path │
+ *   │ defaultReviewerPrompt    Prompt contract rules + local skill │
  *   │ buildReviewerInvocation  Command template render + safety   │
  *   └────────────────────────────────────────────────────┘
  *
@@ -23,7 +23,6 @@ import {
   ReviewerInvocationError,
   buildReviewerInvocation,
   defaultReviewerPrompt,
-  defaultReviewerSkillPath,
 } from "./reviewer.js";
 
 const combo = {
@@ -56,18 +55,17 @@ describe("defaultReviewerPrompt", () => {
   it("spells out the allowlist-friendly submit command and command discipline", () => {
     const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
 
-    expect(prompt).toContain("skills/pr-review-protocol/SKILL.md");
+    expect(prompt).toContain('local review skill "pr-review-protocol"');
     expect(prompt).toContain("gh pr review");
     expect(prompt).toContain("--comment --body");
     expect(prompt).toContain("Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||");
     expect(prompt).toContain("one plain command per tool call");
   });
 
-  it("resolves the bundled skill from source or built entrypoints", () => {
-    const sourcePath = defaultReviewerSkillPath(import.meta.url);
+  it("lets config override the local review skill name", () => {
+    const prompt = defaultReviewerPrompt({ combo, prUrl, protocol, skillName: "repo-review" });
 
-    expect(sourcePath).toContain("skills/pr-review-protocol/SKILL.md");
-    expect(sourcePath).not.toContain("src/skills");
+    expect(prompt).toContain('local review skill "repo-review"');
   });
 });
 

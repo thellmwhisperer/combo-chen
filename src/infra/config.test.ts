@@ -275,6 +275,29 @@ describe("loadConfig", () => {
     expect(envConfig.limits.watchBackoffMaxSeconds).toBe(45);
   });
 
+  it("loads the worker stall threshold from repo monitor config or env", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[monitor]\nworker_stall_ticks = 4\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.workerStallTicks).toBe(4);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_WORKER_STALL_TICKS: "2" },
+    });
+    expect(envConfig.workerStallTicks).toBe(2);
+
+    for (const value of ["0", "-1", "1.5", '"nope"']) {
+      const invalidRepoDir = tempDir();
+      writeToml(invalidRepoDir, "combo-chen.toml", `[monitor]\nworker_stall_ticks = ${value}\n`);
+      expect(() =>
+        loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+      ).toThrow(/worker_stall_ticks/);
+    }
+  });
+
   it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {
     const userDir = tempDir();
     const userConfig = writeToml(userDir, "config.toml", "[limits]\nrower_timeout_minutes = 111\n");
