@@ -217,6 +217,9 @@ describe("buildPostAddressGateScript", () => {
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
     expect(script).toContain("exec no-mistakes attach");
     expect(script).toContain("branch: combo/issue-7");
+    expect(script).toContain('pr_head_sha=$(gh pr view "$pr_url" --json headRefOid --jq');
+    expect(script).toContain('gatekeeper_head_sha="$pr_head_sha"');
+    expect(script).toContain('gate_validated --field sha="$gatekeeper_head_sha"');
     expect(script).toContain('pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"');
     expect(script).toContain('exit "$autoclose_code"');
     expect(script).not.toContain("autoclose guard skipped");

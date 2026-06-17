@@ -1,8 +1,8 @@
 /**
- * @overview Unit tests for the reviewer role. ~58 lines, testing
+ * @overview Unit tests for the reviewer role. ~78 lines, testing
  *   the default reviewer prompt contract (COMMENT-only, never-APPROVE,
- *   lgtm convention, reviewer!=coder rule) and the reviewer invocation
- *   command rendering with protocol placeholders.
+ *   lgtm convention, reviewer!=coder rule), shell-safe review submission,
+ *   skill loading, and reviewer invocation command rendering.
  *
  *   READING GUIDE
  *   ─────────────
@@ -10,8 +10,8 @@
  *   2. Then describe("buildReviewerInvocation")     ← command rendering
  *
  *   ┌─ TEST AREAS ──────────────────────────────────────┐
- *   │ defaultReviewerPrompt    Prompt contract rules    │
- *   │ buildReviewerInvocation  Command template render  │
+ *   │ defaultReviewerPrompt    Prompt contract rules + skill path │
+ *   │ buildReviewerInvocation  Command template render + safety   │
  *   └────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
@@ -19,7 +19,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { buildReviewerInvocation, defaultReviewerPrompt } from "./reviewer.js";
+import {
+  ReviewerInvocationError,
+  buildReviewerInvocation,
+  defaultReviewerPrompt,
+  defaultReviewerSkillPath,
+} from "./reviewer.js";
 
 const combo = {
   id: "o-r-9",
@@ -46,6 +51,23 @@ describe("defaultReviewerPrompt", () => {
     expect(prompt).toContain("lgtm @ <sha>");
     expect(prompt).toContain("never write code");
     expect(prompt).toContain("reviewer != coder");
+  });
+
+  it("spells out the allowlist-friendly submit command and command discipline", () => {
+    const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
+
+    expect(prompt).toContain("skills/pr-review-protocol/SKILL.md");
+    expect(prompt).toContain("gh pr review");
+    expect(prompt).toContain("--comment --body");
+    expect(prompt).toContain("Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||");
+    expect(prompt).toContain("one plain command per tool call");
+  });
+
+  it("resolves the bundled skill from source or built entrypoints", () => {
+    const sourcePath = defaultReviewerSkillPath(import.meta.url);
+
+    expect(sourcePath).toContain("skills/pr-review-protocol/SKILL.md");
+    expect(sourcePath).not.toContain("src/skills");
   });
 });
 
@@ -74,6 +96,17 @@ describe("buildReviewerInvocation", () => {
     });
 
     expect(command).toBe("judge 'review this one diff only'");
+  });
+
+  it("rejects compound reviewer commands before launching a stuck worker", () => {
+    expect(() =>
+      buildReviewerInvocation({
+        reviewerCommand: "claude {prompt} && rm -f /tmp/review.md",
+        combo,
+        prUrl,
+        protocol,
+      }),
+    ).toThrow(ReviewerInvocationError);
   });
 });
 // -/ 1/1

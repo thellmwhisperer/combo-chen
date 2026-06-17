@@ -221,6 +221,30 @@ describe("READY pure state helpers", () => {
 });
 
 describe("tickDirector", () => {
+  it("escalates a reviewer permission prompt instead of silently waiting for LGTM", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
+    const { deps, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+    );
+    expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
+  });
+
   it("emits READY when gate, reviewer, ambient reviewer, and checks all agree on the current head", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -359,6 +383,51 @@ describe("tickDirector", () => {
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+  });
+
+  it("re-pins a local gate SHA to the pushed PR head when GitHub checks are green", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const localSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const prHeadSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_status", { state: "idle", head_sha: localSha });
+    appendEvent(runDir, "lgtm", { sha: prHeadSha });
+    const { deps } = fakeDeps({ homeDir: h, record, prHeadSha });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "gate_validated", sha: prHeadSha, source: "github" }),
+    );
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "ready_for_merge", sha: prHeadSha }),
+    );
+  });
+
+  it("recovers READY when no-mistakes daemon dies after CI passes at the PR head", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const localSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const prHeadSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_status", { state: "failed", head_sha: localSha });
+    appendEvent(runDir, "gate_failed", { exit_code: "1" });
+    appendEvent(runDir, "lgtm", { sha: prHeadSha });
+    const { deps } = fakeDeps({ homeDir: h, record, prHeadSha });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "gate_status", state: "idle", head_sha: prHeadSha, source: "github" }),
+    );
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "ready_for_merge", sha: prHeadSha }),
+    );
   });
 
   it("starts a post-address gate only when an actionable nudge is followed by a new committed HEAD", async () => {
