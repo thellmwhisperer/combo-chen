@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~485 lines,
+ * @overview Unit tests for config loading and command rendering. ~540 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -121,6 +121,30 @@ describe("loadConfig", () => {
         "",
         "[reviewer]",
         'ambient = ["reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.reviewerAgent).toBe("claude");
+    expect(config.ambientReviewerAgents).toEqual(["reviewdog"]);
+  });
+
+  it("keeps configured ambient reviewer agents out of coder and active reviewer roles", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'coder = "codex"',
+        'reviewer = ["claude"]',
+        "",
+        "[reviewer]",
+        'ambient = ["codex", "claude", "reviewdog", "reviewdog"]',
         "",
         "[reviewer.claude]",
         'command = "claude {prompt}"',

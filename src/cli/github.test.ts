@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for GitHub CLI parsing helpers. ~205 lines, gh JSON and URL parsing.
+ * @overview Unit tests for GitHub CLI parsing helpers. ~225 lines, gh JSON and URL parsing.
  *
  *   READING GUIDE
  *   -------------
@@ -88,7 +88,7 @@ describe("cli GitHub helpers", () => {
             state: "OPEN",
             statusCheckRollup: [
               { __typename: "CheckRun", name: "unit", status: "COMPLETED", conclusion: "SUCCESS" },
-              { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
+              { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "FAILURE" },
             ],
           }),
           stderr: "",
@@ -112,7 +112,7 @@ describe("cli GitHub helpers", () => {
     );
 
     expect(facts?.pr?.ci).toBe("success");
-    expect(facts?.pr?.ambientReviewer).toBe("success");
+    expect(facts?.pr?.ambientReviewer).toBe("failure");
     expect(facts?.pr).not.toHaveProperty("codeRabbit");
   });
 

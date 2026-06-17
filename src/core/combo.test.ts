@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1030 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1120 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -186,14 +186,6 @@ describe("buildRunnerScript", () => {
     issueTitle: "Issue title",
     issueBody: "Issue body",
   });
-  const daemonStartPrefix = "no-mistakes daemon start && ";
-  const scriptedMirrorGatekeeperFixture = (gatekeeperCommand: string): string => {
-    if (!gatekeeperCommand.startsWith(daemonStartPrefix)) return gatekeeperCommand;
-    const remainder = gatekeeperCommand.slice(daemonStartPrefix.length);
-    return 'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
-      `${remainder}; ` +
-      `else no-mistakes daemon start && ${remainder}; fi`;
-  };
 
   const script = buildRunnerScript({
     combo,
@@ -726,7 +718,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       buildRunnerScript({
         combo: { ...combo, worktree },
         coderCommand: "true",
-        gatekeeperCommand: scriptedMirrorGatekeeperFixture(renderedDefaultGatekeeperCommand),
+        gatekeeperCommand: renderedDefaultGatekeeperCommand,
         gatekeeperMirrorIntent: mirrorIntent,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",

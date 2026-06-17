@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the gatekeeper role. ~155 lines, testing
+ * @overview Unit tests for the gatekeeper role. ~215 lines, testing
  *   gatekeeper invocation building, issue→PR intent generation (with
  *   autoclose keywords, truncation, and push-safe base64 encoding), axi
  *   TOON outcome parsing, and the PR body issue autoclose contract.
@@ -76,6 +76,26 @@ describe("buildGatekeeperInvocation", () => {
   it("handles --skip with quoted value outside of intent quotes", () => {
     expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip='lint,test' --intent 'some value'" })).toBe(
       "no-mistakes axi run --skip='lint,test,ci' --intent 'some value'",
+    );
+  });
+
+  it("scopes publish-only skip rewrites to the no-mistakes command segment", () => {
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: "preflight --skip=lint && no-mistakes axi run --intent ok",
+      }),
+    ).toBe("preflight --skip=lint && no-mistakes axi run --intent ok --skip=ci");
+
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: "preflight --skip=lint && no-mistakes axi run --skip=test",
+      }),
+    ).toBe("preflight --skip=lint && no-mistakes axi run --skip=test,ci");
+  });
+
+  it("does not treat quoted no-mistakes text as a runnable gate command", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "echo 'no-mistakes axi run --skip=lint'" })).toBe(
+      "echo 'no-mistakes axi run --skip=lint'",
     );
   });
 

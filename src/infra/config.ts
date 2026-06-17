@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~520 lines, 11 exports.
+ *   Repo wins on policy, user wins on local setup. ~540 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -455,8 +455,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerTemplates[reviewerAgent]?.command,
     `command template for reviewer "${reviewerAgent}"`,
   );
-  const configuredAmbient = pickStringArray(reviewerTableConfig["ambient"], "reviewer.ambient");
-  const legacyAmbient = roles.reviewer.filter((agent) => agent !== reviewerAgent);
+  const configuredAmbient = pickStringArray(reviewerTableConfig["ambient"], "reviewer.ambient")
+    .filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
+  const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const ambientReviewerAgents = [...new Set([...configuredAmbient, ...legacyAmbient])];
 
   return {

@@ -1,5 +1,5 @@
 /**
- * @overview GitHub CLI parsing helpers. ~335 lines, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~395 lines, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@ import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { parseGitHubPullRequestUrl } from "../core/pr-url.js";
 import { checkName } from "./checks.js";
 
-// -- 1/4 CORE · Issue metadata and remoteSlug <- START HERE --
+// -- 1/5 CORE · Issue metadata and remoteSlug <- START HERE --
 export interface GhResult {
   status: number;
   stdout: string;
@@ -98,9 +98,9 @@ export function fetchIssueDetails(gh: GhRunner, issueUrl: string): IssueDetails 
   }
   return { title, body: body ?? "" };
 }
-// -/ 1/4
+// -/ 1/5
 
-// -- 2/4 HELPER · LGTM pin parsing --
+// -- 2/5 HELPER · LGTM pin parsing --
 interface GitHubPin {
   sha: string;
   t: number;
@@ -156,9 +156,9 @@ function pinsFromItems(entries: unknown[]): GitHubPin[] {
   }
   return pins;
 }
-// -/ 2/4
+// -/ 2/5
 
-// -- 3/4 CORE · latestGitHubLgtmSha --
+// -- 3/5 CORE · latestGitHubLgtmSha --
 export function latestGitHubLgtmSha(
   gh: GhRunner,
   prUrl: string,
@@ -181,7 +181,7 @@ export function latestGitHubLgtmSha(
   pins.sort((a, b) => a.t - b.t);
   return pins.at(-1)?.sha;
 }
-// -/ 3/4
+// -/ 3/5
 
 // -- 4/5 CORE · parsePrView --
 export interface PrView {
