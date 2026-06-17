@@ -18,7 +18,8 @@ Validation at launch (hard failures, the combo refuses to start):
 
 - `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
-- the source checkout is on clean `main`; local dirty state or launching from
+- the source checkout is clean and on `[run].source_branch` (default `main`,
+  env override `COMBO_CHEN_SOURCE_BRANCH`); local dirty state or launching from
   another branch is a hard error.
 - the combo branch is created from `origin/main` by default, or from the
   explicit `--base <ref>` supplied to `combo-chen run`.
@@ -186,10 +187,12 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   in the rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
-- If no-mistakes dies after publishing but GitHub reports the current PR head
-  check rollup as successful, the director may reconcile stale local gate
-  evidence by journaling a GitHub-sourced `gate_status idle` and
-  `gate_validated` pinned to the PR `headRefOid`.
+- If no-mistakes dies after publishing and journals `gate_failed` with
+  `reason=daemon_dead`, while GitHub reports the current PR head check rollup
+  as successful, the director may reconcile stale local gate evidence by
+  journaling a GitHub-sourced `gate_status idle` and `gate_validated` pinned to
+  the PR `headRefOid`. Generic gate failures are not recoverable through this
+  path.
 
 ## 6. Merge policy and the counterfactual log
 

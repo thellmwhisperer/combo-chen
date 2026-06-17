@@ -232,7 +232,19 @@ function hasCurrentGateForHead(events: ComboEvent[], headSha: string): boolean {
 function canReconcileGateFromGithub(events: ComboEvent[]): boolean {
   const status = latestGateStatus(events);
   if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return false;
+  if (status?.state === "failed") return latestGateFailureReason(events) === "daemon_dead";
   return status !== undefined || latestPublishedGateSha(events) !== undefined;
+}
+
+function latestGateFailureReason(events: ComboEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "gate_failed") {
+      return typeof event["reason"] === "string" ? event["reason"] : undefined;
+    }
+    if (event.event === "gate_started") return undefined;
+  }
+  return undefined;
 }
 
 export function headStateAllowsReady(
@@ -282,9 +294,9 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCach
   if (!gateStateAllowsReady(events, headSha)) {
     const status = latestGateStatus(events);
     if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return;
-    // This is only a daemon-death recovery path: GitHub checks, ambient review,
-    // and pinned LGTM must already agree on the PR head before local gate
-    // evidence is replaced with a GitHub-sourced validation marker.
+    // This substitutes local gate evidence only for daemon-death recovery.
+    // GitHub checks, ambient review, and pinned LGTM must already agree on the
+    // PR head, and generic no-mistakes failures are not recoverable here.
     appendEvent(runDir, "gate_status", { state: "idle", head_sha: headSha, source: "github" });
     appendEvent(runDir, "gate_validated", { sha: headSha, source: "github" });
     events = readEvents(runDir);

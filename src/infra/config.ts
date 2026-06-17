@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~560 lines, 11 exports.
+ *   Repo wins on policy, user wins on local setup. ~570 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -86,6 +86,8 @@ export interface ComboConfig {
   ambientReviewerAgents: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
+  /** Required source checkout branch for `combo-chen run`. */
+  sourceBranch: string;
 }
 
 type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";
@@ -162,6 +164,9 @@ const DEFAULTS = {
   },
   monitor: {
     worker_stall_ticks: 3,
+  },
+  run: {
+    source_branch: "main",
   },
 };
 
@@ -352,6 +357,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
   let monitorTable: TomlTable = { ...DEFAULTS.monitor };
+  let runTable: TomlTable = { ...DEFAULTS.run };
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
@@ -413,6 +419,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         ...asTable(layer.table["monitor"], `[monitor] in ${layer.source}`),
       };
     }
+    if (layer.table["run"] !== undefined) {
+      runTable = {
+        ...runTable,
+        ...asTable(layer.table["run"], `[run] in ${layer.source}`),
+      };
+    }
   }
 
   const env = options.env ?? {};
@@ -436,6 +448,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   }
   if (env["COMBO_CHEN_WORKER_STALL_TICKS"] !== undefined) {
     monitorTable["worker_stall_ticks"] = env["COMBO_CHEN_WORKER_STALL_TICKS"];
+  }
+  if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
+    runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
   }
 
   if (roles.reviewer.length === 0) {
@@ -542,6 +557,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       DEFAULTS.monitor.worker_stall_ticks,
       "[monitor]",
     ),
+    sourceBranch: pickNonEmptyString(runTable["source_branch"], "run.source_branch"),
   };
 }
 // -/ 3/4

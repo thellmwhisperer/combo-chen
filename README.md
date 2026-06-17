@@ -114,10 +114,12 @@ node dist/cli.mjs status
 node dist/cli.mjs events -n owner-repo-123 --follow
 ```
 
-`run` exits after setup. Launch it from a clean `main` checkout; the combo
-worktree is created from `origin/main` by default, or from `--base <ref>` when
-you need an explicit recovery/test base. The actual work continues inside tmux.
-Use `status`, `events`, or `tmux list-sessions` to see the live run.
+`run` exits after setup. Launch it from a clean source checkout; the required
+branch defaults to `main` and can be overridden with `[run].source_branch` or
+`COMBO_CHEN_SOURCE_BRANCH`. The combo worktree is created from `origin/main` by
+default, or from `--base <ref>` when you need an explicit recovery/test base.
+The actual work continues inside tmux. Use `status`, `events`, or
+`tmux list-sessions` to see the live run.
 
 ## Example Config
 
