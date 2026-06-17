@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~3930 lines.
+ *   deps so tests run without a real terminal or network. ~4105 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -173,11 +173,20 @@ describe("command surface", () => {
       createdAt: new Date().toISOString(),
     });
     const ghCalls: string[][] = [];
+    let viewed = 0;
     const { deps, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
         ghCalls.push(["gh", ...args]);
         if (args[0] === "pr" && args[1] === "view") {
+          viewed += 1;
+          if (viewed === 2) {
+            return {
+              status: 0,
+              stdout: "Fixes #7\n\n## Intent\n\nThis mentions issue #7.\n",
+              stderr: "",
+            };
+          }
           return {
             status: 0,
             stdout: "## Intent\n\nThis mentions issue #7.\n\n```text\nFixes #7\n```\n",
@@ -212,6 +221,16 @@ describe("command surface", () => {
     expect(readFileSync(bodyPath!, "utf8")).toBe(
       "Fixes #7\n\n## Intent\n\nThis mentions issue #7.\n\n```text\nFixes #7\n```\n",
     );
+    expect(ghCalls[2]).toEqual([
+      "gh",
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/9",
+      "--json",
+      "body",
+      "--jq",
+      ".body",
+    ]);
     expect(out).toEqual(["pr autoclose ensured for o-r-7"]);
   });
 
@@ -286,6 +305,34 @@ describe("command surface", () => {
     await expect(
       exec(deps, ["ensure-pr-autoclose", "-n", "o-r-7", "--pr-url", "https://github.com/o/r/pull/9"]),
     ).rejects.toThrow("gh pr edit failed for https://github.com/o/r/pull/9: edit rejected");
+  });
+
+  it("reports a verification failure when the edited PR body still lacks autoclose", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return { status: 0, stdout: "## Intent\n\nmentions issue #7\n", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(
+      exec(deps, ["ensure-pr-autoclose", "-n", "o-r-7", "--pr-url", "https://github.com/o/r/pull/9"]),
+    ).rejects.toThrow(
+      "pr autoclose verification failed for https://github.com/o/r/pull/9: body still lacks a visible GitHub autoclose keyword for o-r-7",
+    );
   });
 });
 
@@ -1887,6 +1934,7 @@ describe("resume", () => {
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
     expect(script).toContain("exec no-mistakes attach");
     expect(script).toContain("branch: combo/issue-7");
+    expect(script).toContain("pr_autoclose_failed");
     expect(script).toContain("emit -n 'o-r-7' pr_opened");
     expect(script).toContain("activate-coder -n 'o-r-7'");
     expect(script).toContain("activate-reviewer -n 'o-r-7'");
