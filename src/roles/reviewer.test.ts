@@ -1,8 +1,8 @@
 /**
- * @overview Unit tests for the reviewer role. ~78 lines, testing
+ * @overview Unit tests for the reviewer role. ~72 lines, testing
  *   the default reviewer prompt contract (COMMENT-only, never-APPROVE,
  *   lgtm convention, reviewer!=coder rule), shell-safe review submission,
- *   local skill routing, and reviewer invocation command rendering.
+ *   reviewer instructions, and reviewer invocation command rendering.
  *
  *   READING GUIDE
  *   ─────────────
@@ -10,7 +10,7 @@
  *   2. Then describe("buildReviewerInvocation")     ← command rendering
  *
  *   ┌─ TEST AREAS ──────────────────────────────────────┐
- *   │ defaultReviewerPrompt    Prompt contract rules + local skill │
+ *   │ defaultReviewerPrompt    Prompt contract rules + instructions │
  *   │ buildReviewerInvocation  Command template render + safety   │
  *   └────────────────────────────────────────────────────┘
  *
@@ -36,15 +36,15 @@ const combo = {
 };
 
 const prUrl = "https://github.com/o/r/pull/9";
-const protocol = "repository review protocol + project overlay 8034";
+const protocol = "repository review instructions + project overlay 8034";
 
 // -- 1/1 CORE · defaultReviewerPrompt + buildReviewerInvocation ← START HERE --
 describe("defaultReviewerPrompt", () => {
-  it("injects the PR URL, protocol, and the COMMENT-only verdict contract", () => {
+  it("injects the PR URL, reviewer instructions, and the COMMENT-only verdict contract", () => {
     const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
 
     expect(prompt).toContain(prUrl);
-    expect(prompt).toContain(protocol);
+    expect(prompt).toContain(`Reviewer instructions: ${protocol}.`);
     expect(prompt).toContain("COMMENT reviews or issue comments");
     expect(prompt).toContain("never APPROVE");
     expect(prompt).toContain("lgtm @ <sha>");
@@ -55,18 +55,12 @@ describe("defaultReviewerPrompt", () => {
   it("spells out the allowlist-friendly submit command and command discipline", () => {
     const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
 
-    expect(prompt).toContain('local review skill "pr-review-protocol"');
     expect(prompt).toContain("gh pr review");
     expect(prompt).toContain("--comment --body");
     expect(prompt).toContain("Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||");
     expect(prompt).toContain("one plain command per tool call");
   });
 
-  it("lets config override the local review skill name", () => {
-    const prompt = defaultReviewerPrompt({ combo, prUrl, protocol, skillName: "repo-review" });
-
-    expect(prompt).toContain('local review skill "repo-review"');
-  });
 });
 
 describe("buildReviewerInvocation", () => {
@@ -79,7 +73,7 @@ describe("buildReviewerInvocation", () => {
     });
 
     expect(command).toContain("--judge 'https://github.com/o/r/pull/9'");
-    expect(command).toContain("'repository review protocol + project overlay 8034'");
+    expect(command).toContain("'repository review instructions + project overlay 8034'");
     expect(command).toContain("COMMENT reviews or issue comments");
     expect(command).toContain("lgtm @ <sha>");
   });

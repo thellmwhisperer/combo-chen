@@ -65,13 +65,12 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 '''
 
 [reviewer]
-# The reviewer invocation tells the agent to load the local
-# pr-review-protocol skill. Keep this config value as the repo-specific
-# overlay/reference, not as a replacement for that skill.
+# Free-form reviewer instructions passed into the generated prompt. Keep this
+# generic; put any personal/local review process in your own local config.
 # Reviewer submit commands must be one plain command, normally:
 # gh pr review <url> --comment --body "<body>"
 # Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
-protocol = "repository review protocol + project overlay"
+protocol = "repository review instructions + project overlay"
 # Ambient review/check providers are matched by status context/check name and
 # review author. They do not run in the reviewer tmux window.
 ambient = ["coderabbit"]
