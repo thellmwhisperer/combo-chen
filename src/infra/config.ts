@@ -82,8 +82,6 @@ export interface ComboConfig {
   reviewerCommand: string;
   /** Review protocol reference injected into the reviewer prompt. */
   reviewerProtocol: string;
-  /** Local review skill pointer injected into the reviewer prompt. */
-  reviewerSkillName: string;
   /** Ambient review/status providers that are not the active command reviewer. */
   ambientReviewerAgents: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
@@ -107,7 +105,6 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROTOCOL = "repository review protocol + project overlay";
-const DEFAULT_REVIEWER_SKILL_NAME = "pr-review-protocol";
 export const DEFAULT_CODER_STOP_WHEN =
   "Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. " +
   "If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
@@ -171,7 +168,6 @@ const DEFAULTS = {
   },
   reviewer: {
     ambient: ["coderabbit"],
-    skill: DEFAULT_REVIEWER_SKILL_NAME,
   },
   monitor: {
     worker_stall_ticks: 3,
@@ -406,7 +402,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let reviewerTableConfig: TomlTable = { ...DEFAULTS.reviewer };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
-  let reviewerSkillName: unknown = DEFAULTS.reviewer.skill;
   let monitorTable: TomlTable = { ...DEFAULTS.monitor };
   let runTable: TomlTable = { ...DEFAULTS.run };
 
@@ -456,11 +451,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
           ambient: reviewerTable["ambient"],
         };
       }
-      if (reviewerTable["skill"] !== undefined) {
-        reviewerSkillName = reviewerTable["skill"];
-      }
       for (const [name, entry] of Object.entries(reviewerTable)) {
-        if (name === "protocol" || name === "ambient" || name === "skill") continue;
+        if (name === "protocol" || name === "ambient") continue;
         reviewerTemplates = {
           ...reviewerTemplates,
           [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
@@ -508,9 +500,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS"],
       "monitor.permission_prompt_patterns",
     );
-  }
-  if (env["COMBO_CHEN_REVIEWER_SKILL"] !== undefined) {
-    reviewerSkillName = env["COMBO_CHEN_REVIEWER_SKILL"];
   }
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
     runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
@@ -618,7 +607,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerAgent,
     reviewerCommand,
     reviewerProtocol,
-    reviewerSkillName: pickNonEmptyString(reviewerSkillName, "reviewer.skill"),
     ambientReviewerAgents,
     workerStallTicks: pickPositiveInteger(
       monitorTable,

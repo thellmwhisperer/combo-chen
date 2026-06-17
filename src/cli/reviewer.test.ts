@@ -22,7 +22,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./reviewer
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -150,33 +150,6 @@ describe("activateReviewer", () => {
       "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
       "director-watch: polling combo hard signals every 120s",
     ]);
-  });
-
-  it("passes the configured review skill pointer into the reviewer prompt", () => {
-    const calls: string[][] = [];
-    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
-    const record = combo();
-    const runDir = runDirFor(home, record.id);
-
-    writeCombo(runDir, record);
-    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[reviewer]\nskill = "repo-review"\n');
-    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-
-    activateReviewer({
-      deps: {
-        env: { COMBO_CHEN_HOME: home },
-        out: () => undefined,
-        tmux: (args) => {
-          calls.push(args);
-          return { status: 0, stdout: "coder\ngatekeeper\n", stderr: "" };
-        },
-      },
-      home,
-      comboId: record.id,
-      cli: "node /repo/dist/cli.mjs",
-    });
-
-    expect(calls[3]?.at(-1)).toContain('local review skill "repo-review"');
   });
 
   it("rejects activation before a PR has opened", () => {
