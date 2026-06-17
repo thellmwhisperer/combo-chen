@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~56 lines, testing that combo-chen.example.toml and public docs use
+ *   ~92 lines, testing that combo-chen.example.toml and public docs use
  *   only OSS-friendly role names (no legacy rower/hodor/gordon terms) and
  *   that the example config stays loadable by the config cascade.
  *
@@ -30,7 +30,8 @@ const LAUNCH_SKILL = join(REPO_ROOT, "skills", "launch-combo", "SKILL.md");
 const OLD_ROLE_TERMS =
   /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b|\bjudge-tick\b/i;
 const OLD_PHASE_TERMS = /\b(ROWING|JUDGING)\b/;
-const LOCAL_DRIVE_PATH = /\/Volumes\/CrucialX9\//;
+const LOCAL_REPO_PATH = /\/Volumes\/CrucialX9\/workspace\/combo-chen\//;
+const FORBIDDEN_TMP_WORKTREE_PATH = /\/Volumes\/CrucialX9\/tmp\//;
 
 // -- 1/1 CORE · Example config validation ← START HERE --
 describe("combo-chen.example.toml", () => {
@@ -81,10 +82,11 @@ describe("combo-chen.example.toml", () => {
     expect(config.limits.coderTimeoutMinutes).toBe(180);
   });
 
-  it("keeps the launch skill portable across workstations", () => {
+  it("keeps the launch skill portable across workstations and project tmp policy", () => {
     const body = readFileSync(LAUNCH_SKILL, "utf8");
 
-    expect(body).not.toMatch(LOCAL_DRIVE_PATH);
+    expect(body).not.toMatch(LOCAL_REPO_PATH);
+    expect(body).not.toMatch(FORBIDDEN_TMP_WORKTREE_PATH);
   });
 });
 // -/ 1/1

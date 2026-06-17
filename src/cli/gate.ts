@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~675 lines, 17 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~665 lines, 17 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -32,7 +32,7 @@
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { buildNoMistakesMirrorPublishScript, shellQuote } from "../core/combo.js";
+import { buildNoMistakesMirrorPublishScript, guardNoMistakesDaemonStart, shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
@@ -292,15 +292,7 @@ function renderGatekeeperCommand(
   };
 }
 
-const DAEMON_START_PREFIX = "no-mistakes daemon start && ";
-
-export function scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand: string): string {
-  if (!gatekeeperCommand.startsWith(DAEMON_START_PREFIX)) return gatekeeperCommand;
-  const remainder = gatekeeperCommand.slice(DAEMON_START_PREFIX.length);
-  return 'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
-    `${remainder}; ` +
-    `else no-mistakes daemon start && ${remainder}; fi`;
-}
+export const scriptedMirrorGatekeeperCommandTemplate = guardNoMistakesDaemonStart;
 
 function renderScriptedMirrorGatekeeperCommand(
   deps: PostAddressGateDeps,

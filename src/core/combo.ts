@@ -1,13 +1,14 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   289 lines, 7 exports, 1 critical function.
+ *   ~305 lines, 8 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at buildRunnerScript    ← generates runner.sh, the combo spine
  *   2. deriveStatus                  ← event → phase state machine
  *   3. buildNoMistakesMirrorPublishScript ← gate mirror push with intent
- *   4. shellQuote                    ← POSIX-safe shell quoting
+ *   4. guardNoMistakesDaemonStart    ← avoids double-starting mirror gates
+ *   5. shellQuote                    ← POSIX-safe shell quoting
  *
  *   MAIN FLOW (called from cli/main.ts)
  *   ───────────────────────────────────
@@ -26,6 +27,7 @@
  *   ┌─ CORE ─────────────────────────────────────────────────────────┐
  *   │ buildRunnerScript   Generates the runner shell script          │
  *   │ buildNoMistakesMirrorPublishScript Git push to local gate repo │
+ *   │ guardNoMistakesDaemonStart Avoid duplicate no-mistakes starts  │
  *   │ shellQuote           POSIX-safe single-quoting                 │
  *   ├─ PHASE DERIVATION ────────────────────────────────────────────┤
  *   │ deriveStatus         Maps event journal → ComboStatus          │
@@ -34,7 +36,7 @@
  *   │ RunnerInput          Input shape for buildRunnerScript         │
  *   └────────────────────────────────────────────────────────────────┘
  *
- * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
+ * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, guardNoMistakesDaemonStart, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
  * @deps ./events, ./state
  */
 import type { ComboEvent } from "./events.js";
@@ -183,6 +185,16 @@ export function buildNoMistakesMirrorPublishScript(combo: ComboRecord, pushInten
   ];
 }
 
+const DAEMON_START_PREFIX = "no-mistakes daemon start && ";
+
+export function guardNoMistakesDaemonStart(gatekeeperCommand: string): string {
+  if (!gatekeeperCommand.startsWith(DAEMON_START_PREFIX)) return gatekeeperCommand;
+  const remainder = gatekeeperCommand.slice(DAEMON_START_PREFIX.length);
+  return 'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
+    `${remainder}; ` +
+    `else no-mistakes daemon start && ${remainder}; fi`;
+}
+
 // -/ 2/3
 
 // -- 3/3 CORE · buildRunnerScript ← START HERE --
@@ -198,6 +210,9 @@ export function buildRunnerScript(input: RunnerInput): string {
     activateReviewer,
     ensurePrAutoclose = ":",
   } = input;
+  const gatekeeperRunCommand = gatekeeperMirrorIntent === undefined
+    ? gatekeeperCommand
+    : guardNoMistakesDaemonStart(gatekeeperCommand);
   return `#!/bin/sh
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
@@ -250,7 +265,7 @@ ${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_sta
 gatekeeper_code=0
 (
 ${gatekeeperMirrorIntent === undefined ? ":" : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n")}
-  ${gatekeeperCommand}
+  ${gatekeeperRunCommand}
 ) < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
 if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then

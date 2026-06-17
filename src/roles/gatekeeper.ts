@@ -1,7 +1,7 @@
 /**
  * @overview Gatekeeper adapter: invokes no-mistakes' blocking agent
  *   interface. Expands {placeholders} in commands, prepares push-safe
- *   base64 intent, and reads TOON outcomes tolerantly. ~260 lines, 7 exports.
+ *   base64 intent, and reads TOON outcomes tolerantly. ~330 lines, 7 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -27,9 +27,9 @@
  *   │ hasIssueAutocloseInPrBody  Check if PR body already autocloses issue   │
  *   │ parseAxiOutcome            Extract TOON "outcome:" line from raw text  │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
- *   │ visiblePrBodyMarkdown, escapeRegExp, isEscaped, PLACEHOLDER,           │
- *   │ KNOWN_GATEKEEPER_PLACEHOLDERS, MAX_INTENT_BODY_LENGTH,                 │
- *   │ MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS                               │
+ *   │ visiblePrBodyMarkdown, escapeRegExp, shell command segment helpers,    │
+ *   │ isEscaped, PLACEHOLDER, KNOWN_GATEKEEPER_PLACEHOLDERS,                 │
+ *   │ MAX_INTENT_BODY_LENGTH, MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS      │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports GatekeeperInput, buildIssuePrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
@@ -60,7 +60,7 @@ const KNOWN_GATEKEEPER_PLACEHOLDERS = new Set([
 const MAX_INTENT_BODY_LENGTH = 8000;
 const MAX_PUSH_INTENT_INPUT = 4000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
-const NO_MISTAKES_AXI_RUN = /\bno-mistakes\s+axi\s+run\b/;
+const NO_MISTAKES_AXI_RUN_AT_START = /^no-mistakes\s+axi\s+run\b/;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -129,6 +129,41 @@ function isEscaped(value: string, index: number): boolean {
   return slashCount % 2 === 1;
 }
 
+function isRunnableNoMistakesTokenStart(command: string, index: number): boolean {
+  if (index === 0) return true;
+  const previous = command[index - 1]!;
+  return /\s/.test(previous) || previous === "/" || previous === ";" || previous === "&" || previous === "|";
+}
+
+function findShellSegmentEnd(command: string, start: number): number {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = start; i < command.length; i++) {
+    const c = command[i];
+    if (c === "'" && !inDouble && !isEscaped(command, i)) { inSingle = !inSingle; continue; }
+    if (c === '"' && !inSingle && !isEscaped(command, i)) { inDouble = !inDouble; continue; }
+    if (inSingle || inDouble) continue;
+    if (c === ";" || c === "\n" || c === "|") return i;
+    if (c === "&" && command[i + 1] === "&") return i;
+  }
+  return command.length;
+}
+
+function findNoMistakesAxiRunSegment(command: string): { start: number; end: number } | null {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    if (c === "'" && !inDouble && !isEscaped(command, i)) { inSingle = !inSingle; continue; }
+    if (c === '"' && !inSingle && !isEscaped(command, i)) { inDouble = !inDouble; continue; }
+    if (inSingle || inDouble) continue;
+    if (!isRunnableNoMistakesTokenStart(command, i)) continue;
+    if (!NO_MISTAKES_AXI_RUN_AT_START.test(command.slice(i))) continue;
+    return { start: i, end: findShellSegmentEnd(command, i) };
+  }
+  return null;
+}
+
 function findSkipFlag(command: string): { fullStart: number; prefix: string; value: string; fullLength: number } | null {
   let inSingle = false;
   let inDouble = false;
@@ -157,17 +192,24 @@ function findSkipFlag(command: string): { fullStart: number; prefix: string; val
 }
 
 function forceNoMistakesPublishOnly(command: string): string {
-  if (!NO_MISTAKES_AXI_RUN.test(command)) return command;
+  const segmentRange = findNoMistakesAxiRunSegment(command);
+  if (segmentRange === null) return command;
 
-  const flag = findSkipFlag(command);
+  const segment = command.slice(segmentRange.start, segmentRange.end);
+  const flag = findSkipFlag(segment);
+  let rewrittenSegment: string;
   if (flag !== null) {
-    const beforeFlag = command.slice(0, flag.fullStart);
-    const afterFlag = command.slice(flag.fullStart + flag.fullLength);
-    const ws = flag.fullStart === 0 ? "" : command[flag.fullStart];
-    return beforeFlag + ws + flag.prefix + appendCiToSkipValue(flag.value) + afterFlag;
+    const beforeFlag = segment.slice(0, flag.fullStart);
+    const afterFlag = segment.slice(flag.fullStart + flag.fullLength);
+    const ws = flag.fullStart === 0 ? "" : segment[flag.fullStart];
+    rewrittenSegment = beforeFlag + ws + flag.prefix + appendCiToSkipValue(flag.value) + afterFlag;
+  } else {
+    const trailingWhitespace = /\s*$/.exec(segment)?.[0] ?? "";
+    const body = segment.slice(0, segment.length - trailingWhitespace.length);
+    rewrittenSegment = `${body} --skip=ci${trailingWhitespace}`;
   }
 
-  return `${command} --skip=ci`;
+  return command.slice(0, segmentRange.start) + rewrittenSegment + command.slice(segmentRange.end);
 }
 
 // -- 2/3 HELPER · PR body visibility + autoclose --
