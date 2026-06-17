@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~735 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~745 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -472,8 +472,15 @@ export function createProgram(deps: Deps): Command {
         return;
       }
       const rows = combos.map((combo) => {
-        const events = readEvents(runDirFor(home, combo.id));
-        return { combo, events, status: deriveStatus(events) };
+        const runDir = runDirFor(home, combo.id);
+        let events = readEvents(runDir);
+        let status = deriveStatus(events);
+        if (status.phase !== "STOPPED" && !status.needsHuman && deps.tmux(hasSessionArgs(combo.tmuxSession)).status !== 0) {
+          appendEvent(runDir, "needs_human", { reason: "tmux_missing", source: "status" });
+          events = readEvents(runDir);
+          status = deriveStatus(events);
+        }
+        return { combo, events, status };
       });
       const visibleRows = options.all === true ? rows : rows.filter(({ status }) => status.phase !== "STOPPED");
       if (visibleRows.length === 0) {

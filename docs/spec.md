@@ -268,8 +268,10 @@ propagates it.
 - Attention surface: tmux window titles + default `combo-chen status` always
   answer "which combos need a human RIGHT NOW" (phase + needs_human flag).
   Before rendering, status quietly reconciles non-terminal journals whose PR is
-  already merged or closed on GitHub. Terminal historical rows are hidden
-  unless the operator passes `status --all`.
+  already merged or closed on GitHub. If a non-terminal combo has no tmux
+  session, status journals `needs_human reason=tmux_missing` so the row remains
+  visible as stale. Terminal historical rows are hidden unless the operator
+  passes `status --all`.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.

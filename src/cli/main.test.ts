@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4350 lines.
+ *   deps so tests run without a real terminal or network. ~4400 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -21,7 +21,7 @@
  *   │ emit                  Event append to journal                  │
  *   │ reconcile             Frozen journal repair command            │
  *   │ resume                Recovery routing without fresh run setup  │
- *   │ status                Table format + downstream deep output    │
+ *   │ status                Table format + liveness/deep output      │
  *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
@@ -2403,6 +2403,52 @@ describe("status", () => {
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-closed"]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "worktree", "remove", "--force", join(repoDir, ".worktrees", "issue-8")]);
     expect(calls.some((call) => call[0] === "git" && call.includes(join(repoDir, ".worktrees", "issue-9")))).toBe(false);
+  });
+
+  it("marks non-terminal combos with missing tmux sessions as needing human attention", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "no such session" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ headRefOid: "head777", state: "OPEN", mergedBy: null }),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status"]);
+
+    expect(out.join("\n")).toContain("tmux_missing");
+    expect(readEvents(dir)).toMatchObject([
+      { event: "coder_started" },
+      { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
+      { event: "needs_human", reason: "tmux_missing", source: "status" },
+    ]);
+    expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
   });
 
   it("prints downstream no-mistakes CI state in deep mode for stale stalled combos", async () => {
