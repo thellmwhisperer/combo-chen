@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~570 lines, 11 exports.
+ *   Repo wins on policy, user wins on local setup. ~600 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -72,6 +72,10 @@ export interface ComboConfig {
   gatekeeperAttachTimeoutSeconds: number;
   /** How often the gatekeeper tmux window polls for no-mistakes' active run. */
   gatekeeperAttachRetryIntervalSeconds: number;
+  /** Number of automatic relaunches allowed after an initial pre-PR gate failure. */
+  gatekeeperInitialGateRetryAttempts: number;
+  /** Seconds to wait before relaunching a failed initial pre-PR gate. */
+  gatekeeperInitialGateRetryBackoffSeconds: number;
   /** Prompt template sent to the coder responding mode for each routed review signal. */
   reviewNudgePrompt: string;
   /** tmux window name for the resumed coder responding mode. */
@@ -155,6 +159,8 @@ const DEFAULTS = {
     command: DEFAULT_GATEKEEPER_COMMAND,
     attach_timeout_seconds: 1800,
     attach_retry_interval_seconds: 10,
+    initial_gate_retry_attempts: 2,
+    initial_gate_retry_backoff_seconds: 10,
   },
   coder_responding: {
     window_name: "coder-responding",
@@ -255,12 +261,12 @@ function normalizeLimitAliases(table: TomlTable): TomlTable {
   return { ...table, coder_timeout_minutes: table["rower_timeout_minutes"] };
 }
 
-function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number): number {
+function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number, where = "[limits]"): number {
   const value = table[key];
   if (value === undefined) return fallback;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new ComboConfigError(`[limits] ${key} must be a non-negative integer`);
+    throw new ComboConfigError(`${where} ${key} must be a non-negative integer`);
   }
   return parsed;
 }
@@ -489,6 +495,14 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (gatekeeperAttachRetryInterval !== undefined) {
     gatekeeperTable["attach_retry_interval_seconds"] = gatekeeperAttachRetryInterval;
   }
+  if (env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS"] !== undefined) {
+    gatekeeperTable["initial_gate_retry_attempts"] =
+      env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS"];
+  }
+  if (env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS"] !== undefined) {
+    gatekeeperTable["initial_gate_retry_backoff_seconds"] =
+      env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS"];
+  }
   if (env["COMBO_CHEN_WATCH_FAILURE_LIMIT"] !== undefined) {
     limitsTable["watch_failure_limit"] = env["COMBO_CHEN_WATCH_FAILURE_LIMIT"];
   }
@@ -597,6 +611,18 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       gatekeeperTable,
       "attach_retry_interval_seconds",
       DEFAULTS.gatekeeper.attach_retry_interval_seconds,
+      "[gatekeeper]",
+    ),
+    gatekeeperInitialGateRetryAttempts: pickNonNegativeInteger(
+      gatekeeperTable,
+      "initial_gate_retry_attempts",
+      DEFAULTS.gatekeeper.initial_gate_retry_attempts,
+      "[gatekeeper]",
+    ),
+    gatekeeperInitialGateRetryBackoffSeconds: pickNonNegativeInteger(
+      gatekeeperTable,
+      "initial_gate_retry_backoff_seconds",
+      DEFAULTS.gatekeeper.initial_gate_retry_backoff_seconds,
       "[gatekeeper]",
     ),
     reviewNudgePrompt: pickNonEmptyString(
