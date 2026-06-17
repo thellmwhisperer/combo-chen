@@ -78,6 +78,7 @@ export function activateReviewer(input: {
     combo,
     prUrl,
     protocol: config.reviewerProtocol,
+    skillName: config.reviewerSkillName,
     reviewerCommand: config.reviewerCommand,
   });
 
@@ -247,11 +248,13 @@ export async function tickReviewer(input: {
     combo,
     prUrl,
     protocol: config.reviewerProtocol,
+    skillName: config.reviewerSkillName,
     reviewerCommand: config.reviewerCommand,
     prompt: incrementalReviewerPrompt({
       combo,
       prUrl,
       protocol: config.reviewerProtocol,
+      skillName: config.reviewerSkillName,
       oldSha: pinnedSha,
       newSha: headSha,
     }),

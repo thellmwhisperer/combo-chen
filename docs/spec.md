@@ -171,10 +171,10 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 
 - The reviewer emits `lgtm` (required field `sha`) to journal the reviewed commit;
   the LGTM is pinned to that SHA.
-- The reviewer invocation tells the agent to load the local
-  `pr-review-protocol` skill as the portable review gate. The configured
-  `reviewer.protocol` is the repo-specific overlay/reference, not a dangling
-  external dependency.
+- The reviewer invocation tells the agent to load the configured local
+  review skill pointer, defaulting to `pr-review-protocol`, as the portable
+  review gate. The configured `reviewer.protocol` is the repo-specific
+  overlay/reference, not a replacement for that local skill pointer.
 - Any push invalidates it and the journal records `lgtm_stale` (fields
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
