@@ -186,6 +186,14 @@ describe("buildRunnerScript", () => {
     issueTitle: "Issue title",
     issueBody: "Issue body",
   });
+  const daemonStartPrefix = "no-mistakes daemon start && ";
+  const scriptedMirrorGatekeeperFixture = (gatekeeperCommand: string): string => {
+    if (!gatekeeperCommand.startsWith(daemonStartPrefix)) return gatekeeperCommand;
+    const remainder = gatekeeperCommand.slice(daemonStartPrefix.length);
+    return 'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
+      `${remainder}; ` +
+      `else no-mistakes daemon start && ${remainder}; fi`;
+  };
 
   const script = buildRunnerScript({
     combo,
@@ -714,7 +722,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       buildRunnerScript({
         combo: { ...combo, worktree },
         coderCommand: "true",
-        gatekeeperCommand: renderedDefaultGatekeeperCommand,
+        gatekeeperCommand: scriptedMirrorGatekeeperFixture(renderedDefaultGatekeeperCommand),
         gatekeeperMirrorIntent: mirrorIntent,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -752,6 +760,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     expect(gatekeeperOutput).toContain(
       `git push -o no-mistakes.intent=${mirrorIntent} no-mistakes --force-with-lease=refs/heads/combo/issue-7:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HEAD:refs/heads/combo/issue-7`,
     );
+    expect(gatekeeperOutput.match(/no-mistakes daemon start/g)).toHaveLength(1);
     expect(gatekeeperOutput).toContain("no-mistakes axi run --intent");
     expect(gatekeeperOutput).toContain("--skip=ci");
     expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");

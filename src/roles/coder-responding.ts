@@ -274,20 +274,20 @@ function meaningfulLines(body: string): string[] {
     .filter((line) => line !== "");
 }
 
-function matchesAmbientReviewer(value: string, ambientReviewerAgents: string[]): boolean {
-  const normalized = value.trim().toLowerCase();
-  return ambientReviewerAgents.some((agent) => {
-    const needle = agent.trim().toLowerCase();
-    return needle.length > 0 && normalized.startsWith(needle);
-  });
-}
-
-function mentionsAmbientReviewer(value: string, ambientReviewerAgents: string[]): boolean {
+function ambientReviewerMatches(
+  value: string,
+  ambientReviewerAgents: string[],
+  mode: "prefix" | "substring",
+): boolean {
   const normalized = value.toLowerCase();
   return ambientReviewerAgents.some((agent) => {
     const needle = agent.trim().toLowerCase();
-    return needle.length > 0 && normalized.includes(needle);
+    return needle.length > 0 && (mode === "prefix" ? normalized.trim().startsWith(needle) : normalized.includes(needle));
   });
+}
+
+function matchesAmbientReviewer(value: string, ambientReviewerAgents: string[]): boolean {
+  return ambientReviewerMatches(value, ambientReviewerAgents, "prefix");
 }
 
 function isAmbientReviewerRetriggerBookkeeping(body: string, ambientReviewerAgents: string[]): boolean {
@@ -297,7 +297,8 @@ function isAmbientReviewerRetriggerBookkeeping(body: string, ambientReviewerAgen
   const targetLower = target.toLowerCase();
   return lines.slice(1).every((line) => {
     const lower = line.toLowerCase();
-    return lower.includes("codex") && (lower.includes(targetLower) || mentionsAmbientReviewer(lower, ambientReviewerAgents));
+    return lower.includes("codex") &&
+      (lower.includes(targetLower) || ambientReviewerMatches(lower, ambientReviewerAgents, "substring"));
   });
 }
 
