@@ -202,6 +202,21 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("cd '/repos/r/.worktrees/issue-7'");
   });
 
+  it("rebases the worker branch against the requested base ref", () => {
+    const customBase = buildRunnerScript({
+      combo,
+      baseRef: "origin/release-candidate",
+      coderCommand: "gnhf",
+      gatekeeperCommand: "no-mistakes axi run",
+      emit: "emit",
+      activateCoder: "activate-coder",
+      activateReviewer: "activate-reviewer",
+    });
+    expect(customBase).toContain("git fetch origin 'release-candidate'");
+    expect(customBase).toContain("git rebase 'origin/release-candidate'");
+    expect(customBase).toContain("git merge-base HEAD 'origin/release-candidate'");
+  });
+
   it("sequences coder, gatekeeper, PR detection, and the final handoff to humans", () => {
     const coder = script.indexOf("gnhf");
     const gatekeeper = script.indexOf("no-mistakes axi run");

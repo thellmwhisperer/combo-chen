@@ -2,13 +2,14 @@
  * @overview Reviewer adapter: renders the configured reviewer command with
  *   PR facts and the frozen review contract. The loop mechanics live in the
  *   orchestrator; this module owns what a reviewer session is told to do.
- *   ~57 lines, 6 exports.
+ *   ~105 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at buildReviewerInvocation  ← main entry: renders the command
- *   2. defaultReviewerPrompt             ← the frozen review contract
- *   3. incrementalReviewerPrompt         ← delta-only re-review prompt
+ *   2. assertReviewerCommandSafe         ← prevents prompt-stalling shells
+ *   3. defaultReviewerPrompt             ← the frozen review contract
+ *   4. incrementalReviewerPrompt         ← delta-only re-review prompt
  *
  *   MAIN FLOW
  *   ─────────
@@ -18,37 +19,90 @@
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ buildReviewerInvocation   Render reviewer command from template    │
+ *   │ assertReviewerCommandSafe Reject compound reviewer shell commands │
  *   │ defaultReviewerPrompt     Standard review contract prompt         │
+ *   │ defaultReviewerSkillPath  Resolve bundled review skill path       │
  *   │ incrementalReviewerPrompt Delta-only re-review prompt             │
+ *   │ ReviewerInvocationError   Reviewer command safety error           │
  *   │ ReviewerInput             Shape for buildReviewerInvocation       │
  *   │ ReviewerPromptInput       Shape for defaultReviewerPrompt         │
- *   │ IncrementalReviewerPromptInput Shape for incrementalReviewerPrompt│
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ (none — all exports are public)                                  │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, buildReviewerInvocation
- * @deps ../core/state, ../infra/config
+ * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerSkillPath, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation
+ * @deps node:{fs,path,url}, ../core/state, ../infra/config
  */
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { ComboRecord } from "../core/state.js";
 import { renderCommand } from "../infra/config.js";
 
 // -- 1/1 CORE · Prompt definitions + invocation ← START HERE --
+export class ReviewerInvocationError extends Error {}
+
 export interface ReviewerPromptInput {
   combo: ComboRecord;
   prUrl: string;
   protocol: string;
+  skillPath?: string;
+}
+
+export function defaultReviewerSkillPath(metaUrl = import.meta.url): string {
+  const dir = dirname(fileURLToPath(metaUrl));
+  const candidates = [
+    join(dir, "..", "skills", "pr-review-protocol", "SKILL.md"),
+    join(dir, "..", "..", "skills", "pr-review-protocol", "SKILL.md"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
+
+function hasUnquotedShellControl(command: string): boolean {
+  let quote: "'" | '"' | undefined;
+  for (let i = 0; i < command.length; i += 1) {
+    const c = command[i]!;
+    if (c === "\\" && quote === '"') {
+      i += 1;
+      continue;
+    }
+    if ((c === "'" || c === '"') && quote === undefined) {
+      quote = c;
+      continue;
+    }
+    if (quote === c) {
+      quote = undefined;
+      continue;
+    }
+    if (quote !== undefined) continue;
+    if (c === ";" || c === "|" || c === "<" || c === ">") return true;
+    if ((c === "&" && command[i + 1] === "&") || (c === "|" && command[i + 1] === "|")) return true;
+  }
+  return false;
+}
+
+export function assertReviewerCommandSafe(command: string): void {
+  if (!hasUnquotedShellControl(command)) return;
+  throw new ReviewerInvocationError(
+    "reviewer command must be one plain command; shell compounds stall on permission prompts",
+  );
 }
 
 export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
+  const skillPath = input.skillPath ?? defaultReviewerSkillPath();
   return [
     `Review PR ${input.prUrl} for combo ${input.combo.id}.`,
-    `Use this review protocol: ${input.protocol}.`,
+    `Read this review protocol skill before inspecting the PR, and use it as the single source of truth: ${skillPath}.`,
+    `Project overlay/reference: ${input.protocol}.`,
     "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
     "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
     'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',
     "On a new push, treat any earlier LGTM as stale and re-review only the delta since the last reviewed SHA.",
     "If anything is intent-touching, emit needs_human instead of deciding product intent.",
+    'Submit reviews with one allowlist-friendly command: gh pr review <pr-url> --comment --body "<body>".',
+    "Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||.",
+    "Run one plain command per tool call; if a command fails, inspect that single failure and continue with the next plain command.",
   ].join(" ");
 }
 
@@ -72,6 +126,7 @@ export interface ReviewerInput extends ReviewerPromptInput {
 }
 
 export function buildReviewerInvocation(input: ReviewerInput): string {
+  assertReviewerCommandSafe(input.reviewerCommand);
   const prompt = input.prompt ?? defaultReviewerPrompt(input);
   return renderCommand(input.reviewerCommand, {
     issue_url: input.combo.issueUrl,

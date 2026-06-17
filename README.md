@@ -104,7 +104,7 @@ pnpm build
 Run a combo:
 
 ```bash
-node dist/cli.mjs run --issue https://github.com/owner/repo/issues/123 --repo /path/to/repo
+node dist/cli.mjs run --issue https://github.com/owner/repo/issues/123 --repo /path/to/repo --base origin/main
 ```
 
 Watch it:
@@ -114,8 +114,10 @@ node dist/cli.mjs status
 node dist/cli.mjs events -n owner-repo-123 --follow
 ```
 
-`run` exits after setup. The actual work continues inside tmux. Use `status`,
-`events`, or `tmux list-sessions` to see the live run.
+`run` exits after setup. Launch it from a clean `main` checkout; the combo
+worktree is created from `origin/main` by default, or from `--base <ref>` when
+you need an explicit recovery/test base. The actual work continues inside tmux.
+Use `status`, `events`, or `tmux list-sessions` to see the live run.
 
 ## Example Config
 
@@ -137,6 +139,11 @@ ambient = ["coderabbit"]
 command = "claude {prompt}"
 ```
 
+Reviewer prompts include the bundled `skills/pr-review-protocol/SKILL.md` and
+submit reviews with a single inline `gh pr review --comment --body "..."`
+command. They must not use heredocs, temp files, pipes, redirects, semicolons,
+or cleanup commands to publish a review.
+
 The target repo may also carry a local ignored `.no-mistakes.yaml` with explicit
 test, lint, and build commands. combo-chen copies that file into issue
 worktrees before gatekeeper runs so validation stays deterministic.
@@ -144,7 +151,7 @@ worktrees before gatekeeper runs so validation stays deterministic.
 ## Commands
 
 ```bash
-combo-chen run --issue <issue-url> [--repo <dir>] [--prompt <text>]
+combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen status [--deep]
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>

@@ -20,7 +20,7 @@
  *     → tmux executes it
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
- *     fetch/rebase origin/main → coder_started → coderCommand → coder_done
+ *     fetch/rebase baseRef → coder_started → coderCommand → coder_done
  *     → gate_started → mirror publish → gatekeeperCommand → pr_opened
  *     → activateCoder + activateReviewer → needs_human
  *
@@ -142,6 +142,8 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
 
 export interface RunnerInput {
   combo: ComboRecord;
+  /** Base ref the combo branch tracks before worker execution; defaults to origin/main. */
+  baseRef?: string;
   coderCommand: string;
   gatekeeperCommand: string;
   /** One-line no-mistakes.intent push option for the local gate mirror. */
@@ -206,6 +208,7 @@ export function guardNoMistakesDaemonStart(gatekeeperCommand: string): string {
 export function buildRunnerScript(input: RunnerInput): string {
   const {
     combo,
+    baseRef = "origin/main",
     coderCommand,
     gatekeeperCommand,
     gatekeeperMirrorIntent,
@@ -217,6 +220,13 @@ export function buildRunnerScript(input: RunnerInput): string {
   const gatekeeperRunCommand = gatekeeperMirrorIntent === undefined
     ? gatekeeperCommand
     : guardNoMistakesDaemonStart(gatekeeperCommand);
+  const originBranch = baseRef.startsWith("origin/") ? baseRef.slice("origin/".length) : undefined;
+  const baseFetch = originBranch === undefined
+    ? ": > \"$rebase_log\""
+    : `if ! git fetch origin ${shellQuote(originBranch)} > "$rebase_log" 2>&1; then
+  ${emit} rebase_failed --field base="$(git merge-base HEAD ${shellQuote(baseRef)} 2>/dev/null || true)"
+  exit 1
+fi`;
   return `#!/bin/sh
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
@@ -227,12 +237,9 @@ autoclose_log="$(dirname "$0")/autoclose.log"
 rebase_log="$(dirname "$0")/rebase.log"
 
 cd ${shellQuote(combo.worktree)}
-if ! git fetch origin main > "$rebase_log" 2>&1; then
-  ${emit} rebase_failed --field base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
-  exit 1
-fi
-if ! git rebase origin/main >> "$rebase_log" 2>&1; then
-  ${emit} rebase_conflict --field base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+${baseFetch}
+if ! git rebase ${shellQuote(baseRef)} >> "$rebase_log" 2>&1; then
+  ${emit} rebase_conflict --field base="$(git merge-base HEAD ${shellQuote(baseRef)} 2>/dev/null || true)"
   exit 1
 fi
 coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
@@ -290,6 +297,10 @@ gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
+  pr_head_sha=$(gh pr view "$pr_url" --json headRefOid --jq '.headRefOid' 2>/dev/null || true)
+  if [ -n "\${pr_head_sha:-}" ]; then
+    gatekeeper_head_sha="$pr_head_sha"
+  fi
   if ${ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then
     :
   else
