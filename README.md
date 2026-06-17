@@ -135,18 +135,15 @@ merge = "human"
 
 [reviewer]
 protocol = "repository review protocol + project overlay"
-skill = "pr-review-protocol"
 ambient = ["coderabbit"]
 
 [reviewer.claude]
 command = "claude {prompt}"
 ```
 
-Reviewer prompts tell the reviewer to load a configurable local review skill
-pointer, defaulting to `pr-review-protocol`, and submit reviews with a single
-inline `gh pr review --comment --body "..."` command. They must not use
-heredocs, temp files, pipes, redirects, semicolons, or cleanup commands to
-publish a review.
+Reviewer commands must submit reviews with a single inline
+`gh pr review --comment --body "..."` command. They must not use heredocs, temp
+files, pipes, redirects, semicolons, or cleanup commands to publish a review.
 
 The target repo may also carry a local ignored `.no-mistakes.yaml` with explicit
 test, lint, and build commands. combo-chen copies that file into issue
