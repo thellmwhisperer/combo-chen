@@ -265,9 +265,10 @@ propagates it.
   `[monitor].worker_stall_ticks` unchanged captures for the same worker
   journals `needs_human` with `worker_permission_prompt`, `worker_dead`, or
   `worker_stalled`.
-- Attention surface: tmux window titles + `combo-chen status` always answer
-  "which combos need a human RIGHT NOW" (phase + needs_human flag). Five
-  combos = five status lines, zero attaching until escalation.
+- Attention surface: tmux window titles + default `combo-chen status` always
+  answer "which combos need a human RIGHT NOW" (phase + needs_human flag).
+  Terminal historical rows are hidden unless the operator passes `status
+  --all`.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.

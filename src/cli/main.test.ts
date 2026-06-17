@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4245 lines.
+ *   deps so tests run without a real terminal or network. ~4300 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -2265,6 +2265,70 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("CODING");
     expect(text).toContain("gate_decision");
+  });
+
+  it("hides terminal historical combos by default and preserves them with --all", async () => {
+    const h = home();
+    const liveDir = runDirFor(h, "o-r-live");
+    writeCombo(liveDir, {
+      id: "o-r-live",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-live",
+      branch: "combo/issue-live",
+      tmuxSession: "combo-chen-o-r-live",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(liveDir, "coder_started", {});
+
+    const historicalDir = runDirFor(h, "o-r-merged");
+    writeCombo(historicalDir, {
+      id: "o-r-merged",
+      issueUrl: "https://github.com/o/r/issues/8",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-8",
+      branch: "combo/issue-8",
+      tmuxSession: "combo-chen-o-r-8",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(historicalDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
+    appendEvent(historicalDir, "merged", { sha: "abc1234", by: "maintainer" });
+    appendEvent(historicalDir, "combo_closed", {});
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    const defaultText = out.join("\n");
+    expect(defaultText).toContain("o-r-live");
+    expect(defaultText).not.toContain("o-r-merged");
+
+    out.length = 0;
+    await exec(deps, ["status", "--all"]);
+
+    const allText = out.join("\n");
+    expect(allText).toContain("o-r-live");
+    expect(allText).toContain("o-r-merged");
+    expect(allText).toContain("STOPPED");
+  });
+
+  it("prints a history hint when default status has no actionable combos", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-stopped");
+    writeCombo(dir, {
+      id: "o-r-stopped",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "stopped", { by: "operator" });
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    expect(out).toEqual(["no actionable combos. show history: combo-chen status --all"]);
   });
 
   it("prints downstream no-mistakes CI state in deep mode for stale stalled combos", async () => {

@@ -158,7 +158,7 @@ deterministic. The daemon copy polls with up to
 
 ```bash
 combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text>]
-combo-chen status [--deep]
+combo-chen status [--deep] [--all]
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
@@ -170,8 +170,9 @@ combo-chen stop -n <combo-id>
 
 ### Recovery Commands
 
-- `status --deep` compares the journal with downstream GitHub and gatekeeper
-  state.
+- `status` shows actionable live combos by default. Add `--all` to include
+  terminal historical rows, and `--deep` to compare the journal with downstream
+  GitHub and gatekeeper state.
 - `park` writes a local handoff and stops tmux without making the combo
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream

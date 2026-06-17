@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~750 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~735 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -460,19 +460,28 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("status")
-    .description("One line per combo: phase, needs-human, PR")
+    .description("One line per actionable combo: phase, needs-human, PR")
     .option("--deep", "Probe downstream no-mistakes state")
-    .action(async (options: { deep?: boolean }) => {
-      const combos = listCombos(comboHome(deps.env));
+    .option("--all", "Include terminal historical combos", false)
+    .action(async (options: { deep?: boolean; all?: boolean }) => {
+      const home = comboHome(deps.env);
+      const combos = listCombos(home);
       if (combos.length === 0) {
         deps.out("no combos. start one: combo-chen run --issue <url>");
         return;
       }
+      const rows = combos.map((combo) => {
+        const events = readEvents(runDirFor(home, combo.id));
+        return { combo, events, status: deriveStatus(events) };
+      });
+      const visibleRows = options.all === true ? rows : rows.filter(({ status }) => status.phase !== "STOPPED");
+      if (visibleRows.length === 0) {
+        deps.out("no actionable combos. show history: combo-chen status --all");
+        return;
+      }
       const deep = options.deep === true;
       deps.out(deep ? "COMBO                          PHASE     NEEDS-HUMAN      PR DOWNSTREAM" : "COMBO                          PHASE     NEEDS-HUMAN      PR");
-      for (const combo of combos) {
-        const events = readEvents(runDirFor(comboHome(deps.env), combo.id));
-        const status = deriveStatus(events);
+      for (const { combo, events, status } of visibleRows) {
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const pr = status.pr ?? "—";
         const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`;
