@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~120 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~150 lines, permission
  *   prompt, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -96,6 +96,50 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
   });
 
+  it("does not treat ordinary review prose about permission prompts as an interactive prompt", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      reviewer: "The review skill mentions permission prompt handling and asks whether to continue?\n",
+    });
+
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"] });
+
+    expect(result.escalated).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
+  it("uses the configured unchanged-pane threshold", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      reviewer: "waiting for review...\n",
+    });
+
+    expect(
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated,
+    ).toBe(false);
+    expect(
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated,
+    ).toBe(true);
+  });
+
+  it("does not count duplicate worker names twice in one tick", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      reviewer: "waiting for review...\n",
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer", "reviewer"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
   it("emits needs_human after the same pane is unchanged for three ticks", () => {
     const { record, runDir } = combo();
     const { deps } = fakeDeps({
@@ -123,6 +167,36 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "needs_human", reason: "worker_dead", worker: "gatekeeper" }),
     );
+  });
+
+  it("emits needs_human when tmux cannot list worker windows", () => {
+    const { record, runDir } = combo();
+    const out: string[] = [];
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) =>
+        args[0] === "list-windows"
+          ? { status: 1, stdout: "", stderr: "server exited" }
+          : { status: 0, stdout: "", stderr: "" },
+    };
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer", "reviewer", "gatekeeper"],
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(readEvents(runDir)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event: "needs_human", reason: "worker_dead", worker: "reviewer" }),
+        expect.objectContaining({ event: "needs_human", reason: "worker_dead", worker: "gatekeeper" }),
+      ]),
+    );
+    expect(readEvents(runDir).filter((event) => event.event === "needs_human" && event["worker"] === "reviewer"))
+      .toHaveLength(1);
+    expect(out).toContainEqual(expect.stringContaining("worker reviewer server exited"));
   });
 });
 // -/ 1/1

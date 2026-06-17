@@ -170,10 +170,10 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 
 - The reviewer emits `lgtm` (required field `sha`) to journal the reviewed commit;
   the LGTM is pinned to that SHA.
-- The reviewer invocation points at the bundled
-  `skills/pr-review-protocol/SKILL.md` as the portable review gate. The
-  configured `reviewer.protocol` is the repo-specific overlay/reference, not a
-  dangling external dependency.
+- The reviewer invocation tells the agent to load the local
+  `pr-review-protocol` skill as the portable review gate. The configured
+  `reviewer.protocol` is the repo-specific overlay/reference, not a dangling
+  external dependency.
 - Any push invalidates it and the journal records `lgtm_stale` (fields
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
@@ -257,7 +257,7 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   pane scraping is health-check only.
 - Every director tick inspects active worker panes (`coder`, `reviewer`,
   `gatekeeper`, and coder responding mode). A permission prompt, missing/dead
-  pane, or three unchanged captures for the same worker journals
+  pane, or `[monitor].worker_stall_ticks` unchanged captures for the same worker journals
   `needs_human` with `worker_permission_prompt`, `worker_dead`, or
   `worker_stalled`.
 - Attention surface: tmux window titles + `combo-chen status` always answer

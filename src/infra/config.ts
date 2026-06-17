@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~540 lines, 11 exports.
+ *   Repo wins on policy, user wins on local setup. ~560 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -84,6 +84,8 @@ export interface ComboConfig {
   reviewerProtocol: string;
   /** Ambient review/status providers that are not the active command reviewer. */
   ambientReviewerAgents: string[];
+  /** Unchanged pane ticks before a worker is considered stalled. */
+  workerStallTicks: number;
 }
 
 type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";
@@ -157,6 +159,9 @@ const DEFAULTS = {
   },
   reviewer: {
     ambient: ["coderabbit"],
+  },
+  monitor: {
+    worker_stall_ticks: 3,
   },
 };
 
@@ -247,12 +252,12 @@ function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number)
   return parsed;
 }
 
-function pickPositiveInteger(table: TomlTable, key: string, fallback: number): number {
+function pickPositiveInteger(table: TomlTable, key: string, fallback: number, where = "[limits]"): number {
   const value = table[key];
   if (value === undefined) return fallback;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new ComboConfigError(`[limits] ${key} must be a positive integer`);
+    throw new ComboConfigError(`${where} ${key} must be a positive integer`);
   }
   return parsed;
 }
@@ -346,6 +351,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let reviewerTableConfig: TomlTable = { ...DEFAULTS.reviewer };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
+  let monitorTable: TomlTable = { ...DEFAULTS.monitor };
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
@@ -401,6 +407,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         };
       }
     }
+    if (layer.table["monitor"] !== undefined) {
+      monitorTable = {
+        ...monitorTable,
+        ...asTable(layer.table["monitor"], `[monitor] in ${layer.source}`),
+      };
+    }
   }
 
   const env = options.env ?? {};
@@ -421,6 +433,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   }
   if (env["COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS"] !== undefined) {
     limitsTable["watch_backoff_max_seconds"] = env["COMBO_CHEN_WATCH_BACKOFF_MAX_SECONDS"];
+  }
+  if (env["COMBO_CHEN_WORKER_STALL_TICKS"] !== undefined) {
+    monitorTable["worker_stall_ticks"] = env["COMBO_CHEN_WORKER_STALL_TICKS"];
   }
 
   if (roles.reviewer.length === 0) {
@@ -521,6 +536,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerCommand,
     reviewerProtocol,
     ambientReviewerAgents,
+    workerStallTicks: pickPositiveInteger(
+      monitorTable,
+      "worker_stall_ticks",
+      DEFAULTS.monitor.worker_stall_ticks,
+      "[monitor]",
+    ),
   };
 }
 // -/ 3/4

@@ -69,12 +69,19 @@ export async function tickDirector(input: {
   const combo = readCombo(runDir);
   const ghApiCache = createGhApiCache();
   const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const workerWindows = [...new Set([
+    CODER_WINDOW,
+    REVIEWER_WINDOW,
+    GATEKEEPER_WINDOW,
+    config.coderRespondingWindowName,
+  ])];
 
   const workerInspection = inspectWorkerPanes({
     deps,
     combo,
     runDir,
-    workerWindows: [CODER_WINDOW, REVIEWER_WINDOW, GATEKEEPER_WINDOW, config.coderRespondingWindowName],
+    workerWindows,
+    stallTicks: config.workerStallTicks,
   });
   if (workerInspection.escalated) {
     deps.out(`director: tick complete for ${comboId}`);
@@ -275,6 +282,9 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCach
   if (!gateStateAllowsReady(events, headSha)) {
     const status = latestGateStatus(events);
     if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return;
+    // This is only a daemon-death recovery path: GitHub checks, ambient review,
+    // and pinned LGTM must already agree on the PR head before local gate
+    // evidence is replaced with a GitHub-sourced validation marker.
     appendEvent(runDir, "gate_status", { state: "idle", head_sha: headSha, source: "github" });
     appendEvent(runDir, "gate_validated", { sha: headSha, source: "github" });
     events = readEvents(runDir);

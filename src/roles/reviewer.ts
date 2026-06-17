@@ -21,7 +21,6 @@
  *   │ buildReviewerInvocation   Render reviewer command from template    │
  *   │ assertReviewerCommandSafe Reject compound reviewer shell commands │
  *   │ defaultReviewerPrompt     Standard review contract prompt         │
- *   │ defaultReviewerSkillPath  Resolve bundled review skill path       │
  *   │ incrementalReviewerPrompt Delta-only re-review prompt             │
  *   │ ReviewerInvocationError   Reviewer command safety error           │
  *   │ ReviewerInput             Shape for buildReviewerInvocation       │
@@ -30,13 +29,9 @@
  *   │ (none — all exports are public)                                  │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerSkillPath, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation
- * @deps node:{fs,path,url}, ../core/state, ../infra/config
+ * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation
+ * @deps ../core/state, ../infra/config
  */
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import type { ComboRecord } from "../core/state.js";
 import { renderCommand } from "../infra/config.js";
 
@@ -47,16 +42,7 @@ export interface ReviewerPromptInput {
   combo: ComboRecord;
   prUrl: string;
   protocol: string;
-  skillPath?: string;
-}
-
-export function defaultReviewerSkillPath(metaUrl = import.meta.url): string {
-  const dir = dirname(fileURLToPath(metaUrl));
-  const candidates = [
-    join(dir, "..", "skills", "pr-review-protocol", "SKILL.md"),
-    join(dir, "..", "..", "skills", "pr-review-protocol", "SKILL.md"),
-  ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+  skillName?: string;
 }
 
 function hasUnquotedShellControl(command: string): boolean {
@@ -90,10 +76,10 @@ export function assertReviewerCommandSafe(command: string): void {
 }
 
 export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
-  const skillPath = input.skillPath ?? defaultReviewerSkillPath();
+  const skillName = input.skillName ?? "pr-review-protocol";
   return [
     `Review PR ${input.prUrl} for combo ${input.combo.id}.`,
-    `Read this review protocol skill before inspecting the PR, and use it as the single source of truth: ${skillPath}.`,
+    `Load the local review skill "${skillName}" before inspecting the PR, and use it as the single source of truth.`,
     `Project overlay/reference: ${input.protocol}.`,
     "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
     "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
