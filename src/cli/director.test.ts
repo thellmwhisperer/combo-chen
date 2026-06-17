@@ -448,7 +448,7 @@ describe("tickDirector", () => {
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     appendEvent(runDir, "gate_status", { state: "failed", head_sha: localSha });
-    appendEvent(runDir, "gate_failed", { exit_code: "1" });
+    appendEvent(runDir, "gate_failed", { exit_code: "1", reason: "daemon_dead" });
     appendEvent(runDir, "lgtm", { sha: prHeadSha });
     const { deps } = fakeDeps({ homeDir: h, record, prHeadSha });
 
@@ -460,6 +460,26 @@ describe("tickDirector", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "ready_for_merge", sha: prHeadSha }),
     );
+  });
+
+  it("does not recover READY from a generic no-mistakes gate failure", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const localSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const prHeadSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_status", { state: "failed", head_sha: localSha });
+    appendEvent(runDir, "gate_failed", { exit_code: "1", reason: "gate_failed" });
+    appendEvent(runDir, "lgtm", { sha: prHeadSha });
+    const { deps } = fakeDeps({ homeDir: h, record, prHeadSha });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "gate_validated" && event["source"] === "github"))
+      .toBe(false);
   });
 
   it("starts a post-address gate only when an actionable nudge is followed by a new committed HEAD", async () => {
