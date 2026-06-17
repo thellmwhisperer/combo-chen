@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/thellmwhisperer/combo-chen/actions/workflows/ci.yml/badge.svg)](https://github.com/thellmwhisperer/combo-chen/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/github/v/release/thellmwhisperer/combo-chen)](https://github.com/thellmwhisperer/combo-chen/releases)
+![Status: Active Development](https://img.shields.io/badge/status-active%20development-brightgreen.svg)
 
 **A deterministic director for autonomous issue-to-PR work.**
 
@@ -211,6 +211,8 @@ Behavior changes should be test-first. Keep operational values configurable
 through env, TOML, then fallback defaults.
 
 ## Status
+
+Active development.
 
 v0 implements the issue-to-PR loop with coder, gatekeeper, reviewer, director
 watching, review-comment routing, post-address gates, park/resume, reconcile,
