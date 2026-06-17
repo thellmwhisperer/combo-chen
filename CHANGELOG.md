@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.29](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.28...combo-chen-v0.0.29) (2026-06-17)
+
+
+### Bug Fixes
+
+* **gatekeeper:** make PR autoclose guard blocking and preserve Fixes line in intent ([#109](https://github.com/thellmwhisperer/combo-chen/issues/109)) ([9254954](https://github.com/thellmwhisperer/combo-chen/commit/925495415e76a608b50503ef6ae6d8977394115a))
+
 ## [0.0.28](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.27...combo-chen-v0.0.28) (2026-06-17)
 
 
