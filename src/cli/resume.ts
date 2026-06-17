@@ -24,13 +24,13 @@
  *   classifyResumeState, ensureResumeSession, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers
  *
  * @exports ResumeDeps, resumeCombo
- * @deps ../core/{combo,events,state}, ../infra/{config,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status
+ * @deps ../core/{combo,events,state}, ../infra/{config,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
-import { hasSessionArgs, newSessionArgs, type TmuxResult } from "../infra/tmux.js";
+import { hasSessionArgs, newSessionArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
@@ -39,7 +39,7 @@ import {
 } from "./gate.js";
 import type { GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
-import { CODER_WINDOW } from "./sessions.js";
+import { CODER_WINDOW, DIRECTOR_WATCH_WINDOW, killWindowIfPresent } from "./sessions.js";
 import {
   AWAITING_REVIEW_GATE,
   deepComboStatus,
@@ -47,6 +47,7 @@ import {
   PR_READY_FOR_REVIEWER,
   type CommandResult,
 } from "./status.js";
+import { buildDirectorWatchCommand } from "./watchers.js";
 
 // -- 1/3 HELPER · Dependencies and tmux session recovery --
 export interface ResumeDeps {
@@ -291,6 +292,28 @@ export function resumeCombo(input: {
   if (state.kind === "initial_gate_retry") {
     const recreated = ensureResumeSession({ deps, combo, home, cli });
     const result = startInitialGateRetry({ deps, combo, runDir, cli });
+    try {
+      killWindowIfPresent(deps, combo, DIRECTOR_WATCH_WINDOW);
+    } catch {
+      // best-effort: a resume whose session had no director-watch
+    }
+    const directorWatch = deps.tmux(
+      newWindowArgs(
+        combo.tmuxSession,
+        DIRECTOR_WATCH_WINDOW,
+        buildDirectorWatchCommand({
+          cli,
+          comboHome: home,
+          comboId: combo.id,
+          pollSeconds: config.limits.babysitPollSeconds,
+          watchFailureLimit: config.limits.watchFailureLimit,
+          watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
+        }),
+      ),
+    );
+    if (directorWatch.status !== 0) {
+      deps.out(`resume: director-watch creation failed: ${directorWatch.stderr.trim() || "unknown error"}`);
+    }
     if (result.started) {
       deps.out(
         `resume: initial gate relaunched for ${combo.id} at ${result.headSha}` +
