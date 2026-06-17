@@ -259,9 +259,10 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.
 - Every director tick inspects active worker panes (`coder`, `reviewer`,
-  `gatekeeper`, and coder responding mode). A permission prompt, missing/dead
-  pane, or `[monitor].worker_stall_ticks` unchanged captures for the same worker journals
-  `needs_human` with `worker_permission_prompt`, `worker_dead`, or
+  `gatekeeper`, and coder responding mode). A permission prompt matching
+  `[monitor].permission_prompt_patterns`, missing/dead pane, or
+  `[monitor].worker_stall_ticks` unchanged captures for the same worker
+  journals `needs_human` with `worker_permission_prompt`, `worker_dead`, or
   `worker_stalled`.
 - Attention surface: tmux window titles + `combo-chen status` always answer
   "which combos need a human RIGHT NOW" (phase + needs_human flag). Five
