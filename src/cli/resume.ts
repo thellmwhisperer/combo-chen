@@ -312,7 +312,9 @@ export function resumeCombo(input: {
       ),
     );
     if (directorWatch.status !== 0) {
-      deps.out(`resume: director-watch creation failed: ${directorWatch.stderr.trim() || "unknown error"}`);
+      throw new Error(
+        `resume: director-watch creation failed for ${combo.id}: ${directorWatch.stderr.trim() || "unknown error"}`,
+      );
     }
     if (result.started) {
       deps.out(
