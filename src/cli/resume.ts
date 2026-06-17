@@ -113,6 +113,13 @@ function currentWorktreeHeadSha(deps: Pick<ResumeDeps, "git">, combo: ComboRecor
   return headSha === "" ? undefined : headSha;
 }
 
+function shaMatchesHead(candidate: string | undefined, headSha: string | undefined): boolean {
+  if (candidate === undefined || headSha === undefined) return false;
+  const pin = candidate.trim().toLowerCase();
+  const head = headSha.trim().toLowerCase();
+  return pin.length >= 7 && (pin === head || head.startsWith(pin));
+}
+
 function branchPrUrl(gh: GhRunner, branch: string): string | undefined {
   const result = gh(["pr", "list", "--head", branch, "--json", "url", "--jq", ".[0].url"]);
   if (result.status !== 0) return undefined;
@@ -154,7 +161,7 @@ function shouldRetryInitialGate(events: ComboEvent[], headSha: string | undefine
     (status?.state === "fix_inflight" || status?.state === "awaiting_approval") &&
     status.headSha !== undefined &&
     headSha !== undefined &&
-    status.headSha !== headSha
+    !shaMatchesHead(status.headSha, headSha)
   ) {
     return true;
   }

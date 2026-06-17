@@ -296,8 +296,14 @@ function hasStopWhenFlag(command: string): boolean {
   return /(?:^|\s)--stop-when(?:=|\s+)(?:'[^']+'|"[^"]+"|\S+)(?:\s|$)/.test(command);
 }
 
-export function unsafeCoderInvocationReasons(command: string): string[] {
-  if (!hasGnhfCommand(command)) return [];
+interface CoderSafetyOptions {
+  requireGnhf?: boolean;
+}
+
+export function unsafeCoderInvocationReasons(command: string, options: CoderSafetyOptions = {}): string[] {
+  if (!hasGnhfCommand(command)) {
+    return options.requireGnhf === true ? ["gnhf command"] : [];
+  }
 
   const reasons: string[] = [];
   if (!hasPinnedGnhfPackage(command)) reasons.push("pinned gnhf package version");
@@ -308,8 +314,8 @@ export function unsafeCoderInvocationReasons(command: string): string[] {
   return reasons;
 }
 
-export function assertSafeCoderInvocation(command: string): void {
-  const reasons = unsafeCoderInvocationReasons(command);
+export function assertSafeCoderInvocation(command: string, options: CoderSafetyOptions = {}): void {
+  const reasons = unsafeCoderInvocationReasons(command, options);
   if (reasons.length > 0) {
     throw new ComboConfigError(`Unsafe coder invocation: missing ${reasons.join(", ")}`);
   }

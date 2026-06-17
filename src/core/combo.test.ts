@@ -246,6 +246,10 @@ describe("buildRunnerScript", () => {
     expect(script).toContain(') < /dev/null > "$coder_log" 2>&1; then');
   });
 
+  it("runs the gatekeeper phase with stdin closed so auth prompts cannot block the runner", () => {
+    expect(script).toContain(') < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?');
+  });
+
   it("fetches and rebases origin/main before the coder starts", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");

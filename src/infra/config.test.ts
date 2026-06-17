@@ -464,6 +464,11 @@ describe("loadConfig", () => {
 
 // -- 2/3 HELPER · Coder safety guard tests --
 describe("unsafeCoderInvocationReasons", () => {
+  it("treats codex coder commands without gnhf as unsafe while leaving explicit wrappers configurable", () => {
+    expect(unsafeCoderInvocationReasons("codex run {prompt}", { requireGnhf: true })).toEqual(["gnhf command"]);
+    expect(unsafeCoderInvocationReasons("hermes -z {prompt}", { requireGnhf: false })).toEqual([]);
+  });
+
   it("treats path-based gnhf invocations as gnhf commands that require safeguards", () => {
     expect(
       unsafeCoderInvocationReasons(
