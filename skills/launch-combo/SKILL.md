@@ -82,9 +82,23 @@ Loop hygiene: check the configured coordination inbox every cycle. Coders do not
 
 When the coder is gnhf, check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log`. A growing `iteration-N.jsonl` means the coder is active. No growth plus no terminal event is a stall to investigate, not a success.
 
-## Reviving a combo with `emit` (the near-last lever)
+## Park and resume (reboot-safe handoff)
 
-In the normal path the runner writes every event. `combo-chen emit -n <comboId> <event> [--field k=v...]` is the recovery lever for when a real-world fact happened but the runner died before journaling it, so the combo is frozen in the wrong phase. It is near-last: pull it only after diagnosis (`combo-chen status`, `combo-chen events`, `gh pr view`, `no-mistakes axi status`) confirms the fact is true and the journal is the only thing out of date. Never emit to fabricate a state that did not happen.
+`combo-chen park -n <comboId> --by <who>` stops the local tmux session WITHOUT terminally closing the combo. It writes a `park-handoff.md` in the run dir (phase, branch, worktree, PR, downstream, last event, and the exact resume command) and journals `parked`. Use it before a reboot or when handing a lane off; the combo can be revived later.
+
+`combo-chen resume -n <comboId>` is the first-class recovery lever and the FIRST move after any reboot, park, compaction, or restart. It reads the combo record plus journal, computes the deep downstream status, and performs exactly ONE safe transition for the state it finds:
+
+- PR ready for review: recreate the tmux monitoring session, start the reviewer.
+- Gate (no-mistakes) running: recreate the session, ensure the gatekeeper window, and if a PR was opened out of band while CI is live, journal `pr_opened` for you and start the reviewer.
+- PR already exists: recreate the session, start the reviewer.
+- Initial gate never finished: relaunch the initial gate.
+- Coder stopped before handoff, ambiguous gate, or unknown state: resume does NOT guess. It prints explicit salvage next-steps and stops.
+
+resume auto-handles the common revives, including the most common one (bridging a missing `pr_opened` while the gate is live), and it recreates the `events --follow` monitoring shell if it died. For the salvage states it punts on, fall back to manual `emit` below. After resume, confirm with `combo-chen status` that the phase is right and the worker you expected actually started.
+
+## Reviving a combo with `emit` (the fallback after resume)
+
+In the normal path the runner writes every event. `combo-chen emit -n <comboId> <event> [--field k=v...]` is the recovery lever for when a real-world fact happened but the runner died before journaling it, so the combo is frozen in the wrong phase. Reach for it only after `combo-chen resume` has run and either punted to a salvage state or does not cover the fact you need to record, and only after diagnosis (`combo-chen status`, `combo-chen events`, `gh pr view`, `no-mistakes axi status`) confirms the fact is true and the journal is the only thing out of date. Never emit to fabricate a state that did not happen.
 
 Each event moves the phase machine that `combo-chen status` and `director-watch` read (`deriveStatus`). That move IS the side-effect: emitting reclassifies the combo and unblocks (or re-gates) the workers keyed on that phase.
 
@@ -122,4 +136,4 @@ When the PR is green with a current lgtm:
 
 ## Recovery after interruption
 
-Re-read in this order: `combo-chen status`, the combo journal (`combo-chen events`), `gh pr view` on the PR, `no-mistakes axi status`, and the configured coordination inbox. Reconstruct state only from those. Then resume the loop.
+Never trust session memory after a restart. Re-read in this order: `combo-chen status`, the combo journal (`combo-chen events`), `gh pr view` on the PR, `no-mistakes axi status`, and the configured coordination inbox. Reconstruct state only from those. Then run `combo-chen resume -n <comboId>` (see "Park and resume") and re-enter the loop.
