@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4105 lines.
+ *   deps so tests run without a real terminal or network. ~4245 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -1390,7 +1390,16 @@ describe("run", () => {
       expect.stringContaining("no-mistakes attach"),
     ]);
     expect(gatekeeperWindow?.at(-1)).toContain(join(repoDir, ".worktrees", "issue-7"));
-    expect(tmuxNewWindows.some((call) => call.includes("watch"))).toBe(false);
+    const directorWatchWindow = tmuxNewWindows.find((call) => call.includes("director-watch"));
+    expect(directorWatchWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "director-watch",
+      expect.stringContaining("director-tick -n 'o-r-7'"),
+    ]);
     expect(calls).toContainEqual([
       "tmux",
       "split-window",
