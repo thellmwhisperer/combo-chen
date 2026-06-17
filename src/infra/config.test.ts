@@ -1,16 +1,18 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~456 lines,
+ * @overview Unit tests for config loading and command rendering. ~540 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at describe("loadConfig")   ← config cascade contract
- *   2. Then describe("renderCommand")    ← shell-safe placeholder interpolation
+ *   2. Then describe("unsafeCoderInvocationReasons") <- runner safety policy
+ *   3. Then describe("renderCommand")    ← shell-safe placeholder interpolation
  *
  *   ┌─ TEST AREAS ──────────────────────────────────────────────┐
  *   │ loadConfig      Defaults, cascade, legacy aliases,        │
  *   │                 validation rejections                      │
+ *   │ safety guard    Unsafe gnhf invocation detection           │
  *   │ renderCommand   Placeholder interpolation, shell quoting   │
  *   └────────────────────────────────────────────────────────────┘
  *
@@ -22,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ComboConfigError, loadConfig, renderCommand } from "./config.js";
+import { ComboConfigError, loadConfig, renderCommand, unsafeCoderInvocationReasons } from "./config.js";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-test-"));
@@ -34,7 +36,7 @@ function writeToml(dir: string, name: string, body: string): string {
   return path;
 }
 
-// -- 1/2 CORE · Config loading cascade tests ← START HERE --
+// -- 1/3 CORE · Config loading cascade tests ← START HERE --
 
 
 describe("loadConfig", () => {
@@ -43,7 +45,8 @@ describe("loadConfig", () => {
 
     expect(config.roles.coder).toBe("codex");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
-    expect(config.roles.reviewer).toEqual(["claude", "coderabbit"]);
+    expect(config.roles.reviewer).toEqual(["claude"]);
+    expect(config.ambientReviewerAgents).toEqual(["coderabbit"]);
     expect(config.roles.merge).toBe("human");
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
@@ -58,8 +61,20 @@ describe("loadConfig", () => {
     expect(config.limits.watchBackoffMaxSeconds).toBe(3600);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
-    expect(config.coderCommand).toBe("npx -y gnhf --agent codex --current-branch {prompt}");
+    expect(config.coderCommand).toContain("npx -y gnhf@0.1.41");
+    expect(config.coderCommand).toContain("--max-iterations 12");
+    expect(config.coderCommand).toContain("--stop-when");
+    expect(config.coderCommand).toContain("--prevent-sleep on");
+    expect(config.coderCommand).toContain("--meteor-frequency 0");
+    expect(config.coderCommand).toContain("--current-branch {prompt}");
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
+    expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
+    expect(config.gatekeeperCommand).toContain("--skip=ci");
+    expect(config.gatekeeperCommand.indexOf("no-mistakes daemon start")).toBeLessThan(
+      config.gatekeeperCommand.indexOf("no-mistakes axi run"),
+    );
+    expect(config.gatekeeperCommand).not.toContain("git push no-mistakes");
     expect(config).not.toHaveProperty("rowerCommand");
     expect(config).not.toHaveProperty("rowerResumeCommand");
     expect(config).not.toHaveProperty("hodorCommand");
@@ -93,6 +108,53 @@ describe("loadConfig", () => {
     expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
     expect(config.coderRespondingWindowName).toBe("sitter");
+  });
+
+  it("lets reviewer ambient checks stay configurable outside the active reviewer command", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'reviewer = ["claude"]',
+        "",
+        "[reviewer]",
+        'ambient = ["reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.reviewerAgent).toBe("claude");
+    expect(config.ambientReviewerAgents).toEqual(["reviewdog"]);
+  });
+
+  it("keeps configured ambient reviewer agents out of coder and active reviewer roles", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'coder = "codex"',
+        'reviewer = ["claude"]',
+        "",
+        "[reviewer]",
+        'ambient = ["codex", "claude", "reviewdog", "reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.reviewerAgent).toBe("claude");
+    expect(config.ambientReviewerAgents).toEqual(["reviewdog"]);
   });
 
   it("repo config wins over user config (repo owns policy)", () => {
@@ -266,6 +328,7 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("hermes:deepseek");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["coderabbit", "hermes:gemini"]);
+    expect(config.ambientReviewerAgents).toEqual(["coderabbit"]);
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
     expect(config.roles).not.toHaveProperty("gordon");
@@ -421,9 +484,32 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
   });
 });
-// -/ 1/2
+// -/ 1/3
 
-// -- 2/2 HELPER · Command rendering tests --
+// -- 2/3 HELPER · Coder safety guard tests --
+describe("unsafeCoderInvocationReasons", () => {
+  it("treats codex coder commands without gnhf as unsafe while leaving explicit wrappers configurable", () => {
+    expect(unsafeCoderInvocationReasons("codex run {prompt}", { requireGnhf: true })).toEqual(["gnhf command"]);
+    expect(unsafeCoderInvocationReasons("hermes -z {prompt}", { requireGnhf: false })).toEqual([]);
+  });
+
+  it("treats path-based gnhf invocations as gnhf commands that require safeguards", () => {
+    expect(
+      unsafeCoderInvocationReasons(
+        "/usr/local/bin/gnhf@1.2.3 --max-iterations 12 --stop-when done --prevent-sleep on --meteor-frequency 0",
+      ),
+    ).toEqual([]);
+    expect(unsafeCoderInvocationReasons("./gnhf --max-iterations 12")).toEqual([
+      "pinned gnhf package version",
+      "--stop-when",
+      "--prevent-sleep on",
+      "telemetry off (--meteor-frequency 0)",
+    ]);
+  });
+});
+// -/ 2/3
+
+// -- 3/3 HELPER · Command rendering tests --
 describe("renderCommand", () => {
   it("interpolates the documented placeholders as single-quoted shell tokens", () => {
     const rendered = renderCommand("gnhf --x {issue_url} in {worktree} for {repo} on {branch}: {prompt}", {
@@ -451,4 +537,4 @@ describe("renderCommand", () => {
     expect(() => renderCommand("gnhf {isue_url}", { issue_url: "x" })).toThrow(/isue_url/);
   });
 });
-// -/ 2/2
+// -/ 3/3

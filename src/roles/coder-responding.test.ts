@@ -355,7 +355,7 @@ describe("signalFromComment", () => {
     expect(signalFromComment(42, "pr_comment")).toBeUndefined();
   });
 
-  it("ignores a pure CodeRabbit retrigger bookkeeping PR comment", () => {
+  it("ignores a pure ambient-reviewer retrigger bookkeeping PR comment", () => {
     expect(
       signalFromComment(
         {
@@ -368,6 +368,23 @@ describe("signalFromComment", () => {
           user: { login: "teseo" },
         },
         "pr_comment",
+        { ambientReviewerAgents: ["coderabbit"] },
+      ),
+    ).toBeUndefined();
+
+    expect(
+      signalFromComment(
+        {
+          body: [
+            "@reviewdog review",
+            "",
+            "Codex -- Re-running ReviewDog for current PR #82 head 73f80173 after the no-mistakes documentation commit.",
+          ].join("\n"),
+          html_url: "https://github.com/o/r/pull/7#issuecomment-2",
+          user: { login: "teseo" },
+        },
+        "pr_comment",
+        { ambientReviewerAgents: ["reviewdog"] },
       ),
     ).toBeUndefined();
   });

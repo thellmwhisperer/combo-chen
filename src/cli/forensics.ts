@@ -40,7 +40,7 @@ export interface ForensicsGithubPrFacts {
   state?: string;
   mergedAt?: string;
   ci?: ForensicsSignalState;
-  codeRabbit?: ForensicsSignalState;
+  ambientReviewer?: ForensicsSignalState;
   mergeState?: string;
   branchBehind?: boolean;
 }
@@ -101,7 +101,7 @@ export interface ForensicsComboReport {
   };
   gates: {
     ci: ForensicsSignalState;
-    codeRabbit: ForensicsSignalState;
+    ambientReviewer: ForensicsSignalState;
     mergeState?: string;
     branchBehind?: boolean;
     gatekeeper: {
@@ -182,7 +182,7 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
     },
     gates: {
       ci: input.github?.pr?.ci ?? "unknown",
-      codeRabbit: input.github?.pr?.codeRabbit ?? "unknown",
+      ambientReviewer: input.github?.pr?.ambientReviewer ?? "unknown",
       ...(input.github?.pr?.mergeState !== undefined ? { mergeState: input.github.pr.mergeState } : {}),
       ...(input.github?.pr?.branchBehind !== undefined ? { branchBehind: input.github.pr.branchBehind } : {}),
       gatekeeper: {
@@ -285,7 +285,7 @@ export function renderForensicsMarkdown(reports: ForensicsComboReport[]): string
       [
         "- Gates:",
         `CI: ${report.gates.ci}`,
-        `CodeRabbit: ${report.gates.codeRabbit}`,
+        `ambient reviewer: ${report.gates.ambientReviewer}`,
         `reviewer current verdict: ${yesNo(report.gates.reviewer.current)}`,
         `gatekeeper current: ${yesNo(report.gates.gatekeeper.current)}`,
         `issue closed: ${report.gates.issueClosed}`,

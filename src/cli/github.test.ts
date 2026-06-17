@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for GitHub CLI parsing helpers. ~170 lines, gh JSON and URL parsing.
+ * @overview Unit tests for GitHub CLI parsing helpers. ~225 lines, gh JSON and URL parsing.
  *
  *   READING GUIDE
  *   -------------
@@ -22,7 +22,13 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { fetchIssueDetails, latestGitHubLgtmSha, parsePrView, remoteSlug } from "./github.js";
+import {
+  fetchForensicsGithubFacts,
+  fetchIssueDetails,
+  latestGitHubLgtmSha,
+  parsePrView,
+  remoteSlug,
+} from "./github.js";
 
 // -- 1/1 CORE · cli GitHub helpers tests <- START HERE --
 describe("cli GitHub helpers", () => {
@@ -70,6 +76,44 @@ describe("cli GitHub helpers", () => {
     expect(calls).toEqual([
       ["issue", "view", "https://github.com/o/r/issues/84", "--json", "title,body"],
     ]);
+  });
+
+  it("separates configured ambient reviewer checks from CI for forensics", () => {
+    const gh = (args: string[]) => {
+      if (args[0] === "pr") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "def456",
+            state: "OPEN",
+            statusCheckRollup: [
+              { __typename: "CheckRun", name: "unit", status: "COMPLETED", conclusion: "SUCCESS" },
+              { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "FAILURE" },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "issue") {
+        return { status: 0, stdout: JSON.stringify({ state: "OPEN" }), stderr: "" };
+      }
+      if (args[0] === "api") {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    const facts = fetchForensicsGithubFacts(
+      gh,
+      "https://github.com/o/r/issues/84",
+      "https://github.com/o/r/pull/84",
+      undefined,
+      { ambientCheckNames: ["reviewdog"] },
+    );
+
+    expect(facts?.pr?.ci).toBe("success");
+    expect(facts?.pr?.ambientReviewer).toBe("failure");
+    expect(facts?.pr).not.toHaveProperty("codeRabbit");
   });
 
   it("finds the latest non-negated LGTM pin across comments and reviews", () => {

@@ -1,5 +1,5 @@
 /**
- * @overview GitHub CLI parsing helpers. ~330 lines, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~395 lines, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
@@ -22,12 +22,13 @@
  *   GitHubPin, lgtmCandidateLines, lgtmPinFromBody, pinsFromItems, rollupSignal, parseIssueView
  *
  * @exports GhResult, GhRunner, IssueDetails, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, PrView, parsePrView, fetchForensicsGithubFacts
- * @deps ../core/gh-api, ../core/pr-url
+ * @deps ../core/gh-api, ../core/pr-url, ./checks
  */
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { parseGitHubPullRequestUrl } from "../core/pr-url.js";
+import { checkName } from "./checks.js";
 
-// -- 1/4 CORE · Issue metadata and remoteSlug <- START HERE --
+// -- 1/5 CORE · Issue metadata and remoteSlug <- START HERE --
 export interface GhResult {
   status: number;
   stdout: string;
@@ -51,7 +52,7 @@ export interface ForensicsGithubFacts {
     state?: string;
     mergedAt?: string;
     ci?: GithubSignalState;
-    codeRabbit?: GithubSignalState;
+    ambientReviewer?: GithubSignalState;
     mergeState?: string;
     branchBehind?: boolean;
   };
@@ -97,9 +98,9 @@ export function fetchIssueDetails(gh: GhRunner, issueUrl: string): IssueDetails 
   }
   return { title, body: body ?? "" };
 }
-// -/ 1/4
+// -/ 1/5
 
-// -- 2/4 HELPER · LGTM pin parsing --
+// -- 2/5 HELPER · LGTM pin parsing --
 interface GitHubPin {
   sha: string;
   t: number;
@@ -155,9 +156,9 @@ function pinsFromItems(entries: unknown[]): GitHubPin[] {
   }
   return pins;
 }
-// -/ 2/4
+// -/ 2/5
 
-// -- 3/4 CORE · latestGitHubLgtmSha --
+// -- 3/5 CORE · latestGitHubLgtmSha --
 export function latestGitHubLgtmSha(
   gh: GhRunner,
   prUrl: string,
@@ -180,7 +181,7 @@ export function latestGitHubLgtmSha(
   pins.sort((a, b) => a.t - b.t);
   return pins.at(-1)?.sha;
 }
-// -/ 3/4
+// -/ 3/5
 
 // -- 4/5 CORE · parsePrView --
 export interface PrView {
@@ -260,6 +261,7 @@ export function fetchForensicsGithubFacts(
   issueUrl: string,
   prUrl: string | undefined,
   cache?: GhApiCache,
+  options: { ambientCheckNames?: string[] } = {},
 ): ForensicsGithubFacts | undefined {
   const facts: ForensicsGithubFacts = {};
 
@@ -278,8 +280,14 @@ export function fetchForensicsGithubFacts(
           url: prUrl,
           headSha: parsed.headSha,
           state: parsed.state,
-          ci: rollupSignal(parsed.statusCheckRollup, false),
-          codeRabbit: rollupSignal(parsed.statusCheckRollup, true),
+          ci: rollupSignal(parsed.statusCheckRollup, {
+            ambientCheckNames: options.ambientCheckNames,
+            selectAmbient: false,
+          }),
+          ambientReviewer: rollupSignal(parsed.statusCheckRollup, {
+            ambientCheckNames: options.ambientCheckNames,
+            selectAmbient: true,
+          }),
           ...(parsed.mergedAt !== undefined ? { mergedAt: parsed.mergedAt } : {}),
           ...(parsed.mergeStateStatus !== undefined
             ? {
@@ -325,9 +333,13 @@ function parseIssueView(stdout: string): ForensicsGithubFacts["issue"] | undefin
   };
 }
 
-function rollupSignal(rollup: unknown[] | undefined, onlyCodeRabbit: boolean): GithubSignalState {
+function rollupSignal(
+  rollup: unknown[] | undefined,
+  options: { ambientCheckNames?: string[]; selectAmbient: boolean },
+): GithubSignalState {
   if (rollup === undefined) return "unknown";
-  const items = rollup.filter((item) => isCodeRabbitCheck(item) === onlyCodeRabbit);
+  const ambientCheckNames = options.ambientCheckNames ?? [];
+  const items = rollup.filter((item) => checkMatchesAny(item, ambientCheckNames) === options.selectAmbient);
   if (items.length === 0) return "unknown";
   const states = items.map(checkSignalState);
   if (states.includes("failure")) return "failure";
@@ -365,16 +377,12 @@ const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
 const FAILURE_STATUS_STATES = new Set(["ERROR", "FAILURE", "FAILED", "CANCELLED", "TIMED_OUT"]);
 const PENDING_STATUS_STATES = new Set(["EXPECTED", "IN_PROGRESS", "PENDING", "QUEUED", "REQUESTED", "WAITING"]);
 
-function isCodeRabbitCheck(item: unknown): boolean {
-  return checkName(item).toLowerCase().includes("coderabbit");
-}
-
-function checkName(item: unknown): string {
-  if (!isRecord(item)) return "";
-  const parts = [item["name"], item["context"], item["workflowName"]];
-  const app = item["app"];
-  if (isRecord(app)) parts.push(app["name"], app["slug"]);
-  return parts.filter((part): part is string => typeof part === "string").join(" ");
+function checkMatchesAny(item: unknown, names: string[]): boolean {
+  const label = checkName(item).toLowerCase();
+  return names.some((name) => {
+    const needle = name.trim().toLowerCase();
+    return needle.length > 0 && label.includes(needle);
+  });
 }
 
 function upperString(value: unknown): string | undefined {

@@ -69,6 +69,7 @@ describe("event schema", () => {
         "ready_for_merge",
         "merged",
         "combo_closed",
+        "parked",
         "coder_retry",
         "rebase_failed",
         "rebase_conflict",
@@ -95,6 +96,7 @@ describe("event schema", () => {
     expect(EVENT_TYPES.ready_for_merge.required).toEqual(["sha", "pr_url"]);
     expect(EVENT_TYPES.merged.required).toEqual(["sha", "by"]);
     expect(EVENT_TYPES.combo_closed.required).toEqual([]);
+    expect(EVENT_TYPES.parked.required).toEqual(["by", "summary_path"]);
     expect(EVENT_TYPES.coder_retry.required).toEqual([]);
     expect(EVENT_TYPES.rebase_failed.required).toEqual(["base"]);
     expect(EVENT_TYPES.rebase_conflict.required).toEqual(["base"]);

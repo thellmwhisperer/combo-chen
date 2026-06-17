@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~290 lines, 5 exports, post-PR orchestration.
+ * @overview Director CLI helpers. ~275 lines, 5 exports, post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -21,16 +21,19 @@
  *
  *   INTERNALS
  *   ---------
- *   runReadyForMergeIfNeeded, hasCleanCodeRabbitSignal, rollup helpers
+ *   runReadyForMergeIfNeeded, hasCleanAmbientReviewerSignal, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/tmux, ../roles/coder-responding, ./gate, ./github, ./reviewer, ./coder
+ * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache, readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl, parsePullRequestUrl } from "../roles/coder-responding.js";
 import { nudgeReviewComments } from "./coder.js";
+import { ambientCheckSucceeded, checkRollupSucceeded } from "./checks.js";
 import {
   latestGateStatus,
   latestPublishedGateSha,
@@ -38,7 +41,6 @@ import {
 } from "./gate.js";
 import { parsePrView } from "./github.js";
 import { livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
-import type { TmuxResult } from "../infra/tmux.js";
 
 // -- 1/3 HELPER · Dependency contract --
 export interface DirectorDeps {
@@ -94,67 +96,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }
 
-function upperString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
-}
-
-const SUCCESSFUL_CHECK_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
-const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS"]);
-
-function checkSignalSucceeded(item: unknown): boolean {
-  if (!isRecord(item)) return false;
-  const conclusion = upperString(item["conclusion"]);
-  if (conclusion !== undefined) return SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion);
-  const state = upperString(item["state"]);
-  if (state !== undefined) return SUCCESSFUL_STATUS_STATES.has(state);
-  return false;
-}
-
-function checkSignalIsSuccess(item: unknown): boolean {
-  if (!isRecord(item)) return false;
-  const conclusion = upperString(item["conclusion"]);
-  if (conclusion !== undefined) return conclusion === "SUCCESS";
-  const state = upperString(item["state"]);
-  if (state !== undefined) return state === "SUCCESS";
-  return false;
-}
-
-function checkName(item: unknown): string {
-  if (!isRecord(item)) return "";
-  const parts = [item["name"], item["context"], item["workflowName"]];
-  const app = item["app"];
-  if (isRecord(app)) parts.push(app["name"], app["slug"]);
-  return parts.filter((part): part is string => typeof part === "string").join(" ");
-}
-
-function isCodeRabbitCheck(item: unknown): boolean {
-  return checkName(item).toLowerCase().includes("coderabbit");
-}
-
-function ciRollupSucceeded(rollup: unknown[] | undefined): boolean {
-  if (rollup === undefined) return false;
-  const ciChecks = rollup.filter((item) => !isCodeRabbitCheck(item));
-  return ciChecks.length > 0 && ciChecks.every(checkSignalSucceeded);
-}
-
-function codeRabbitCheckSucceeded(rollup: unknown[] | undefined): boolean {
-  return rollup !== undefined && rollup.some((item) => isCodeRabbitCheck(item) && checkSignalIsSuccess(item));
-}
-
 function shaMatches(candidate: unknown, headSha: string): boolean {
   if (typeof candidate !== "string" || candidate.trim() === "") return false;
   return candidate.trim().toLowerCase() === headSha.toLowerCase();
 }
 
-function isCodeRabbitAuthor(value: unknown): boolean {
+function isAmbientReviewerAuthor(value: unknown, ambientReviewerAgents: string[]): boolean {
+  if (ambientReviewerAgents.length === 0) return false;
   if (!isRecord(value)) return false;
   const login = value["login"];
-  return typeof login === "string" && login.toLowerCase().startsWith("coderabbit");
+  if (typeof login !== "string") return false;
+  const normalizedLogin = login.toLowerCase();
+  return ambientReviewerAgents.some((agent) => {
+    const normalizedAgent = agent.trim().toLowerCase();
+    return normalizedAgent.length > 0 && normalizedLogin.startsWith(normalizedAgent);
+  });
 }
 
-const CODERABBIT_NO_REVIEW = /\breview\s+skipped\b|rate[-\s]?limit(?:ed)?|\bno[-\s]?review\b|unable to review|could not review/i;
+const AMBIENT_REVIEWER_NO_REVIEW = /\breview\s+skipped\b|rate[-\s]?limit(?:ed)?|\bno[-\s]?review\b|unable to review|could not review/i;
 
-interface CodeRabbitComment {
+interface AmbientReviewerComment {
   body: string;
   t: number;
 }
@@ -171,9 +132,13 @@ function timestampFromGitHubItem(item: Record<string, unknown>): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function codeRabbitCommentForHead(item: unknown, headSha: string): CodeRabbitComment | undefined {
+function ambientReviewerCommentForHead(
+  item: unknown,
+  headSha: string,
+  ambientReviewerAgents: string[],
+): AmbientReviewerComment | undefined {
   if (!isRecord(item)) return undefined;
-  if (!isCodeRabbitAuthor(item["user"] ?? item["author"])) return undefined;
+  if (!isAmbientReviewerAuthor(item["user"] ?? item["author"], ambientReviewerAgents)) return undefined;
   const body = item["body"];
   if (typeof body !== "string" || body.trim() === "") return undefined;
   const itemSha = item["commit_id"] ?? item["commitId"] ?? item["original_commit_id"] ?? item["originalCommitId"];
@@ -183,12 +148,13 @@ function codeRabbitCommentForHead(item: unknown, headSha: string): CodeRabbitCom
   return { body, t: timestampFromGitHubItem(item) };
 }
 
-function latestCodeRabbitCommentForHead(
+function latestAmbientReviewerCommentForHead(
   gh: DirectorDeps["gh"],
   prUrl: string,
   headSha: string,
+  ambientReviewerAgents: string[],
   cache?: GhApiCache,
-): CodeRabbitComment | undefined {
+): AmbientReviewerComment | undefined {
   const ref = parsePullRequestUrl(prUrl);
   if (!ref) return undefined;
   const endpoints = [
@@ -197,23 +163,31 @@ function latestCodeRabbitCommentForHead(
   ];
   const comments = endpoints.flatMap((endpoint) =>
     readGhArray(gh, endpoint, cache)
-      .map((item) => codeRabbitCommentForHead(item, headSha))
-      .filter((item): item is CodeRabbitComment => item !== undefined),
+      .map((item) => ambientReviewerCommentForHead(item, headSha, ambientReviewerAgents))
+      .filter((item): item is AmbientReviewerComment => item !== undefined),
   );
   comments.sort((a, b) => a.t - b.t);
   return comments.at(-1);
 }
 
-function hasCleanCodeRabbitSignal(
+function hasCleanAmbientReviewerSignal(
   deps: DirectorDeps,
   prUrl: string,
   headSha: string,
   rollup: unknown[] | undefined,
+  ambientReviewerAgents: string[],
   cache?: GhApiCache,
 ): boolean {
-  if (!codeRabbitCheckSucceeded(rollup)) return false;
-  const latestComment = latestCodeRabbitCommentForHead(deps.gh, prUrl, headSha, cache);
-  return latestComment !== undefined && !CODERABBIT_NO_REVIEW.test(latestComment.body);
+  if (ambientReviewerAgents.length === 0) return true;
+  if (!ambientCheckSucceeded(rollup, ambientReviewerAgents)) return false;
+  const latestComment = latestAmbientReviewerCommentForHead(
+    deps.gh,
+    prUrl,
+    headSha,
+    ambientReviewerAgents,
+    cache,
+  );
+  return latestComment !== undefined && !AMBIENT_REVIEWER_NO_REVIEW.test(latestComment.body);
 }
 
 function hasReadyForMerge(events: ComboEvent[], headSha: string): boolean {
@@ -250,6 +224,8 @@ export function reviewStateAllowsReady(events: ComboEvent[], headSha: string): b
 function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCache?: GhApiCache): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
   const events = readEvents(runDir);
+  const combo = readCombo(runDir);
+  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
   const prUrl = latestPrUrl(events);
   if (prUrl === undefined) return;
   if (latestPublishedGateSha(events) === undefined || livePinnedLgtmSha(events) === undefined) return;
@@ -274,20 +250,27 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCach
   if (!headStateAllowsReady(events, prView)) return;
   if (!gateStateAllowsReady(events, headSha)) return;
   if (!reviewStateAllowsReady(events, headSha)) return;
-  if (!ciRollupSucceeded(prView.statusCheckRollup)) return;
+  if (!checkRollupSucceeded(prView.statusCheckRollup, { ambientCheckNames: config.ambientReviewerAgents })) return;
 
-  let codeRabbitClean = false;
+  let ambientReviewerClean = false;
   try {
-    codeRabbitClean = hasCleanCodeRabbitSignal(deps, prUrl, headSha, prView.statusCheckRollup, ghApiCache);
+    ambientReviewerClean = hasCleanAmbientReviewerSignal(
+      deps,
+      prUrl,
+      headSha,
+      prView.statusCheckRollup,
+      config.ambientReviewerAgents,
+      ghApiCache,
+    );
   } catch (error) {
     deps.out(
-      `director: failed to read CodeRabbit signal for ${comboId}: ${
+      `director: failed to read ambient reviewer signal for ${comboId}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     );
     return;
   }
-  if (!codeRabbitClean) return;
+  if (!ambientReviewerClean) return;
 
   appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: prUrl });
   deps.out(`director: ready_for_merge ${headSha}`);

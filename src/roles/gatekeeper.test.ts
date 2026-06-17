@@ -1,8 +1,8 @@
 /**
- * @overview Unit tests for the gatekeeper role. ~113 lines, testing
+ * @overview Unit tests for the gatekeeper role. ~215 lines, testing
  *   gatekeeper invocation building, issue→PR intent generation (with
- *   autoclose keywords and truncation), axi TOON outcome parsing, and
- *   the PR body issue autoclose contract.
+ *   autoclose keywords, truncation, and push-safe base64 encoding), axi
+ *   TOON outcome parsing, and the PR body issue autoclose contract.
  *
  *   READING GUIDE
  *   ─────────────
@@ -11,6 +11,7 @@
  *
  *   ┌─ TEST AREAS ────────────────────────────────────────┐
  *   │ buildGatekeeperInvocation     Invocation + intent    │
+ *   │ buildNoMistakesPushIntent    Base64 push-option intent │
  *   │ parseAxiOutcome              TOON outcome extraction │
  *   │ PR body issue autoclose contract  Keyword detection  │
  *   └──────────────────────────────────────────────────────┘
@@ -23,6 +24,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
+  buildNoMistakesPushIntent,
   ensureIssueAutocloseInPrBody,
   hasIssueAutocloseInPrBody,
   parseAxiOutcome,
@@ -30,9 +32,70 @@ import {
 
 // -- 1/2 CORE · Gatekeeper invocation + parseAxiOutcome ← START HERE --
 describe("buildGatekeeperInvocation", () => {
-  it("uses the configured gate command", () => {
+  it("forces no-mistakes publish-only mode", () => {
     expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run" })).toBe(
-      "no-mistakes axi run",
+      "no-mistakes axi run --skip=ci",
+    );
+  });
+
+  it("adds ci to existing no-mistakes skip flags", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip=lint" })).toBe(
+      "no-mistakes axi run --skip=lint,ci",
+    );
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip test,ci" })).toBe(
+      "no-mistakes axi run --skip test,ci",
+    );
+  });
+
+  it("does not match --skip inside single-quoted arguments", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --intent 'use --skip=lint to skip'" })).toBe(
+      "no-mistakes axi run --intent 'use --skip=lint to skip' --skip=ci",
+    );
+  });
+
+  it("does not match --skip inside double-quoted arguments", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: 'no-mistakes axi run --intent "use --skip=lint to skip"' })).toBe(
+      'no-mistakes axi run --intent "use --skip=lint to skip" --skip=ci',
+    );
+  });
+
+  it("does not let escaped quotes expose --skip text inside quoted arguments", () => {
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: 'no-mistakes axi run --intent "literal \\" --skip=lint stays data"',
+      }),
+    ).toBe('no-mistakes axi run --intent "literal \\" --skip=lint stays data" --skip=ci');
+  });
+
+  it("modifies real --skip outside quotes while ignoring --skip inside quotes", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip=lint --intent 'use --skip=test'" })).toBe(
+      "no-mistakes axi run --skip=lint,ci --intent 'use --skip=test'",
+    );
+  });
+
+  it("handles --skip with quoted value outside of intent quotes", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip='lint,test' --intent 'some value'" })).toBe(
+      "no-mistakes axi run --skip='lint,test,ci' --intent 'some value'",
+    );
+  });
+
+  it("scopes publish-only skip rewrites to the no-mistakes command segment", () => {
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: "preflight --skip=lint && no-mistakes axi run --intent ok",
+      }),
+    ).toBe("preflight --skip=lint && no-mistakes axi run --intent ok --skip=ci");
+
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: "preflight --skip=lint && no-mistakes axi run --skip=test",
+      }),
+    ).toBe("preflight --skip=lint && no-mistakes axi run --skip=test,ci");
+  });
+
+  it("does not treat quoted no-mistakes text as a runnable gate command", () => {
+    expect(buildGatekeeperInvocation({ gatekeeperCommand: "echo 'no-mistakes axi run --skip=lint'" })).toBe(
+      "echo 'no-mistakes axi run --skip=lint'",
     );
   });
 
@@ -74,6 +137,19 @@ describe("buildGatekeeperInvocation", () => {
     expect(intent).toContain("...");
     expect(intent).toContain("Fixes #53");
     expect(intent.length).toBeLessThan(body.length + 200);
+  });
+
+  it("base64-encodes multiline intent for git push options", () => {
+    const intent = "Implement issue\n\nTitle: Fix\tbug\nFixes #53";
+    expect(Buffer.from(buildNoMistakesPushIntent(intent), "base64").toString("utf8")).toBe(intent);
+  });
+
+  it("truncates intent before base64 encoding when it exceeds the push limit", () => {
+    const longIntent = "x".repeat(5000);
+    const encoded = buildNoMistakesPushIntent(longIntent);
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    expect(decoded.length).toBe(4000);
+    expect(decoded.endsWith("x...")).toBe(true);
   });
 });
 
