@@ -1,15 +1,16 @@
 /**
- * @overview Director CLI helpers. ~285 lines, 5 exports, post-PR orchestration.
+ * @overview Director CLI helpers. ~425 lines, 5 exports, initial-gate retry and post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at tickDirector          <- one deterministic post-PR pass.
- *   2. Then runReadyForMergeIfNeeded <- current-head READY agreement.
- *   3. READY pure helpers            <- head, gate, and review predicates.
+ *   2. Then runInitialGateRetryIfNeeded <- pre-PR gate failure recovery.
+ *   3. Then runReadyForMergeIfNeeded <- current-head READY agreement.
+ *   4. READY pure helpers            <- head, gate, and review predicates.
  *
  *   MAIN FLOW
  *   ---------
- *   inspectWorkerPanes -> tickReviewer -> nudgeReviewComments
+ *   runInitialGateRetryIfNeeded -> wait for PR -> inspectWorkerPanes -> tickReviewer -> nudgeReviewComments
  *     -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded
  *
  *   PUBLIC API
@@ -22,7 +23,8 @@
  *
  *   INTERNALS
  *   ---------
- *   runReadyForMergeIfNeeded, hasCleanAmbientReviewerSignal, review-comment helpers
+ *   runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, retry-count helpers,
+ *   hasCleanAmbientReviewerSignal, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
@@ -40,6 +42,7 @@ import {
   latestPublishedGateSha,
   runPostAddressGateIfNeeded,
   GATEKEEPER_WINDOW,
+  startInitialGateRetry,
 } from "./gate.js";
 import { parsePrView } from "./github.js";
 import { livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
@@ -69,6 +72,25 @@ export async function tickDirector(input: {
   const combo = readCombo(runDir);
   const ghApiCache = createGhApiCache();
   const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const initialGateActioned = await runInitialGateRetryIfNeeded({
+    deps,
+    combo,
+    runDir,
+    cli,
+    events: readEvents(runDir),
+    retryAttempts: config.gatekeeperInitialGateRetryAttempts,
+    backoffSeconds: config.gatekeeperInitialGateRetryBackoffSeconds,
+  });
+  if (initialGateActioned) {
+    deps.out(`director: tick complete for ${comboId}`);
+    return;
+  }
+
+  if (latestPrUrl(readEvents(runDir)) === undefined) {
+    deps.out(`director: tick complete for ${comboId}`);
+    return;
+  }
+
   const workerWindows = [...new Set([
     CODER_WINDOW,
     REVIEWER_WINDOW,
@@ -115,7 +137,78 @@ export async function tickDirector(input: {
 }
 // -/ 2/3
 
-// -- 3/3 HELPER · READY agreement --
+// -- 3/3 HELPER · Initial gate retry and READY agreement --
+interface InitialGateRetryState {
+  failures: number;
+  retryNumber: number;
+  retryAttempts: number;
+}
+
+function latestPrePrGateFailureState(
+  events: ComboEvent[],
+  retryAttempts: number,
+): InitialGateRetryState | undefined {
+  if (latestPrUrl(events) !== undefined) return undefined;
+  if (!events.some((event) => event.event === "coder_done")) return undefined;
+
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "needs_human" && event["reason"] === "gate_failed") return undefined;
+    if (event.event === "gate_started") return undefined;
+    if (event.event === "gate_failed") {
+      const failures = events.slice(0, i + 1).filter((candidate) => candidate.event === "gate_failed").length;
+      return {
+        failures,
+        retryNumber: Math.max(0, failures - 1) + 1,
+        retryAttempts,
+      };
+    }
+  }
+  return undefined;
+}
+
+function pluralizeRetry(count: number): string {
+  return count === 1 ? "retry" : "retries";
+}
+
+async function runInitialGateRetryIfNeeded(input: {
+  deps: DirectorDeps;
+  combo: ReturnType<typeof readCombo>;
+  runDir: string;
+  cli: string;
+  events: ComboEvent[];
+  retryAttempts: number;
+  backoffSeconds: number;
+}): Promise<boolean> {
+  const state = latestPrePrGateFailureState(input.events, input.retryAttempts);
+  if (state === undefined) return false;
+
+  const retriesUsed = Math.max(0, state.failures - 1);
+  if (retriesUsed >= state.retryAttempts) {
+    appendEvent(input.runDir, "needs_human", { reason: "gate_failed" });
+    input.deps.out(
+      `director: initial gate retries exhausted for ${input.combo.id} ` +
+        `after ${state.retryAttempts} ${pluralizeRetry(state.retryAttempts)}`,
+    );
+    return true;
+  }
+
+  input.deps.out(
+    `director: retrying initial gate for ${input.combo.id} after gate_failed ` +
+      `(attempt ${state.retryNumber}/${state.retryAttempts})`,
+  );
+  if (input.backoffSeconds > 0) {
+    await input.deps.sleep(input.backoffSeconds * 1000);
+  }
+  startInitialGateRetry({
+    deps: input.deps,
+    combo: input.combo,
+    runDir: input.runDir,
+    cli: input.cli,
+  });
+  return true;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
 }

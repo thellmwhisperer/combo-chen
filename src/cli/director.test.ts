@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~410 lines, READY and post-address orchestration.
+ * @overview Unit tests for director CLI helpers. ~700 lines, initial-gate retry, READY, and post-address orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -90,12 +90,14 @@ function fakeDeps(input: {
   codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
   ambientReviewerLogin?: string;
   issueComments?: unknown[];
+  env?: Record<string, string | undefined>;
   git?: DirectorDeps["git"];
+  sleep?: DirectorDeps["sleep"];
 }): { deps: DirectorDeps; calls: string[][]; out: string[] } {
   const calls: string[][] = [];
   const out: string[] = [];
   const deps: DirectorDeps = {
-    env: { COMBO_CHEN_HOME: input.homeDir },
+    env: { COMBO_CHEN_HOME: input.homeDir, ...input.env },
     out: (line) => out.push(line),
     tmux: (args) => {
       calls.push(["tmux", ...args]);
@@ -170,7 +172,7 @@ function fakeDeps(input: {
         }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
       }),
-    sleep: () => Promise.resolve(),
+    sleep: input.sleep ?? (() => Promise.resolve()),
   };
   return { deps, calls, out };
 }
@@ -221,6 +223,91 @@ describe("READY pure state helpers", () => {
 });
 
 describe("tickDirector", () => {
+  it("auto-retries a pre-PR gate_failed after the configured backoff", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    mkdirSync(record.worktree, { recursive: true });
+    writeCombo(runDir, record);
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "gate_started", {});
+    appendEvent(runDir, "gate_failed", { exit_code: 1, reason: "gate_failed" });
+    const headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const sleeps: number[] = [];
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      worktreeHeadSha: headSha,
+      env: {
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS: "2",
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS: "1",
+      },
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(sleeps).toEqual([1000]);
+    const scriptPath = join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.sh`);
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    );
+    expect(gatekeeperWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    const script = readFileSync(scriptPath, "utf8");
+    expect(script).toContain("initial gate retry for o-r-7");
+    expect(script).toContain("emit -n 'o-r-7' gate_started");
+    expect(readEvents(runDir).some((entry) => entry.event === "needs_human")).toBe(false);
+    expect(out).toContain("director: retrying initial gate for o-r-7 after gate_failed (attempt 1/2)");
+
+    const callsAfterRetry = calls.length;
+    appendEvent(runDir, "gate_started", {});
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(
+      calls.slice(callsAfterRetry).some(
+        (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+      ),
+    ).toBe(false);
+    expect(
+      readEvents(runDir).some((entry) => entry.event === "needs_human" && entry["reason"] === "gate_failed"),
+    ).toBe(false);
+  });
+
+  it("journals needs_human after configured pre-PR gate_failed retries are exhausted", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    mkdirSync(record.worktree, { recursive: true });
+    writeCombo(runDir, record);
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "gate_started", {});
+    appendEvent(runDir, "gate_failed", { exit_code: 1, reason: "gate_failed" });
+    appendEvent(runDir, "hodor_started", {});
+    appendEvent(runDir, "hodor_failed", { exit_code: 2, reason: "gate_failed" });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      env: {
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS: "1",
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS: "0",
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "gate_failed" }),
+    );
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+    expect(out).toContain("director: initial gate retries exhausted for o-r-7 after 1 retry");
+  });
+
   it("escalates a reviewer permission prompt instead of silently waiting for LGTM", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

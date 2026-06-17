@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~692 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~750 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -62,6 +62,7 @@ import {
   hasSessionArgs,
   killSessionArgs,
   listWindowsArgs,
+  newWindowArgs,
   newSessionArgs,
   tmux as realTmux,
   type TmuxResult,
@@ -96,11 +97,12 @@ import {
 } from "./reviewer.js";
 import {
   CODER_WINDOW,
+  DIRECTOR_WATCH_WINDOW,
   ensureJournalPane,
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, type CommandResult } from "./status.js";
-import { resolvePollMs } from "./watchers.js";
+import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
 
 export { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
 
@@ -310,6 +312,26 @@ export function createProgram(deps: Deps): Command {
           timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
           retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
         });
+        const directorWatch = deps.tmux(
+          newWindowArgs(
+            session,
+            DIRECTOR_WATCH_WINDOW,
+            buildDirectorWatchCommand({
+              cli: cliInvocation(),
+              comboHome: home,
+              comboId: id,
+              pollSeconds: config.limits.babysitPollSeconds,
+              watchFailureLimit: config.limits.watchFailureLimit,
+              watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
+            }),
+          ),
+        );
+        if (directorWatch.status !== 0) {
+          throw new Error(
+            `tmux failed to start director watcher in "${session}": ` +
+              `${directorWatch.stderr.trim() || "unknown error"}`,
+          );
+        }
       } catch (error) {
         const killed = deps.tmux(killSessionArgs(session));
         if (killed.status !== 0) {
