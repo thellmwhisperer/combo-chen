@@ -84,7 +84,7 @@ describe("cli reviewer journal helpers", () => {
   it("finds terminal reviewer and merge events from the journal", () => {
     const events = [
       { t: "2026-06-11T00:00:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/7" },
-      { t: "2026-06-11T00:01:00.000Z", event: "merged", sha: "head456", by: "javi" },
+      { t: "2026-06-11T00:01:00.000Z", event: "merged", sha: "head456", by: "maintainer" },
       { t: "2026-06-11T00:02:00.000Z", event: "combo_closed" },
     ] satisfies ComboEvent[];
 

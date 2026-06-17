@@ -44,7 +44,7 @@ describe("cli GitHub helpers", () => {
         JSON.stringify({
           headRefOid: "def456",
           state: "MERGED",
-          mergedBy: { login: "javi" },
+          mergedBy: { login: "maintainer" },
           baseRefName: "main",
           mergeCommit: { oid: "abc123" },
         }),
@@ -52,7 +52,7 @@ describe("cli GitHub helpers", () => {
     ).toEqual({
       headSha: "def456",
       state: "MERGED",
-      mergedBy: "javi",
+      mergedBy: "maintainer",
       baseRefName: "main",
       mergeSha: "abc123",
     });

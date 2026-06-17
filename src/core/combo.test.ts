@@ -145,7 +145,7 @@ describe("deriveStatus", () => {
     const status = deriveStatus([
       ev("coder_started"),
       ev("coder_failed", { exit_code: 124, has_new_commits: true }),
-      ev("parked", { by: "javi", summary_path: "/runs/o-r-7/park-handoff.md" }),
+      ev("parked", { by: "maintainer", summary_path: "/runs/o-r-7/park-handoff.md" }),
     ]);
     expect(status.phase).toBe("STALLED");
     expect(status.needsHuman).toBe(true);
@@ -154,7 +154,7 @@ describe("deriveStatus", () => {
 
   it("treats merged and closed PR events as terminal", () => {
     for (const terminal of [
-      ev("merged", { sha: "def456", by: "javi" }),
+      ev("merged", { sha: "def456", by: "maintainer" }),
       ev("combo_closed"),
     ]) {
       const status = deriveStatus([

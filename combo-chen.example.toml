@@ -65,9 +65,9 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 '''
 
 [reviewer]
-# Protocol content stays in config. Keep this as a reference to the current
-# La Roca review protocol and project overlay rather than copying them here.
-protocol = "La Roca review protocol 7989 + project overlay"
+# Protocol content stays in config. Keep this as a reference to your current
+# repository review protocol and project overlay rather than copying them here.
+protocol = "repository review protocol + project overlay"
 # Ambient review/check providers are matched by status context/check name and
 # review author. They do not run in the reviewer tmux window.
 ambient = ["coderabbit"]

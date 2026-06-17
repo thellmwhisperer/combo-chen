@@ -32,7 +32,7 @@ const combo = {
 };
 
 const prUrl = "https://github.com/o/r/pull/9";
-const protocol = "La Roca review protocol 7989 + project overlay 8034";
+const protocol = "repository review protocol + project overlay 8034";
 
 // -- 1/1 CORE · defaultReviewerPrompt + buildReviewerInvocation ← START HERE --
 describe("defaultReviewerPrompt", () => {
@@ -59,7 +59,7 @@ describe("buildReviewerInvocation", () => {
     });
 
     expect(command).toContain("--judge 'https://github.com/o/r/pull/9'");
-    expect(command).toContain("'La Roca review protocol 7989 + project overlay 8034'");
+    expect(command).toContain("'repository review protocol + project overlay 8034'");
     expect(command).toContain("COMMENT reviews or issue comments");
     expect(command).toContain("lgtm @ <sha>");
   });
