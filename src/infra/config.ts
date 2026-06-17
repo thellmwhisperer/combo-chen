@@ -80,7 +80,7 @@ export interface ComboConfig {
   reviewerAgent: string;
   /** Command template for the reviewer loop, with {placeholders}. */
   reviewerCommand: string;
-  /** Review protocol reference injected into the reviewer prompt. */
+  /** Free-form reviewer instructions injected into the reviewer prompt. */
   reviewerProtocol: string;
   /** Ambient review/status providers that are not the active command reviewer. */
   ambientReviewerAgents: string[];
@@ -104,7 +104,7 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
   merge: "merge",
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
-const DEFAULT_REVIEWER_PROTOCOL = "repository review protocol + project overlay";
+const DEFAULT_REVIEWER_PROTOCOL = "repository review instructions + project overlay";
 export const DEFAULT_CODER_STOP_WHEN =
   "Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. " +
   "If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";

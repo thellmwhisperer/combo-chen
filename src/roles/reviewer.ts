@@ -42,7 +42,6 @@ export interface ReviewerPromptInput {
   combo: ComboRecord;
   prUrl: string;
   protocol: string;
-  skillName?: string;
 }
 
 function hasUnquotedShellControl(command: string): boolean {
@@ -76,11 +75,9 @@ export function assertReviewerCommandSafe(command: string): void {
 }
 
 export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
-  const skillName = input.skillName ?? "pr-review-protocol";
   return [
     `Review PR ${input.prUrl} for combo ${input.combo.id}.`,
-    `Load the local review skill "${skillName}" before inspecting the PR, and use it as the single source of truth.`,
-    `Project overlay/reference: ${input.protocol}.`,
+    `Reviewer instructions: ${input.protocol}.`,
     "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
     "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
     'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',

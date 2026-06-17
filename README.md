@@ -134,7 +134,7 @@ reviewer = ["claude"]
 merge = "human"
 
 [reviewer]
-protocol = "repository review protocol + project overlay"
+protocol = "repository review instructions + project overlay"
 ambient = ["coderabbit"]
 
 [reviewer.claude]
