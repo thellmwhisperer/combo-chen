@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.31](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.30...combo-chen-v0.0.31) (2026-06-17)
+
+
+### Bug Fixes
+
+* address remaining PR feedback ([bdb3130](https://github.com/thellmwhisperer/combo-chen/commit/bdb3130176da7a0eb5856d0819bc6495b0ff43ca))
+* address remaining review threads ([04baca6](https://github.com/thellmwhisperer/combo-chen/commit/04baca606ee637c11466259d515b60f6cfce0919))
+* address review flow comments ([d1ec3b5](https://github.com/thellmwhisperer/combo-chen/commit/d1ec3b5298e888ff15c5519fd9fdecf812886d28))
+* configure worker prompt detection ([cb7b78c](https://github.com/thellmwhisperer/combo-chen/commit/cb7b78c222dfaaf55f9e35cf2a481ca22b597a03))
+* harden combo launch and review flow ([3efb605](https://github.com/thellmwhisperer/combo-chen/commit/3efb6055ecf966b801713f522d06947ac9cc7041))
+* keep reviewer prompt generic ([1abeaf4](https://github.com/thellmwhisperer/combo-chen/commit/1abeaf473f9c24bdafac4f1277ad87a00f40f7e8))
+* keep reviewer skill contract local ([94d1bb2](https://github.com/thellmwhisperer/combo-chen/commit/94d1bb2b13331caa9a415ae9948df6c79fdccbbc))
+* move reviewer instructions to prompt ([5bdb8b2](https://github.com/thellmwhisperer/combo-chen/commit/5bdb8b233aecb92080359306be433054c537f32e))
+* validate reviewer prompt type ([3a92b0a](https://github.com/thellmwhisperer/combo-chen/commit/3a92b0aea487c261070b23b80851d876acb15ade))
+
 ## [0.0.30](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.29...combo-chen-v0.0.30) (2026-06-17)
 
 
