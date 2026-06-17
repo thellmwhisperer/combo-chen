@@ -2628,10 +2628,10 @@ describe("activate-reviewer", () => {
         'gordon = ["local"]',
         '',
         '[gordon]',
-        'protocol = "Base review protocol + overlay 8034"',
+        'prompt = "local reviewer instructions 8034"',
         '',
         '[gordon.local]',
-        'command = "judge-bot --pr {pr_url} --protocol {protocol} --prompt {prompt}"',
+        'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
         '',
         '[limits]',
         'babysit_poll_seconds = 17',
@@ -2663,7 +2663,7 @@ describe("activate-reviewer", () => {
     const command = judgeWindow?.at(-1) ?? "";
     expect(command).toContain("judge-bot");
     expect(command).toContain("'https://github.com/o/r/pull/7'");
-    expect(command).toContain("'Base review protocol + overlay 8034'");
+    expect(command).toContain("local reviewer instructions 8034");
     expect(command).toContain("COMMENT reviews");
     expect(command).toContain("lgtm @ <sha>");
 
@@ -3453,7 +3453,7 @@ describe("reviewer-tick", () => {
         'gordon = ["local"]',
         '',
         '[gordon]',
-        'protocol = "Base review protocol + overlay 8034"',
+        'prompt = "local reviewer instructions 8034"',
         '',
         '[gordon.local]',
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',

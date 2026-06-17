@@ -96,7 +96,7 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
-    expect(config.reviewerProtocol).toBe("repository review instructions + project overlay");
+    expect(config.reviewerPrompt).toBe("");
     expect(config.sourceBranch).toBe("main");
   });
 
@@ -387,7 +387,7 @@ describe("loadConfig", () => {
         "attach_retry_interval_seconds = 6",
         "",
         "[reviewer]",
-        'protocol = "project review protocol 1234"',
+        'prompt = "project reviewer instructions 1234"',
         "",
         '[reviewer."hermes:gemini"]',
         'command = "hermes review {pr_url} {prompt}"',
@@ -420,7 +420,7 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
     expect(config.reviewerAgent).toBe("hermes:gemini");
     expect(config.reviewerCommand).toBe("hermes review {pr_url} {prompt}");
-    expect(config.reviewerProtocol).toBe("project review protocol 1234");
+    expect(config.reviewerPrompt).toBe("project reviewer instructions 1234");
     expect(config.reviewNudgePrompt).toBe("Please review {url}");
     expect(config.coderRespondingWindowName).toBe("coder-reply");
     expect(config).not.toHaveProperty("threadSitterWindowName");
@@ -515,7 +515,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/coder_responding.window_name/);
   });
 
-  it("resolves the first configured gordon command and protocol", () => {
+  it("resolves the first configured gordon command and reviewer prompt", () => {
     const repoDir = tempDir();
     writeToml(
       repoDir,
@@ -525,7 +525,7 @@ describe("loadConfig", () => {
         'gordon = ["coderabbit", "hermes:gemini"]',
         "",
         "[gordon]",
-        'protocol = "project review protocol 1234"',
+        'prompt = "project reviewer instructions 1234"',
         "",
         '[gordon."hermes:gemini"]',
         'command = "hermes judge {pr_url} {prompt}"',
@@ -537,7 +537,7 @@ describe("loadConfig", () => {
 
     expect(config.reviewerAgent).toBe("hermes:gemini");
     expect(config.reviewerCommand).toBe("hermes judge {pr_url} {prompt}");
-    expect(config.reviewerProtocol).toBe("project review protocol 1234");
+    expect(config.reviewerPrompt).toBe("project reviewer instructions 1234");
   });
 
   it("requires at least one configured gordon command", () => {

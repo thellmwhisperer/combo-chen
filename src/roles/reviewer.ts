@@ -13,7 +13,7 @@
  *
  *   MAIN FLOW
  *   ─────────
- *   cli/main.ts → buildReviewerInvocation({combo, prUrl, protocol, reviewerCommand})
+ *   cli/main.ts → buildReviewerInvocation({combo, prUrl, reviewerInstructions, reviewerCommand})
  *     → defaultReviewerPrompt / incrementalReviewerPrompt → renderCommand
  *     → executed in reviewer tmux window
  *
@@ -41,7 +41,7 @@ export class ReviewerInvocationError extends Error {}
 export interface ReviewerPromptInput {
   combo: ComboRecord;
   prUrl: string;
-  protocol: string;
+  reviewerInstructions: string;
 }
 
 function hasUnquotedShellControl(command: string): boolean {
@@ -75,9 +75,10 @@ export function assertReviewerCommandSafe(command: string): void {
 }
 
 export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
+  const reviewerInstructions = input.reviewerInstructions.trim();
   return [
     `Review PR ${input.prUrl} for combo ${input.combo.id}.`,
-    `Reviewer instructions: ${input.protocol}.`,
+    ...(reviewerInstructions.length > 0 ? [`Reviewer instructions: ${reviewerInstructions}.`] : []),
     "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
     "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
     'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',
@@ -117,7 +118,6 @@ export function buildReviewerInvocation(input: ReviewerInput): string {
     worktree: input.combo.worktree,
     repo: input.combo.repoDir,
     branch: input.combo.branch,
-    protocol: input.protocol,
     prompt,
   });
 }
