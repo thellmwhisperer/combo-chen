@@ -217,6 +217,9 @@ describe("buildPostAddressGateScript", () => {
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
     expect(script).toContain("exec no-mistakes attach");
     expect(script).toContain("branch: combo/issue-7");
+    expect(script).toContain("gatekeeper_failure_reason=gate_failed");
+    expect(script).toContain("gatekeeper_failure_reason=daemon_dead");
+    expect(script).toContain('gate_failed --field exit_code="$gatekeeper_code" --field reason="$gatekeeper_failure_reason"');
     expect(script).toContain('pr_head_sha=$(gh pr view "$pr_url" --json headRefOid --jq');
     expect(script).toContain('gatekeeper_head_sha="$pr_head_sha"');
     expect(script).toContain('gate_validated --field sha="$gatekeeper_head_sha"');

@@ -4063,6 +4063,34 @@ describe("run ordering and safety", () => {
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
   });
 
+  it("allows the required source branch to come from run config", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[run]\nsource_branch = "develop"\n');
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "develop\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${repoDir}`,
+      "worktree",
+      "add",
+      join(repoDir, ".worktrees", "issue-7"),
+      "-b",
+      "combo/issue-7",
+      "origin/main",
+    ]);
+  });
+
   it("rejects an unsafe gnhf coder command before creating a worktree or tmux session", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

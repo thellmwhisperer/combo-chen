@@ -91,6 +91,7 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
     expect(config.reviewerProtocol).toBe("repository review protocol + project overlay");
+    expect(config.sourceBranch).toBe("main");
   });
 
   it("lets the user config override defaults", () => {
@@ -296,6 +297,21 @@ describe("loadConfig", () => {
         loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
       ).toThrow(/worker_stall_ticks/);
     }
+  });
+
+  it("loads the required run source branch from repo config or env", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[run]\nsource_branch = \"develop\"\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.sourceBranch).toBe("develop");
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_SOURCE_BRANCH: "release" },
+    });
+    expect(envConfig.sourceBranch).toBe("release");
   });
 
   it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {

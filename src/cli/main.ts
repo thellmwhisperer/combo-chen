@@ -148,14 +148,16 @@ function cliInvocation(): string {
   return `"${process.execPath}" "${script}"`;
 }
 
-function requireCleanMainCheckout(deps: Deps, repoDir: string): void {
+function requireCleanSourceCheckout(deps: Deps, repoDir: string, requiredBranch: string): void {
   const branch = deps.git(["branch", "--show-current"], repoDir);
   if (branch.status !== 0) {
     throw new Error(`git branch --show-current failed: ${branch.stderr.trim() || "unknown error"}`);
   }
   const branchName = branch.stdout.trim();
-  if (branchName !== "main") {
-    throw new Error(`combo-chen run must be on main; current branch is "${branchName || "(detached)"}"`);
+  if (branchName !== requiredBranch) {
+    throw new Error(
+      `combo-chen run must be on ${requiredBranch}; current branch is "${branchName || "(detached)"}"`,
+    );
   }
 
   const status = deps.git(["status", "--porcelain"], repoDir);
@@ -212,10 +214,9 @@ export function createProgram(deps: Deps): Command {
         }
       }
 
-      requireCleanMainCheckout(deps, options.repo);
-      fetchBaseRef(deps, options.repo, options.base);
-
       const config = loadConfig({ repoDir: options.repo, env: deps.env });
+      requireCleanSourceCheckout(deps, options.repo, config.sourceBranch);
+      fetchBaseRef(deps, options.repo, options.base);
       assertReviewerCommandSafe(config.reviewerCommand);
       const id = comboIdFromIssueUrl(options.issue);
       const home = comboHome(deps.env);

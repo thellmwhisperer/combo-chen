@@ -288,8 +288,12 @@ fi
 
 if [ "$gatekeeper_code" -ne 0 ]; then
   gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  gatekeeper_failure_reason=gate_failed
+  if grep -Eiq 'daemon.*(dead|died|exited|not running)|connection refused|ECONNREFUSED' "$gatekeeper_log"; then
+    gatekeeper_failure_reason=daemon_dead
+  fi
   ${emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"
-  ${emit} gate_failed --field exit_code=$gatekeeper_code
+  ${emit} gate_failed --field exit_code=$gatekeeper_code --field reason="$gatekeeper_failure_reason"
   exit $gatekeeper_code
 fi
 

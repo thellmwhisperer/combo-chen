@@ -84,6 +84,11 @@ command = "claude {prompt}"
 # Environment override: COMBO_CHEN_WORKER_STALL_TICKS.
 worker_stall_ticks = 3
 
+[run]
+# Source checkout branch required before `combo-chen run`.
+# Environment override: COMBO_CHEN_SOURCE_BRANCH.
+source_branch = "main"
+
 [limits]
 babysit_poll_seconds = 120  # director-watch poll interval
 watch_failure_limit = 5     # consecutive director-watch tick failures before visible death

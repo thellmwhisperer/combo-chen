@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~678 lines, 17 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~720 lines, 17 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -24,7 +24,7 @@
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, renderGatekeeperCommand
+ *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/gatekeeper, ./github, ./sessions
@@ -308,6 +308,26 @@ function renderScriptedMirrorGatekeeperCommand(
   return renderGatekeeperCommand(deps, combo, scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand));
 }
 
+type ShellSection = string | string[];
+
+function shellScript(...sections: ShellSection[]): string {
+  return sections.flat().join("\n");
+}
+
+function indentShellLines(lines: string[], spaces: number): string[] {
+  const prefix = " ".repeat(spaces);
+  return lines.map((line) => `${prefix}${line}`);
+}
+
+function gateFailureReasonScript(): string[] {
+  return [
+    "gatekeeper_failure_reason=gate_failed",
+    "if grep -Eiq 'daemon.*(dead|died|exited|not running)|connection refused|ECONNREFUSED' \"$gatekeeper_log\"; then",
+    "  gatekeeper_failure_reason=daemon_dead",
+    "fi",
+  ];
+}
+
 function gateAlreadyRunningGuardScript(input: {
   combo: ComboRecord;
   headSha: string;
@@ -342,7 +362,7 @@ function buildInitialGateRetryScript(input: {
   const shortSha = input.headSha.slice(0, 12);
   const gatekeeperLog = join(input.runDir, `gatekeeper-initial-${shortSha}.log`);
   const autocloseLog = join(input.runDir, `autoclose-initial-${shortSha}.log`);
-  return [
+  return shellScript(
     "#!/bin/sh",
     "set -u",
     `printf '%s\\n' ${shellQuote(`initial gate retry for ${input.combo.id} at ${input.headSha}`)}`,
@@ -354,10 +374,10 @@ function buildInitialGateRetryScript(input: {
     `${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"`,
     "gatekeeper_code=0",
     "(",
-    ...buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent).map((line) => `  ${line}`),
+    indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 2),
     `  ${input.gatekeeperCommand}`,
     `) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?`,
-    ...gateAlreadyRunningGuardScript(input),
+    gateAlreadyRunningGuardScript(input),
     "if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' \"$gatekeeper_log\"; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     `  ${input.emit} gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"`,
@@ -366,8 +386,9 @@ function buildInitialGateRetryScript(input: {
     "fi",
     "if [ \"$gatekeeper_code\" -ne 0 ]; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    indentShellLines(gateFailureReasonScript(), 2),
     `  ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
-    `  ${input.emit} gate_failed --field exit_code="$gatekeeper_code"`,
+    `  ${input.emit} gate_failed --field exit_code="$gatekeeper_code" --field reason="$gatekeeper_failure_reason"`,
     "  exit \"$gatekeeper_code\"",
     "fi",
     "gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
@@ -395,7 +416,7 @@ function buildInitialGateRetryScript(input: {
     `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
     `  ${input.emit} needs_human --field reason=pr_missing`,
     "fi",
-  ].join("\n");
+  );
 }
 
 export function startInitialGateRetry(input: {
@@ -459,7 +480,7 @@ export function buildPostAddressGateScript(input: {
   const gatekeeperLog = join(input.runDir, `gatekeeper-post-${shortSha}.log`);
   const statusFile = join(input.runDir, `gatekeeper-post-${shortSha}.status`);
   const autocloseLog = join(input.runDir, `autoclose-post-${shortSha}.log`);
-  return [
+  return shellScript(
     "#!/bin/sh",
     "set -u",
     `printf '%s\\n' ${shellQuote(`post-address gate for ${input.combo.id} at ${input.headSha}`)}`,
@@ -474,14 +495,14 @@ export function buildPostAddressGateScript(input: {
     "(",
     "  gatekeeper_code=0",
     "  (",
-    ...buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent).map((line) => `    ${line}`),
+    indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 4),
     `    ${input.gatekeeperCommand}`,
     "  ) || gatekeeper_code=$?",
     `  printf '%s\\n' "$gatekeeper_code" > "$status_file"`,
     `) 2>&1 | tee "$gatekeeper_log"`,
     `gatekeeper_code=$(cat "$status_file" 2>/dev/null || printf '1')`,
     `rm -f "$status_file"`,
-    ...gateAlreadyRunningGuardScript(input),
+    gateAlreadyRunningGuardScript(input),
     "if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' \"$gatekeeper_log\"; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     `  ${input.emit} gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"`,
@@ -490,8 +511,9 @@ export function buildPostAddressGateScript(input: {
     "fi",
     "if [ \"$gatekeeper_code\" -ne 0 ]; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    indentShellLines(gateFailureReasonScript(), 2),
     `  ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
-    `  ${input.emit} gate_failed --field exit_code="$gatekeeper_code"`,
+    `  ${input.emit} gate_failed --field exit_code="$gatekeeper_code" --field reason="$gatekeeper_failure_reason"`,
     "  exit \"$gatekeeper_code\"",
     "fi",
     "gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
@@ -520,7 +542,7 @@ export function buildPostAddressGateScript(input: {
     "else",
     `  ${input.emit} gate_status --field state=idle`,
     "fi",
-  ].join("\n");
+  );
 }
 
 function startPostAddressGate(input: {
