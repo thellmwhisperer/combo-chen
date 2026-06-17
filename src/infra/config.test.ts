@@ -97,7 +97,6 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
     expect(config.reviewerProtocol).toBe("repository review protocol + project overlay");
-    expect(config.reviewerSkillName).toBe("pr-review-protocol");
     expect(config.sourceBranch).toBe("main");
   });
 
@@ -139,21 +138,6 @@ describe("loadConfig", () => {
 
     expect(config.reviewerAgent).toBe("claude");
     expect(config.ambientReviewerAgents).toEqual(["reviewdog"]);
-  });
-
-  it("loads the reviewer skill pointer from repo config or env", () => {
-    const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", '[reviewer]\nskill = "repo-review"\n');
-
-    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
-    expect(repoConfig.reviewerSkillName).toBe("repo-review");
-
-    const envConfig = loadConfig({
-      repoDir,
-      userConfigPath: join(tempDir(), "missing.toml"),
-      env: { COMBO_CHEN_REVIEWER_SKILL: "org-review" },
-    });
-    expect(envConfig.reviewerSkillName).toBe("org-review");
   });
 
   it("keeps configured ambient reviewer agents out of coder and active reviewer roles", () => {
