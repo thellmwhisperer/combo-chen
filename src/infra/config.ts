@@ -443,7 +443,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       if (layer.table[section] === undefined) continue;
       const reviewerTable = asTable(layer.table[section], `[${section}] in ${layer.source}`);
       if (reviewerTable["prompt"] !== undefined) {
-        reviewerPrompt = String(reviewerTable["prompt"]);
+        if (typeof reviewerTable["prompt"] !== "string") {
+          throw new ComboConfigError(`${section}.prompt must be a string`);
+        }
+        reviewerPrompt = reviewerTable["prompt"];
       }
       if (reviewerTable["ambient"] !== undefined) {
         reviewerTableConfig = {
