@@ -540,6 +540,14 @@ describe("loadConfig", () => {
     expect(config.reviewerPrompt).toBe("project reviewer instructions 1234");
   });
 
+  it("rejects a non-string reviewer prompt during config load", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[reviewer]\nprompt = 123\n");
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/reviewer.prompt/);
+  });
+
   it("requires at least one configured gordon command", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", '[roles]\ngordon = ["coderabbit"]\n');
