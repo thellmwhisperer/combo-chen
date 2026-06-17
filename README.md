@@ -172,14 +172,16 @@ combo-chen stop -n <combo-id>
 
 - `status` shows actionable live combos by default. Add `--all` to include
   terminal historical rows, and `--deep` to compare the journal with downstream
-  GitHub and gatekeeper state.
+  GitHub and gatekeeper state. Before rendering, `status` quietly reconciles
+  non-terminal journals whose PR is already merged or closed on GitHub, then
+  hides those repaired terminal rows from the default view.
 - `park` writes a local handoff and stops tmux without making the combo
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream
   state. It does not start a fresh run on an existing combo.
 - `forensics` produces a read-only report for stalled or confusing runs.
-- `reconcile --apply` repairs journals that froze before a merged PR was
-  recorded locally.
+- `reconcile --apply` repairs journals that froze before a merged or closed PR
+  was recorded locally.
 
 ## State
 
