@@ -82,6 +82,7 @@ export async function tickDirector(input: {
     runDir,
     workerWindows,
     stallTicks: config.workerStallTicks,
+    permissionPromptPatterns: config.workerPermissionPromptPatterns,
   });
   if (workerInspection.escalated) {
     deps.out(`director: tick complete for ${comboId}`);

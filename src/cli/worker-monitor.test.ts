@@ -108,6 +108,26 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
   });
 
+  it("uses configured permission prompt patterns", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      reviewer: "CUSTOM TOOL APPROVAL REQUIRED\n",
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      permissionPromptPatterns: ["^CUSTOM TOOL APPROVAL REQUIRED$"],
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+    );
+  });
+
   it("uses the configured unchanged-pane threshold", () => {
     const { record, runDir } = combo();
     const { deps } = fakeDeps({

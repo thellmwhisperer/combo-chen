@@ -81,8 +81,14 @@ ambient = ["coderabbit"]
 command = "claude {prompt}"
 
 [monitor]
-# Environment override: COMBO_CHEN_WORKER_STALL_TICKS.
+# Environment overrides: COMBO_CHEN_WORKER_STALL_TICKS,
+# COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS.
 worker_stall_ticks = 3
+permission_prompt_patterns = [
+  '^\s*Do you want to (?:proceed|continue)\?\s*(?:\[[yn]/[yn]\])?\s*$',
+  '^\s*(?:Allow|Approve|Confirm)\?\s*\[[yn]/[yn]\]\s*$',
+  '^\s*(?:Press|Type)\s+(?:y|yes)\s+to\s+(?:continue|proceed|confirm)\.?\s*$',
+]
 
 [run]
 # Source checkout branch required before `combo-chen run`.

@@ -245,6 +245,33 @@ describe("tickDirector", () => {
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
   });
 
+  it("passes configured permission prompt patterns into worker pane inspection", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      "[monitor]\npermission_prompt_patterns = ['^CUSTOM TOOL APPROVAL REQUIRED$']\n",
+    );
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "CUSTOM TOOL APPROVAL REQUIRED\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+    );
+  });
+
   it("deduplicates configured worker window names before inspecting panes", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

@@ -59,6 +59,12 @@ describe("loadConfig", () => {
     expect(config.limits.teardownGitBackoffSeconds).toBe(2);
     expect(config.limits.watchFailureLimit).toBe(5);
     expect(config.limits.watchBackoffMaxSeconds).toBe(3600);
+    expect(config.workerStallTicks).toBe(3);
+    expect(config.workerPermissionPromptPatterns).toEqual(
+      expect.arrayContaining([
+        "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
+      ]),
+    );
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.coderCommand).toContain("npx -y gnhf@0.1.41");
@@ -297,6 +303,37 @@ describe("loadConfig", () => {
         loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
       ).toThrow(/worker_stall_ticks/);
     }
+  });
+
+  it("loads worker permission prompt patterns from repo monitor config or env", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      "[monitor]\npermission_prompt_patterns = ['^CUSTOM APPROVAL REQUIRED$']\n",
+    );
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.workerPermissionPromptPatterns).toEqual(["^CUSTOM APPROVAL REQUIRED$"]);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS: '["^ALLOW TOOL$","^CONFIRM TOOL$"]' },
+    });
+    expect(envConfig.workerPermissionPromptPatterns).toEqual(["^ALLOW TOOL$", "^CONFIRM TOOL$"]);
+
+    const invalidRepoDir = tempDir();
+    writeToml(invalidRepoDir, "combo-chen.toml", '[monitor]\npermission_prompt_patterns = ["["]\n');
+    expect(() =>
+      loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+    ).toThrow(/permission_prompt_patterns/);
+
+    const emptyRepoDir = tempDir();
+    writeToml(emptyRepoDir, "combo-chen.toml", "[monitor]\npermission_prompt_patterns = []\n");
+    expect(() =>
+      loadConfig({ repoDir: emptyRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+    ).toThrow(/permission_prompt_patterns/);
   });
 
   it("loads the required run source branch from repo config or env", () => {

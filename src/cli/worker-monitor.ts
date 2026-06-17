@@ -22,10 +22,11 @@
  *
  *   INTERNALS
  *   ---------
- *   readSnapshot, writeSnapshot, paneFingerprint, hasPermissionPrompt, hasEscalation
+ *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
+ *   hasPermissionPrompt, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneInspection, WorkerPaneMonitorInput, inspectWorkerPanes
- * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/tmux
+ * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -33,6 +34,7 @@ import { join } from "node:path";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
+import { DEFAULT_PERMISSION_PROMPT_PATTERNS } from "../infra/config.js";
 import { captureWindowArgs, listPanesArgs, listWindowsArgs, type TmuxResult } from "../infra/tmux.js";
 
 // -- 1/1 CORE · inspectWorkerPanes <- START HERE --
@@ -55,11 +57,6 @@ type WorkerSnapshot = Record<string, WorkerSnapshotEntry>;
 
 const SNAPSHOT_FILE = "worker-panes.json";
 const DEFAULT_STALL_TICKS = 3;
-const PERMISSION_PROMPTS = [
-  /^\s*Do you want to (?:proceed|continue)\?\s*(?:\[[yn]\/[yn]\])?\s*$/i,
-  /^\s*(?:Allow|Approve|Confirm)\?\s*\[[yn]\/[yn]\]\s*$/i,
-  /^\s*(?:Press|Type)\s+(?:y|yes)\s+to\s+(?:continue|proceed|confirm)\.?\s*$/i,
-];
 
 function snapshotPath(runDir: string): string {
   return join(runDir, SNAPSHOT_FILE);
@@ -87,8 +84,12 @@ function activeWindowNames(stdout: string): Set<string> {
   return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
 }
 
-function hasPermissionPrompt(pane: string): boolean {
-  return pane.split(/\r?\n/).some((line) => PERMISSION_PROMPTS.some((pattern) => pattern.test(line)));
+function compilePermissionPromptPatterns(patterns: string[]): RegExp[] {
+  return patterns.map((pattern) => new RegExp(pattern, "i"));
+}
+
+function hasPermissionPrompt(pane: string, patterns: RegExp[]): boolean {
+  return pane.split(/\r?\n/).some((line) => patterns.some((pattern) => pattern.test(line)));
 }
 
 function hasEscalation(runDir: string, reason: string, worker: string): boolean {
@@ -113,6 +114,7 @@ export interface WorkerPaneMonitorInput {
   runDir: string;
   workerWindows: string[];
   stallTicks?: number;
+  permissionPromptPatterns?: string[];
 }
 
 export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneInspection {
@@ -131,6 +133,9 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const active = activeWindowNames(listed.stdout);
   const snapshot = readSnapshot(runDir);
   const stallTicks = input.stallTicks ?? DEFAULT_STALL_TICKS;
+  const permissionPromptPatterns = compilePermissionPromptPatterns(
+    input.permissionPromptPatterns ?? DEFAULT_PERMISSION_PROMPT_PATTERNS,
+  );
   let escalated = false;
 
   for (const worker of new Set(input.workerWindows)) {
@@ -151,7 +156,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
 
     const pane = captured.stdout;
-    if (hasPermissionPrompt(pane)) {
+    if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
       escalate(runDir, deps, worker, "worker_permission_prompt", "permission prompt");
       escalated = true;
       continue;
