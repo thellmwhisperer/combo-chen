@@ -167,7 +167,7 @@ describe("journal", () => {
       sha: "def456",
       pr_url: "https://github.com/o/r/pull/7",
     });
-    appendEvent(dir, "merged", { sha: "def456", by: "javi" });
+    appendEvent(dir, "merged", { sha: "def456", by: "maintainer" });
     appendEvent(dir, "combo_closed", {});
     appendEvent(dir, "coder_retry", {});
 

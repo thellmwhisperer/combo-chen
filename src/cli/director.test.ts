@@ -443,7 +443,7 @@ describe("tickDirector", () => {
             "Codex -- Re-running CodeRabbit for current PR #82 head 73f80173.",
           ].join("\n"),
           html_url: "https://github.com/o/r/pull/7#issuecomment-1",
-          user: { login: "teseo" },
+          user: { login: "maintainer-bot" },
           created_at: "2026-06-15T02:51:55Z",
         },
       ],

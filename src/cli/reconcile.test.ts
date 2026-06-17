@@ -57,7 +57,7 @@ function fakeDeps(): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
         return {
           status: 0,
           stdout:
-            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"maintainer"}}',
           stderr: "",
         };
       },
@@ -93,7 +93,7 @@ describe("reconcileCombos", () => {
     expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened"]);
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "tmux")).toBe(false);
-    expect(out).toEqual(["reconcile: o-r-7 would append merged squash789 by javi and tear down"]);
+    expect(out).toEqual(["reconcile: o-r-7 would append merged squash789 by maintainer and tear down"]);
   });
 
   it("repairs a frozen merged journal and leaves a second pass as a no-op", async () => {
@@ -116,7 +116,7 @@ describe("reconcileCombos", () => {
 
     expect(readEvents(runDir)).toMatchObject([
       { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
-      { event: "merged", sha: "squash789", by: "javi", source: "reconcile" },
+      { event: "merged", sha: "squash789", by: "maintainer", source: "reconcile" },
       { event: "combo_closed", source: "reconcile" },
     ]);
     expect(calls).toContainEqual([
@@ -138,7 +138,7 @@ describe("reconcileCombos", () => {
     ]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
-    expect(out.join("\n")).toContain("reconcile: o-r-7 merged squash789 by javi");
+    expect(out.join("\n")).toContain("reconcile: o-r-7 merged squash789 by maintainer");
 
     calls.length = 0;
     out.length = 0;
