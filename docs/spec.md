@@ -37,7 +37,7 @@ Validation at launch (hard failures, the combo refuses to start):
 ```text
 SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
-        └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
+        └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
               └─▶ REVIEWING  director-watch observes reviewer and coder responding mode workers
                     └─▶ READY      gate_current ∧ reviewer_current ∧ ambient_review_current_clean ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)

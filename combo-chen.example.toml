@@ -52,6 +52,14 @@ command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_in
 # COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS.
 attach_timeout_seconds = 1800
 attach_retry_interval_seconds = 10
+# When the initial pre-PR gate fails, the director auto-relaunches it up to
+# this many times. After the limit is exhausted the combo journals
+# needs_human reason=gate_failed and stops relaunching.
+# Environment override: COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS.
+initial_gate_retry_attempts = 2
+# Seconds to wait before each automatic initial-gate retry.
+# Environment override: COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS.
+initial_gate_retry_backoff_seconds = 10
 
 [coder_responding]
 window_name = "coder-responding"
