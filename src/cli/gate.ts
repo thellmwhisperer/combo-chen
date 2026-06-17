@@ -432,7 +432,7 @@ export function startInitialGateRetry(input: {
 
   const headSha = worktreeHeadSha(deps, combo);
   if (hasUncommittedChanges(deps, combo)) {
-    deps.out(`resume: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate retry`);
+    deps.out(`gate: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate retry`);
     return { started: false, headSha };
   }
 

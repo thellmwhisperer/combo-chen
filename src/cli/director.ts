@@ -188,7 +188,7 @@ async function runInitialGateRetryIfNeeded(input: {
     appendEvent(input.runDir, "needs_human", { reason: "gate_failed" });
     input.deps.out(
       `director: initial gate retries exhausted for ${input.combo.id} ` +
-        `after ${state.retryAttempts} ${pluralizeRetry(state.retryAttempts)}`,
+        `after ${retriesUsed} ${pluralizeRetry(retriesUsed)}`,
     );
     return true;
   }
