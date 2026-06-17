@@ -38,11 +38,12 @@ Any phase can transition to `STALLED` (timeout, rate limit, agent death) —
 a director concern, never a silent state.
 
 For `combo-chen run --issue <issue-url>`, the default gatekeeper intent is derived
-from the ComboRecord issue URL and issue details and ends with `Fixes #N`.
-That explicit autoclose keyword is required for generated issue PRs; a plain
-mention such as `issue #N` is not treated as sufficient. Custom gatekeeper commands
-that still create source-issue PRs must preserve `{issue_pr_intent}` or provide
-an equivalent GitHub autoclose keyword in the PR/body generation path.
+from the ComboRecord issue URL and issue details and includes a PR body
+requirement to preserve the exact visible line `Fixes #N`. That explicit
+autoclose keyword is required for generated issue PRs; a plain mention such as
+`issue #N` is not treated as sufficient. Custom gatekeeper commands that still
+create source-issue PRs must preserve `{issue_pr_intent}` or provide an
+equivalent GitHub autoclose keyword in the PR/body generation path.
 
 A recoverable coder failure journals `coder_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.
