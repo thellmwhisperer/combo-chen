@@ -86,6 +86,8 @@ export interface ComboConfig {
   ambientReviewerAgents: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
+  /** Regex sources used to detect interactive permission prompts in worker panes. */
+  workerPermissionPromptPatterns: string[];
   /** Required source checkout branch for `combo-chen run`. */
   sourceBranch: string;
 }
@@ -117,6 +119,11 @@ export const DEFAULT_CODER_COMMAND = [
 ].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
   "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent} --skip=ci";
+export const DEFAULT_PERMISSION_PROMPT_PATTERNS = [
+  "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
+  "^\\s*(?:Allow|Approve|Confirm)\\?\\s*\\[[yn]/[yn]\\]\\s*$",
+  "^\\s*(?:Press|Type)\\s+(?:y|yes)\\s+to\\s+(?:continue|proceed|confirm)\\.?\\s*$",
+];
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
@@ -164,6 +171,7 @@ const DEFAULTS = {
   },
   monitor: {
     worker_stall_ticks: 3,
+    permission_prompt_patterns: DEFAULT_PERMISSION_PROMPT_PATTERNS,
   },
   run: {
     source_branch: "main",
@@ -280,6 +288,44 @@ function pickStringArray(value: unknown, description: string): string[] {
     throw new ComboConfigError(`${description} must be an array of strings`);
   }
   return value.map((item) => pickNonEmptyString(item, description));
+}
+
+function pickNonEmptyStringArray(value: unknown, description: string): string[] {
+  const values = pickStringArray(value, description);
+  if (values.length === 0) {
+    throw new ComboConfigError(`${description} must contain at least one string`);
+  }
+  return values;
+}
+
+function parseEnvStringArray(value: string, description: string): string[] {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      return pickNonEmptyStringArray(JSON.parse(trimmed) as unknown, description);
+    } catch (err) {
+      if (err instanceof ComboConfigError) throw err;
+      throw new ComboConfigError(`${description} must be a JSON string array`);
+    }
+  }
+  const values = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (values.length === 0) {
+    throw new ComboConfigError(`${description} must contain at least one string`);
+  }
+  return values;
+}
+
+function assertValidRegexPatterns(patterns: string[], description: string): void {
+  for (const pattern of patterns) {
+    try {
+      new RegExp(pattern, "i");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ComboConfigError(
+        `${description} contains invalid regular expression ${JSON.stringify(pattern)}: ${message}`,
+      );
+    }
+  }
 }
 
 function hasGnhfCommand(command: string): boolean {
@@ -449,6 +495,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (env["COMBO_CHEN_WORKER_STALL_TICKS"] !== undefined) {
     monitorTable["worker_stall_ticks"] = env["COMBO_CHEN_WORKER_STALL_TICKS"];
   }
+  if (env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS"] !== undefined) {
+    monitorTable["permission_prompt_patterns"] = parseEnvStringArray(
+      env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS"],
+      "monitor.permission_prompt_patterns",
+    );
+  }
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
     runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
   }
@@ -489,6 +541,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     .filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const ambientReviewerAgents = [...new Set([...configuredAmbient, ...legacyAmbient])];
+  const workerPermissionPromptPatterns = pickNonEmptyStringArray(
+    monitorTable["permission_prompt_patterns"],
+    "monitor.permission_prompt_patterns",
+  );
+  assertValidRegexPatterns(workerPermissionPromptPatterns, "monitor.permission_prompt_patterns");
 
   return {
     roles,
@@ -557,6 +614,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       DEFAULTS.monitor.worker_stall_ticks,
       "[monitor]",
     ),
+    workerPermissionPromptPatterns: [...workerPermissionPromptPatterns],
     sourceBranch: pickNonEmptyString(runTable["source_branch"], "run.source_branch"),
   };
 }
