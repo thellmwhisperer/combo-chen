@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~985 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1120 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -91,6 +91,23 @@ describe("deriveStatus", () => {
     }
   });
 
+  it("returns an existing PR to REVIEWING when a follow-up gate completes", () => {
+    for (const gateDone of [
+      ev("gate_status", { state: "idle", head_sha: "fedcba" }),
+      ev("gate_validated", { sha: "fedcba" }),
+    ]) {
+      const status = deriveStatus([
+        ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+        ev("gate_started"),
+        gateDone,
+      ]);
+
+      expect(status.phase).toBe("REVIEWING");
+      expect(status.needsHuman).toBe(false);
+      expect(status.pr).toBe("https://github.com/o/r/pull/9");
+    }
+  });
+
   it("latches needs_human until the next phase advance", () => {
     const events = [ev("coder_started"), ev("needs_human", { reason: "gate_decision" })];
     const status = deriveStatus(events);
@@ -122,6 +139,17 @@ describe("deriveStatus", () => {
     ]);
     expect(status.phase).toBe("STOPPED");
     expect(status.needsHuman).toBe(false);
+  });
+
+  it("does not treat parking for reboot as terminal", () => {
+    const status = deriveStatus([
+      ev("coder_started"),
+      ev("coder_failed", { exit_code: 124, has_new_commits: true }),
+      ev("parked", { by: "javi", summary_path: "/runs/o-r-7/park-handoff.md" }),
+    ]);
+    expect(status.phase).toBe("STALLED");
+    expect(status.needsHuman).toBe(true);
+    expect(status.reason).toBe("coder_failed");
   });
 
   it("treats merged and closed PR events as terminal", () => {
@@ -196,14 +224,22 @@ describe("buildRunnerScript", () => {
 
   it("runs the coder with stdout and stderr redirected to coder.log beside the runner", () => {
     expect(script).toContain('coder_log="$(dirname "$0")/coder.log"');
-    expect(script).toContain(') > "$coder_log" 2>&1; then');
+    expect(script).toContain(') < /dev/null > "$coder_log" 2>&1; then');
 
     const coder = script.indexOf("gnhf");
-    const redirected = script.indexOf(') > "$coder_log" 2>&1; then');
+    const redirected = script.indexOf(') < /dev/null > "$coder_log" 2>&1; then');
     const coderDone = script.indexOf("emit -n o-r-7 coder_done");
     expect(coder).toBeGreaterThan(-1);
     expect(redirected).toBeGreaterThan(coder);
     expect(coderDone).toBeGreaterThan(redirected);
+  });
+
+  it("runs the coder with stdin closed so the runner cannot block for input", () => {
+    expect(script).toContain(') < /dev/null > "$coder_log" 2>&1; then');
+  });
+
+  it("runs the gatekeeper phase with stdin closed so auth prompts cannot block the runner", () => {
+    expect(script).toContain(') < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?');
   });
 
   it("fetches and rebases origin/main before the coder starts", () => {
@@ -248,6 +284,10 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
     const fakeGh = join(bin, "gh");
     writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
     chmodSync(fakeGh, 0o755);
+    const mirrorIntent = Buffer.from(
+      "Implement GitHub issue https://github.com/o/r/issues/7. Title: Demo Fixes #7",
+      "utf8",
+    ).toString("base64");
 
     const runnerPath = join(dir, "runner.sh");
     writeFileSync(
@@ -523,7 +563,7 @@ exit 1
     );
   });
 
-  it("emits gate_failed with the gate push exit code when the default pre-push fails", () => {
+  it("starts no-mistakes daemon before the default axi run", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -545,106 +585,6 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     writeFileSync(
       fakeGit,
       `#!/bin/sh
-if [ "$1" = "push" ]; then
-  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
-  exit 17
-fi
-if [ "$1" = "fetch" ]; then exit 0; fi
-if [ "$1" = "rebase" ]; then exit 0; fi
-if [ "$1" = "remote" ]; then
-  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
-  exit 0
-fi
-if [ "$1" = "rev-parse" ]; then
-  printf 'fake-head\\n'
-  exit 0
-fi
-exit 1
-`,
-    );
-    chmodSync(fakeGit, 0o755);
-
-    const fakeNoMistakes = join(bin, "no-mistakes");
-    writeFileSync(
-      fakeNoMistakes,
-      `#!/bin/sh
-printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
-`,
-    );
-    chmodSync(fakeNoMistakes, 0o755);
-
-    const runnerPath = join(dir, "runner.sh");
-    writeFileSync(
-      runnerPath,
-      buildRunnerScript({
-        combo: { ...combo, worktree },
-        coderCommand: "true",
-        gatekeeperCommand: renderedDefaultGatekeeperCommand,
-        emit: shellQuote(fakeEmit),
-        activateCoder: ":",
-        activateReviewer: ":",
-      }),
-    );
-    chmodSync(runnerPath, 0o755);
-
-    const result = spawnSync("sh", [runnerPath], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        EVENTS_LOG: eventsPath,
-        GATEKEEPER_LOG: gatekeeperLog,
-        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
-    });
-
-    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
-      status: 17,
-      stdout: "",
-      stderr: "",
-    });
-    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "coder_started",
-      "coder_done",
-      "gate_started",
-      "gate_status --field state=fix_inflight --field head_sha=fake-head",
-      "gate_status --field state=failed --field head_sha=fake-head",
-      "gate_failed --field exit_code=17",
-    ]);
-    expect(readFileSync(gatekeeperLog, "utf8")).toBe(
-      "git remote get-url no-mistakes\ngit push no-mistakes HEAD\n",
-    );
-  });
-
-  it("runs the default axi command without a gate push when the no-mistakes remote is absent", () => {
-    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
-    const worktree = join(dir, "worktree");
-    const bin = join(dir, "bin");
-    mkdirSync(worktree, { recursive: true });
-    mkdirSync(bin, { recursive: true });
-
-    const eventsPath = join(dir, "events.log");
-    const gatekeeperLog = join(dir, "gatekeeper.log");
-    const fakeEmit = join(bin, "emit");
-    writeFileSync(
-      fakeEmit,
-      `#!/bin/sh
-printf '%s\\n' "$*" >> "$EVENTS_LOG"
-`,
-    );
-    chmodSync(fakeEmit, 0o755);
-
-    const fakeGit = join(bin, "git");
-    writeFileSync(
-      fakeGit,
-      `#!/bin/sh
-if [ "$1" = "remote" ]; then
-  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
-  exit 2
-fi
-if [ "$1" = "push" ]; then
-  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
-  exit 17
-fi
 if [ "$1" = "fetch" ]; then exit 0; fi
 if [ "$1" = "rebase" ]; then exit 0; fi
 if [ "$1" = "rev-parse" ]; then
@@ -664,10 +604,6 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 `,
     );
     chmodSync(fakeNoMistakes, 0o755);
-
-    const fakeGh = join(bin, "gh");
-    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
-    chmodSync(fakeGh, 0o755);
 
     const runnerPath = join(dir, "runner.sh");
     writeFileSync(
@@ -707,9 +643,210 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       "needs_human --field reason=pr_missing",
     ]);
     const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
-    expect(gatekeeperOutput).toContain("git remote get-url no-mistakes\nno-mistakes axi run --intent");
+    expect(gatekeeperOutput).toContain("no-mistakes daemon start\nno-mistakes axi run --intent");
+    expect(gatekeeperOutput).toContain("--skip=ci");
+    expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
+    expect(gatekeeperOutput).not.toContain("git push no-mistakes");
+  });
+
+  it("publishes the no-mistakes mirror with intent before the default axi run", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const gatekeeperLog = join(dir, "gatekeeper.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "remote" ]; then
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
+  printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\trefs/heads/combo/issue-7\\n'
+  exit 0
+fi
+if [ "$1" = "push" ]; then
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
+  exit 0
+fi
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o755);
+    const mirrorIntent = Buffer.from(
+      "Implement GitHub issue https://github.com/o/r/issues/7. Title: Demo Fixes #7",
+      "utf8",
+    ).toString("base64");
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: "true",
+        gatekeeperCommand: renderedDefaultGatekeeperCommand,
+        gatekeeperMirrorIntent: mirrorIntent,
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        GATEKEEPER_LOG: gatekeeperLog,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      "gate_status --field state=fix_inflight --field head_sha=fake-head",
+      "gate_status --field state=idle --field head_sha=fake-head",
+      "needs_human --field reason=pr_missing",
+    ]);
+    const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
+    expect(gatekeeperOutput).toContain("git remote get-url no-mistakes");
+    expect(gatekeeperOutput).toContain("git ls-remote --heads no-mistakes combo/issue-7");
+    expect(gatekeeperOutput).toContain(
+      `git push -o no-mistakes.intent=${mirrorIntent} no-mistakes --force-with-lease=refs/heads/combo/issue-7:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HEAD:refs/heads/combo/issue-7`,
+    );
+    expect(gatekeeperOutput.match(/no-mistakes daemon start/g)).toHaveLength(1);
+    expect(gatekeeperOutput).toContain("no-mistakes axi run --intent");
+    expect(gatekeeperOutput).toContain("--skip=ci");
     expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
     expect(gatekeeperOutput).toContain("Fixes #7");
+  });
+
+  it("exits the gate subshell when the mirror push fails, preventing the gatekeeper command from running", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const gatekeeperLog = join(dir, "gatekeeper.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "remote" ]; then
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\trefs/heads/combo/issue-7\\n'
+  exit 0
+fi
+if [ "$1" = "push" ]; then
+  exit 128
+fi
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const mirrorIntent = Buffer.from("Test intent", "utf8").toString("base64");
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: "true",
+        gatekeeperCommand: `${shellQuote(fakeNoMistakes)} axi run --intent test`,
+        gatekeeperMirrorIntent: mirrorIntent,
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        GATEKEEPER_LOG: gatekeeperLog,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect(result.status).toBe(1);
+    const events = readFileSync(eventsPath, "utf8").trim().split("\n");
+    expect(events.filter((l) => l.startsWith("gate_failed"))).toHaveLength(1);
+    const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
+    expect(gatekeeperOutput).not.toContain("no-mistakes axi run");
   });
 
   it("emits gate_waiting when no-mistakes stops at an axi approval gate", () => {

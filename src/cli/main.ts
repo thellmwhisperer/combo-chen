@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~590 lines, 14 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~665 lines, 16 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./reconcile, ./reviewer, ./sessions, ./watchers
+ *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -56,7 +56,7 @@ import {
   writeCombo,
   type ComboRecord,
 } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { assertSafeCoderInvocation, loadConfig } from "../infra/config.js";
 import {
   attachSessionArgs,
   hasSessionArgs,
@@ -66,7 +66,12 @@ import {
   tmux as realTmux,
   type TmuxResult,
 } from "../infra/tmux.js";
-import { buildGatekeeperInvocation, ensureIssueAutocloseInPrBody } from "../roles/gatekeeper.js";
+import {
+  buildGatekeeperInvocation,
+  buildIssuePrIntent,
+  buildNoMistakesPushIntent,
+  ensureIssueAutocloseInPrBody,
+} from "../roles/gatekeeper.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import { parseEventFields } from "./args.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
@@ -76,10 +81,13 @@ import {
   ensureGatekeeperWindow,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
+  scriptedMirrorGatekeeperCommandTemplate,
   startGatekeeperWindow,
 } from "./gate.js";
 import { fetchForensicsGithubFacts, fetchIssueDetails, remoteSlug } from "./github.js";
+import { parkCombo } from "./park.js";
 import { reconcileCombos } from "./reconcile.js";
+import { resumeCombo } from "./resume.js";
 import {
   activateReviewer,
   tickReviewer,
@@ -89,6 +97,7 @@ import {
   ensureJournalPane,
   resolveAttachCombo,
 } from "./sessions.js";
+import { deepComboStatus, type CommandResult } from "./status.js";
 import { resolvePollMs } from "./watchers.js";
 
 export { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
@@ -100,6 +109,7 @@ export interface Deps {
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  noMistakes: (args: string[], cwd: string) => CommandResult;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
 }
@@ -115,6 +125,10 @@ export function defaultDeps(): Deps {
     },
     gh: (args) => {
       const result = spawnSync("gh", args, { encoding: "utf8" });
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    },
+    noMistakes: (args, cwd) => {
+      const result = spawnSync("no-mistakes", args, { cwd, encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -189,6 +203,19 @@ export function createProgram(deps: Deps): Command {
         createdAt: new Date().toISOString(),
       };
 
+      const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
+        coderCommand: config.coderCommand,
+        combo,
+      };
+      if (options.prompt !== undefined) coderInput.prompt = options.prompt;
+      assertSafeCoderInvocation(config.coderCommand, { requireGnhf: config.roles.coder === "codex" });
+      const coderCommand = buildCoderInvocation(coderInput);
+      const issuePrIntent = buildIssuePrIntent({
+        combo,
+        issueTitle: issueDetails.title,
+        issueBody: issueDetails.body,
+      });
+
       const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch], options.repo);
       if (worktreeResult.status !== 0) {
         throw new Error(`git worktree add failed: ${worktreeResult.stderr.trim()}`);
@@ -199,21 +226,17 @@ export function createProgram(deps: Deps): Command {
 
       writeCombo(runDir, combo);
 
-      const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
-        coderCommand: config.coderCommand,
+      const gatekeeperCommand = buildGatekeeperInvocation({
+        gatekeeperCommand: config.gatekeeperCommand,
         combo,
-      };
-      if (options.prompt !== undefined) coderInput.prompt = options.prompt;
-
+        issueTitle: issueDetails.title,
+        issueBody: issueDetails.body,
+      });
       const runner = buildRunnerScript({
         combo,
-        coderCommand: buildCoderInvocation(coderInput),
-        gatekeeperCommand: buildGatekeeperInvocation({
-          gatekeeperCommand: config.gatekeeperCommand,
-          combo,
-          issueTitle: issueDetails.title,
-          issueBody: issueDetails.body,
-        }),
+        coderCommand,
+        gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
+        gatekeeperMirrorIntent: buildNoMistakesPushIntent(issuePrIntent),
         activateCoder: `${cliInvocation()} activate-coder -n ${id}`,
         emit: `${cliInvocation()} emit -n ${id}`,
         activateReviewer: `${cliInvocation()} activate-reviewer -n ${id}`,
@@ -364,22 +387,45 @@ export function createProgram(deps: Deps): Command {
     });
 
   program
+    .command("resume")
+    .description("Resume a persisted combo without starting a fresh run")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      resumeCombo({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+        cli: cliInvocation(),
+      });
+    });
+
+  program
     .command("status")
     .description("One line per combo: phase, needs-human, PR")
-    .action(async () => {
+    .option("--deep", "Probe downstream no-mistakes state")
+    .action(async (options: { deep?: boolean }) => {
       const combos = listCombos(comboHome(deps.env));
       if (combos.length === 0) {
         deps.out("no combos. start one: combo-chen run --issue <url>");
         return;
       }
-      deps.out("COMBO                          PHASE     NEEDS-HUMAN      PR");
+      const deep = options.deep === true;
+      deps.out(deep ? "COMBO                          PHASE     NEEDS-HUMAN      PR DOWNSTREAM" : "COMBO                          PHASE     NEEDS-HUMAN      PR");
       for (const combo of combos) {
-        const status = deriveStatus(readEvents(runDirFor(comboHome(deps.env), combo.id)));
+        const events = readEvents(runDirFor(comboHome(deps.env), combo.id));
+        const status = deriveStatus(events);
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const pr = status.pr ?? "—";
-        deps.out(
-          `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`,
-        );
+        const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`;
+        if (!deep) {
+          deps.out(line);
+          continue;
+        }
+        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+        const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
+          ambientCheckNames: config.ambientReviewerAgents,
+        });
+        deps.out(`${line} ${downstream ?? "—"}`);
       }
     });
 
@@ -405,10 +451,17 @@ export function createProgram(deps: Deps): Command {
       const reports = combos.map((combo) => {
         const runDir = runDirFor(home, combo.id);
         const events = readEvents(runDir);
+        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
         return analyzeForensicsCombo({
           combo,
           events,
-          github: fetchForensicsGithubFacts(deps.gh, combo.issueUrl, latestPrUrlFromEvents(events)),
+          github: fetchForensicsGithubFacts(
+            deps.gh,
+            combo.issueUrl,
+            latestPrUrlFromEvents(events),
+            undefined,
+            { ambientCheckNames: config.ambientReviewerAgents },
+          ),
           tmux: collectForensicsTmuxFacts(deps, combo),
         });
       });
@@ -418,6 +471,21 @@ export function createProgram(deps: Deps): Command {
         return;
       }
       deps.out(renderForensicsMarkdown(reports));
+    });
+
+  program
+    .command("park")
+    .description("Write a reboot handoff and stop local combo processes without terminally closing it")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .option("--by <who>", "Who is parking it", "human")
+    .action(async (options: { name: string; by: string }) => {
+      parkCombo({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+        cli: cliInvocation(),
+        by: options.by,
+      });
     });
 
   program

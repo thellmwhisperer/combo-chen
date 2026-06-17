@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~454 lines, 8 exports.
+ *   Repo wins on policy, user wins on local setup. ~540 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -26,11 +26,11 @@
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
  *   │ pickNonEmptyString, normalizeLimitAliases, ROLE_ALIASES,        │
- *   │ DEFAULTS, PLACEHOLDER                                            │
+ *   │ DEFAULTS, PLACEHOLDER, gnhf safety predicates                    │
  *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -82,6 +82,8 @@ export interface ComboConfig {
   reviewerCommand: string;
   /** Review protocol reference injected into the reviewer prompt. */
   reviewerProtocol: string;
+  /** Ambient review/status providers that are not the active command reviewer. */
+  ambientReviewerAgents: string[];
 }
 
 type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";
@@ -97,8 +99,20 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROTOCOL = "La Roca review protocol 7989 + project overlay";
+export const DEFAULT_CODER_STOP_WHEN =
+  "Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. " +
+  "If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
+export const DEFAULT_CODER_COMMAND = [
+  "npx -y gnhf@0.1.41",
+  "--agent codex",
+  "--max-iterations 12",
+  `--stop-when ${shellQuote(DEFAULT_CODER_STOP_WHEN)}`,
+  "--prevent-sleep on",
+  "--meteor-frequency 0",
+  "--current-branch {prompt}",
+].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
-  "if git remote get-url no-mistakes >/dev/null 2>&1; then git push no-mistakes HEAD && no-mistakes axi run --intent {issue_pr_intent}; else no-mistakes axi run --intent {issue_pr_intent}; fi";
+  "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent} --skip=ci";
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
@@ -109,7 +123,7 @@ const DEFAULTS = {
   roles: {
     coder: "codex",
     gatekeeper: "no-mistakes",
-    reviewer: ["claude", "coderabbit"],
+    reviewer: ["claude"],
     merge: "human",
   } satisfies ComboRoles,
   limits: {
@@ -122,7 +136,7 @@ const DEFAULTS = {
   },
   coder: {
     codex: {
-      command: "npx -y gnhf --agent codex --current-branch {prompt}",
+      command: DEFAULT_CODER_COMMAND,
       resume_command: "codex resume {thread_id}",
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
@@ -140,6 +154,9 @@ const DEFAULTS = {
       "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.",
       "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
     ].join("\n"),
+  },
+  reviewer: {
+    ambient: ["coderabbit"],
   },
 };
 
@@ -247,6 +264,63 @@ function pickNonEmptyString(value: unknown, description: string): string {
   return value;
 }
 
+function pickStringArray(value: unknown, description: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ComboConfigError(`${description} must be an array of strings`);
+  }
+  return value.map((item) => pickNonEmptyString(item, description));
+}
+
+function hasGnhfCommand(command: string): boolean {
+  return /(?:^|\s)(?:\S*\/)?gnhf(?:@[-\w.]+)?(?:\s|$)/.test(command);
+}
+
+function hasPinnedGnhfPackage(command: string): boolean {
+  return /(?:^|\s)(?:\S*\/)?gnhf@[0-9]+(?:\.[0-9]+){1,2}(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)/.test(command);
+}
+
+function hasFlagValue(command: string, flag: string, value: string): boolean {
+  const escapedFlag = flag.replaceAll("-", "\\-");
+  const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|\\s)${escapedFlag}(?:=|\\s+)${escapedValue}(?:\\s|$)`).test(command);
+}
+
+function hasPositiveIntegerFlag(command: string, flag: string): boolean {
+  const escaped = flag.replaceAll("-", "\\-");
+  const match = new RegExp(`(?:^|\\s)${escaped}(?:=|\\s+)(\\d+)(?:\\s|$)`).exec(command);
+  return match !== null && Number(match[1]) > 0;
+}
+
+function hasStopWhenFlag(command: string): boolean {
+  return /(?:^|\s)--stop-when(?:=|\s+)(?:'[^']+'|"[^"]+"|\S+)(?:\s|$)/.test(command);
+}
+
+interface CoderSafetyOptions {
+  requireGnhf?: boolean;
+}
+
+export function unsafeCoderInvocationReasons(command: string, options: CoderSafetyOptions = {}): string[] {
+  if (!hasGnhfCommand(command)) {
+    return options.requireGnhf === true ? ["gnhf command"] : [];
+  }
+
+  const reasons: string[] = [];
+  if (!hasPinnedGnhfPackage(command)) reasons.push("pinned gnhf package version");
+  if (!hasPositiveIntegerFlag(command, "--max-iterations")) reasons.push("--max-iterations");
+  if (!hasStopWhenFlag(command)) reasons.push("--stop-when");
+  if (!hasFlagValue(command, "--prevent-sleep", "on")) reasons.push("--prevent-sleep on");
+  if (!hasFlagValue(command, "--meteor-frequency", "0")) reasons.push("telemetry off (--meteor-frequency 0)");
+  return reasons;
+}
+
+export function assertSafeCoderInvocation(command: string, options: CoderSafetyOptions = {}): void {
+  const reasons = unsafeCoderInvocationReasons(command, options);
+  if (reasons.length > 0) {
+    throw new ComboConfigError(`Unsafe coder invocation: missing ${reasons.join(", ")}`);
+  }
+}
+
 // -/ 2/4
 
 // -- 3/4 CORE · loadConfig (cascade) ← START HERE --
@@ -269,6 +343,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   };
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
+  let reviewerTableConfig: TomlTable = { ...DEFAULTS.reviewer };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
 
@@ -312,8 +387,14 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       if (reviewerTable["protocol"] !== undefined) {
         reviewerProtocol = String(reviewerTable["protocol"]);
       }
+      if (reviewerTable["ambient"] !== undefined) {
+        reviewerTableConfig = {
+          ...reviewerTableConfig,
+          ambient: reviewerTable["ambient"],
+        };
+      }
       for (const [name, entry] of Object.entries(reviewerTable)) {
-        if (name === "protocol") continue;
+        if (name === "protocol" || name === "ambient") continue;
         reviewerTemplates = {
           ...reviewerTemplates,
           [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
@@ -374,6 +455,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerTemplates[reviewerAgent]?.command,
     `command template for reviewer "${reviewerAgent}"`,
   );
+  const configuredAmbient = pickStringArray(reviewerTableConfig["ambient"], "reviewer.ambient")
+    .filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
+  const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
+  const ambientReviewerAgents = [...new Set([...configuredAmbient, ...legacyAmbient])];
 
   return {
     roles,
@@ -435,6 +520,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerAgent,
     reviewerCommand,
     reviewerProtocol,
+    ambientReviewerAgents,
   };
 }
 // -/ 3/4

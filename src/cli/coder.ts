@@ -117,7 +117,9 @@ export function nudgeReviewComments(input: {
     );
   }
   try {
-    const comments = fetchReviewCommentSignals(prUrl, deps.gh, ghApiCache);
+    const comments = fetchReviewCommentSignals(prUrl, deps.gh, ghApiCache, {
+      ambientReviewerAgents: config.ambientReviewerAgents,
+    });
     const headSha = comments.length === 0 ? undefined : worktreeHeadSha(deps, combo);
     const routed = routeReviewComments({
       runDir,

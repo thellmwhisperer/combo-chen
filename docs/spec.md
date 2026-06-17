@@ -7,25 +7,30 @@ schema, and the config schema must conform to it, not the other way around.
 ## 1. Roles
 
 | Role | Does | Never does | Default agent |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **coder** | implements the issue (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
-| **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR; then ci-step: watch CI, auto-fix failures/conflicts. The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own changes | claude (+ coderabbit as ambient reviewer) |
+| **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
+| **reviewer** | reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own changes | claude (+ configured ambient reviewers) |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
+
 - `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
+- gnhf coder commands must be safe runner commands before any worktree is
+  created: pinned `gnhf@<version>`, `--max-iterations`, `--stop-when`,
+  `--prevent-sleep on`, and telemetry/noise disabled with
+  `--meteor-frequency 0`. The runner also closes coder stdin.
 
 ## 2. Phases and transitions
 
 ```text
-SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
+SETUP      worktree acquired under the project .worktrees/ directory, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
-        └─▶ GATING     gate_started; pre-pushes to the `no-mistakes` remote (if one exists), then no-mistakes pipeline; ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
-              └─▶ REVIEWING  director-watch observes reviewer + coder responding + gatekeeper ci-step workers
-                    └─▶ READY      gate_current ∧ reviewer_current ∧ coderabbit_current_clean ∧ ci_current_success
+        └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
+              └─▶ REVIEWING  director-watch observes reviewer and coder responding mode workers
+                    └─▶ READY      gate_current ∧ reviewer_current ∧ ambient_review_current_clean ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
 
@@ -67,23 +72,21 @@ another path.
 
 ## 3. Post-PR loops and their boundary
 
-- **gatekeeper** (no-mistakes ci-step): machine signals only. Watches the PR
-  until merged/closed; fetches failed CI logs, lets its agent fix, commits and
-  force-pushes; rebases over merge conflicts. Verified: it never reads or
-  answers review threads.
+- **gatekeeper** (no-mistakes): publish-only. Validates and publishes
+  the PR. combo-chen appends `--skip=ci` so the gate runs without CI
+  monitoring. Verified: it never reads or answers review threads.
 - **coder responding mode** (the resumed coder): conversation signals only.
   Reads new review comments, answers them, and leaves committed local changes.
 
 **Publish boundary:** coder responding mode never pushes directly to origin or
 the PR branch. Any addressing commit it creates is routed back through the
-gatekeeper/no-mistakes gate, which validates the new HEAD, publishes it, and
-waits for CI. If the gatekeeper already has a CI fix in flight, combo-chen
-defers the next gate instead of starting a second publisher.
+gatekeeper/no-mistakes gate, which validates the new HEAD and publishes it.
+If the gatekeeper already has a gate in flight, combo-chen defers the next
+gate instead of starting a second publisher.
 On every director tick, combo-chen also compares `origin/<branch>`
 with the `no-mistakes` mirror and syncs the mirror when it is stale, using
 `--force-with-lease` when reconciling an existing mirror branch.
-The gatekeeper is the only normal publisher for both CI-red fixes and review
-addressing commits.
+The gatekeeper is the only normal publisher for addressing commits.
 
 The generated director-watch polling loop (`director-tick`) has built-in
 resilience: on transient failures (rate limits, network errors), it journals
@@ -154,10 +157,10 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   findings.
 - When all four signals agree on the current head SHA — gatekeeper has
   validated the SHA, the reviewer has a live pinned LGTM for that SHA,
-  CodeRabbit has a SUCCESS status context/check for that SHA and its
-  latest `coderabbitai` comment for that SHA is not a rate-limit/skipped/
-  no-review message, and all non-CodeRabbit status contexts/checks in the
-  rollup are successful for that SHA — the director journals
+  every configured ambient reviewer has a SUCCESS status context/check for
+  that SHA and its latest matching review/comment for that SHA is not a
+  rate-limit/skipped/no-review message, and all remaining status contexts/checks
+  in the rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
 
@@ -263,7 +266,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
 3. **v0 scope as proposed**:
-   `run`/`attach`/`status`/`stop`/`events`/`forensics`/`reconcile`/`activate-reviewer`,
+   `run`/`attach`/`status`/`park`/`resume`/`stop`/`events`/`forensics`/`reconcile`/`activate-reviewer`,
    coder (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental
    re-review), director-owned tmux poll loop; manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo dashboard deferred to v1+.

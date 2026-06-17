@@ -15,7 +15,7 @@ work. It coordinates existing tools; it does not collapse their roles.
   when clean. It does not use GitHub approval as the merge contract, does not
   review its own code, and does not publish.
 - **Gatekeeper**: no-mistakes is the normal publisher. It validates, pushes,
-  opens/updates the PR, watches CI, and republishes fixes through its gate.
+  and opens/updates the PR.
 - **Human**: owns merge decisions and intent-touching escalations.
 
 Hard rule: `reviewer != coder`.
@@ -92,6 +92,8 @@ Source files carry Sherpa-style navigable headers:
 v0 implements the issue-to-PR loop with coder/gnhf, no-mistakes initial and
 post-address gates, reviewer re-review, coder responding mode, single
 `director-watch` observation, frozen journal `reconcile` repair, local
-no-mistakes config propagation, read-only forensics reports, and current-head
-READY agreement. Deferred: preflight, counterfactual automerge log, treehouse
-pools, ACP role driving, and multi-combo dashboarding.
+no-mistakes config propagation, read-only forensics reports, coder safety
+validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),
+`park`/`resume` for reboot-safe combo handoff, `status --deep` for downstream
+probes, and current-head READY agreement. Deferred: preflight, counterfactual
+automerge log, treehouse pools, ACP role driving, and multi-combo dashboarding.
