@@ -251,7 +251,7 @@ gatekeeper_code=0
 (
 ${gatekeeperMirrorIntent === undefined ? ":" : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n")}
   ${gatekeeperCommand}
-) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
+) < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
 if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then
   gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)

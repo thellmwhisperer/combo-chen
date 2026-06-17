@@ -208,7 +208,7 @@ export function createProgram(deps: Deps): Command {
         combo,
       };
       if (options.prompt !== undefined) coderInput.prompt = options.prompt;
-      assertSafeCoderInvocation(config.coderCommand);
+      assertSafeCoderInvocation(config.coderCommand, { requireGnhf: config.roles.coder === "codex" });
       const coderCommand = buildCoderInvocation(coderInput);
       const issuePrIntent = buildIssuePrIntent({
         combo,

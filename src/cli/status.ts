@@ -149,7 +149,8 @@ export function parseNoMistakesAxiStatus(raw: string): NoMistakesAxiStatus {
 function summarizeNoMistakesStatus(facts: NoMistakesAxiStatus, branch: string): string | undefined {
   if (facts.branch !== undefined && facts.branch !== branch) return undefined;
 
-  const hasAwaitingSummary = facts.findingsSummary?.toLowerCase().includes("await") ?? false;
+  const awaitingCount = /\b(\d+)\s+await/i.exec(facts.findingsSummary ?? "")?.[1];
+  const hasAwaitingSummary = awaitingCount !== undefined && Number(awaitingCount) > 0;
   if (facts.outcome === "awaiting_approval" || hasAwaitingSummary || facts.awaitingFindingIds.length > 0) {
     const ids = facts.awaitingFindingIds.length > 0 ? `: ${facts.awaitingFindingIds.join(", ")}` : "";
     const respond = facts.nextStep !== undefined ? `; respond: ${facts.nextStep}` : "";
