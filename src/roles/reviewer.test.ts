@@ -36,15 +36,15 @@ const combo = {
 };
 
 const prUrl = "https://github.com/o/r/pull/9";
-const protocol = "repository review instructions + project overlay 8034";
+const reviewerInstructions = "apply local reviewer instructions 8034";
 
 // -- 1/1 CORE · defaultReviewerPrompt + buildReviewerInvocation ← START HERE --
 describe("defaultReviewerPrompt", () => {
   it("injects the PR URL, reviewer instructions, and the COMMENT-only verdict contract", () => {
-    const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
+    const prompt = defaultReviewerPrompt({ combo, prUrl, reviewerInstructions });
 
     expect(prompt).toContain(prUrl);
-    expect(prompt).toContain(`Reviewer instructions: ${protocol}.`);
+    expect(prompt).toContain(`Reviewer instructions: ${reviewerInstructions}.`);
     expect(prompt).toContain("COMMENT reviews or issue comments");
     expect(prompt).toContain("never APPROVE");
     expect(prompt).toContain("lgtm @ <sha>");
@@ -53,7 +53,7 @@ describe("defaultReviewerPrompt", () => {
   });
 
   it("spells out the allowlist-friendly submit command and command discipline", () => {
-    const prompt = defaultReviewerPrompt({ combo, prUrl, protocol });
+    const prompt = defaultReviewerPrompt({ combo, prUrl, reviewerInstructions });
 
     expect(prompt).toContain("gh pr review");
     expect(prompt).toContain("--comment --body");
@@ -66,14 +66,14 @@ describe("defaultReviewerPrompt", () => {
 describe("buildReviewerInvocation", () => {
   it("renders the configured reviewer command with quoted PR facts and prompt", () => {
     const command = buildReviewerInvocation({
-      reviewerCommand: "claude --judge {pr_url} {protocol} {prompt}",
+      reviewerCommand: "claude --judge {pr_url} {prompt}",
       combo,
       prUrl,
-      protocol,
+      reviewerInstructions,
     });
 
     expect(command).toContain("--judge 'https://github.com/o/r/pull/9'");
-    expect(command).toContain("'repository review instructions + project overlay 8034'");
+    expect(command).toContain("Reviewer instructions: apply local reviewer instructions 8034.");
     expect(command).toContain("COMMENT reviews or issue comments");
     expect(command).toContain("lgtm @ <sha>");
   });
@@ -83,7 +83,7 @@ describe("buildReviewerInvocation", () => {
       reviewerCommand: "judge {prompt}",
       combo,
       prUrl,
-      protocol,
+      reviewerInstructions,
       prompt: "review this one diff only",
     });
 
@@ -96,7 +96,7 @@ describe("buildReviewerInvocation", () => {
         reviewerCommand: "claude {prompt} && rm -f /tmp/review.md",
         combo,
         prUrl,
-        protocol,
+        reviewerInstructions,
       }),
     ).toThrow(ReviewerInvocationError);
   });

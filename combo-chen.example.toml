@@ -70,13 +70,13 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 # Reviewer submit commands must be one plain command, normally:
 # gh pr review <url> --comment --body "<body>"
 # Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
-protocol = "repository review instructions + project overlay"
+# prompt = "Apply my local review process."
 # Ambient review/check providers are matched by status context/check name and
 # review author. They do not run in the reviewer tmux window.
 ambient = ["coderabbit"]
 
 [reviewer.claude]
-# {placeholders}: issue_url, pr_url, worktree, repo, branch, protocol, prompt.
+# {placeholders}: issue_url, pr_url, worktree, repo, branch, prompt.
 command = "claude {prompt}"
 
 [monitor]

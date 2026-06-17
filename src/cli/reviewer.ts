@@ -77,7 +77,7 @@ export function activateReviewer(input: {
   const reviewerCommand = buildReviewerInvocation({
     combo,
     prUrl,
-    protocol: config.reviewerProtocol,
+    reviewerInstructions: config.reviewerPrompt,
     reviewerCommand: config.reviewerCommand,
   });
 
@@ -246,12 +246,12 @@ export async function tickReviewer(input: {
   const reviewerCommand = buildReviewerInvocation({
     combo,
     prUrl,
-    protocol: config.reviewerProtocol,
+    reviewerInstructions: config.reviewerPrompt,
     reviewerCommand: config.reviewerCommand,
     prompt: incrementalReviewerPrompt({
       combo,
       prUrl,
-      protocol: config.reviewerProtocol,
+      reviewerInstructions: config.reviewerPrompt,
       oldSha: pinnedSha,
       newSha: headSha,
     }),
