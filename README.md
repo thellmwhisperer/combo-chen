@@ -174,7 +174,9 @@ combo-chen stop -n <combo-id>
   terminal historical rows, and `--deep` to compare the journal with downstream
   GitHub and gatekeeper state. Before rendering, `status` quietly reconciles
   non-terminal journals whose PR is already merged or closed on GitHub, then
-  hides those repaired terminal rows from the default view.
+  hides those repaired terminal rows from the default view. If a non-terminal
+  combo no longer has its tmux session, status journals `tmux_missing` so it is
+  shown as needing human attention instead of looking supervised.
 - `park` writes a local handoff and stops tmux without making the combo
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream
