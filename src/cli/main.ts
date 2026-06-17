@@ -465,6 +465,7 @@ export function createProgram(deps: Deps): Command {
     .option("--all", "Include terminal historical combos", false)
     .action(async (options: { deep?: boolean; all?: boolean }) => {
       const home = comboHome(deps.env);
+      await reconcileCombos({ deps, home, apply: true, quiet: true });
       const combos = listCombos(home);
       if (combos.length === 0) {
         deps.out("no combos. start one: combo-chen run --issue <url>");

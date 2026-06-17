@@ -267,8 +267,9 @@ propagates it.
   `worker_stalled`.
 - Attention surface: tmux window titles + default `combo-chen status` always
   answer "which combos need a human RIGHT NOW" (phase + needs_human flag).
-  Terminal historical rows are hidden unless the operator passes `status
-  --all`.
+  Before rendering, status quietly reconciles non-terminal journals whose PR is
+  already merged or closed on GitHub. Terminal historical rows are hidden
+  unless the operator passes `status --all`.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
@@ -278,8 +279,10 @@ propagates it.
   against GitHub PR state. For merged PRs whose journal froze before the
   director could record `merged`/`combo_closed`, it appends the missing
   terminal events (marked `source: "reconcile"`) and runs teardown (worktree
-  removal, branch deletion, tmux session kill). Without `--apply` it reports
-  what would change without mutating state.
+  removal, branch deletion, tmux session kill). For closed PRs, it appends
+  `needs_human reason=pr_closed` plus `combo_closed` and stops tmux while
+  preserving the local worktree and branch. Without `--apply` it reports what
+  would change without mutating state.
 
 ## 8b. Preflight
 

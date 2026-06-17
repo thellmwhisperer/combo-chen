@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4300 lines.
+ *   deps so tests run without a real terminal or network. ~4350 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -2329,6 +2329,80 @@ describe("status", () => {
     await exec(deps, ["status"]);
 
     expect(out).toEqual(["no actionable combos. show history: combo-chen status --all"]);
+  });
+
+  it("reconciles merged and closed PRs before rendering default status", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const mergedDir = runDirFor(h, "o-r-merged");
+    writeCombo(mergedDir, {
+      id: "o-r-merged",
+      issueUrl: "https://github.com/o/r/issues/8",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-8"),
+      branch: "combo/issue-8",
+      tmuxSession: "combo-chen-o-r-merged",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(mergedDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
+
+    const closedDir = runDirFor(h, "o-r-closed");
+    writeCombo(closedDir, {
+      id: "o-r-closed",
+      issueUrl: "https://github.com/o/r/issues/9",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-9"),
+      branch: "combo/issue-9",
+      tmuxSession: "combo-chen-o-r-closed",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(closedDir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/8") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "head888",
+              state: "MERGED",
+              baseRefName: "main",
+              mergeCommit: { oid: "merge888" },
+              mergedBy: { login: "maintainer" },
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/9") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ headRefOid: "head999", state: "CLOSED", mergedBy: null }),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status"]);
+
+    expect(out).toEqual(["no actionable combos. show history: combo-chen status --all"]);
+    expect(readEvents(mergedDir)).toMatchObject([
+      { event: "pr_opened", url: "https://github.com/o/r/pull/8" },
+      { event: "merged", sha: "merge888", by: "maintainer", source: "reconcile" },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+    expect(readEvents(closedDir)).toMatchObject([
+      { event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+      { event: "needs_human", reason: "pr_closed", source: "reconcile" },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-merged"]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-closed"]);
+    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "worktree", "remove", "--force", join(repoDir, ".worktrees", "issue-8")]);
+    expect(calls.some((call) => call[0] === "git" && call.includes(join(repoDir, ".worktrees", "issue-9")))).toBe(false);
   });
 
   it("prints downstream no-mistakes CI state in deep mode for stale stalled combos", async () => {
