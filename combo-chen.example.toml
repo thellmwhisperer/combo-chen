@@ -65,10 +65,9 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 '''
 
 [reviewer]
-# The reviewer invocation also points at the bundled
-# skills/pr-review-protocol/SKILL.md, which is the portable Javier/La Roca
-# review gate. Keep this config value as the repo-specific overlay/reference,
-# not as a replacement for that skill.
+# The reviewer invocation tells the agent to load the local
+# pr-review-protocol skill. Keep this config value as the repo-specific
+# overlay/reference, not as a replacement for that skill.
 # Reviewer submit commands must be one plain command, normally:
 # gh pr review <url> --comment --body "<body>"
 # Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
@@ -80,6 +79,10 @@ ambient = ["coderabbit"]
 [reviewer.claude]
 # {placeholders}: issue_url, pr_url, worktree, repo, branch, protocol, prompt.
 command = "claude {prompt}"
+
+[monitor]
+# Environment override: COMBO_CHEN_WORKER_STALL_TICKS.
+worker_stall_ticks = 3
 
 [limits]
 babysit_poll_seconds = 120  # director-watch poll interval

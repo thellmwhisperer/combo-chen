@@ -139,8 +139,8 @@ ambient = ["coderabbit"]
 command = "claude {prompt}"
 ```
 
-Reviewer prompts include the bundled `skills/pr-review-protocol/SKILL.md` and
-submit reviews with a single inline `gh pr review --comment --body "..."`
+Reviewer prompts tell the reviewer to load the local `pr-review-protocol` skill
+and submit reviews with a single inline `gh pr review --comment --body "..."`
 command. They must not use heredocs, temp files, pipes, redirects, semicolons,
 or cleanup commands to publish a review.
 
