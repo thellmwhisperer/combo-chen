@@ -90,7 +90,7 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
-    expect(config.reviewerProtocol).toContain("7989");
+    expect(config.reviewerProtocol).toBe("repository review protocol + project overlay");
   });
 
   it("lets the user config override defaults", () => {

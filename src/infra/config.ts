@@ -98,7 +98,7 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
   merge: "merge",
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
-const DEFAULT_REVIEWER_PROTOCOL = "La Roca review protocol 7989 + project overlay";
+const DEFAULT_REVIEWER_PROTOCOL = "repository review protocol + project overlay";
 export const DEFAULT_CODER_STOP_WHEN =
   "Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. " +
   "If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";

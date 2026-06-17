@@ -30,8 +30,8 @@ const LAUNCH_SKILL = join(REPO_ROOT, "skills", "launch-combo", "SKILL.md");
 const OLD_ROLE_TERMS =
   /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b|\bjudge-tick\b/i;
 const OLD_PHASE_TERMS = /\b(ROWING|JUDGING)\b/;
-const LOCAL_REPO_PATH = /\/Volumes\/CrucialX9\/workspace\/combo-chen\//;
-const FORBIDDEN_TMP_WORKTREE_PATH = /\/Volumes\/CrucialX9\/tmp\//;
+const LOCAL_REPO_PATH = /\/local\/developer\/workspace\/combo-chen\//;
+const FORBIDDEN_TMP_WORKTREE_PATH = /\/external-disk\/tmp\//;
 
 // -- 1/1 CORE · Example config validation ← START HERE --
 describe("combo-chen.example.toml", () => {

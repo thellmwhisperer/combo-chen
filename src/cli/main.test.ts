@@ -1135,7 +1135,7 @@ describe("emit", () => {
       "--field",
       "new_sha=def456",
     ]);
-    await exec(deps, ["emit", "-n", "o-r-7", "merged", "--field", "sha=def456", "--field", "by=javi"]);
+    await exec(deps, ["emit", "-n", "o-r-7", "merged", "--field", "sha=def456", "--field", "by=maintainer"]);
     await exec(deps, ["emit", "-n", "o-r-7", "combo_closed"]);
     await exec(deps, ["emit", "-n", "o-r-7", "coder_retry"]);
 
@@ -2574,7 +2574,7 @@ describe("activate-reviewer", () => {
         'gordon = ["local"]',
         '',
         '[gordon]',
-        'protocol = "Protocol 7989 + overlay 8034"',
+        'protocol = "Base review protocol + overlay 8034"',
         '',
         '[gordon.local]',
         'command = "judge-bot --pr {pr_url} --protocol {protocol} --prompt {prompt}"',
@@ -2609,7 +2609,7 @@ describe("activate-reviewer", () => {
     const command = judgeWindow?.at(-1) ?? "";
     expect(command).toContain("judge-bot");
     expect(command).toContain("'https://github.com/o/r/pull/7'");
-    expect(command).toContain("'Protocol 7989 + overlay 8034'");
+    expect(command).toContain("'Base review protocol + overlay 8034'");
     expect(command).toContain("COMMENT reviews");
     expect(command).toContain("lgtm @ <sha>");
 
@@ -3113,7 +3113,7 @@ describe("reviewer-tick", () => {
         return {
           status: 0,
           stdout:
-            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"maintainer"}}',
           stderr: "",
         };
       },
@@ -3122,7 +3122,7 @@ describe("reviewer-tick", () => {
     await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
     expect(readEvents(dir).slice(-2)).toMatchObject([
-      { event: "merged", sha: "squash789", by: "javi" },
+      { event: "merged", sha: "squash789", by: "maintainer" },
       { event: "combo_closed" },
     ]);
 
@@ -3176,7 +3176,7 @@ describe("reviewer-tick", () => {
     const prView = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
     expect(prView).toContain("--json");
     expect(prView).toContain("headRefOid,state,mergedBy,baseRefName,mergeCommit");
-    expect(out.join("\n")).toContain("merged squash789 by javi");
+    expect(out.join("\n")).toContain("merged squash789 by maintainer");
   });
 
   it("retries merged teardown until combo_closed is journaled", async () => {
@@ -3193,7 +3193,7 @@ describe("reviewer-tick", () => {
       createdAt: new Date().toISOString(),
     });
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "merged", { sha: "squash789", by: "javi" });
+    appendEvent(dir, "merged", { sha: "squash789", by: "maintainer" });
 
     const { deps, calls, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -3202,7 +3202,7 @@ describe("reviewer-tick", () => {
         return {
           status: 0,
           stdout:
-            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"maintainer"}}',
           stderr: "",
         };
       },
@@ -3230,14 +3230,14 @@ describe("reviewer-tick", () => {
       createdAt: new Date().toISOString(),
     });
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "merged", { sha: "head456", by: "javi" });
+    appendEvent(dir, "merged", { sha: "head456", by: "maintainer" });
 
     const { deps } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       gh: () => ({
         status: 0,
         stdout:
-          '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+          '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"maintainer"}}',
         stderr: "",
       }),
     });
@@ -3279,7 +3279,7 @@ describe("reviewer-tick", () => {
         return {
           status: 0,
           stdout:
-            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"maintainer"}}',
           stderr: "",
         };
       },
@@ -3333,7 +3333,7 @@ describe("reviewer-tick", () => {
         return {
           status: 0,
           stdout:
-            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"javi"}}',
+            '{"headRefOid":"head456","baseRefName":"main","mergeCommit":{"oid":"squash789"},"state":"MERGED","mergedBy":{"login":"maintainer"}}',
           stderr: "",
         };
       },
@@ -3399,7 +3399,7 @@ describe("reviewer-tick", () => {
         'gordon = ["local"]',
         '',
         '[gordon]',
-        'protocol = "Protocol 7989 + overlay 8034"',
+        'protocol = "Base review protocol + overlay 8034"',
         '',
         '[gordon.local]',
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
@@ -3783,7 +3783,7 @@ describe("events", () => {
       tmuxSession: "combo-chen-o-r-7",
       createdAt: new Date().toISOString(),
     });
-    appendEvent(dir, "merged", { sha: "def456", by: "javi" });
+    appendEvent(dir, "merged", { sha: "def456", by: "maintainer" });
 
     const stop = new Error("observed followed event");
     const out: string[] = [];
@@ -3799,7 +3799,7 @@ describe("events", () => {
     expect(JSON.parse(out[0] ?? "{}")).toMatchObject({
       event: "merged",
       sha: "def456",
-      by: "javi",
+      by: "maintainer",
     });
   });
 });
@@ -3870,13 +3870,13 @@ describe("park", () => {
 
     const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-    await exec(deps, ["park", "-n", "o-r-7", "--by", "javi"]);
+    await exec(deps, ["park", "-n", "o-r-7", "--by", "maintainer"]);
 
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "kill-session")).toBe(true);
     const events = readEvents(dir);
     expect(events.at(-1)?.event).toBe("parked");
     expect(events.some((event) => event.event === "stopped")).toBe(false);
-    expect(events.at(-1)).toMatchObject({ by: "javi" });
+    expect(events.at(-1)).toMatchObject({ by: "maintainer" });
     const summaryPath = events.at(-1)?.summary_path;
     expect(typeof summaryPath).toBe("string");
     const summary = readFileSync(summaryPath as string, "utf8");

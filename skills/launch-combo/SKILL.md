@@ -8,7 +8,7 @@ user-invocable: true
 
 ## Autonomy mandate
 
-Being invoked with this skill IS the standing authorization for the full combo lifecycle. Do NOT ask the human for permission to: launch the run, create the combo worktree and branch, claim and message via roca (propose, inbox, resolve), activate reviewer rounds, activate the coder in responding mode, respond to mechanical gates, rebase after a sibling merge, tear down on merge. Asking permission for these is a failure mode; the human only wants to see green, reviewed PRs.
+Being invoked with this skill IS the standing authorization for the full combo lifecycle. Do NOT ask the human for permission to: launch the run, create the combo worktree and branch, claim any configured coordination surface, activate reviewer rounds, activate the coder in responding mode, respond to mechanical gates, rebase after a sibling merge, tear down on merge. Asking permission for these is a failure mode; the human only wants to see green, reviewed PRs.
 
 Still the human's, always escalate and wait: merging or closing the PR, formal approvals, anything that changes the INTENT of the issue, closing issues, and any write outside this combo's branch/PR. Review authorship belongs to the configured reviewer; the director only starts and observes that worker.
 
@@ -36,10 +36,10 @@ Run PLAIN, single-purpose commands: one operation per Bash call, no `||`/`&&` ch
 
 1. `gh auth status` works and you can read the target issue. If the token is invalid but SSH works, switch origin to SSH for git; escalate for token re-auth (gh pr operations still need the token).
 2. Read the issue end to end. It must carry a sharp mandate: scope, acceptance criteria, evidence. If it is not coder-ready, stop and tell the human what is missing.
-3. Surface claim via La Roca (director-level coordination):
-   - `roca_list_proposals`: if an OPEN proposal claims a surface overlapping your issue (same files/modules), DO NOT launch. Report the conflict.
-   - `roca_propose`: claim your surface. Format: `combo <issue#> claims surface <name> | repo <repo> | branch <branch> | director <session>`.
-   - Fallback when the MCP tools are unavailable: `sqlite3` on `~/.roca-madre/roca.db` to read open proposals and insert your claim. If `roca_list_proposals` throws a generic error, fall back to `roca_inbox` / `roca_query`.
+3. Surface claim via the configured coordination channel, when one exists:
+   - If an open proposal claims files/modules overlapping your issue, do not launch. Report the conflict.
+   - Claim your surface with issue number, repo, branch, and director identity.
+   - If no coordination channel is configured, proceed with branch/worktree ownership as the local source of truth.
 4. Census: `tmux list-sessions` tells you how many runners are alive right now. Cross-check against open proposals.
 5. Confirm the target repo worktree for the combo starts from fresh `origin/main` (`git fetch` + verify the base).
 
@@ -59,7 +59,7 @@ Then immediately:
 
 ## Babysitting loop
 
-Poll on a cadence (journal, GitHub, tmux, roca inbox). React by event:
+Poll on a cadence (journal, GitHub, tmux, configured coordination inbox). React by event:
 
 | Signal | Reaction |
 |---|---|
@@ -73,10 +73,10 @@ Poll on a cadence (journal, GitHub, tmux, roca inbox). React by event:
 | New push to the PR | The previous verdict is stale. Re-run an incremental reviewer round and re-pin. |
 | New non-reviewer comments (bots included) | Sweep them via the coder responding mode. Nothing stays unanswered. |
 | `lgtm @ <head-sha>` current + checks green | Endpoint reached. Announce and go to vigil. |
-| Roca inbox: `merged` from a sibling combo | Rebase your branch on the new main early. Re-run checks. |
-| Roca inbox: help request (stuck gate, saturated director) | Assist only with read/status actions unless you own that combo. |
+| Coordination inbox: `merged` from a sibling combo | Rebase your branch on the new main early. Re-run checks. |
+| Coordination inbox: help request (stuck gate, saturated director) | Assist only with read/status actions unless you own that combo. |
 
-Loop hygiene: check `roca_inbox` every cycle; it is the director-to-director channel. Coders do not talk, they testify through handovers; read run-dir handovers (and roca, when the sink lands) to rebuild the timeline of any lane you did not watch.
+Loop hygiene: check the configured coordination inbox every cycle. Coders do not talk, they testify through handovers; read run-dir handovers to rebuild the timeline of any lane you did not watch.
 
 ### Monitoring coder progress (gnhf)
 
@@ -117,9 +117,9 @@ After emitting: re-run `combo-chen status` to confirm the phase flipped, then co
 
 When the PR is green with a current lgtm:
 1. Post nothing further; the PR speaks.
-2. `roca_store` record for siblings/human (use `layer: "handoff"`; `coordination` is not a valid layer): `combo <issue#>: PR <url> green and reviewed, awaiting merge`.
-3. Vigil: keep polling for the merge. On merge: confirm teardown (roles stopped, worktree and branch cleaned; manual cleanup may still be required), `roca_resolve_proposal` with `action: "approved"` (not `approve`) to release the surface claim, and send `merged` to the siblings so they rebase.
+2. Record a handoff in the configured coordination channel, if one exists: `combo <issue#>: PR <url> green and reviewed, awaiting merge`.
+3. Vigil: keep polling for the merge. On merge: confirm teardown (roles stopped, worktree and branch cleaned; manual cleanup may still be required), release the surface claim when your coordination channel supports it, and notify sibling combos so they rebase.
 
 ## Recovery after interruption
 
-Re-read in this order: `combo-chen status`, the combo journal (`combo-chen events`), `gh pr view` on the PR, `no-mistakes axi status`, `roca_inbox`. Reconstruct state only from those. Then resume the loop.
+Re-read in this order: `combo-chen status`, the combo journal (`combo-chen events`), `gh pr view` on the PR, `no-mistakes axi status`, and the configured coordination inbox. Reconstruct state only from those. Then resume the loop.
