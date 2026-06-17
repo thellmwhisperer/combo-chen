@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper},
+ *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper,reviewer},
  *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -74,6 +74,7 @@ import {
   hasIssueAutocloseInPrBody,
 } from "../roles/gatekeeper.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
+import { assertReviewerCommandSafe } from "../roles/reviewer.js";
 import { parseEventFields } from "./args.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
 import { tickDirector } from "./director.js";
@@ -146,6 +147,34 @@ function cliInvocation(): string {
   const script = fileURLToPath(import.meta.url);
   return `"${process.execPath}" "${script}"`;
 }
+
+function requireCleanMainCheckout(deps: Deps, repoDir: string): void {
+  const branch = deps.git(["branch", "--show-current"], repoDir);
+  if (branch.status !== 0) {
+    throw new Error(`git branch --show-current failed: ${branch.stderr.trim() || "unknown error"}`);
+  }
+  const branchName = branch.stdout.trim();
+  if (branchName !== "main") {
+    throw new Error(`combo-chen run must be on main; current branch is "${branchName || "(detached)"}"`);
+  }
+
+  const status = deps.git(["status", "--porcelain"], repoDir);
+  if (status.status !== 0) {
+    throw new Error(`git status --porcelain failed: ${status.stderr.trim() || "unknown error"}`);
+  }
+  if (status.stdout.trim() !== "") {
+    throw new Error("combo-chen run refuses to launch with uncommitted changes in the source checkout");
+  }
+}
+
+function fetchBaseRef(deps: Deps, repoDir: string, baseRef: string): void {
+  if (!baseRef.startsWith("origin/")) return;
+  const branch = baseRef.slice("origin/".length);
+  const fetched = deps.git(["fetch", "origin", branch], repoDir);
+  if (fetched.status !== 0) {
+    throw new Error(`git fetch origin ${branch} failed: ${fetched.stderr.trim() || "unknown error"}`);
+  }
+}
 // -/ 1/4
 
 // -- 2/4 CORE · createProgram command registry <- START HERE --
@@ -160,7 +189,8 @@ export function createProgram(deps: Deps): Command {
     .requiredOption("--issue <url>", "GitHub issue URL")
     .option("--repo <dir>", "Target repo directory", process.cwd())
     .option("--prompt <text>", "Override the coder's objective prompt")
-    .action(async (options: { issue: string; repo: string; prompt?: string }) => {
+    .option("--base <ref>", "Base ref for the combo branch", "origin/main")
+    .action(async (options: { issue: string; repo: string; prompt?: string; base: string }) => {
       const issue = parseIssueUrl(options.issue);
       if (!deps.issueExists(options.issue)) {
         throw new Error(`Issue not reachable: ${options.issue} (gh issue view failed)`);
@@ -182,7 +212,11 @@ export function createProgram(deps: Deps): Command {
         }
       }
 
+      requireCleanMainCheckout(deps, options.repo);
+      fetchBaseRef(deps, options.repo, options.base);
+
       const config = loadConfig({ repoDir: options.repo, env: deps.env });
+      assertReviewerCommandSafe(config.reviewerCommand);
       const id = comboIdFromIssueUrl(options.issue);
       const home = comboHome(deps.env);
       const runDir = runDirFor(home, id);
@@ -217,7 +251,7 @@ export function createProgram(deps: Deps): Command {
         issueBody: issueDetails.body,
       });
 
-      const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch], options.repo);
+      const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch, options.base], options.repo);
       if (worktreeResult.status !== 0) {
         throw new Error(`git worktree add failed: ${worktreeResult.stderr.trim()}`);
       }
@@ -235,6 +269,7 @@ export function createProgram(deps: Deps): Command {
       });
       const runner = buildRunnerScript({
         combo,
+        baseRef: options.base,
         coderCommand,
         gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
         gatekeeperMirrorIntent: buildNoMistakesPushIntent(issuePrIntent),

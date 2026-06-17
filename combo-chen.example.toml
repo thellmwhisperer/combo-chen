@@ -65,8 +65,13 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 '''
 
 [reviewer]
-# Protocol content stays in config. Keep this as a reference to your current
-# repository review protocol and project overlay rather than copying them here.
+# The reviewer invocation also points at the bundled
+# skills/pr-review-protocol/SKILL.md, which is the portable Javier/La Roca
+# review gate. Keep this config value as the repo-specific overlay/reference,
+# not as a replacement for that skill.
+# Reviewer submit commands must be one plain command, normally:
+# gh pr review <url> --comment --body "<body>"
+# Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
 protocol = "repository review protocol + project overlay"
 # Ambient review/check providers are matched by status context/check name and
 # review author. They do not run in the reviewer tmux window.

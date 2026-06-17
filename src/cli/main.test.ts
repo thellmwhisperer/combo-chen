@@ -74,6 +74,12 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
     },
     git: (args, cwd) => {
       calls.push(["git", `cwd=${cwd}`, ...args]);
+      if (args[0] === "branch" && args[1] === "--show-current") {
+        return { status: 0, stdout: "main\n", stderr: "" };
+      }
+      if (args[0] === "status" && args[1] === "--porcelain") {
+        return { status: 0, stdout: "", stderr: "" };
+      }
       return { status: 0, stdout: "", stderr: "" };
     },
     gh: (args) => {
@@ -3982,6 +3988,81 @@ describe("resolvePollMs", () => {
 });
 
 describe("run ordering and safety", () => {
+  it("creates the combo worktree from origin/main instead of the source checkout HEAD", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "fetch", "origin", "main"]);
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${repoDir}`,
+      "worktree",
+      "add",
+      join(repoDir, ".worktrees", "issue-7"),
+      "-b",
+      "combo/issue-7",
+      "origin/main",
+    ]);
+  });
+
+  it("allows --base to override the combo branch base ref", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir, "--base", "origin/release-candidate"]);
+
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${repoDir}`,
+      "worktree",
+      "add",
+      join(repoDir, ".worktrees", "issue-7"),
+      "-b",
+      "combo/issue-7",
+      "origin/release-candidate",
+    ]);
+  });
+
+  it("refuses to launch from a dirty source checkout before creating the worktree", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: " M src/x.ts\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/uncommitted changes/);
+
+    expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
+  });
+
+  it("refuses to launch from a non-main source checkout before creating the worktree", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "docs/launch-combo-resume\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/must be on main/);
+
+    expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
+  });
+
   it("rejects an unsafe gnhf coder command before creating a worktree or tmux session", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -3993,6 +4074,24 @@ describe("run ordering and safety", () => {
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
       /Unsafe coder invocation/,
+    );
+
+    expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
+    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+  });
+
+  it("rejects an unsafe reviewer command before creating a worktree or tmux session", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[reviewer.claude]\ncommand = "claude {prompt} && rm -f /tmp/review.md"\n',
+    );
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /reviewer command must be one plain command/,
     );
 
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
@@ -4093,7 +4192,9 @@ describe("run ordering and safety", () => {
         git: (args) =>
           args[0] === "remote"
             ? { status: 0, stdout: `${remoteUrl}\n`, stderr: "" }
-            : { status: 0, stdout: "", stderr: "" },
+            : args[0] === "branch" && args[1] === "--show-current"
+              ? { status: 0, stdout: "main\n", stderr: "" }
+              : { status: 0, stdout: "", stderr: "" },
       });
 
       await expect(

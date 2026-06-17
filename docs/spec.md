@@ -18,15 +18,23 @@ Validation at launch (hard failures, the combo refuses to start):
 
 - `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
+- the source checkout is on clean `main`; local dirty state or launching from
+  another branch is a hard error.
+- the combo branch is created from `origin/main` by default, or from the
+  explicit `--base <ref>` supplied to `combo-chen run`.
 - gnhf coder commands must be safe runner commands before any worktree is
   created: pinned `gnhf@<version>`, `--max-iterations`, `--stop-when`,
   `--prevent-sleep on`, and telemetry/noise disabled with
   `--meteor-frequency 0`. The runner also closes coder stdin.
+- reviewer submit commands must be safe before launch: one plain command, no
+  heredocs, temp files, `cat`, `rm`, shell redirection, pipes, semicolons,
+  `&&`, or `||`. The generated prompt tells reviewers to submit with
+  `gh pr review <pr-url> --comment --body "<body>"`.
 
 ## 2. Phases and transitions
 
 ```text
-SETUP      worktree acquired under the project .worktrees/ directory, tmux session up
+SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
               └─▶ REVIEWING  director-watch observes reviewer and coder responding mode workers
@@ -53,9 +61,10 @@ continuing to `pr_opened`, `gate_validated`, or `pr_ready`.
 A recoverable coder failure journals `coder_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.
 
-Before the coder starts, the runner fetches and rebases the worktree onto
-`origin/main`. A fetch failure journals `rebase_failed` (required field
-`base`) and exits 1; a merge-conflict rebase failure journals
+Before the coder starts, the runner fetches and rebases the worktree onto the
+launch base ref (`origin/main` by default, or `--base <ref>`). A fetch failure
+journals `rebase_failed` (required field `base`) and exits 1; a merge-conflict
+rebase failure journals
 `rebase_conflict` (required field `base`) and exits 1. Both events
 transition the combo immediately to `STALLED`.
 
@@ -109,7 +118,8 @@ successful tick the failure counter and backoff reset.
 human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper completed
 successfully, awaiting PR detection).  On successful completion the gate emits
 `gate_validated` (required field `sha`) alongside the `idle` gate status,
-recording the validated head SHA. Post-address gates run the PR autoclose
+recording the PR `headRefOid` when a PR exists, otherwise the local worktree
+HEAD. Post-address gates run the PR autoclose
 guard before emitting `gate_validated`, so a successful no-mistakes run cannot
 be promoted to READY while the PR body still lacks a recognized closing
 keyword.
@@ -160,6 +170,10 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 
 - The reviewer emits `lgtm` (required field `sha`) to journal the reviewed commit;
   the LGTM is pinned to that SHA.
+- The reviewer invocation points at the bundled
+  `skills/pr-review-protocol/SKILL.md` as the portable review gate. The
+  configured `reviewer.protocol` is the repo-specific overlay/reference, not a
+  dangling external dependency.
 - Any push invalidates it and the journal records `lgtm_stale` (fields
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
@@ -172,6 +186,10 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   in the rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
+- If no-mistakes dies after publishing but GitHub reports the current PR head
+  check rollup as successful, the director may reconcile stale local gate
+  evidence by journaling a GitHub-sourced `gate_status idle` and
+  `gate_validated` pinned to the PR `headRefOid`.
 
 ## 6. Merge policy and the counterfactual log
 
@@ -237,6 +255,11 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.
+- Every director tick inspects active worker panes (`coder`, `reviewer`,
+  `gatekeeper`, and coder responding mode). A permission prompt, missing/dead
+  pane, or three unchanged captures for the same worker journals
+  `needs_human` with `worker_permission_prompt`, `worker_dead`, or
+  `worker_stalled`.
 - Attention surface: tmux window titles + `combo-chen status` always answer
   "which combos need a human RIGHT NOW" (phase + needs_human flag). Five
   combos = five status lines, zero attaching until escalation.

@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~275 lines, 5 exports, post-PR orchestration.
+ * @overview Director CLI helpers. ~285 lines, 5 exports, post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -9,7 +9,8 @@
  *
  *   MAIN FLOW
  *   ---------
- *   tickReviewer -> nudgeReviewComments -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded
+ *   inspectWorkerPanes -> tickReviewer -> nudgeReviewComments
+ *     -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded
  *
  *   PUBLIC API
  *   ----------
@@ -24,7 +25,7 @@
  *   runReadyForMergeIfNeeded, hasCleanAmbientReviewerSignal, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder
+ * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache, readGhArray, type GhApiCache } from "../core/gh-api.js";
@@ -38,9 +39,12 @@ import {
   latestGateStatus,
   latestPublishedGateSha,
   runPostAddressGateIfNeeded,
+  GATEKEEPER_WINDOW,
 } from "./gate.js";
 import { parsePrView } from "./github.js";
 import { livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
+import { CODER_WINDOW, REVIEWER_WINDOW } from "./sessions.js";
+import { inspectWorkerPanes } from "./worker-monitor.js";
 
 // -- 1/3 HELPER · Dependency contract --
 export interface DirectorDeps {
@@ -64,6 +68,18 @@ export async function tickDirector(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const ghApiCache = createGhApiCache();
+  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+
+  const workerInspection = inspectWorkerPanes({
+    deps,
+    combo,
+    runDir,
+    workerWindows: [CODER_WINDOW, REVIEWER_WINDOW, GATEKEEPER_WINDOW, config.coderRespondingWindowName],
+  });
+  if (workerInspection.escalated) {
+    deps.out(`director: tick complete for ${comboId}`);
+    return;
+  }
 
   await tickReviewer({ deps, home, comboId, ghApiCache });
   if (terminalReviewerEvent(readEvents(runDir))) {
@@ -206,6 +222,12 @@ function hasCurrentGateForHead(events: ComboEvent[], headSha: string): boolean {
   return latestPublishedGateSha(events) === headSha;
 }
 
+function canReconcileGateFromGithub(events: ComboEvent[]): boolean {
+  const status = latestGateStatus(events);
+  if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return false;
+  return status !== undefined || latestPublishedGateSha(events) !== undefined;
+}
+
 export function headStateAllowsReady(
   events: ComboEvent[],
   prView: { headSha: string; state: string },
@@ -223,12 +245,12 @@ export function reviewStateAllowsReady(events: ComboEvent[], headSha: string): b
 
 function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCache?: GhApiCache): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
-  const events = readEvents(runDir);
+  let events = readEvents(runDir);
   const combo = readCombo(runDir);
   const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
   const prUrl = latestPrUrl(events);
   if (prUrl === undefined) return;
-  if (latestPublishedGateSha(events) === undefined || livePinnedLgtmSha(events) === undefined) return;
+  if (!canReconcileGateFromGithub(events) || livePinnedLgtmSha(events) === undefined) return;
 
   const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,statusCheckRollup"]);
   if (pr.status !== 0) {
@@ -248,9 +270,16 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCach
 
   const headSha = prView.headSha;
   if (!headStateAllowsReady(events, prView)) return;
-  if (!gateStateAllowsReady(events, headSha)) return;
   if (!reviewStateAllowsReady(events, headSha)) return;
   if (!checkRollupSucceeded(prView.statusCheckRollup, { ambientCheckNames: config.ambientReviewerAgents })) return;
+  if (!gateStateAllowsReady(events, headSha)) {
+    const status = latestGateStatus(events);
+    if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return;
+    appendEvent(runDir, "gate_status", { state: "idle", head_sha: headSha, source: "github" });
+    appendEvent(runDir, "gate_validated", { sha: headSha, source: "github" });
+    events = readEvents(runDir);
+  }
+  if (!gateStateAllowsReady(events, headSha)) return;
 
   let ambientReviewerClean = false;
   try {
