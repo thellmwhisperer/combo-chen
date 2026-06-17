@@ -59,6 +59,14 @@ describe("buildGatekeeperInvocation", () => {
     );
   });
 
+  it("does not let escaped quotes expose --skip text inside quoted arguments", () => {
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: 'no-mistakes axi run --intent "literal \\" --skip=lint stays data"',
+      }),
+    ).toBe('no-mistakes axi run --intent "literal \\" --skip=lint stays data" --skip=ci');
+  });
+
   it("modifies real --skip outside quotes while ignoring --skip inside quotes", () => {
     expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip=lint --intent 'use --skip=test'" })).toBe(
       "no-mistakes axi run --skip=lint,ci --intent 'use --skip=test'",

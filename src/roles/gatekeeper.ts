@@ -27,7 +27,7 @@
  *   │ hasIssueAutocloseInPrBody  Check if PR body already autocloses issue   │
  *   │ parseAxiOutcome            Extract TOON "outcome:" line from raw text  │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
- *   │ visiblePrBodyMarkdown, escapeRegExp, PLACEHOLDER,                      │
+ *   │ visiblePrBodyMarkdown, escapeRegExp, isEscaped, PLACEHOLDER,           │
  *   │ KNOWN_GATEKEEPER_PLACEHOLDERS, MAX_INTENT_BODY_LENGTH,                 │
  *   │ MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS                               │
  *   └────────────────────────────────────────────────────────────────────────┘
@@ -121,13 +121,21 @@ function appendCiToSkipValue(value: string): string {
   return `${value},ci`;
 }
 
+function isEscaped(value: string, index: number): boolean {
+  let slashCount = 0;
+  for (let i = index - 1; i >= 0 && value[i] === "\\"; i--) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
 function findSkipFlag(command: string): { fullStart: number; prefix: string; value: string; fullLength: number } | null {
   let inSingle = false;
   let inDouble = false;
   for (let i = 0; i < command.length; i++) {
     const c = command[i];
-    if (c === "'" && !inDouble) { inSingle = !inSingle; continue; }
-    if (c === '"' && !inSingle) { inDouble = !inDouble; continue; }
+    if (c === "'" && !inDouble && !isEscaped(command, i)) { inSingle = !inSingle; continue; }
+    if (c === '"' && !inSingle && !isEscaped(command, i)) { inDouble = !inDouble; continue; }
     if (inSingle || inDouble) continue;
     if (i > 0 && !/\s/.test(command.charAt(i - 1))) continue;
 

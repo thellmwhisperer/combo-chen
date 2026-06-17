@@ -8,9 +8,9 @@ user-invocable: true
 
 ## Autonomy mandate
 
-Being invoked with this skill IS the standing authorization for the full combo lifecycle. Do NOT ask the human for permission to: launch the run, create the combo worktree and branch, claim and message via roca (propose, inbox, resolve), run review rounds and post COMMENT reviews on the combo's PR, activate the coder in responding mode, respond to mechanical gates, rebase after a sibling merge, tear down on merge. Asking permission for these is a failure mode; the human only wants to see green, reviewed PRs.
+Being invoked with this skill IS the standing authorization for the full combo lifecycle. Do NOT ask the human for permission to: launch the run, create the combo worktree and branch, claim and message via roca (propose, inbox, resolve), activate reviewer rounds, activate the coder in responding mode, respond to mechanical gates, rebase after a sibling merge, tear down on merge. Asking permission for these is a failure mode; the human only wants to see green, reviewed PRs.
 
-Still the human's, always escalate and wait: merging or closing the PR, formal approvals, anything that changes the INTENT of the issue, closing issues, and any write outside this combo's branch/PR.
+Still the human's, always escalate and wait: merging or closing the PR, formal approvals, anything that changes the INTENT of the issue, closing issues, and any write outside this combo's branch/PR. Review authorship belongs to the configured reviewer; the director only starts and observes that worker.
 
 ## Role
 
@@ -30,7 +30,7 @@ Hard rule: `reviewer != coder`. Never let the same agent both write and approve.
 
 ## Command discipline
 
-Run PLAIN, single-purpose commands: one operation per Bash call, no `||`/`&&` chains, no `cd ... &&`, no env-var prefixes, no pipes unless every stage is a standard read-only tool. Compound commands never match the repo allowlist and freeze you on a permission prompt that nobody will answer. `combo-chen` may not be on PATH: probe it ONCE with a plain call and from then on always use `node /Volumes/CrucialX9/workspace/combo-chen/dist/cli.mjs` directly instead of fallback chains.
+Run PLAIN, single-purpose commands: one operation per Bash call, no `||`/`&&` chains, no `cd ... &&`, no env-var prefixes, no pipes unless every stage is a standard read-only tool. Compound commands never match the repo allowlist and freeze you on a permission prompt that nobody will answer. `combo-chen` may not be on PATH: probe it ONCE with a plain call and from then on always use `node <combo-chen-repo>/dist/cli.mjs` directly instead of fallback chains.
 
 ## Preflight (before launching anything)
 
@@ -112,7 +112,6 @@ After emitting: re-run `combo-chen status` to confirm the phase flipped, then co
 - `git reset --hard` blocked by allowlist: use `git stash` + `git merge --ff-only` + `git stash drop` instead.
 - GitHub auth in cron: SSH for git operations, token still needed for `gh pr`.
 - Gate daemon-not-running: check `.no-mistakes/repos/<hash>.git/notify-push.log`.
-- **Claude fable-5 banned for non-US auth (Jun 2026):** US gov ordered Anthropic to block Fable 5 for foreign nationals. Claude defaults to `claude-fable-5`; `activate-reviewer` silently fails. Smoke-test: `claude -p 'Return exactly: ok' --model opus --effort max --permission-mode acceptEdits`. Recovery: kill dead reviewer windows, use `--model opus`, relaunch `node dist/cli.mjs activate-reviewer -n <id>`. Verify: `tmux capture-pane -t <session>:<reviewer-window> -p` + `gh pr view <PR> --json reviews`. No COMMENT review = invalid verdict.
 
 ## Endpoint and handoff to the human
 

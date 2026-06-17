@@ -2262,6 +2262,63 @@ describe("status", () => {
     expect(text).toContain("gate_failed");
     expect(text).toContain("PR ready for reviewer");
   });
+
+  it("does not count configured ambient reviewer checks as CI in deep mode", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        "[reviewer]",
+        'ambient = ["reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: ["run:", "  branch: combo/issue-7", "  status: completed"].join("\n"),
+        stderr: "",
+      }),
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: "OPEN",
+              statusCheckRollup: [{ name: "ReviewDog", conclusion: "SUCCESS" }],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+    await exec(deps, ["status", "--deep"]);
+
+    expect(out.join("\n")).not.toContain("PR ready for reviewer");
+  });
 });
 
 describe("forensics", () => {

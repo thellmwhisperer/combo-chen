@@ -11,7 +11,7 @@ schema, and the config schema must conform to it, not the other way around.
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **coder** | implements the issue (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
 | **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own changes | claude (+ coderabbit as ambient reviewer) |
+| **reviewer** | reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own changes | claude (+ configured ambient reviewers) |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
@@ -26,11 +26,11 @@ Validation at launch (hard failures, the combo refuses to start):
 ## 2. Phases and transitions
 
 ```text
-SETUP      worktree acquired (treehouse pool or .worktrees/), tmux session up
+SETUP      worktree acquired under the project .worktrees/ directory, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting)
               └─▶ REVIEWING  director-watch observes reviewer and coder responding mode workers
-                    └─▶ READY      gate_current ∧ reviewer_current ∧ coderabbit_current_clean ∧ ci_current_success
+                    └─▶ READY      gate_current ∧ reviewer_current ∧ ambient_review_current_clean ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
 
@@ -157,10 +157,10 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
   findings.
 - When all four signals agree on the current head SHA — gatekeeper has
   validated the SHA, the reviewer has a live pinned LGTM for that SHA,
-  CodeRabbit has a SUCCESS status context/check for that SHA and its
-  latest `coderabbitai` comment for that SHA is not a rate-limit/skipped/
-  no-review message, and all non-CodeRabbit status contexts/checks in the
-  rollup are successful for that SHA — the director journals
+  every configured ambient reviewer has a SUCCESS status context/check for
+  that SHA and its latest matching review/comment for that SHA is not a
+  rate-limit/skipped/no-review message, and all remaining status contexts/checks
+  in the rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
 

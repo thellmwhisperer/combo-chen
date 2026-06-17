@@ -88,6 +88,7 @@ function fakeDeps(input: {
   worktreeHeadSha?: string;
   rollup?: unknown[];
   codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
+  ambientReviewerLogin?: string;
   issueComments?: unknown[];
   git?: DirectorDeps["git"];
 }): { deps: DirectorDeps; calls: string[][]; out: string[] } {
@@ -146,7 +147,7 @@ function fakeDeps(input: {
               html_url: `https://github.com/o/r/pull/7#pullrequestreview-${index + 1}`,
               state: "COMMENTED",
               submitted_at: comment.submittedAt ?? `2026-06-15T00:00:0${index}Z`,
-              user: { login: "coderabbitai" },
+              user: { login: input.ambientReviewerLogin ?? "coderabbitai" },
             })),
           ),
           stderr: "",
@@ -220,11 +221,54 @@ describe("READY pure state helpers", () => {
 });
 
 describe("tickDirector", () => {
-  it("emits READY when gate, reviewer, CodeRabbit, and checks all agree on the current head", async () => {
+  it("emits READY when gate, reviewer, ambient reviewer, and checks all agree on the current head", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     const { deps } = fakeDeps({ homeDir: h, record, prHeadSha: headSha });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "ready_for_merge",
+        sha: headSha,
+        pr_url: "https://github.com/o/r/pull/7",
+      }),
+    );
+  });
+
+  it("uses the configured ambient reviewer name instead of a hardcoded provider", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[reviewer]",
+        'ambient = ["reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      ambientReviewerLogin: "reviewdog",
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
+      ],
+      codeRabbitComments: [
+        {
+          body: "ReviewDog review complete. No issues found.",
+          commitSha: headSha,
+          submittedAt: "2026-06-15T00:00:00Z",
+        },
+      ],
+    });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
