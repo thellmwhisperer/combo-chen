@@ -35,7 +35,8 @@ combo-chen makes the process explicit.
 1. You point combo-chen at a GitHub issue.
 2. It creates `.worktrees/issue-N` and a branch for that issue.
 3. A coder agent implements the issue and leaves local commits.
-4. A gatekeeper validates and publishes the branch to GitHub.
+4. A gatekeeper validates and publishes the branch to GitHub. If the initial gate
+   fails before a PR opens, the director auto-retries it up to a configurable limit.
 5. A reviewer comments with a SHA-pinned verdict.
 6. Review comments are routed back to the coder in responding mode.
 7. New addressing commits go back through the gatekeeper before publication.
@@ -223,9 +224,10 @@ through env, TOML, then fallback defaults.
 
 Active development.
 
-v0 implements the issue-to-PR loop with coder, gatekeeper, reviewer, director
-watching, review-comment routing, post-address gates, park/resume, reconcile,
-forensics, and current-head READY agreement.
+v0 implements the issue-to-PR loop with coder, gatekeeper, initial-gate retry
+with configurable attempts and backoff, reviewer, director watching,
+review-comment routing, post-address gates, park/resume, reconcile, forensics,
+and current-head READY agreement.
 
 Deferred: preflight scoring, counterfactual automerge logs, worktree pools, ACP
 role driving, and multi-combo dashboards.

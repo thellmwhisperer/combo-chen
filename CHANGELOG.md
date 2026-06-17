@@ -334,6 +334,8 @@
 
 ### Features
 
+* **gatekeeper:** auto-retry initial gate failures before PR open with configurable retry count and backoff; exhausts to `needs_human reason=gate_failed` ([#59](https://github.com/thellmwhisperer/combo-chen/issues/59))
+
 * **park:** first-class park command for reboot-safe combo handoff with handoff summary and tmux cleanup ([#76](https://github.com/thellmwhisperer/combo-chen/issues/76))
 * **resume:** first-class resume command that reconstructs state from journal, tmux, worktree, no-mistakes, and GitHub PR state; never starts a fresh run on an existing combo ([#76](https://github.com/thellmwhisperer/combo-chen/issues/76))
 * **status:** `status --deep` distinguishes stale combo state from real downstream state with no-mistakes and GitHub probes ([#76](https://github.com/thellmwhisperer/combo-chen/issues/76))
