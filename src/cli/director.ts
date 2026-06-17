@@ -200,12 +200,15 @@ async function runInitialGateRetryIfNeeded(input: {
   if (input.backoffSeconds > 0) {
     await input.deps.sleep(input.backoffSeconds * 1000);
   }
-  startInitialGateRetry({
+  const result = startInitialGateRetry({
     deps: input.deps,
     combo: input.combo,
     runDir: input.runDir,
     cli: input.cli,
   });
+  if (!result.started) {
+    appendEvent(input.runDir, "gate_failed", { exit_code: 1 });
+  }
   return true;
 }
 
