@@ -134,7 +134,8 @@ reviewer = ["claude"]
 merge = "human"
 
 [reviewer]
-protocol = "repository review instructions + project overlay"
+# Optional free-form reviewer instructions.
+# prompt = "Apply my local review process."
 ambient = ["coderabbit"]
 
 [reviewer.claude]

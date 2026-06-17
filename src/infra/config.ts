@@ -80,8 +80,8 @@ export interface ComboConfig {
   reviewerAgent: string;
   /** Command template for the reviewer loop, with {placeholders}. */
   reviewerCommand: string;
-  /** Free-form reviewer instructions injected into the reviewer prompt. */
-  reviewerProtocol: string;
+  /** Free-form reviewer prompt text injected into the reviewer guardrails. */
+  reviewerPrompt: string;
   /** Ambient review/status providers that are not the active command reviewer. */
   ambientReviewerAgents: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
@@ -104,7 +104,7 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
   merge: "merge",
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
-const DEFAULT_REVIEWER_PROTOCOL = "repository review instructions + project overlay";
+const DEFAULT_REVIEWER_PROMPT = "";
 export const DEFAULT_CODER_STOP_WHEN =
   "Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. " +
   "If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
@@ -401,7 +401,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
   let reviewerTableConfig: TomlTable = { ...DEFAULTS.reviewer };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
-  let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
+  let reviewerPrompt = DEFAULT_REVIEWER_PROMPT;
   let monitorTable: TomlTable = { ...DEFAULTS.monitor };
   let runTable: TomlTable = { ...DEFAULTS.run };
 
@@ -442,8 +442,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     for (const section of ["gordon", "reviewer"]) {
       if (layer.table[section] === undefined) continue;
       const reviewerTable = asTable(layer.table[section], `[${section}] in ${layer.source}`);
-      if (reviewerTable["protocol"] !== undefined) {
-        reviewerProtocol = String(reviewerTable["protocol"]);
+      if (reviewerTable["prompt"] !== undefined) {
+        reviewerPrompt = String(reviewerTable["prompt"]);
       }
       if (reviewerTable["ambient"] !== undefined) {
         reviewerTableConfig = {
@@ -452,7 +452,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         };
       }
       for (const [name, entry] of Object.entries(reviewerTable)) {
-        if (name === "protocol" || name === "ambient") continue;
+        if (name === "prompt" || name === "ambient") continue;
         reviewerTemplates = {
           ...reviewerTemplates,
           [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
@@ -606,7 +606,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     ),
     reviewerAgent,
     reviewerCommand,
-    reviewerProtocol,
+    reviewerPrompt,
     ambientReviewerAgents,
     workerStallTicks: pickPositiveInteger(
       monitorTable,
