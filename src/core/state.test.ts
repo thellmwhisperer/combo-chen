@@ -40,9 +40,9 @@ function home(): string {
 // -- 1/2 HELPER · Issue identity + combo home --
 describe("issue identity", () => {
   it("parses a GitHub issue URL", () => {
-    expect(parseIssueUrl("https://github.com/thellmwhisperer/roca-madre/issues/128")).toEqual({
-      owner: "thellmwhisperer",
-      repo: "roca-madre",
+    expect(parseIssueUrl("https://github.com/example-org/example-repo/issues/128")).toEqual({
+      owner: "example-org",
+      repo: "example-repo",
       number: 128,
   });
 });
@@ -54,8 +54,8 @@ describe("issue identity", () => {
   });
 
   it("derives a filesystem-safe combo id", () => {
-    expect(comboIdFromIssueUrl("https://github.com/thellmwhisperer/roca-madre/issues/128")).toBe(
-      "thellmwhisperer-roca-madre-128",
+    expect(comboIdFromIssueUrl("https://github.com/example-org/example-repo/issues/128")).toBe(
+      "example-org-example-repo-128",
     );
   });
 });

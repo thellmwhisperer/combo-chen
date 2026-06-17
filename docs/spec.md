@@ -11,7 +11,7 @@ schema, and the config schema must conform to it, not the other way around.
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **coder** | implements the issue (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
 | **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR per protocol (La Roca 7989 + project overlay), incrementally until merge | review its own changes | claude (+ configured ambient reviewers) |
+| **reviewer** | reviews the PR per configured repository protocol, incrementally until merge | review its own changes | claude (+ configured ambient reviewers) |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
@@ -134,7 +134,7 @@ test/lint/build commands for no-mistakes; combo-chen only propagates it.
 ## 4. Coder responding contract
 
 - On `coder_done`, combo-chen captures the implementing session's thread id
-  (gnhf logs, or lookup in La Roca's ingested session metadata).
+  (gnhf logs, or lookup in a configured session metadata store).
 - On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed:
   `codex resume <id>`, `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh coder instance

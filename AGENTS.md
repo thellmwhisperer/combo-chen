@@ -48,8 +48,8 @@ the next tick.
 - One branch has one owner. Do not share a work branch between agents.
 - Combo worktrees live under the project `.worktrees/` directory.
 - Scratch artifacts live under the project `.tmp/` directory.
-- Do not create project worktrees under `/tmp`, `/private/tmp`, or
-  `/Volumes/CrucialX9/tmp` unless explicitly instructed.
+- Do not create project worktrees under system temp directories or unrelated
+  external scratch locations unless explicitly instructed.
 - Preserve unrelated user changes. Never reset or checkout away work you did
   not create.
 
