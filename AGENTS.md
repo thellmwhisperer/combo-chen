@@ -25,7 +25,10 @@ Hard rule: `reviewer != coder`.
 1. `combo-chen run --issue <url>` creates `.worktrees/issue-N`, writes
    `runner.sh`, starts tmux, and journals `combo_created`.
 2. Coder/gnhf runs in the worktree and commits locally.
-3. no-mistakes validates and publishes the initial PR.
+3. no-mistakes validates and publishes the initial PR. If the initial gate
+   fails before the PR opens, the director auto-retries it up to configured
+   `initial_gate_retry_attempts` with `initial_gate_retry_backoff_seconds`
+   delay; after exhausting retries it journals `needs_human reason=gate_failed`.
 4. After `pr_opened`, `director-watch` is the single observer. Reviewer and
    coder responding mode are worker windows.
 5. Review comments are routed to the resumed coder thread. Mechanical fixes are
@@ -90,8 +93,9 @@ Source files carry Sherpa-style navigable headers:
 ## Status
 
 v0 implements the issue-to-PR loop with coder/gnhf, no-mistakes initial and
-post-address gates, reviewer re-review, coder responding mode, single
-`director-watch` observation, frozen journal `reconcile` repair, local
+post-address gates with automatic initial-gate retry, reviewer re-review,
+coder responding mode, single `director-watch` observation, frozen journal
+`reconcile` repair, local
 no-mistakes config propagation, read-only forensics reports, coder safety
 validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),
 `park`/`resume` for reboot-safe combo handoff, `status --deep` for downstream
