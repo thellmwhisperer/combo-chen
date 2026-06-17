@@ -6,7 +6,7 @@
  *   READING GUIDE
  *   ─────────────
  *   1. Start at buildGatekeeperInvocation ← the command the runner executes
- *   2. buildIssuePrIntent                  ← the intent payload for no-mistakes
+ *   2. buildIssuePrIntent                  ← intent + PR autoclose requirement
  *   3. buildNoMistakesPushIntent           ← base64 intent for git push options
  *   4. ensureIssueAutocloseInPrBody        ← injects "Fixes #N" into PR body
  *   5. parseAxiOutcome                     ← read no-mistakes outcome line
@@ -21,7 +21,7 @@
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
  *   │ buildGatekeeperInvocation  Expand {placeholders} in gatekeeper command │
- *   │ buildIssuePrIntent         Format issue facts for no-mistakes intent   │
+ *   │ buildIssuePrIntent         Format issue facts + PR autoclose contract  │
  *   │ buildNoMistakesPushIntent  Base64 encode intent for git push option    │
  *   │ ensureIssueAutocloseInPrBody Inject "Fixes #N" if missing from PR body │
  *   │ hasIssueAutocloseInPrBody  Check if PR body already autocloses issue   │
@@ -72,10 +72,15 @@ export function buildIssuePrIntent(input: {
   issueBody: string;
 }): string {
   const issue = parseIssueUrl(input.combo.issueUrl);
+  const autocloseLine = `Fixes #${issue.number}`;
   const intent = [
     `Implement GitHub issue ${input.combo.issueUrl}.`,
     "",
     `Title: ${input.issueTitle}`,
+    "",
+    "Pull request body requirement:",
+    "Include this exact visible line verbatim in the PR body, outside comments, code blocks, or collapsed details:",
+    autocloseLine,
   ];
   const body = input.issueBody.trim();
   if (body !== "") {
@@ -84,7 +89,6 @@ export function buildIssuePrIntent(input: {
       : body;
     intent.push("", "Issue body:", truncated);
   }
-  intent.push("", `Fixes #${issue.number}`);
   return intent.join("\n");
 }
 

@@ -36,8 +36,8 @@ merge = "human"                   # hard default: earn automerge with data first
 # Before this command runs, combo-chen publishes local HEAD to the
 # no-mistakes mirror with a base64-encoded `no-mistakes.intent=` git push
 # option. The command then starts the daemon and drives the gate with the full
-# issue-derived intent ending in `Fixes #N` so GitHub closes the source issue
-# when the PR is merged.
+# issue-derived intent containing a PR body requirement to preserve `Fixes #N`
+# so GitHub closes the source issue when the PR is merged.
 # Override this to use a custom gatekeeper pipeline.
 # {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent,
 # branch. Each value is substituted as a single-quoted shell token; don't

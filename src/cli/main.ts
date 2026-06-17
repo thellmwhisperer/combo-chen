@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~665 lines, 16 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~692 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -71,6 +71,7 @@ import {
   buildIssuePrIntent,
   buildNoMistakesPushIntent,
   ensureIssueAutocloseInPrBody,
+  hasIssueAutocloseInPrBody,
 } from "../roles/gatekeeper.js";
 import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
 import { parseEventFields } from "./args.js";
@@ -582,6 +583,16 @@ export function createProgram(deps: Deps): Command {
       const edited = deps.gh(["pr", "edit", options.prUrl, "--body-file", bodyPath]);
       if (edited.status !== 0) {
         throw new Error(`gh pr edit failed for ${options.prUrl}: ${edited.stderr.trim() || "unknown error"}`);
+      }
+      const verified = deps.gh(["pr", "view", options.prUrl, "--json", "body", "--jq", ".body"]);
+      if (verified.status !== 0) {
+        throw new Error(`gh pr view failed while verifying ${options.prUrl}: ${verified.stderr.trim() || "unknown error"}`);
+      }
+      if (!hasIssueAutocloseInPrBody(verified.stdout, combo)) {
+        throw new Error(
+          `pr autoclose verification failed for ${options.prUrl}: ` +
+            `body still lacks a visible GitHub autoclose keyword for ${combo.id}`,
+        );
       }
       deps.out(`pr autoclose ensured for ${combo.id}`);
     });

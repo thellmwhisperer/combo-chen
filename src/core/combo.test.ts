@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1120 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1125 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -122,6 +122,7 @@ describe("deriveStatus", () => {
     for (const failed of [
       ev("coder_failed", { exit_code: 1, has_new_commits: false }),
       ev("gate_failed", { exit_code: 17 }),
+      ev("pr_autoclose_failed", { exit_code: 18, url: "https://github.com/o/r/pull/9" }),
       ev("rebase_failed", { base: "base-sha" }),
       ev("rebase_conflict", { base: "base-sha" }),
     ]) {
@@ -1090,11 +1091,13 @@ exit 130
     expect(coder).toBeLessThan(prMissingElse);
   });
 
-  it("records PR autoclose guard output instead of losing failures in the pane", () => {
+  it("blocks the handoff when the PR autoclose guard fails", () => {
     expect(script).toContain('autoclose_log="$(dirname "$0")/autoclose.log"');
     expect(script).toContain('> "$autoclose_log" 2>&1; then');
-    expect(script).toContain('autoclose guard skipped with exit code');
-    expect(script).toContain('>> "$autoclose_log"');
+    expect(script).toContain('autoclose_code=$?');
+    expect(script).toContain('pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"');
+    expect(script).toContain('exit "$autoclose_code"');
+    expect(script).not.toContain("autoclose guard skipped");
   });
 
   it("activates the reviewer after journaling the opened PR and before human handoff", () => {

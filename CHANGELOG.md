@@ -326,12 +326,15 @@
 * **judge:** gordon judge loop (activate-judge, judge-tick), incremental re-review on LGTM staleness, and merge/close detection
 * **forensics:** read-only combo forensics CLI with markdown and JSON reporting over local journal data, live GitHub PR/issue enrichment, tmux session probing, and incident detection for gate/drift conditions ([#55](https://github.com/thellmwhisperer/combo-chen/issues/55))
 * **watcher:** reviewer-watch retry loop with `watch_error`/`watch_dead` journal events, exponential backoff (doubling capped by configurable `[limits].watch_backoff_max_seconds`, default 3600 s), and configurable `[limits].watch_failure_limit` (default 5) for resilience against transient rate limits and network failures ([#56](https://github.com/thellmwhisperer/combo-chen/issues/56))
+* **gatekeeper:** `pr_autoclose_failed` journal event (required fields `exit_code`, `url`) transitions the combo to STALLED and marks the gate failed when the PR body still lacks a visible closing keyword after a post-edit verification pass ([#94](https://github.com/thellmwhisperer/combo-chen/issues/94))
 
 ### Bug Fixes
 
 * **lgtm:** harden LGTM pin extraction to require own-line verdicts with at least seven hex characters and filter out code fences, quoted text, indented code blocks, and inline code span fixtures ([#58](https://github.com/thellmwhisperer/combo-chen/issues/58))
 * **hodor:** recreate missing hodor tmux window on `hodor_started` event so the live role window survives an early attach watcher exit ([#62](https://github.com/thellmwhisperer/combo-chen/issues/62))
 * **thread-sitter:** replace send-keys with paste-buffer for nudge transport ([b9170eb](https://github.com/thellmwhisperer/combo-chen/commit/b9170eb4b231e58909712f921abcaf378f86cd12))
+* **gatekeeper:** blocking PR autoclose guard with post-edit verification — exits non-zero and prevents `pr_opened` emission on failure instead of silently logging to the run directory ([#94](https://github.com/thellmwhisperer/combo-chen/issues/94))
+* **gatekeeper:** move `Fixes #N` into an explicit PR body requirement directive before the issue body in the no-mistakes intent so the rewriter preserves it verbatim instead of dropping or misordering it ([#94](https://github.com/thellmwhisperer/combo-chen/issues/94))
 
 ## [0.0.3](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.2...combo-chen-v0.0.3) (2026-06-11)
 

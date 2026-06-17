@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the gatekeeper role. ~215 lines, testing
+ * @overview Unit tests for the gatekeeper role. ~225 lines, testing
  *   gatekeeper invocation building, issue→PR intent generation (with
  *   autoclose keywords, truncation, and push-safe base64 encoding), axi
  *   TOON outcome parsing, and the PR body issue autoclose contract.
@@ -108,8 +108,23 @@ describe("buildGatekeeperInvocation", () => {
 
     expect(intent).toContain("Implement GitHub issue https://github.com/o/r/issues/53.");
     expect(intent).toContain("Title: Include GitHub autoclose keywords");
+    expect(intent).toContain("Pull request body requirement:");
+    expect(intent).toContain("visible line verbatim in the PR body");
     expect(intent).toContain("This mentions issue #53 but not as a close directive.");
-    expect(intent).toContain("Fixes #53");
+    expect(intent).toMatch(/\nFixes #53\n/);
+  });
+
+  it("keeps the required autoclose line before issue body truncation can drop it", () => {
+    const intent = buildIssuePrIntent({
+      combo: { issueUrl: "https://github.com/o/r/issues/53" },
+      issueTitle: "Include GitHub autoclose keywords",
+      issueBody: "x".repeat(9000),
+    });
+
+    const decoded = Buffer.from(buildNoMistakesPushIntent(intent), "base64").toString("utf8");
+
+    expect(decoded).toContain("Pull request body requirement:");
+    expect(decoded).toContain("Fixes #53");
   });
 
   it("produces a valid intent with an empty issue body", () => {
