@@ -189,14 +189,42 @@ describe("inspectWorkerPanes", () => {
     );
   });
 
-  it("emits needs_human when tmux cannot list worker windows", () => {
+  it("keeps the director loop alive when list-windows fails but the session still exists", () => {
     const { record, runDir } = combo();
     const out: string[] = [];
     const deps: WorkerMonitorDeps = {
       out: (line) => out.push(line),
       tmux: (args) =>
         args[0] === "list-windows"
-          ? { status: 1, stdout: "", stderr: "server exited" }
+          ? { status: 1, stdout: "", stderr: "temporary tmux hiccup" }
+          : args[0] === "has-session"
+            ? { status: 0, stdout: "", stderr: "" }
+            : { status: 0, stdout: "", stderr: "" },
+    };
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer", "gatekeeper"],
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.summaries).toEqual(["workers unavailable: temporary tmux hiccup"]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("workers unavailable: temporary tmux hiccup"));
+  });
+
+  it("emits needs_human when tmux cannot list worker windows because the session is gone", () => {
+    const { record, runDir } = combo();
+    const out: string[] = [];
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) =>
+        args[0] === "list-windows"
+          ? { status: 1, stdout: "", stderr: "no such session" }
+          : args[0] === "has-session"
+            ? { status: 1, stdout: "", stderr: "no such session" }
           : { status: 0, stdout: "", stderr: "" },
     };
 
@@ -216,7 +244,7 @@ describe("inspectWorkerPanes", () => {
     );
     expect(readEvents(runDir).filter((event) => event.event === "needs_human" && event["worker"] === "reviewer"))
       .toHaveLength(1);
-    expect(out).toContainEqual(expect.stringContaining("worker reviewer server exited"));
+    expect(out).toContainEqual(expect.stringContaining("worker reviewer no such session"));
   });
 });
 // -/ 1/1

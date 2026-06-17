@@ -35,7 +35,13 @@ import { join } from "node:path";
 import { appendEvent, readEvents } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { DEFAULT_PERMISSION_PROMPT_PATTERNS } from "../infra/config.js";
-import { captureWindowArgs, listPanesArgs, listWindowsArgs, type TmuxResult } from "../infra/tmux.js";
+import {
+  captureWindowArgs,
+  hasSessionArgs,
+  listPanesArgs,
+  listWindowsArgs,
+  type TmuxResult,
+} from "../infra/tmux.js";
 
 // -- 1/1 CORE · inspectWorkerPanes <- START HERE --
 export interface WorkerMonitorDeps {
@@ -123,10 +129,17 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) {
     const detail = listed.stderr.trim() || "tmux list-windows failed";
-    for (const worker of new Set(input.workerWindows)) {
-      escalate(runDir, deps, worker, "worker_dead", detail);
+    const session = deps.tmux(hasSessionArgs(combo.tmuxSession));
+    if (session.status === 0) {
+      summaries.push(`workers unavailable: ${detail}`);
+      deps.out(`director: workers unavailable: ${detail}`);
+      return { escalated: false, summaries };
     }
-    summaries.push(`workers unavailable: ${detail}`);
+    const deadDetail = session.stderr.trim() || detail;
+    for (const worker of new Set(input.workerWindows)) {
+      escalate(runDir, deps, worker, "worker_dead", deadDetail);
+    }
+    summaries.push(`workers unavailable: ${deadDetail}`);
     return { escalated: true, summaries };
   }
 

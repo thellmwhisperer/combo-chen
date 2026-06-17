@@ -72,6 +72,9 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 # gh pr review <url> --comment --body "<body>"
 # Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
 protocol = "repository review protocol + project overlay"
+# Configurable pointer to the local review skill the reviewer should load.
+# Environment override: COMBO_CHEN_REVIEWER_SKILL.
+skill = "pr-review-protocol"
 # Ambient review/check providers are matched by status context/check name and
 # review author. They do not run in the reviewer tmux window.
 ambient = ["coderabbit"]
