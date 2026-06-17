@@ -45,7 +45,8 @@ describe("loadConfig", () => {
 
     expect(config.roles.coder).toBe("codex");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
-    expect(config.roles.reviewer).toEqual(["claude", "coderabbit"]);
+    expect(config.roles.reviewer).toEqual(["claude"]);
+    expect(config.ambientReviewerAgents).toEqual(["coderabbit"]);
     expect(config.roles.merge).toBe("human");
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
@@ -107,6 +108,29 @@ describe("loadConfig", () => {
     expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
     expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
     expect(config.coderRespondingWindowName).toBe("sitter");
+  });
+
+  it("lets reviewer ambient checks stay configurable outside the active reviewer command", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'reviewer = ["claude"]',
+        "",
+        "[reviewer]",
+        'ambient = ["reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.reviewerAgent).toBe("claude");
+    expect(config.ambientReviewerAgents).toEqual(["reviewdog"]);
   });
 
   it("repo config wins over user config (repo owns policy)", () => {
@@ -280,6 +304,7 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("hermes:deepseek");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["coderabbit", "hermes:gemini"]);
+    expect(config.ambientReviewerAgents).toEqual(["coderabbit"]);
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
     expect(config.roles).not.toHaveProperty("gordon");

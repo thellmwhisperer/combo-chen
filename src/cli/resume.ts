@@ -244,7 +244,10 @@ export function resumeCombo(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const events = readEvents(runDir);
-  const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh);
+  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
+    ambientCheckNames: config.ambientReviewerAgents,
+  });
   const headSha = currentWorktreeHeadSha(deps, combo);
   const state = classifyResumeState({ combo, events, downstream, headSha, home, cli });
 
@@ -257,7 +260,6 @@ export function resumeCombo(input: {
 
   if (state.kind === "gate_running") {
     const recreated = ensureResumeSession({ deps, combo, home, cli });
-    const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
     ensureGatekeeperWindow(deps, combo, {
       timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
       retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,

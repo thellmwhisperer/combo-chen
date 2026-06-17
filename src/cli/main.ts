@@ -417,7 +417,15 @@ export function createProgram(deps: Deps): Command {
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const pr = status.pr ?? "—";
         const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`;
-        deps.out(deep ? `${line} ${deepComboStatus(combo, events, deps.noMistakes, deps.gh) ?? "—"}` : line);
+        if (!deep) {
+          deps.out(line);
+          continue;
+        }
+        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+        const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
+          ambientCheckNames: config.ambientReviewerAgents,
+        });
+        deps.out(`${line} ${downstream ?? "—"}`);
       }
     });
 
@@ -443,10 +451,17 @@ export function createProgram(deps: Deps): Command {
       const reports = combos.map((combo) => {
         const runDir = runDirFor(home, combo.id);
         const events = readEvents(runDir);
+        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
         return analyzeForensicsCombo({
           combo,
           events,
-          github: fetchForensicsGithubFacts(deps.gh, combo.issueUrl, latestPrUrlFromEvents(events)),
+          github: fetchForensicsGithubFacts(
+            deps.gh,
+            combo.issueUrl,
+            latestPrUrlFromEvents(events),
+            undefined,
+            { ambientCheckNames: config.ambientReviewerAgents },
+          ),
           tmux: collectForensicsTmuxFacts(deps, combo),
         });
       });

@@ -27,7 +27,7 @@ A combo is a small division of labor. Each role has one job and one contract.
 | --- | --- | --- |
 | **coder** | gnhf + Codex by default | implements the issue, then resumes the same thread to answer review comments. Commits locally; does not push. |
 | **gatekeeper** | no-mistakes | validates and publishes. The sole normal publisher. |
-| **reviewer** | configured reviewer + CodeRabbit | comments and records a SHA-pinned LGTM signal. No merge authority. |
+| **reviewer** | configured reviewer + configured ambient reviewers | comments and records a SHA-pinned LGTM signal. No merge authority. |
 | **director** | combo-chen | orchestrates and observes only. Never edits code, never merges. |
 | **human** | you | owns the merge decision and any intent-touching escalation. |
 
@@ -182,8 +182,8 @@ the journal and agree on where the combo is.
   READY, so a stale validation or a moved HEAD cannot masquerade as merge-ready.
 - **READY requires full agreement.** `ready_for_merge` is emitted only when all
   current-head signals agree for the same SHA: the gate validated this SHA, the
-  reviewer LGTM is pinned to this SHA, CodeRabbit is clean for this SHA, and the
-  non-CodeRabbit CI/check rollup is successful for this SHA.
+  reviewer LGTM is pinned to this SHA, configured ambient reviewers are clean
+  for this SHA, and the remaining CI/check rollup is successful for this SHA.
 - **`needs_human` flags without changing phase** (except the hard-failure
   events, which also force `STALLED`). It surfaces a reason in `status` so the
   director knows to escalate.
@@ -327,8 +327,11 @@ defaults  <-  user config  <-  repo config
 [roles]
 coder = "codex"
 gatekeeper = "no-mistakes"
-reviewer = ["claude", "coderabbit"]
+reviewer = ["claude"]
 merge = "human"
+
+[reviewer]
+ambient = ["coderabbit"]
 ```
 
 The default gatekeeper command passes an issue-derived intent to no-mistakes and
@@ -338,7 +341,7 @@ gatekeeper commands support `{issue_url}`, `{issue_title}`, `{issue_body}`,
 is generated. Reviewer config must define `[roles].reviewer` and a command
 template under `[reviewer.<agent>]`.
 
-The default coder command is a pinned `gnhf@0.1.41` invocation with
+The built-in coder fallback is a safe gnhf invocation with a pinned package,
 `--max-iterations`, `--stop-when`, `--prevent-sleep on`, and
 `--meteor-frequency 0`. `combo-chen run` refuses unsafe gnhf coder commands
 before creating the worktree, and the generated runner closes coder stdin while

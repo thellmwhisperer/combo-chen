@@ -33,8 +33,8 @@
  *   │ signalFromReview              Extract signal from review JSON     │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
- *   │ bodyText, meaningfulLines, isCodeRabbitRetriggerBookkeeping,       │
- *   │ isCodeRabbitRateLimitComment, isPinnedLgtmReview, isRecord        │
+ *   │ bodyText, meaningfulLines, isAmbientReviewerRetriggerBookkeeping, │
+ *   │ isAmbientReviewerRateLimitComment, isPinnedLgtmReview, isRecord   │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
@@ -66,6 +66,10 @@ export interface ReviewCommentSignal {
   author: string;
   kind: string;
   url: string;
+}
+
+export interface ReviewSignalOptions {
+  ambientReviewerAgents?: string[];
 }
 
 export function buildReviewNudgePrompt(
@@ -176,6 +180,7 @@ export function fetchReviewCommentSignals(
   prUrl: string,
   gh: (args: string[]) => TmuxResult,
   cache?: GhApiCache,
+  options: ReviewSignalOptions = {},
 ): ReviewCommentSignal[] {
   const pr = parsePullRequestUrl(prUrl);
   const endpoints = [
@@ -190,8 +195,8 @@ export function fetchReviewCommentSignals(
     for (const item of readGhArray(gh, endpoint.path, cache)) {
       const signal =
         endpoint.kind === "review"
-          ? signalFromReview(item)
-          : signalFromComment(item, endpoint.kind);
+          ? signalFromReview(item, options)
+          : signalFromComment(item, endpoint.kind, options);
       if (signal === undefined || seen.has(signal.url)) continue;
       seen.add(signal.url);
       signals.push(signal);
@@ -222,7 +227,11 @@ export function parsePullRequestUrl(url: string): GitHubPullRequestRef {
 // -/ 3/4
 
 // -- 4/4 HELPER · Signal extraction from GitHub JSON --
-export function signalFromComment(item: unknown, kind: string): ReviewCommentSignal | undefined {
+export function signalFromComment(
+  item: unknown,
+  kind: string,
+  options: ReviewSignalOptions = {},
+): ReviewCommentSignal | undefined {
   if (!isRecord(item)) return undefined;
   const body = bodyText(item);
   if (body === undefined) return undefined;
@@ -233,18 +242,23 @@ export function signalFromComment(item: unknown, kind: string): ReviewCommentSig
     return undefined;
   }
   const author = user["login"];
-  if (kind === "pr_comment" && isCodeRabbitRetriggerBookkeeping(body)) return undefined;
-  if (kind === "pr_comment" && isCodeRabbitRateLimitComment(author, body)) return undefined;
+  const ambientReviewerAgents = options.ambientReviewerAgents ?? [];
+  if (kind === "pr_comment" && isAmbientReviewerRetriggerBookkeeping(body, ambientReviewerAgents)) {
+    return undefined;
+  }
+  if (kind === "pr_comment" && isAmbientReviewerRateLimitComment(author, body, ambientReviewerAgents)) {
+    return undefined;
+  }
   return { author, kind, url };
 }
 
-export function signalFromReview(item: unknown): ReviewCommentSignal | undefined {
+export function signalFromReview(item: unknown, options: ReviewSignalOptions = {}): ReviewCommentSignal | undefined {
   if (!isRecord(item)) return undefined;
   const state = typeof item["state"] === "string" ? item["state"].toUpperCase() : "";
   if (state === "APPROVED") return undefined;
   const body = bodyText(item);
   if (state === "COMMENTED" && body !== undefined && isPinnedLgtmReview(body)) return undefined;
-  return signalFromComment(item, "review");
+  return signalFromComment(item, "review", options);
 }
 
 function bodyText(item: Record<string, unknown>): string | undefined {
@@ -260,18 +274,40 @@ function meaningfulLines(body: string): string[] {
     .filter((line) => line !== "");
 }
 
-function isCodeRabbitRetriggerBookkeeping(body: string): boolean {
-  const lines = meaningfulLines(body);
-  if (lines.length === 0 || !/^@coderabbitai\s+review\s*$/i.test(lines[0]!)) return false;
-  return lines.slice(1).every((line) => {
-    const lower = line.toLowerCase();
-    return lower.includes("codex") && lower.includes("coderabbit");
+function matchesAmbientReviewer(value: string, ambientReviewerAgents: string[]): boolean {
+  const normalized = value.trim().toLowerCase();
+  return ambientReviewerAgents.some((agent) => {
+    const needle = agent.trim().toLowerCase();
+    return needle.length > 0 && normalized.startsWith(needle);
   });
 }
 
-function isCodeRabbitRateLimitComment(author: string, body: string): boolean {
+function mentionsAmbientReviewer(value: string, ambientReviewerAgents: string[]): boolean {
+  const normalized = value.toLowerCase();
+  return ambientReviewerAgents.some((agent) => {
+    const needle = agent.trim().toLowerCase();
+    return needle.length > 0 && normalized.includes(needle);
+  });
+}
+
+function isAmbientReviewerRetriggerBookkeeping(body: string, ambientReviewerAgents: string[]): boolean {
+  const lines = meaningfulLines(body);
+  const target = /^@([-\w]+)\s+review\s*$/i.exec(lines[0] ?? "")?.[1];
+  if (target === undefined || !matchesAmbientReviewer(target, ambientReviewerAgents)) return false;
+  const targetLower = target.toLowerCase();
+  return lines.slice(1).every((line) => {
+    const lower = line.toLowerCase();
+    return lower.includes("codex") && (lower.includes(targetLower) || mentionsAmbientReviewer(lower, ambientReviewerAgents));
+  });
+}
+
+function isAmbientReviewerRateLimitComment(
+  author: string,
+  body: string,
+  ambientReviewerAgents: string[],
+): boolean {
   return (
-    author.toLowerCase().startsWith("coderabbit") &&
+    matchesAmbientReviewer(author, ambientReviewerAgents) &&
     /\breview\s+limit\s+reached\b|rate[-\s]?limit(?:ed)?|\breview\s+skipped\b|couldn'?t start this review/i.test(body)
   );
 }

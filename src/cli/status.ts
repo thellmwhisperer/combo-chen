@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~250 lines, 5 exports, parsers for deep recovery status.
+ *   ~225 lines, 8 exports, parsers for deep recovery status.
  *
  *   READING GUIDE
  *   -------------
@@ -14,6 +14,9 @@
  *
  *   PUBLIC API
  *   ----------
+ *   PR_READY_FOR_REVIEWER       Downstream phrase for review-ready PRs.
+ *   NO_MISTAKES_RUNNING         Downstream phrase prefix for active no-mistakes.
+ *   AWAITING_REVIEW_GATE        Downstream phrase prefix for no-mistakes gates.
  *   CommandResult                 Process result shape for injected command runners.
  *   NoMistakesAxiStatus           Parsed subset of no-mistakes status output.
  *   parseNoMistakesAxiStatus      Extract branch, run state, active step, gate IDs, respond command.
@@ -22,13 +25,14 @@
  *
  *   INTERNALS
  *   ---------
- *   summarizeNoMistakesStatus, deepGithubPrStatus, check helpers, cleanScalar, unquote, firstLine
+ *   summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine
  *
- * @exports CommandResult, NoMistakesAxiStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
- * @deps ../core/events, ../core/state, ./github
+ * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
+ * @deps ../core/events, ../core/state, ./checks, ./github
  */
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
+import { checkRollupSucceeded } from "./checks.js";
 import { latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
 
 export const PR_READY_FOR_REVIEWER = "PR ready for reviewer";
@@ -53,6 +57,9 @@ export interface NoMistakesAxiStatus {
 }
 
 type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
+interface DeepGithubStatusOptions {
+  ambientCheckNames?: string[];
+}
 
 function unquote(value: string): string {
   const trimmed = value.trim();
@@ -169,44 +176,6 @@ export function deepNoMistakesStatus(combo: Pick<ComboRecord, "branch" | "worktr
 // -/ 3/4
 
 // -- 4/4 CORE · deepComboStatus <- START HERE --
-const SUCCESSFUL_CHECK_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
-const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
-
-function upperString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
-}
-
-function checkName(item: unknown): string {
-  if (!isRecord(item)) return "";
-  const parts = [item["name"], item["context"], item["workflowName"]];
-  const app = item["app"];
-  if (isRecord(app)) parts.push(app["name"], app["slug"]);
-  return parts.filter((part): part is string => typeof part === "string").join(" ");
-}
-
-function isCodeRabbitCheck(item: unknown): boolean {
-  return checkName(item).toLowerCase().includes("coderabbit");
-}
-
-function checkSignalSucceeded(item: unknown): boolean {
-  if (!isRecord(item)) return false;
-  const conclusion = upperString(item["conclusion"]);
-  if (conclusion !== undefined) return SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion);
-  const state = upperString(item["state"] ?? item["status"]);
-  if (state !== undefined) return SUCCESSFUL_STATUS_STATES.has(state);
-  return false;
-}
-
-function nonCodeRabbitChecksSucceeded(rollup: unknown[] | undefined): boolean {
-  if (rollup === undefined) return false;
-  const checks = rollup.filter((item) => !isCodeRabbitCheck(item));
-  return checks.length > 0 && checks.every(checkSignalSucceeded);
-}
-
 function shaMatchesHead(candidate: string | undefined, headSha: string): boolean {
   if (candidate === undefined) return false;
   const pin = candidate.trim().toLowerCase();
@@ -214,7 +183,7 @@ function shaMatchesHead(candidate: string | undefined, headSha: string): boolean
   return pin.length >= 7 && (pin === head || head.startsWith(pin));
 }
 
-function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner): string | undefined {
+function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: DeepGithubStatusOptions = {}): string | undefined {
   if (prUrl === undefined) return undefined;
 
   const result = gh(["pr", "view", prUrl, "--json", "headRefOid,state,statusCheckRollup"]);
@@ -231,7 +200,7 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner): string | u
     return `GitHub unavailable: ${firstLine(detail)}`;
   }
 
-  if (pr.state !== "OPEN" || !nonCodeRabbitChecksSucceeded(pr.statusCheckRollup)) return undefined;
+  if (pr.state !== "OPEN" || !checkRollupSucceeded(pr.statusCheckRollup, options)) return undefined;
 
   let reviewerPin: string | undefined;
   try {
@@ -248,11 +217,12 @@ export function deepComboStatus(
   events: ComboEvent[],
   run: NoMistakesRunner,
   gh: GhRunner,
+  options: DeepGithubStatusOptions = {},
 ): string | undefined {
   const noMistakes = deepNoMistakesStatus(combo, run);
   if (noMistakes !== undefined && !noMistakes.startsWith("no-mistakes unavailable:")) {
     return noMistakes;
   }
-  return deepGithubPrStatus(latestPrUrlFromEvents(events), gh) ?? noMistakes;
+  return deepGithubPrStatus(latestPrUrlFromEvents(events), gh, options) ?? noMistakes;
 }
 // -/ 4/4

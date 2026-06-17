@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~500 lines, 11 exports.
+ *   Repo wins on policy, user wins on local setup. ~520 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -82,6 +82,8 @@ export interface ComboConfig {
   reviewerCommand: string;
   /** Review protocol reference injected into the reviewer prompt. */
   reviewerProtocol: string;
+  /** Ambient review/status providers that are not the active command reviewer. */
+  ambientReviewerAgents: string[];
 }
 
 type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";
@@ -121,7 +123,7 @@ const DEFAULTS = {
   roles: {
     coder: "codex",
     gatekeeper: "no-mistakes",
-    reviewer: ["claude", "coderabbit"],
+    reviewer: ["claude"],
     merge: "human",
   } satisfies ComboRoles,
   limits: {
@@ -152,6 +154,9 @@ const DEFAULTS = {
       "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.",
       "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
     ].join("\n"),
+  },
+  reviewer: {
+    ambient: ["coderabbit"],
   },
 };
 
@@ -259,6 +264,14 @@ function pickNonEmptyString(value: unknown, description: string): string {
   return value;
 }
 
+function pickStringArray(value: unknown, description: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new ComboConfigError(`${description} must be an array of strings`);
+  }
+  return value.map((item) => pickNonEmptyString(item, description));
+}
+
 function hasGnhfCommand(command: string): boolean {
   return /(?:^|\s)(?:\S*\/)?gnhf(?:@[-\w.]+)?(?:\s|$)/.test(command);
 }
@@ -324,6 +337,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   };
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
+  let reviewerTableConfig: TomlTable = { ...DEFAULTS.reviewer };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerProtocol = DEFAULT_REVIEWER_PROTOCOL;
 
@@ -367,8 +381,14 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       if (reviewerTable["protocol"] !== undefined) {
         reviewerProtocol = String(reviewerTable["protocol"]);
       }
+      if (reviewerTable["ambient"] !== undefined) {
+        reviewerTableConfig = {
+          ...reviewerTableConfig,
+          ambient: reviewerTable["ambient"],
+        };
+      }
       for (const [name, entry] of Object.entries(reviewerTable)) {
-        if (name === "protocol") continue;
+        if (name === "protocol" || name === "ambient") continue;
         reviewerTemplates = {
           ...reviewerTemplates,
           [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
@@ -429,6 +449,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerTemplates[reviewerAgent]?.command,
     `command template for reviewer "${reviewerAgent}"`,
   );
+  const configuredAmbient = pickStringArray(reviewerTableConfig["ambient"], "reviewer.ambient");
+  const legacyAmbient = roles.reviewer.filter((agent) => agent !== reviewerAgent);
+  const ambientReviewerAgents = [...new Set([...configuredAmbient, ...legacyAmbient])];
 
   return {
     roles,
@@ -490,6 +513,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerAgent,
     reviewerCommand,
     reviewerProtocol,
+    ambientReviewerAgents,
   };
 }
 // -/ 3/4
