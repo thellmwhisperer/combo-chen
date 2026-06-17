@@ -38,11 +38,17 @@ Any phase can transition to `STALLED` (timeout, rate limit, agent death) —
 a director concern, never a silent state.
 
 For `combo-chen run --issue <issue-url>`, the default gatekeeper intent is derived
-from the ComboRecord issue URL and issue details and ends with `Fixes #N`.
-That explicit autoclose keyword is required for generated issue PRs; a plain
-mention such as `issue #N` is not treated as sufficient. Custom gatekeeper commands
-that still create source-issue PRs must preserve `{issue_pr_intent}` or provide
-an equivalent GitHub autoclose keyword in the PR/body generation path.
+from the ComboRecord issue URL and issue details and includes a PR body
+requirement to preserve the exact visible line `Fixes #N`. That explicit
+autoclose keyword is required for generated issue PRs; a plain mention such as
+`issue #N` is not treated as sufficient. Custom gatekeeper commands that still
+create source-issue PRs must preserve `{issue_pr_intent}` or provide an
+equivalent GitHub autoclose keyword in the PR/body generation path.
+After a PR URL exists, the hidden autoclose guard reads the PR body, edits it
+if needed, then reads it again and verifies the visible autoclose keyword is
+present. A guard failure journals `pr_autoclose_failed` (required fields
+`exit_code`, `url`), marks the gate `failed`, and exits non-zero instead of
+continuing to `pr_opened`, `gate_validated`, or `pr_ready`.
 
 A recoverable coder failure journals `coder_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.
@@ -103,7 +109,10 @@ successful tick the failure counter and backoff reset.
 human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper completed
 successfully, awaiting PR detection).  On successful completion the gate emits
 `gate_validated` (required field `sha`) alongside the `idle` gate status,
-recording the validated head SHA.
+recording the validated head SHA. Post-address gates run the PR autoclose
+guard before emitting `gate_validated`, so a successful no-mistakes run cannot
+be promoted to READY while the PR body still lacks a recognized closing
+keyword.
 
 When the worktree HEAD moves past the last validated or published SHA, the
 director journals `gate_stale` (fields `old_sha`, `new_sha`) to mark the old

@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~305 lines, 8 exports, 1 critical function.
+ *   ~313 lines, 8 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -103,11 +103,15 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         break;
       case "coder_failed":
       case "gate_failed":
+      case "pr_autoclose_failed":
       case "rebase_failed":
       case "rebase_conflict":
         phase = "STALLED";
         needsHuman = true;
         reason = event.event;
+        if (event.event === "pr_autoclose_failed" && typeof event["url"] === "string") {
+          pr = event["url"];
+        }
         break;
       case "needs_human":
         needsHuman = true;
@@ -283,7 +287,6 @@ if [ "$gatekeeper_code" -ne 0 ]; then
 fi
 
 gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
 if [ -n "\${pr_url:-}" ]; then
@@ -291,13 +294,18 @@ if [ -n "\${pr_url:-}" ]; then
     :
   else
     autoclose_code=$?
-    printf '%s\\n' "autoclose guard skipped with exit code $autoclose_code" >> "$autoclose_log"
+    ${emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"
+    ${emit} gate_failed --field exit_code="$autoclose_code"
+    ${emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"
+    exit "$autoclose_code"
   fi
+  ${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
   ${emit} pr_opened --field url="$pr_url"
   ${activateCoder}
   ${activateReviewer}
   ${emit} needs_human --field reason=pr_ready
 else
+  ${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
   ${emit} needs_human --field reason=pr_missing
 fi
 `;
