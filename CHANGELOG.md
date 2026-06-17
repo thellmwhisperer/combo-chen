@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.0.28](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.27...combo-chen-v0.0.28) (2026-06-17)
+
+
+### Features
+
+* **cli:** Implemented the first-class `combo-chen park -n` slice for issue [#76](https://github.com/thellmwhisperer/combo-chen/issues/76), with a resumable handoff file, non-terminal journal event, docs, and full validation green. ([4a2f95b](https://github.com/thellmwhisperer/combo-chen/commit/4a2f95b62e36788a16215b2ff1b82428a9a60962))
+* **resume:** Implemented the first `combo-chen resume -n` slice so existing combos route through downstream state instead of starting a fresh run. ([cf9aa53](https://github.com/thellmwhisperer/combo-chen/commit/cf9aa534afd558c6c8c41d70057b6308460f757e))
+* **status:** Implemented the first `status --deep` slice for issue [#76](https://github.com/thellmwhisperer/combo-chen/issues/76) by surfacing downstream no-mistakes CI/gate state from combo status. ([a8a1095](https://github.com/thellmwhisperer/combo-chen/commit/a8a109532f3da8528cac092cfe7a328e34bd21d8))
+
+
+### Bug Fixes
+
+* address coderabbit follow-ups ([43e2b7b](https://github.com/thellmwhisperer/combo-chen/commit/43e2b7baa223c76ceb6028e7336294a75622b021))
+* address remaining review comments ([f36de8c](https://github.com/thellmwhisperer/combo-chen/commit/f36de8ca7bd09aacb2d5e415cf26774cd207081d))
+* apply ambient reviewer gate feedback ([9b0e2f2](https://github.com/thellmwhisperer/combo-chen/commit/9b0e2f22555b83df557a6f2188a9f8c8baa08d34))
+* broaden daemon guard and resume PR discovery ([3d65b08](https://github.com/thellmwhisperer/combo-chen/commit/3d65b08c12efc65bd08296f9c4211f9811475ac1))
+* configure ambient reviewers ([536f261](https://github.com/thellmwhisperer/combo-chen/commit/536f261e9099fd79ba3dd74f5900a72503fff729))
+* **gatekeeper:** force no-mistakes publish-only with park/resume recovery ([6f912e7](https://github.com/thellmwhisperer/combo-chen/commit/6f912e7b3f21d7ff4766bea8894a7c60112043b7))
+* make no-mistakes publish-only ([cd504ce](https://github.com/thellmwhisperer/combo-chen/commit/cd504ceca4e8a618153f47898515ed86c6676533))
+* resume failed combo gates ([5e5e5e6](https://github.com/thellmwhisperer/combo-chen/commit/5e5e5e645ef901124d508190d0e9ad14a57d85d9))
+* resume review phase after follow-up gate ([8a17ec5](https://github.com/thellmwhisperer/combo-chen/commit/8a17ec5a9fab0390f5d2b2e3e1ab3df6149c705b))
+* resume reviewer after gate-published pr ([7b832cb](https://github.com/thellmwhisperer/combo-chen/commit/7b832cbbc733be527ab3d9aec16a33b3fdc886ab))
+* **resume:** Added the coder-stopped-before-handoff resume slice so `combo-chen resume -n` now reports a salvage-required path with exact recovery commands instead of a generic no-PR fallback. ([320462d](https://github.com/thellmwhisperer/combo-chen/commit/320462d3e69d4da6fe020e8930a07e7dc0b23372))
+* **runner:** Implemented the safe runner config guard for issue [#76](https://github.com/thellmwhisperer/combo-chen/issues/76) and validated the full suite green. ([10a6583](https://github.com/thellmwhisperer/combo-chen/commit/10a6583f398befae2b995e0c549bcb23688fb476))
+* **status:** Added the next `status --deep` slice so stale local combo state can surface an existing GitHub PR that is ready for reviewer. ([dd382ba](https://github.com/thellmwhisperer/combo-chen/commit/dd382ba00d6d79361ca3030190e887dcf35b92c2))
+
 ## [0.0.27](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.26...combo-chen-v0.0.27) (2026-06-15)
 
 
