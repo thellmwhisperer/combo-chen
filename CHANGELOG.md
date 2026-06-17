@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.30](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.29...combo-chen-v0.0.30) (2026-06-17)
+
+
+### Bug Fixes
+
+* address coderabbit cli hardening comments ([3846f5c](https://github.com/thellmwhisperer/combo-chen/commit/3846f5cc96f1a968c41087162cd4664b0bfb0a12))
+
 ## [0.0.29](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.28...combo-chen-v0.0.29) (2026-06-17)
 
 
