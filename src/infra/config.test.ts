@@ -96,7 +96,7 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
-    expect(config.reviewerProtocol).toBe("repository review protocol + project overlay");
+    expect(config.reviewerProtocol).toBe("repository review instructions + project overlay");
     expect(config.sourceBranch).toBe("main");
   });
 
