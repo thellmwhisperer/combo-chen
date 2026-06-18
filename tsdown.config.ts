@@ -1,5 +1,5 @@
 /**
- * @overview tsdown build configuration for the combo-chen CLI bundle.
+ * @overview tsdown build configuration for combo-chen CLI and release bundles.
  *
  *   READING GUIDE
  *   -------------
@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   package/git/env metadata -> releaseDefines -> tsdown define -> dist/cli.mjs
+ *   package/git/env metadata -> releaseDefines -> tsdown define -> dist bundles
  *
  *   PUBLIC API
  *   ----------
@@ -66,7 +66,10 @@ const releaseDefines = {
 
 // -- 2/2 CORE · tsdown config <- START HERE --
 export default defineConfig({
-  entry: { cli: "src/cli/main.ts" },
+  entry: {
+    cli: "src/cli/main.ts",
+    "release-assets": "src/scripts/release-assets.ts",
+  },
   format: "esm",
   outDir: "dist",
   clean: true,
