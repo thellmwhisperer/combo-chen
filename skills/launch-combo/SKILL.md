@@ -93,7 +93,9 @@ Get the canonical intent from the binary and pass it straight through:
 no-mistakes axi run --yes --intent "$(combo-chen intent -n <comboId>)"
 ```
 
-`combo-chen intent -n <comboId>` prints the exact `{issue_pr_intent}` the runner uses, including the "Pull request body requirement" block with the literal `Fixes #N` line. This applies to every manual publish: initial gate restart AND any post-address re-publish. After any out-of-band publish, still run `combo-chen ensure-pr-autoclose -n <comboId> --pr-url <prUrl>` to re-inject and verify the line, because the manual path skips the gate script's autoclose guard.
+`combo-chen intent -n <comboId>` prints the exact `{issue_pr_intent}` the runner uses, including the "Pull request body requirement" block with the literal `Fixes #N` line. This applies to every manual publish: initial gate restart AND any post-address re-publish.
+
+After any out-of-band publish, still run `combo-chen ensure-pr-autoclose -n <comboId> --pr-url <prUrl>` to re-inject and verify the line, because the manual path skips the gate script's autoclose guard.
 
 ## Park and resume (reboot-safe handoff)
 
