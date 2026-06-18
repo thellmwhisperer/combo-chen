@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
+    "release:assets": "pnpm build && node dist/release-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
