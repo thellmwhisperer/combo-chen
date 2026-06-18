@@ -53,6 +53,7 @@ export interface ForensicsGithubFacts {
     mergedAt?: string;
     ci?: GithubSignalState;
     readyRequiredChecks?: GithubSignalState;
+    ambientReviewer?: GithubSignalState;
     mergeState?: string;
     branchBehind?: boolean;
   };
@@ -261,7 +262,7 @@ export function fetchForensicsGithubFacts(
   issueUrl: string,
   prUrl: string | undefined,
   cache?: GhApiCache,
-  options: { requiredCheckNames?: string[] } = {},
+  options: { requiredCheckNames?: string[]; ambientCheckNames?: string[] } = {},
 ): ForensicsGithubFacts | undefined {
   const facts: ForensicsGithubFacts = {};
 
@@ -283,11 +284,14 @@ export function fetchForensicsGithubFacts(
           ci: rollupSignal(parsed.statusCheckRollup, {
             requiredCheckNames: options.requiredCheckNames,
             selectRequired: false,
+            ambientCheckNames: options.ambientCheckNames,
           }),
           readyRequiredChecks: rollupSignal(parsed.statusCheckRollup, {
             requiredCheckNames: options.requiredCheckNames,
             selectRequired: true,
+            ambientCheckNames: options.ambientCheckNames,
           }),
+          ambientReviewer: rollupAmbientSignal(parsed.statusCheckRollup, options.ambientCheckNames ?? []),
           ...(parsed.mergedAt !== undefined ? { mergedAt: parsed.mergedAt } : {}),
           ...(parsed.mergeStateStatus !== undefined
             ? {
@@ -335,13 +339,30 @@ function parseIssueView(stdout: string): ForensicsGithubFacts["issue"] | undefin
 
 function rollupSignal(
   rollup: unknown[] | undefined,
-  options: { requiredCheckNames?: string[]; selectRequired: boolean },
+  options: { requiredCheckNames?: string[]; selectRequired: boolean; ambientCheckNames?: string[] },
 ): GithubSignalState {
   if (rollup === undefined) return "unknown";
   const requiredCheckNames = options.requiredCheckNames ?? [];
-  const items = rollup.filter((item) => checkNameMatchesAny(item, requiredCheckNames) === options.selectRequired);
+  const ambientCheckNames = options.ambientCheckNames ?? [];
+  const items = rollup.filter((item) => {
+    const isRequired = checkNameMatchesAny(item, requiredCheckNames);
+    const isAmbient = checkNameMatchesAny(item, ambientCheckNames);
+    if (isAmbient) return false;
+    return isRequired === options.selectRequired;
+  });
   if (items.length === 0) return "unknown";
   const states = items.map((item) => checkSignalState(item, options.selectRequired));
+  if (states.includes("failure")) return "failure";
+  if (states.every((state) => state === "success")) return "success";
+  if (states.includes("pending")) return "pending";
+  return "unknown";
+}
+
+function rollupAmbientSignal(rollup: unknown[] | undefined, ambientCheckNames: string[]): GithubSignalState | undefined {
+  if (rollup === undefined || ambientCheckNames.length === 0) return undefined;
+  const items = rollup.filter((item) => checkNameMatchesAny(item, ambientCheckNames));
+  if (items.length === 0) return "unknown";
+  const states = items.map((item) => checkSignalState(item, false));
   if (states.includes("failure")) return "failure";
   if (states.every((state) => state === "success")) return "success";
   if (states.includes("pending")) return "pending";

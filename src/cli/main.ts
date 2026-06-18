@@ -519,6 +519,7 @@ export function createProgram(deps: Deps): Command {
         const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
         const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
           requiredCheckNames: config.readyRequiredChecks,
+          ambientCheckNames: config.externalCommentAgents,
         });
         deps.out(`${line} ${downstream ?? "—"}`);
       }
@@ -555,7 +556,7 @@ export function createProgram(deps: Deps): Command {
             combo.issueUrl,
             latestPrUrlFromEvents(events),
             undefined,
-            { requiredCheckNames: config.readyRequiredChecks },
+            { requiredCheckNames: config.readyRequiredChecks, ambientCheckNames: config.externalCommentAgents },
           ),
           tmux: collectForensicsTmuxFacts(deps, combo),
         });

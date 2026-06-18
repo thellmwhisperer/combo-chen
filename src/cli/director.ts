@@ -289,7 +289,7 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   const headSha = prView.headSha;
   if (!headStateAllowsReady(events, prView)) return;
   if (!reviewStateAllowsReady(events, headSha)) return;
-  if (!checkRollupSucceeded(prView.statusCheckRollup, { requiredCheckNames: config.readyRequiredChecks })) return;
+  if (!checkRollupSucceeded(prView.statusCheckRollup, { requiredCheckNames: config.readyRequiredChecks, ambientCheckNames: config.externalCommentAgents })) return;
   if (!requiredChecksSucceeded(prView.statusCheckRollup, config.readyRequiredChecks)) return;
   if (!gateStateAllowsReady(events, headSha)) {
     const status = latestGateStatus(events);

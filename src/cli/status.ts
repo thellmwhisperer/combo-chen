@@ -59,6 +59,7 @@ export interface NoMistakesAxiStatus {
 type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
 interface DeepGithubStatusOptions {
   requiredCheckNames?: string[];
+  ambientCheckNames?: string[];
 }
 
 function unquote(value: string): string {
@@ -203,7 +204,7 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
 
   if (
     pr.state !== "OPEN" ||
-    !checkRollupSucceeded(pr.statusCheckRollup, options) ||
+    !checkRollupSucceeded(pr.statusCheckRollup, { requiredCheckNames: options.requiredCheckNames, ambientCheckNames: options.ambientCheckNames }) ||
     !requiredChecksSucceeded(pr.statusCheckRollup, options.requiredCheckNames ?? [])
   ) {
     return undefined;
