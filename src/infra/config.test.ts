@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~730 lines,
+ * @overview Unit tests for config loading and command rendering. ~816 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -100,6 +100,7 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
     expect(config.reviewerPrompt).toBe("");
+    expect(config.reviewerLogins).toEqual(["claude"]);
     expect(config.sourceBranch).toBe("main");
   });
 
@@ -142,6 +143,45 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("claude");
     expect(config.externalCommentAgents).toEqual(["reviewdog"]);
     expect(config).not.toHaveProperty("ambientReviewerAgents");
+  });
+
+  it("loads reviewer GitHub logins for trusted LGTM authors", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'reviewer = ["claude"]',
+        "",
+        "[reviewer]",
+        'logins = ["Javi", "claude-reviewer"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.reviewerLogins).toEqual(["Javi", "claude-reviewer"]);
+  });
+
+  it("lets env override reviewer GitHub logins", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      ["[reviewer]", 'logins = ["repo-reviewer"]'].join("\n"),
+    );
+
+    const config = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_REVIEWER_LOGINS: "env-reviewer\nsecond-reviewer" },
+    });
+
+    expect(config.reviewerLogins).toEqual(["env-reviewer", "second-reviewer"]);
   });
 
   it("auto-includes non-active reviewer role entries as external comment agents", () => {

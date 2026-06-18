@@ -18,7 +18,7 @@
  *   checkNameMatchesAny       Exact match against any useful rollup label.
  *   checkSignalSucceeded      Broad success predicate for CI rollup.
  *   checkSignalIsSuccess      Exact SUCCESS predicate for required READY checks.
- *   checkRollupSucceeded      True when non-required CI checks all pass.
+ *   checkRollupSucceeded      True when normal CI checks pass or only required checks remain.
  *   requiredChecksSucceeded   True when every configured READY check succeeds.
  *
  *   INTERNALS
@@ -85,10 +85,12 @@ export function checkRollupSucceeded(
   rollup: unknown[] | undefined,
   options: { requiredCheckNames?: string[]; ambientCheckNames?: string[] } = {},
 ): boolean {
-  if (rollup === undefined) return false;
-  const ignoredCheckNames = (options.requiredCheckNames ?? []).concat(options.ambientCheckNames ?? []);
+  if (rollup === undefined || rollup.length === 0) return false;
+  const requiredCheckNames = options.requiredCheckNames ?? [];
+  const ignoredCheckNames = requiredCheckNames.concat(options.ambientCheckNames ?? []);
   const checks = rollup.filter((item) => !checkNameMatchesAny(item, ignoredCheckNames));
-  return rollup.length > 0 && checks.every(checkSignalSucceeded);
+  if (checks.length > 0) return checks.every(checkSignalSucceeded);
+  return rollup.some((item) => checkNameMatchesAny(item, requiredCheckNames));
 }
 
 export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredCheckNames: string[]): boolean {

@@ -26,7 +26,7 @@ You are the DIRECTOR of one combo. A combo turns one GitHub issue into one green
 6. The ONLY sanctioned way to write the journal is `combo-chen emit`. Never hand-write JSONL lines (`echo >>`, `cat >>`, `printf >>`) into a `journal.jsonl`: that bypasses canonicalization and the runner side-effects, produces events the director cannot trust, and trips the safety classifier as fabricated state.
 7. No em dashes in anything you write (commits, comments, PRs, messages).
 
-Hard rule: `reviewer != coder`. Never let the same agent both write and approve.
+Hard rule: `reviewer != coder`. Never let the same agent both write and approve. The LGTM verdict must be published by a GitHub author listed in `[reviewer].logins` before the director will accept it as reviewer evidence.
 
 ## Command discipline
 

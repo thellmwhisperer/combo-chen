@@ -1,7 +1,7 @@
 /**
- * @overview Unit tests for the event journal subsystem. ~269 lines, testing
- *   event schema validation, JSONL append/read, legacy alias mapping,
- *   torn-line tolerance, and the async follow/followEvents stream.
+ * @overview Unit tests for the event journal subsystem. ~320 lines, testing
+ *   event schema validation, JSONL append/read, append locking, legacy alias
+ *   mapping, torn-line tolerance, and the async follow/followEvents stream.
  *
  *   READING GUIDE
  *   ─────────────
@@ -10,17 +10,18 @@
  *
  *   ┌─ TEST AREAS ───────────────────────────────────────┐
  *   │ event schema  Pinned catalogue + required fields   │
- *   │ journal       JSONL read/write, legacy aliases,    │
- *   │               torn-line tolerance, async follow    │
+ *   │ journal       JSONL read/write, append locking,    │
+ *   │               legacy aliases, torn-line tolerance, │
+ *   │               async follow                         │
  *   └─────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
  * @deps vitest, node:{fs,os,path}, ./events
  */
-import { appendFileSync, mkdtempSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ComboEventError,
@@ -148,9 +149,64 @@ describe("journal", () => {
     expect(readEvents(dir)[0]).toMatchObject({
       event: "coder_started",
       note: "kept",
+    });
   });
-});
-// -/ 2/2
+
+  it("serializes appends with a per-run lock directory", async () => {
+    vi.resetModules();
+    const operations: string[] = [];
+    vi.doMock("node:fs", async () => {
+      const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+      return {
+        ...actual,
+        appendFileSync: vi.fn((...args: Parameters<typeof actual.appendFileSync>) => {
+          operations.push("append");
+          return actual.appendFileSync(...args);
+        }),
+        mkdirSync: vi.fn((...args: Parameters<typeof actual.mkdirSync>) => {
+          const [target] = args;
+          if (String(target).endsWith(".journal.append.lock")) {
+            operations.push(`lock:${String(target)}`);
+          }
+          return actual.mkdirSync(...args);
+        }),
+        rmSync: vi.fn((...args: Parameters<typeof actual.rmSync>) => {
+          const [target] = args;
+          if (String(target).endsWith(".journal.append.lock")) {
+            operations.push(`unlock:${String(target)}`);
+          }
+          return actual.rmSync(...args);
+        }),
+      };
+    });
+
+    try {
+      const journal = await import("./events.js");
+      const dir = runDir();
+      const lockPath = join(dir, ".journal.append.lock");
+
+      journal.appendEvent(dir, "combo_created", { issue_url: "x" });
+
+      expect(operations).toEqual([`lock:${lockPath}`, "append", `unlock:${lockPath}`]);
+      expect(journal.readEvents(dir).map((event) => event.event)).toEqual(["combo_created"]);
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
+  });
+
+  it("recovers a stale append lock before writing", () => {
+    const dir = runDir();
+    const lockPath = join(dir, ".journal.append.lock");
+    mkdirSync(lockPath);
+    const staleTime = new Date(Date.now() - 31_000);
+    utimesSync(lockPath, staleTime, staleTime);
+
+    appendEvent(dir, "combo_created", { issue_url: "x" });
+
+    expect(existsSync(lockPath)).toBe(false);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["combo_created"]);
+  });
 
   it("appends the post-PR event vocabulary with its documented fields", () => {
     const dir = runDir();
@@ -267,3 +323,4 @@ describe("journal", () => {
     expect(seen).toEqual(["combo_created", "coder_started"]);
   });
 });
+// -/ 2/2

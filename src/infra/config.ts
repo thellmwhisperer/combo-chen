@@ -86,6 +86,8 @@ export interface ComboConfig {
   reviewerCommand: string;
   /** Free-form reviewer prompt text injected into the reviewer guardrails. */
   reviewerPrompt: string;
+  /** GitHub logins allowed to publish SHA-pinned reviewer LGTM verdicts. */
+  reviewerLogins: string[];
   /** External PR comment agents matched for noise filtering and coder routing. */
   externalCommentAgents: string[];
   /** GitHub check names that must be present with SUCCESS before READY. */
@@ -414,6 +416,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let readyTable: TomlTable = { ...DEFAULTS.ready };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerPrompt = DEFAULT_REVIEWER_PROMPT;
+  let reviewerLogins: string[] | undefined;
   let monitorTable: TomlTable = { ...DEFAULTS.monitor };
   let runTable: TomlTable = { ...DEFAULTS.run };
 
@@ -466,8 +469,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
           agents: reviewerTable["ambient"],
         };
       }
+      if (reviewerTable["logins"] !== undefined) {
+        reviewerLogins = pickNonEmptyStringArray(reviewerTable["logins"], `${section}.logins`);
+      }
       for (const [name, entry] of Object.entries(reviewerTable)) {
-        if (name === "prompt" || name === "ambient") continue;
+        if (name === "prompt" || name === "ambient" || name === "logins") continue;
         reviewerTemplates = {
           ...reviewerTemplates,
           [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
@@ -546,6 +552,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     externalCommentsTable["agents"] = parseEnvStringArray(
       env["COMBO_CHEN_EXTERNAL_COMMENT_AGENTS"],
       "external_comments.agents",
+    );
+  }
+  if (env["COMBO_CHEN_REVIEWER_LOGINS"] !== undefined) {
+    reviewerLogins = parseEnvStringArray(
+      env["COMBO_CHEN_REVIEWER_LOGINS"],
+      "reviewer.logins",
     );
   }
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
@@ -667,6 +679,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerAgent,
     reviewerCommand,
     reviewerPrompt,
+    reviewerLogins: [...new Set(reviewerLogins ?? [reviewerAgent])],
     externalCommentAgents: [...new Set(externalCommentAgents)],
     readyRequiredChecks,
     workerStallTicks: pickPositiveInteger(
