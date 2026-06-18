@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for merged-combo lifecycle cleanup. ~75 lines, teardown order.
+ * @overview Unit tests for merged-combo lifecycle cleanup. ~105 lines, teardown order and idempotence.
  *
  *   READING GUIDE
  *   -------------
@@ -8,7 +8,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   fake combo -> teardownMergedCombo -> ordered git calls
+ *   fake combo -> teardownMergedCombo -> ordered or already-clean git calls
  *
  *   PUBLIC API
  *   ----------
@@ -63,6 +63,41 @@ describe("teardownMergedCombo", () => {
       mergeSha: "merge123",
       baseRefName: "main",
       retries: 0,
+      backoffSeconds: 1,
+    });
+
+    expect(calls).toEqual([
+      [record.repoDir, "fetch", "origin", "main"],
+      [record.repoDir, "merge-base", "--is-ancestor", "merge123", "origin/main"],
+      [record.repoDir, "worktree", "remove", "--force", record.worktree],
+      [record.repoDir, "branch", "-D", record.branch],
+    ]);
+  });
+
+  it("treats an already-removed worktree and missing local branch as success", async () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    await teardownMergedCombo({
+      deps: {
+        git: (args, cwd) => {
+          calls.push([cwd, ...args]);
+          if (args[0] === "worktree") {
+            return { status: 128, stdout: "", stderr: `fatal: '${record.worktree}' is not a working tree` };
+          }
+          if (args[0] === "branch") {
+            return { status: 1, stdout: "", stderr: `error: branch '${record.branch}' not found.` };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        sleep: async (ms) => {
+          calls.push(["sleep", String(ms)]);
+        },
+      },
+      combo: record,
+      mergeSha: "merge123",
+      baseRefName: "main",
+      retries: 2,
       backoffSeconds: 1,
     });
 

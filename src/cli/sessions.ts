@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~145 lines, 9 exports, attach and journal-pane utilities.
+ * @overview tmux session helpers. ~155 lines, 9 exports, attach and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -18,7 +18,7 @@
  *
  *   INTERNALS
  *   ---------
- *   paneCount
+ *   paneCount, tmuxFailureText, isMissingSession
  *
  * @exports CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
  * @deps ../core/state, ../infra/tmux
@@ -46,12 +46,21 @@ export interface SessionDeps {
 
 export function killComboSession(deps: SessionDeps, combo: ComboRecord): void {
   const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
-  if (killed.status !== 0) {
+  if (killed.status !== 0 && !isMissingSession(killed)) {
     throw new Error(
       `tmux kill-session failed for "${combo.tmuxSession}": ` +
         `${killed.stderr.trim() || "unknown error"}`,
     );
   }
+}
+
+function tmuxFailureText(result: TmuxResult): string {
+  return `${result.stderr}\n${result.stdout}`.toLowerCase();
+}
+
+function isMissingSession(result: TmuxResult): boolean {
+  const text = tmuxFailureText(result);
+  return text.includes("can't find session") || text.includes("no server running");
 }
 
 export function killWindowIfPresent(

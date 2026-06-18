@@ -1,11 +1,11 @@
 /**
- * @overview Unit tests for tmux session helpers. ~130 lines, attach selection and window cleanup.
+ * @overview Unit tests for tmux session helpers. ~145 lines, attach selection and idempotent cleanup.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveAttachCombo tests <- running combo selection.
  *   2. Then ensureJournalPane tests       <- event tail pane creation.
- *   3. Then killWindowIfPresent tests     <- named window replacement.
+ *   3. Then kill helper tests             <- session/window cleanup.
  *
  *   MAIN FLOW
  *   ---------
@@ -30,6 +30,7 @@ import { describe, expect, it } from "vitest";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import {
   ensureJournalPane,
+  killComboSession,
   killWindowIfPresent,
   REVIEWER_WINDOW,
   resolveAttachCombo,
@@ -111,7 +112,28 @@ describe("ensureJournalPane", () => {
 });
 // -/ 3/4
 
-// -- 4/4 CORE · killWindowIfPresent tests --
+// -- 4/4 CORE · kill helper tests --
+describe("killComboSession", () => {
+  it("treats an already-gone tmux session as success", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    expect(() =>
+      killComboSession(
+        {
+          tmux: (args) => {
+            calls.push(args);
+            return { status: 1, stdout: "", stderr: `can't find session: ${record.tmuxSession}` };
+          },
+        },
+        record,
+      ),
+    ).not.toThrow();
+
+    expect(calls).toEqual([["kill-session", "-t", "combo-chen-o-r-7"]]);
+  });
+});
+
 describe("killWindowIfPresent", () => {
   it("kills an existing named window after listing windows", () => {
     const calls: string[][] = [];
