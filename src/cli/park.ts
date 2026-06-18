@@ -92,6 +92,7 @@ export function parkCombo(input: {
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
     requiredCheckNames: config.readyRequiredChecks,
+    ambientCheckNames: config.externalCommentAgents,
   });
   const summaryPath = join(runDir, "park-handoff.md");
 
