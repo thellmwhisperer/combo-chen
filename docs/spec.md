@@ -11,7 +11,7 @@ schema, and the config schema must conform to it, not the other way around.
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **coder** | implements the issue (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
 | **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR with configured prompt text, incrementally until merge | review its own changes | claude (+ configured ambient reviewers) |
+| **reviewer** | reviews the PR with configured prompt text, incrementally until merge | review its own changes | claude |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
@@ -39,7 +39,7 @@ SETUP      clean main verified, worktree acquired from base ref under project .w
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
               └─▶ REVIEWING  director-watch observes reviewer and coder responding mode workers
-                    └─▶ READY      gate_current ∧ reviewer_current ∧ ambient_review_current_clean ∧ ci_current_success
+                    └─▶ READY      gate_current ∧ reviewer_current ∧ required_checks_current_success ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
 
@@ -182,12 +182,15 @@ propagates it.
   findings.
 - When all four signals agree on the current head SHA — gatekeeper has
   validated the SHA, the reviewer has a live pinned LGTM for that SHA,
-  every configured ambient reviewer has a SUCCESS status context/check for
-  that SHA and its latest matching review/comment for that SHA is not a
-  rate-limit/skipped/no-review message, and all remaining status contexts/checks
-  in the rollup are successful for that SHA — the director journals
+  every configured `[ready].required_checks` entry is present in the GitHub
+  rollup with exact SUCCESS, and all remaining status contexts/checks in the
+  rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
+- External agent comments are routed as review input for the coder. Configure
+  their comment/noise filters with `[external_comments].agents`; clean or
+  rate-limited external comments do not approve the PR and do not affect READY
+  except through their configured GitHub check/status result.
 - If no-mistakes dies after publishing and journals `gate_failed` with
   `reason=daemon_dead`, while GitHub reports the current PR head check rollup
   as successful, the director may reconcile stale local gate evidence by

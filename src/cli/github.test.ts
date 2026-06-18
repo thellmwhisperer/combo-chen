@@ -78,7 +78,7 @@ describe("cli GitHub helpers", () => {
     ]);
   });
 
-  it("separates configured ambient reviewer checks from CI for forensics", () => {
+  it("separates configured required READY checks from CI for forensics", () => {
     const gh = (args: string[]) => {
       if (args[0] === "pr") {
         return {
@@ -108,12 +108,124 @@ describe("cli GitHub helpers", () => {
       "https://github.com/o/r/issues/84",
       "https://github.com/o/r/pull/84",
       undefined,
-      { ambientCheckNames: ["reviewdog"] },
+      { requiredCheckNames: ["reviewdog"] },
     );
 
     expect(facts?.pr?.ci).toBe("success");
-    expect(facts?.pr?.ambientReviewer).toBe("failure");
+    expect(facts?.pr?.readyRequiredChecks).toBe("failure");
     expect(facts?.pr).not.toHaveProperty("codeRabbit");
+  });
+
+  it("uses exact required READY check names for forensics classification", () => {
+    const gh = (args: string[]) => {
+      if (args[0] === "pr") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "def456",
+            state: "OPEN",
+            statusCheckRollup: [
+              { __typename: "CheckRun", name: "unit", status: "COMPLETED", conclusion: "SUCCESS" },
+              { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
+              { __typename: "CheckRun", name: "ReviewDog Extended", status: "COMPLETED", conclusion: "FAILURE" },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "issue") {
+        return { status: 0, stdout: JSON.stringify({ state: "OPEN" }), stderr: "" };
+      }
+      if (args[0] === "api") {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    const facts = fetchForensicsGithubFacts(
+      gh,
+      "https://github.com/o/r/issues/84",
+      "https://github.com/o/r/pull/84",
+      undefined,
+      { requiredCheckNames: ["ReviewDog"] },
+    );
+
+    expect(facts?.pr?.ci).toBe("failure");
+    expect(facts?.pr?.readyRequiredChecks).toBe("success");
+  });
+
+  it("reports readyRequiredChecks as pending when required check is NEUTRAL or SKIPPED", () => {
+    const gh = (args: string[]) => {
+      if (args[0] === "pr") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "def456",
+            state: "OPEN",
+            statusCheckRollup: [
+              { __typename: "CheckRun", name: "unit", status: "COMPLETED", conclusion: "SUCCESS" },
+              { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "NEUTRAL" },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "issue") {
+        return { status: 0, stdout: JSON.stringify({ state: "OPEN" }), stderr: "" };
+      }
+      if (args[0] === "api") {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    const facts = fetchForensicsGithubFacts(
+      gh,
+      "https://github.com/o/r/issues/84",
+      "https://github.com/o/r/pull/84",
+      undefined,
+      { requiredCheckNames: ["ReviewDog"] },
+    );
+
+    expect(facts?.pr?.ci).toBe("success");
+    expect(facts?.pr?.readyRequiredChecks).toBe("unknown");
+  });
+
+  it("reports readyRequiredChecks as success only when required check has exact SUCCESS conclusion", () => {
+    const gh = (args: string[]) => {
+      if (args[0] === "pr") {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "def456",
+            state: "OPEN",
+            statusCheckRollup: [
+              { __typename: "CheckRun", name: "unit", status: "COMPLETED", conclusion: "NEUTRAL" },
+              { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      if (args[0] === "issue") {
+        return { status: 0, stdout: JSON.stringify({ state: "OPEN" }), stderr: "" };
+      }
+      if (args[0] === "api") {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    const facts = fetchForensicsGithubFacts(
+      gh,
+      "https://github.com/o/r/issues/84",
+      "https://github.com/o/r/pull/84",
+      undefined,
+      { requiredCheckNames: ["ReviewDog"] },
+    );
+
+    expect(facts?.pr?.ci).toBe("success");
+    expect(facts?.pr?.readyRequiredChecks).toBe("success");
   });
 
   it("finds the latest non-negated LGTM pin across comments and reviews", () => {

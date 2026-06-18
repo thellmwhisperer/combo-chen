@@ -67,7 +67,7 @@ describe("forensics analyzer", () => {
           headSha: "def456",
           state: "OPEN",
           ci: "success",
-          ambientReviewer: "success",
+          readyRequiredChecks: "success",
         },
         issue: { state: "OPEN" },
       },
@@ -89,7 +89,7 @@ describe("forensics analyzer", () => {
     expect(markdown).toContain("## o-r-55");
     expect(markdown).toContain("Coder: 4m 30s");
     expect(markdown).toContain("reviewer current verdict: no");
-    expect(markdown).toContain("ambient reviewer: success");
+    expect(markdown).toContain("required READY checks: success");
     expect(markdown).toContain("reviewer window exists: yes");
     expect(markdown).toContain("missing_reviewer_verdict");
   });

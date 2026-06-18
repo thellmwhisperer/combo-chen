@@ -39,8 +39,8 @@ Hard rule: `reviewer != coder`.
    mirror branch; the tmux command stays short (`sh <script>`).
 7. READY is journaled only when all current-head signals agree:
    gate validated the PR head SHA, reviewer LGTM is pinned to that SHA,
-   CodeRabbit has SUCCESS plus a non-rate-limited/non-skipped current-head
-   comment, and non-CodeRabbit CI/check rollup is successful for that SHA.
+   every configured required READY check is present with SUCCESS, and the
+   remaining CI/check rollup is successful for that SHA.
 
 Rate limits and transient GitHub/git/tmux errors are operational events. Log a
 concise note, keep the director loop alive when possible, and re-evaluate on

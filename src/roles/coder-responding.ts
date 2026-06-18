@@ -1,7 +1,7 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
  *   journal and delivers prompts to the coder tmux window via paste-buffer.
- *   Reads only; never mutates GitHub or the repo. ~290 lines, 11 exports.
+ *   Reads only; never mutates GitHub or the repo. ~300 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -33,8 +33,8 @@
  *   │ signalFromReview              Extract signal from review JSON     │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
- *   │ bodyText, meaningfulLines, isAmbientReviewerRetriggerBookkeeping, │
- *   │ isAmbientReviewerRateLimitComment, isPinnedLgtmReview, isRecord   │
+ *   │ bodyText, meaningfulLines, isExternalAgentRetriggerBookkeeping,  │
+ *   │ isExternalAgentRateLimitComment, isPinnedLgtmReview, isRecord    │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
@@ -69,7 +69,7 @@ export interface ReviewCommentSignal {
 }
 
 export interface ReviewSignalOptions {
-  ambientReviewerAgents?: string[];
+  externalCommentAgents?: string[];
 }
 
 export function buildReviewNudgePrompt(
@@ -242,11 +242,11 @@ export function signalFromComment(
     return undefined;
   }
   const author = user["login"];
-  const ambientReviewerAgents = options.ambientReviewerAgents ?? [];
-  if (kind === "pr_comment" && isAmbientReviewerRetriggerBookkeeping(body, ambientReviewerAgents)) {
+  const externalCommentAgents = options.externalCommentAgents ?? [];
+  if (kind === "pr_comment" && isExternalAgentRetriggerBookkeeping(body, externalCommentAgents)) {
     return undefined;
   }
-  if (kind === "pr_comment" && isAmbientReviewerRateLimitComment(author, body, ambientReviewerAgents)) {
+  if (kind === "pr_comment" && isExternalAgentRateLimitComment(author, body, externalCommentAgents)) {
     return undefined;
   }
   return { author, kind, url };
@@ -274,41 +274,41 @@ function meaningfulLines(body: string): string[] {
     .filter((line) => line !== "");
 }
 
-function ambientReviewerMatches(
+function externalCommentAgentMatches(
   value: string,
-  ambientReviewerAgents: string[],
+  externalCommentAgents: string[],
   mode: "prefix" | "substring",
 ): boolean {
   const normalized = value.toLowerCase();
-  return ambientReviewerAgents.some((agent) => {
+  return externalCommentAgents.some((agent) => {
     const needle = agent.trim().toLowerCase();
     return needle.length > 0 && (mode === "prefix" ? normalized.trim().startsWith(needle) : normalized.includes(needle));
   });
 }
 
-function matchesAmbientReviewer(value: string, ambientReviewerAgents: string[]): boolean {
-  return ambientReviewerMatches(value, ambientReviewerAgents, "prefix");
+function matchesExternalCommentAgent(value: string, externalCommentAgents: string[]): boolean {
+  return externalCommentAgentMatches(value, externalCommentAgents, "prefix");
 }
 
-function isAmbientReviewerRetriggerBookkeeping(body: string, ambientReviewerAgents: string[]): boolean {
+function isExternalAgentRetriggerBookkeeping(body: string, externalCommentAgents: string[]): boolean {
   const lines = meaningfulLines(body);
   const target = /^@([-\w]+)\s+review\s*$/i.exec(lines[0] ?? "")?.[1];
-  if (target === undefined || !matchesAmbientReviewer(target, ambientReviewerAgents)) return false;
+  if (target === undefined || !matchesExternalCommentAgent(target, externalCommentAgents)) return false;
   const targetLower = target.toLowerCase();
   return lines.slice(1).every((line) => {
     const lower = line.toLowerCase();
     return lower.includes("codex") &&
-      (lower.includes(targetLower) || ambientReviewerMatches(lower, ambientReviewerAgents, "substring"));
+      (lower.includes(targetLower) || externalCommentAgentMatches(lower, externalCommentAgents, "substring"));
   });
 }
 
-function isAmbientReviewerRateLimitComment(
+function isExternalAgentRateLimitComment(
   author: string,
   body: string,
-  ambientReviewerAgents: string[],
+  externalCommentAgents: string[],
 ): boolean {
   return (
-    matchesAmbientReviewer(author, ambientReviewerAgents) &&
+    matchesExternalCommentAgent(author, externalCommentAgents) &&
     /\breview\s+limit\s+reached\b|rate[-\s]?limit(?:ed)?|\breview\s+skipped\b|couldn'?t start this review/i.test(body)
   );
 }
