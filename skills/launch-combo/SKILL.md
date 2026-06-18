@@ -65,10 +65,10 @@ Poll on a cadence (journal, GitHub, tmux, configured coordination inbox). React 
 |---|---|
 | `coder_done` | Verify commits exist on the branch. Expect the gate stage (no-mistakes) next. |
 | `coder_failed` | Adjudicate before believing it: check the branch for new commits and the exit code. Exit via signal with the work present can be a false negative. |
-| gate stage / `gate_waiting` / `awaiting_approval` | Gate prompts can go quiet in the journal. If the pipeline stalls, run `no-mistakes axi status` yourself. Respond to the gate or escalate to the human if it touches intent. |
-| `gate_failed` before `pr_opened` | The director auto-retries the initial gate up to `[gatekeeper].initial_gate_retry_attempts` times with `[gatekeeper].initial_gate_retry_backoff_seconds` delay. After the retries are exhausted the combo journals `needs_human reason=gate_failed` and stops. Resume will not relaunch a retry after exhaustion; inspect the run directory and no-mistakes status, then restart the gate manually or escalate to the human. |
+| gate stage / `gate_waiting` / `awaiting_approval` | Gate prompts can go quiet in the journal. If the pipeline stalls, run `no-mistakes axi status` yourself. Respond to the gate or escalate to the human if it touches intent. Any manual `axi run` you start MUST reuse the canonical intent (see "Manual `axi run`: canonical intent only" below), never an intent you author by hand. |
+| `gate_failed` before `pr_opened` | The director auto-retries the initial gate up to `[gatekeeper].initial_gate_retry_attempts` times with `[gatekeeper].initial_gate_retry_backoff_seconds` delay. After the retries are exhausted the combo journals `needs_human reason=gate_failed` and stops. Resume will not relaunch a retry after exhaustion; inspect the run directory and no-mistakes status, then restart the gate manually or escalate to the human. If you restart it manually, drive it with the canonical intent (see "Manual `axi run`: canonical intent only" below); a hand-written intent drops the verbatim `Fixes #N` requirement and the merged PR will not autoclose its issue. |
 | `pr_opened` | Start the review round: launch the reviewer (`combo-chen activate-reviewer -n <id>`) on the PR per the repo review protocol. Verdict as COMMENT review pinned to head SHA. |
-| PR opened out of band, no `pr_opened` in the journal | The gate-approval/manual-`axi run` path opens a PR without journaling `pr_opened`, so `activate-reviewer` refuses ("no pr_opened event") and the director loop never starts. Journal it through the binary, never by hand: `combo-chen emit -n <comboId> pr_opened --field url=<prUrl>`. Then proceed to the reviewer round. |
+| PR opened out of band, no `pr_opened` in the journal | The gate-approval/manual-`axi run` path opens a PR without journaling `pr_opened`, so `activate-reviewer` refuses ("no pr_opened event") and the director loop never starts. Journal it through the binary, never by hand: `combo-chen emit -n <comboId> pr_opened --field url=<prUrl>`. An out-of-band publish also skips the gate script's autoclose guard, so run `combo-chen ensure-pr-autoclose -n <comboId> --pr-url <prUrl>` before the reviewer round to re-inject and verify the `Fixes #N` line. Then proceed to the reviewer round. |
 | Subagent idle, waiting on a permission dialog | A stuck subagent is YOUR responsibility to detect (capture-pane on its window every cycle) and to report: escalate to the human immediately with the session:window and the pending tool, instead of letting it sit. Prevention is also yours: before launching any subagent, verify the repo's allowlist covers the tools its prompt will need, and flag gaps to the human BEFORE the launch, not after the freeze. |
 | Review findings (BLOCKED) | Activate the coder in responding mode (`combo-chen activate-coder`) to fix mechanical findings and reply to every comment. Intent-touching proposals escalate to the human, never auto-applied. |
 | New push to the PR | The previous verdict is stale. Re-run an incremental reviewer round and re-pin. |
@@ -82,6 +82,18 @@ Loop hygiene: check the configured coordination inbox every cycle. Coders do not
 ### Monitoring coder progress (gnhf)
 
 When the coder is gnhf, check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log`. A growing `iteration-N.jsonl` means the coder is active. No growth plus no terminal event is a stall to investigate, not a success.
+
+### Manual `axi run`: canonical intent only
+
+When a gate stalls or exhausts its retries and you have to drive `no-mistakes axi run` by hand, never author the intent yourself. A hand-written or paraphrased intent silently drops the verbatim `Fixes #N` requirement that combo-chen bakes into the gate intent, so no-mistakes regenerates the PR body without the autoclose line and the merged PR leaves its source issue open (you then have to close it by hand).
+
+Get the canonical intent from the binary and pass it straight through:
+
+```
+no-mistakes axi run --yes --intent "$(combo-chen intent -n <comboId>)"
+```
+
+`combo-chen intent -n <comboId>` prints the exact `{issue_pr_intent}` the runner uses, including the "Pull request body requirement" block with the literal `Fixes #N` line. This applies to every manual publish: initial gate restart AND any post-address re-publish. After any out-of-band publish, still run `combo-chen ensure-pr-autoclose -n <comboId> --pr-url <prUrl>` to re-inject and verify the line, because the manual path skips the gate script's autoclose guard.
 
 ## Park and resume (reboot-safe handoff)
 
