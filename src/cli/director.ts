@@ -206,7 +206,7 @@ async function runInitialGateRetryIfNeeded(input: {
     runDir: input.runDir,
     cli: input.cli,
   });
-  if (!result.started) {
+  if (!result.started && result.reason !== "uncommitted_changes") {
     appendEvent(input.runDir, "gate_failed", { exit_code: 1 });
   }
   return true;
