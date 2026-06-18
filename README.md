@@ -137,11 +137,13 @@ merge = "human"
 [reviewer]
 # Optional free-form reviewer instructions.
 # prompt = "Apply my local review process."
-# External comment/noise filters only; not approval and not READY checks.
-ambient = ["coderabbit"]
 
 [ready]
 required_checks = ["CodeRabbit"]
+
+[external_comments]
+# External comment/noise filters only; not approval and not READY checks.
+agents = ["coderabbit"]
 
 [reviewer.claude]
 command = "claude {prompt}"
@@ -152,6 +154,8 @@ Reviewer commands must submit reviews with a single inline
 files, pipes, redirects, semicolons, or cleanup commands to publish a review.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
 present with `SUCCESS`; these external checks are not reviewer approval.
+`[external_comments].agents` names GitHub App or bot logins whose comments are
+filtered for bookkeeping/noise and otherwise routed to coder responding mode.
 
 The target repo may also carry a local ignored `.no-mistakes.yaml` with explicit
 test, lint, and build commands. combo-chen propagates it in two phases:

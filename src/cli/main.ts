@@ -545,7 +545,7 @@ export function createProgram(deps: Deps): Command {
             combo.issueUrl,
             latestPrUrlFromEvents(events),
             undefined,
-            { ambientCheckNames: config.ambientReviewerAgents },
+            { ambientCheckNames: config.readyRequiredChecks },
           ),
           tmux: collectForensicsTmuxFacts(deps, combo),
         });

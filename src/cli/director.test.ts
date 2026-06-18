@@ -88,7 +88,7 @@ function fakeDeps(input: {
   worktreeHeadSha?: string;
   rollup?: unknown[];
   codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
-  ambientReviewerLogin?: string;
+  externalCommentLogin?: string;
   issueComments?: unknown[];
   env?: Record<string, string | undefined>;
   git?: DirectorDeps["git"];
@@ -149,7 +149,7 @@ function fakeDeps(input: {
               html_url: `https://github.com/o/r/pull/7#pullrequestreview-${index + 1}`,
               state: "COMMENTED",
               submitted_at: comment.submittedAt ?? `2026-06-15T00:00:0${index}Z`,
-              user: { login: input.ambientReviewerLogin ?? "coderabbitai" },
+              user: { login: input.externalCommentLogin ?? "coderabbitai" },
             })),
           ),
           stderr: "",
@@ -462,15 +462,15 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
   });
 
-  it("uses the configured ambient reviewer name instead of a hardcoded provider", async () => {
+  it("uses the configured external comment agent instead of a hardcoded provider", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
       [
-        "[reviewer]",
-        'ambient = ["reviewdog"]',
+        "[external_comments]",
+        'agents = ["reviewdog"]',
         "",
         "[reviewer.claude]",
         'command = "claude {prompt}"',
@@ -480,7 +480,7 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: headSha,
-      ambientReviewerLogin: "reviewdog",
+      externalCommentLogin: "reviewdog",
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
@@ -721,6 +721,10 @@ describe("tickDirector", () => {
       gateSha: previousGateSha,
       lgtmSha: currentHead,
     });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      ["[external_comments]", 'agents = ["coderabbit"]'].join("\n"),
+    );
     const { deps, calls } = fakeDeps({
       homeDir: h,
       record,
