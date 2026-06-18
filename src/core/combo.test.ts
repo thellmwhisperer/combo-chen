@@ -18,7 +18,7 @@
  *   ../roles/gatekeeper, ./events, ./combo
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -777,6 +777,118 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     expect(gatekeeperOutput).toContain("--skip=ci");
     expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
     expect(gatekeeperOutput).toContain("Fixes #7");
+  });
+
+  it("copies local no-mistakes config into the daemon run worktree after mirror push", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    const dataDir = join(dir, "no-mistakes-data");
+    const runId = "01TESTCONFIGCOPY";
+    const gatePath = join(dataDir, "repos", "dd1c02626404.git");
+    const daemonWorktree = join(dataDir, "worktrees", "dd1c02626404", runId);
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(daemonWorktree, { recursive: true });
+    writeFileSync(join(worktree, ".no-mistakes.yaml"), "commands:\n  test: pnpm test\n");
+
+    const eventsPath = join(dir, "events.log");
+    const gatekeeperLog = join(dir, "gatekeeper.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "remote" ]; then
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
+  exit 0
+fi
+if [ "$1" = "ls-remote" ]; then
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
+  exit 0
+fi
+if [ "$1" = "push" ]; then
+  printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
+  exit 0
+fi
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
+if [ "$1" = "status" ]; then
+  printf '    repo:  /repo\\n'
+  printf '    gate:  %s\\n' "$NO_MISTAKES_GATE"
+  printf '\\n  Active run\\n'
+  printf '       id:  %s\\n' "$NO_MISTAKES_RUN_ID"
+fi
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: "true",
+        gatekeeperCommand: renderedDefaultGatekeeperCommand,
+        gatekeeperMirrorIntent: Buffer.from("Implement issue 7", "utf8").toString("base64"),
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        GATEKEEPER_LOG: gatekeeperLog,
+        NO_MISTAKES_GATE: gatePath,
+        NO_MISTAKES_RUN_ID: runId,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    const daemonConfig = join(daemonWorktree, ".no-mistakes.yaml");
+    expect(existsSync(daemonConfig)).toBe(true);
+    expect(readFileSync(daemonConfig, "utf8")).toBe("commands:\n  test: pnpm test\n");
+    const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
+    expect(gatekeeperOutput.indexOf("git push")).toBeLessThan(gatekeeperOutput.indexOf("no-mistakes status"));
+    expect(gatekeeperOutput.indexOf("no-mistakes status")).toBeLessThan(
+      gatekeeperOutput.indexOf("no-mistakes axi run"),
+    );
   });
 
   it("exits the gate subshell when the mirror push fails, preventing the gatekeeper command from running", () => {
