@@ -230,7 +230,7 @@ describe("command surface", () => {
     });
     // Same intent the runner pushes (run command, main.ts:256) flows through the
     // same buildIssuePrIntent. Pin that the intent command introduces no
-    // transformation, even for content that matters at the shell-capture boundary.
+    // transformation, even for content with shell-special characters.
     const title = 'Fix `$(rm -rf)` in "quoted" ${VAR} path';
     const body = 'Line 1 with `backticks`\nLine 2 with $(cmd) and "quotes"\n\\backslash tail';
     const { deps, out } = fakeDeps({
@@ -533,7 +533,7 @@ describe("gate-restart", () => {
     expect(out.join("\n")).toContain("initial gate restarted");
   });
 
-  it("with a PR open, routes to the post-address gate path instead of the initial retry", async () => {
+  it("with a PR open and a failed gate at HEAD, force-restarts the post-address gate", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -546,12 +546,18 @@ describe("gate-restart", () => {
       createdAt: new Date().toISOString(),
     });
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
-    const { deps, out } = gateDeps(h);
+    // The exact recovery case: a gate already FAILED at this same head. The
+    // idempotent director path would no-op here; gate-restart must force it.
+    appendEvent(dir, "gate_status", { state: "failed", head_sha: HEAD });
+    const { deps, calls, out } = gateDeps(h);
 
     await exec(deps, ["gate-restart", "-n", "o-r-7"]);
 
+    const script = readFileSync(join(dir, `gatekeeper-post-${HEAD.slice(0, 12)}.sh`), "utf8");
+    expect(script).toContain("ensure-pr-autoclose");
+    expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
     expect(existsSync(join(dir, `gatekeeper-initial-${HEAD.slice(0, 12)}.sh`))).toBe(false);
-    expect(out.join("\n")).toContain("post-address gate");
+    expect(out.join("\n")).toContain("post-address gate restarted");
   });
 });
 
