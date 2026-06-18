@@ -32,7 +32,7 @@
  */
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
-import { checkRollupSucceeded } from "./checks.js";
+import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import { latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
 
 export const PR_READY_FOR_REVIEWER = "PR ready for reviewer";
@@ -58,7 +58,7 @@ export interface NoMistakesAxiStatus {
 
 type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
 interface DeepGithubStatusOptions {
-  ambientCheckNames?: string[];
+  requiredCheckNames?: string[];
 }
 
 function unquote(value: string): string {
@@ -201,7 +201,13 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
     return `GitHub unavailable: ${firstLine(detail)}`;
   }
 
-  if (pr.state !== "OPEN" || !checkRollupSucceeded(pr.statusCheckRollup, options)) return undefined;
+  if (
+    pr.state !== "OPEN" ||
+    !checkRollupSucceeded(pr.statusCheckRollup, options) ||
+    !requiredChecksSucceeded(pr.statusCheckRollup, options.requiredCheckNames ?? [])
+  ) {
+    return undefined;
+  }
 
   let reviewerPin: string | undefined;
   try {

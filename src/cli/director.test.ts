@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~700 lines, initial-gate retry, READY, and post-address orchestration.
+ * @overview Unit tests for director CLI helpers. ~760 lines, initial-gate retry, READY, and post-address orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -88,7 +88,7 @@ function fakeDeps(input: {
   worktreeHeadSha?: string;
   rollup?: unknown[];
   codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
-  ambientReviewerLogin?: string;
+  externalCommentLogin?: string;
   issueComments?: unknown[];
   env?: Record<string, string | undefined>;
   git?: DirectorDeps["git"];
@@ -149,7 +149,7 @@ function fakeDeps(input: {
               html_url: `https://github.com/o/r/pull/7#pullrequestreview-${index + 1}`,
               state: "COMMENTED",
               submitted_at: comment.submittedAt ?? `2026-06-15T00:00:0${index}Z`,
-              user: { login: input.ambientReviewerLogin ?? "coderabbitai" },
+              user: { login: input.externalCommentLogin ?? "coderabbitai" },
             })),
           ),
           stderr: "",
@@ -391,7 +391,7 @@ describe("tickDirector", () => {
     expect(reviewerCaptures).toBe(1);
   });
 
-  it("emits READY when gate, reviewer, ambient reviewer, and checks all agree on the current head", async () => {
+  it("emits READY when gate, reviewer, required checks, and normal checks all agree on the current head", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
@@ -408,15 +408,69 @@ describe("tickDirector", () => {
     );
   });
 
-  it("uses the configured ambient reviewer name instead of a hardcoded provider", async () => {
+  it("emits READY without an external clean comment when configured required checks pass", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      ["[ready]", 'required_checks = ["CodeRabbit"]'].join("\n"),
+    );
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      codeRabbitComments: [
+        {
+          body: "Review skipped: rate limited for this account.",
+          submittedAt: "2026-06-15T00:01:00Z",
+        },
+      ],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "ready_for_merge",
+        sha: headSha,
+        pr_url: "https://github.com/o/r/pull/7",
+      }),
+    );
+  });
+
+  it("does not emit READY until every configured required check is present with SUCCESS", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      ["[ready]", 'required_checks = ["CodeRabbit", "ReviewDog"]'].join("\n"),
+    );
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+      ],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+  });
+
+  it("uses the configured external comment agent instead of a hardcoded provider", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
       [
-        "[reviewer]",
-        'ambient = ["reviewdog"]',
+        "[external_comments]",
+        'agents = ["reviewdog"]',
         "",
         "[reviewer.claude]",
         'command = "claude {prompt}"',
@@ -426,7 +480,7 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: headSha,
-      ambientReviewerLogin: "reviewdog",
+      externalCommentLogin: "reviewdog",
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
@@ -470,7 +524,7 @@ describe("tickDirector", () => {
     ]);
   });
 
-  it("does not emit READY when CodeRabbit only reports a rate-limited review skip", async () => {
+  it("emits READY even when an external comment agent only reports a rate-limited review skip", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
@@ -492,7 +546,9 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "ready_for_merge", sha: headSha }),
+    );
   });
 
   it("does not emit READY when the current head has a failing check rollup", async () => {
@@ -665,6 +721,10 @@ describe("tickDirector", () => {
       gateSha: previousGateSha,
       lgtmSha: currentHead,
     });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      ["[external_comments]", 'agents = ["coderabbit"]'].join("\n"),
+    );
     const { deps, calls } = fakeDeps({
       homeDir: h,
       record,

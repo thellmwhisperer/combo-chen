@@ -26,7 +26,7 @@
  */
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { parseGitHubPullRequestUrl } from "../core/pr-url.js";
-import { checkName } from "./checks.js";
+import { checkNameMatchesAny } from "./checks.js";
 
 // -- 1/5 CORE · Issue metadata and remoteSlug <- START HERE --
 export interface GhResult {
@@ -52,7 +52,7 @@ export interface ForensicsGithubFacts {
     state?: string;
     mergedAt?: string;
     ci?: GithubSignalState;
-    ambientReviewer?: GithubSignalState;
+    readyRequiredChecks?: GithubSignalState;
     mergeState?: string;
     branchBehind?: boolean;
   };
@@ -261,7 +261,7 @@ export function fetchForensicsGithubFacts(
   issueUrl: string,
   prUrl: string | undefined,
   cache?: GhApiCache,
-  options: { ambientCheckNames?: string[] } = {},
+  options: { requiredCheckNames?: string[] } = {},
 ): ForensicsGithubFacts | undefined {
   const facts: ForensicsGithubFacts = {};
 
@@ -281,12 +281,12 @@ export function fetchForensicsGithubFacts(
           headSha: parsed.headSha,
           state: parsed.state,
           ci: rollupSignal(parsed.statusCheckRollup, {
-            ambientCheckNames: options.ambientCheckNames,
-            selectAmbient: false,
+            requiredCheckNames: options.requiredCheckNames,
+            selectRequired: false,
           }),
-          ambientReviewer: rollupSignal(parsed.statusCheckRollup, {
-            ambientCheckNames: options.ambientCheckNames,
-            selectAmbient: true,
+          readyRequiredChecks: rollupSignal(parsed.statusCheckRollup, {
+            requiredCheckNames: options.requiredCheckNames,
+            selectRequired: true,
           }),
           ...(parsed.mergedAt !== undefined ? { mergedAt: parsed.mergedAt } : {}),
           ...(parsed.mergeStateStatus !== undefined
@@ -335,30 +335,38 @@ function parseIssueView(stdout: string): ForensicsGithubFacts["issue"] | undefin
 
 function rollupSignal(
   rollup: unknown[] | undefined,
-  options: { ambientCheckNames?: string[]; selectAmbient: boolean },
+  options: { requiredCheckNames?: string[]; selectRequired: boolean },
 ): GithubSignalState {
   if (rollup === undefined) return "unknown";
-  const ambientCheckNames = options.ambientCheckNames ?? [];
-  const items = rollup.filter((item) => checkMatchesAny(item, ambientCheckNames) === options.selectAmbient);
+  const requiredCheckNames = options.requiredCheckNames ?? [];
+  const items = rollup.filter((item) => checkNameMatchesAny(item, requiredCheckNames) === options.selectRequired);
   if (items.length === 0) return "unknown";
-  const states = items.map(checkSignalState);
+  const states = items.map((item) => checkSignalState(item, options.selectRequired));
   if (states.includes("failure")) return "failure";
   if (states.every((state) => state === "success")) return "success";
   if (states.includes("pending")) return "pending";
   return "unknown";
 }
 
-function checkSignalState(item: unknown): GithubSignalState {
+function checkSignalState(item: unknown, strictSuccess = false): GithubSignalState {
   if (!isRecord(item)) return "unknown";
   const conclusion = upperString(item["conclusion"]);
   if (conclusion !== undefined) {
-    if (SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion)) return "success";
+    if (strictSuccess) {
+      if (conclusion === "SUCCESS") return "success";
+    } else if (SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion)) {
+      return "success";
+    }
     if (FAILURE_CHECK_CONCLUSIONS.has(conclusion)) return "failure";
     return "unknown";
   }
   const state = upperString(item["state"] ?? item["status"]);
   if (state !== undefined) {
-    if (SUCCESSFUL_STATUS_STATES.has(state)) return "success";
+    if (strictSuccess) {
+      if (state === "SUCCESS") return "success";
+    } else if (SUCCESSFUL_STATUS_STATES.has(state)) {
+      return "success";
+    }
     if (FAILURE_STATUS_STATES.has(state)) return "failure";
     if (PENDING_STATUS_STATES.has(state)) return "pending";
   }
@@ -376,14 +384,6 @@ const FAILURE_CHECK_CONCLUSIONS = new Set([
 const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
 const FAILURE_STATUS_STATES = new Set(["ERROR", "FAILURE", "FAILED", "CANCELLED", "TIMED_OUT"]);
 const PENDING_STATUS_STATES = new Set(["EXPECTED", "IN_PROGRESS", "PENDING", "QUEUED", "REQUESTED", "WAITING"]);
-
-function checkMatchesAny(item: unknown, names: string[]): boolean {
-  const label = checkName(item).toLowerCase();
-  return names.some((name) => {
-    const needle = name.trim().toLowerCase();
-    return needle.length > 0 && label.includes(needle);
-  });
-}
 
 function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
