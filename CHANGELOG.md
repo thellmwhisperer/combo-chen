@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.35](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.34...combo-chen-v0.0.35) (2026-06-18)
+
+
+### Features
+
+* **config:** Implemented the first issue [#44](https://github.com/thellmwhisperer/combo-chen/issues/44) slice by persisting an auditable launch-time config snapshot for each combo run and validating it green. ([4010a6c](https://github.com/thellmwhisperer/combo-chen/commit/4010a6c20cac036b162bb45d44a9768cb81d976e))
+
+
+### Bug Fixes
+
+* **cli:** Implemented the `gate_started` recovery snapshot slice so recovered gatekeeper tmux windows keep launch-time attach timing after repo TOML changes. ([9a309df](https://github.com/thellmwhisperer/combo-chen/commit/9a309dffdc6743a51eb44268bd849ba60bf89cf5))
+* **coder:** Implemented the coder-responding snapshot slice so runtime coder resume and review-nudge behavior no longer drifts after repo TOML changes. ([63ed6b5](https://github.com/thellmwhisperer/combo-chen/commit/63ed6b530bcded10621819eff84d2dd9a4f2eb15))
+* **config:** harden snapshot persistence ([b0343d9](https://github.com/thellmwhisperer/combo-chen/commit/b0343d95d318816a8fb5e394b4e5705e00a24b87))
+* **config:** pin combo runtime behavior to launch-time config snapshots ([8808a9a](https://github.com/thellmwhisperer/combo-chen/commit/8808a9a6597a762548fc3623fc4e349f30ada96b))
+* **config:** Pinned the final forensics runtime config read to the per-run launch snapshot and validated the full suite green. ([5cd9d4c](https://github.com/thellmwhisperer/combo-chen/commit/5cd9d4c6a6de646ea8c577ef2e4729cc0dfbee94))
+* **director-watch:** Implemented the director-watch runtime snapshot slice so loop cadence no longer drifts after repo TOML changes. ([68b7085](https://github.com/thellmwhisperer/combo-chen/commit/68b708513952ea532757ab82c5786e54655aa9fc))
+* **director:** Implemented the director runtime snapshot slice so director ticks and READY evaluation no longer drift after repo TOML changes. ([0a569b9](https://github.com/thellmwhisperer/combo-chen/commit/0a569b9555c49a07a5e43d1722d1e11057e0fba0))
+* **gate:** Implemented the gatekeeper runtime snapshot slice so initial gate retries and post-address gates keep using the launch-time gatekeeper command after repo TOML changes. ([2fe2d2b](https://github.com/thellmwhisperer/combo-chen/commit/2fe2d2b3c161a003084ce97d4d575d83e7dc98ed))
+* **reconcile:** Implemented the reconcile teardown snapshot slice so merged-combo reconciliation no longer drifts after repo TOML changes. ([29c6f5d](https://github.com/thellmwhisperer/combo-chen/commit/29c6f5d10341f0399ed82beb49d9ac4e47c71fa2))
+* resolve rebase conflicts and fix typecheck ([296b0ad](https://github.com/thellmwhisperer/combo-chen/commit/296b0adfc7a5ea984362dd8c015aae7a2d2351bb))
+* **reviewer:** Implemented the issue [#44](https://github.com/thellmwhisperer/combo-chen/issues/44) reviewer-runtime slice by making reviewer activation/tick paths use the per-run config snapshot and validating the suite green. ([8ce134e](https://github.com/thellmwhisperer/combo-chen/commit/8ce134e6133250d8049e1714551bbf74ad793cbc))
+* **runtime-config:** Park and resume now use the launch-time config snapshot for combo-owned runtime behavior instead of mutable repo TOML. ([74f012d](https://github.com/thellmwhisperer/combo-chen/commit/74f012db5ae15b5a69ea048112f1d83cb395829c))
+* **status:** Pinned `status --deep` downstream config to the launch snapshot and validated the full suite green. ([c1c6435](https://github.com/thellmwhisperer/combo-chen/commit/c1c6435e18bd9e4efbe1b7ccadc49d0d43f84f01))
+
 ## [0.0.34](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.33...combo-chen-v0.0.34) (2026-06-18)
 
 
