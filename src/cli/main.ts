@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state,work-plan}, ../infra/{config,config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper,reviewer},
- *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
+ *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -115,6 +115,7 @@ import {
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, type CommandResult } from "./status.js";
+import { isGitHubIssueWorkItem, readPersistedWorkPlan, WORK_PLAN_ARTIFACT } from "./work-plan.js";
 import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
 
 export { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
@@ -166,8 +167,6 @@ function cliInvocation(): string {
 function isParked(events: ComboEvent[]): boolean {
   return events.at(-1)?.event === "parked";
 }
-
-const WORK_PLAN_ARTIFACT = "work-plan.md";
 
 function readLocalMarkdownWorkPlan(planFile: string): WorkPlan {
   const path = resolve(planFile);
@@ -740,14 +739,19 @@ export function createProgram(deps: Deps): Command {
     .action(async (options: { name: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
       const combo = readCombo(runDir);
-      const issueDetails = fetchIssueDetails(deps.gh, combo.issueUrl);
-      deps.out(
-        buildIssuePrIntent({
-          combo,
-          issueTitle: issueDetails.title,
-          issueBody: issueDetails.body,
-        }),
-      );
+      if (isGitHubIssueWorkItem(combo)) {
+        const issueDetails = fetchIssueDetails(deps.gh, combo.issueUrl);
+        deps.out(
+          buildIssuePrIntent({
+            combo,
+            issueTitle: issueDetails.title,
+            issueBody: issueDetails.body,
+          }),
+        );
+        return;
+      }
+
+      deps.out(buildWorkPlanPrIntent(readPersistedWorkPlan(runDir, combo)));
     });
 
   program
