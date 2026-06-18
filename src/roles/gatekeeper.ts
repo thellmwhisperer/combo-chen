@@ -297,6 +297,7 @@ export function hasIssueAutocloseInPrBody(
   body: string,
   combo: Pick<ComboRecord, "issueUrl">,
 ): boolean {
+  if (combo.issueUrl.trim() === "") return false;
   const issue = parseIssueUrl(combo.issueUrl);
   const visible = visiblePrBodyMarkdown(body);
   const sameRepo = escapeRegExp(`${issue.owner}/${issue.repo}`);
@@ -308,6 +309,7 @@ export function ensureIssueAutocloseInPrBody(
   body: string,
   combo: Pick<ComboRecord, "issueUrl">,
 ): string {
+  if (combo.issueUrl.trim() === "") return body;
   if (hasIssueAutocloseInPrBody(body, combo)) return body;
   const issue = parseIssueUrl(combo.issueUrl);
   const line = `Fixes #${issue.number}`;

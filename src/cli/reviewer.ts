@@ -283,8 +283,7 @@ export async function tickReviewer(input: {
 function reviewerWorkPlan(runDir: string, combo: ComboRecord): WorkPlan | undefined {
   const hasWorkItemMetadata =
     combo.workItemSourceType !== undefined ||
-    combo.workItemSourceReference !== undefined ||
-    combo.workItemTitle !== undefined;
+    combo.workItemSourceReference !== undefined;
   try {
     return readPersistedWorkPlan(runDir, combo);
   } catch (error) {

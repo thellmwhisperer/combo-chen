@@ -92,6 +92,7 @@ const INTENT_HEADINGS = new Set([
   "product intent decisions",
   "must not change",
 ]);
+const RENDER_SENTINEL = "_Not specified._";
 // -/ 1/3
 
 // -- 2/3 CORE · Normalization <- START HERE --
@@ -104,12 +105,12 @@ export function normalizeMarkdownWorkPlan(input: {
   const plan: WorkPlan = {
     title: parsed.title,
     source: input.source,
-    problem: section(parsed, PROBLEM_HEADINGS),
-    scope: section(parsed, SCOPE_HEADINGS),
-    acceptanceCriteria: section(parsed, ACCEPTANCE_HEADINGS),
-    validation: section(parsed, VALIDATION_HEADINGS),
-    outOfScope: section(parsed, OUT_OF_SCOPE_HEADINGS),
-    intentDecisions: section(parsed, INTENT_HEADINGS),
+    problem: unsentinel(section(parsed, PROBLEM_HEADINGS)),
+    scope: unsentinel(section(parsed, SCOPE_HEADINGS)),
+    acceptanceCriteria: unsentinel(section(parsed, ACCEPTANCE_HEADINGS)),
+    validation: unsentinel(section(parsed, VALIDATION_HEADINGS)),
+    outOfScope: unsentinel(section(parsed, OUT_OF_SCOPE_HEADINGS)),
+    intentDecisions: unsentinel(section(parsed, INTENT_HEADINGS)),
     rawMarkdown: input.markdown,
   };
 
@@ -197,7 +198,11 @@ function section(parsed: MarkdownSections, aliases: Set<string>): string {
 }
 
 function renderSection(title: string, body: string): string[] {
-  return [`## ${title}`, body.trim() === "" ? "_Not specified._" : body.trim()];
+  return [`## ${title}`, body.trim() === "" ? RENDER_SENTINEL : body.trim()];
+}
+
+function unsentinel(value: string): string {
+  return value === RENDER_SENTINEL ? "" : value;
 }
 
 export function renderWorkPlanMarkdown(plan: WorkPlan): string {
