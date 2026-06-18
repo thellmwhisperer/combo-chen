@@ -148,17 +148,18 @@ runs `director-tick` to poll reviewer hard signals, route new review comments
 to the resumed coder, detect committed local HEAD changes, and run a
 post-address no-mistakes gate before anything is published again.
 
-If the source checkout has an ignored local `.no-mistakes.yaml`, combo-chen
+If the source checkout has a repo-level `.no-mistakes.yaml`, combo-chen
 propagates it in two phases: first, it copies the file from the repo into the
-combo worktree as a local artifact before each gate. Second, the generated gate
-script copies it from the combo worktree into the no-mistakes daemon's active
-run worktree so the gate runner reads it. The daemon copy polls
-`no-mistakes status` to discover the worktree path and retries up to
+combo worktree before each gate. Second, the generated gate script copies it
+from the combo worktree into the no-mistakes daemon's active run worktree so
+the gate runner reads it. The daemon copy polls `no-mistakes status` to
+discover the worktree path and retries up to
 `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default 120, 1 s delay).
 The gate command waits for this copy to complete before running. Both phases
-preserve content and mode, never overwrite an existing config, and the artifact
-carries repo-specific test/lint/build commands for no-mistakes; combo-chen only
-propagates it.
+preserve content and mode and never overwrite an existing config. In
+combo-chen, `.no-mistakes.yaml` is intentionally tracked as shared
+test/lint/build policy; user-local secrets and operator preferences stay in
+ignored config or environment outside that file.
 
 ## 4. Coder responding contract
 
@@ -179,7 +180,8 @@ propagates it.
 ## 5. Review state
 
 - The reviewer emits `lgtm` (required field `sha`) to journal the reviewed commit;
-  the LGTM is pinned to that SHA.
+  the LGTM is pinned to that SHA and must come from a GitHub author listed in
+  `[reviewer].logins` before the director treats it as reviewer evidence.
 - Any push invalidates it and the journal records `lgtm_stale` (fields
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
@@ -254,6 +256,13 @@ propagates it.
   includes a short (12-line) journal pane showing live events. After PR open,
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
+- The journal is an append-only JSONL spine per combo run. Each append acquires
+  a per-run directory lock (30 s staleness timeout) that serializes concurrent
+  writers from the runner, director, emit command, and resume/reconcile paths.
+  A stale lock from a dead process is removed before the next writer proceeds;
+  lock contention is bounded to 5 s before the writer fails. The journal
+  tolerates torn lines from crashes (a reader skips unparseable lines) and
+  re-reads pick up complete entries that land after a torn fragment.
 - The director-watch polling loop, post-address gates, reviewer activation,
   park/resume, reconcile teardown, `status --deep`, and forensics all read
   runtime config from the launch-time `config.snapshot.json` in the run

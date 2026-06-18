@@ -1,10 +1,10 @@
 /**
- * @overview GitHub CLI parsing helpers. ~395 lines, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~440 lines, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at fetchIssueDetails     <- issue title/body for runner PR intent.
- *   2. Then latestGitHubLgtmSha       <- latest LGTM pin from comments/reviews.
+ *   2. Then latestGitHubLgtmSha       <- latest LGTM pin from comments/reviews, optionally filtered by allowed authors.
  *   3. Then parsePrView              <- normalized PR state for reviewer tick.
  *   4. Finish at fetchForensicsGithubFacts <- read-only report enrichment.
  *
@@ -19,7 +19,7 @@
  *
  *   INTERNALS
  *   ---------
- *   GitHubPin, lgtmCandidateLines, lgtmPinFromBody, pinsFromItems, rollupSignal, parseIssueView
+ *   LatestGitHubLgtmOptions, GitHubPin, loginFromItem, lgtmCandidateLines, lgtmPinFromBody, pinsFromItems, rollupSignal, parseIssueView
  *
  * @exports GhResult, GhRunner, IssueDetails, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, PrView, parsePrView, fetchForensicsGithubFacts
  * @deps ../core/gh-api, ../core/pr-url, ./checks
@@ -107,6 +107,10 @@ interface GitHubPin {
   t: number;
 }
 
+interface LatestGitHubLgtmOptions {
+  allowedAuthors?: string[];
+}
+
 const LGTM_PIN_LINE = /^\s*lgtm\s*@\s*([0-9a-f]{7,40})\s*$/i;
 
 function lgtmCandidateLines(body: string): string[] {
@@ -137,10 +141,28 @@ function lgtmPinFromBody(body: string): string | undefined {
   return undefined;
 }
 
-function pinsFromItems(entries: unknown[]): GitHubPin[] {
+function loginFromItem(entry: object): string | undefined {
+  const user = (entry as { user?: unknown }).user;
+  if (typeof user !== "object" || user === null) return undefined;
+  const login = (user as { login?: unknown }).login;
+  return typeof login === "string" && login.trim().length > 0 ? login : undefined;
+}
+
+function pinsFromItems(entries: unknown[], options: LatestGitHubLgtmOptions = {}): GitHubPin[] {
   const pins: GitHubPin[] = [];
+  const allowedAuthors =
+    options.allowedAuthors === undefined
+      ? undefined
+      : new Set(options.allowedAuthors.map((author) => author.toLowerCase()));
   for (const entry of entries) {
     if (typeof entry !== "object" || entry === null) continue;
+    const author = loginFromItem(entry);
+    if (
+      allowedAuthors !== undefined &&
+      (author === undefined || !allowedAuthors.has(author.toLowerCase()))
+    ) {
+      continue;
+    }
     const body = (entry as { body?: unknown }).body;
     if (typeof body !== "string") continue;
     const sha = lgtmPinFromBody(body);
@@ -164,6 +186,7 @@ export function latestGitHubLgtmSha(
   gh: GhRunner,
   prUrl: string,
   cache?: GhApiCache,
+  options: LatestGitHubLgtmOptions = {},
 ): string | undefined {
   const ref = parseGitHubPullRequestUrl(prUrl);
   if (!ref) return undefined;
@@ -178,7 +201,7 @@ export function latestGitHubLgtmSha(
     `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
     cache,
   );
-  const pins = [...pinsFromItems(comments), ...pinsFromItems(reviews)];
+  const pins = [...pinsFromItems(comments, options), ...pinsFromItems(reviews, options)];
   pins.sort((a, b) => a.t - b.t);
   return pins.at(-1)?.sha;
 }
@@ -262,7 +285,7 @@ export function fetchForensicsGithubFacts(
   issueUrl: string,
   prUrl: string | undefined,
   cache?: GhApiCache,
-  options: { requiredCheckNames?: string[]; ambientCheckNames?: string[] } = {},
+  options: { requiredCheckNames?: string[]; ambientCheckNames?: string[]; reviewerLogins?: string[] } = {},
 ): ForensicsGithubFacts | undefined {
   const facts: ForensicsGithubFacts = {};
 
@@ -301,7 +324,8 @@ export function fetchForensicsGithubFacts(
             : {}),
         };
         try {
-          facts.pr.reviewerPinnedSha = latestGitHubLgtmSha(gh, prUrl, cache) ?? null;
+          facts.pr.reviewerPinnedSha =
+            latestGitHubLgtmSha(gh, prUrl, cache, { allowedAuthors: options.reviewerLogins }) ?? null;
         } catch {
           // Forensics is best-effort: PR metadata is still useful if comments or
           // reviews are temporarily unreadable.

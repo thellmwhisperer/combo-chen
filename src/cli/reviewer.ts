@@ -213,9 +213,12 @@ export async function tickReviewer(input: {
     return;
   }
 
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   let githubPinnedSha: string | undefined;
   try {
-    githubPinnedSha = latestGitHubLgtmSha(deps.gh, prUrl, ghApiCache);
+    githubPinnedSha = latestGitHubLgtmSha(deps.gh, prUrl, ghApiCache, {
+      allowedAuthors: config.reviewerLogins,
+    });
   } catch (error) {
     deps.out(
       reviewerTransientFailure(
@@ -242,7 +245,6 @@ export async function tickReviewer(input: {
     return;
   }
 
-  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const reviewerCommand = buildReviewerInvocation({
     combo,
     prUrl,

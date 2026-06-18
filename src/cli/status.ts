@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~225 lines, 8 exports, parsers for deep recovery status.
+ *   ~239 lines, 8 exports, parsers for deep recovery status.
  *
  *   READING GUIDE
  *   -------------
@@ -60,6 +60,7 @@ type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
 interface DeepGithubStatusOptions {
   requiredCheckNames?: string[];
   ambientCheckNames?: string[];
+  reviewerLogins?: string[];
 }
 
 function unquote(value: string): string {
@@ -212,7 +213,9 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
 
   let reviewerPin: string | undefined;
   try {
-    reviewerPin = latestGitHubLgtmSha(gh, prUrl);
+    reviewerPin = latestGitHubLgtmSha(gh, prUrl, undefined, {
+      allowedAuthors: options.reviewerLogins,
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return `GitHub review unavailable: ${firstLine(detail)}`;
