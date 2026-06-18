@@ -24,12 +24,12 @@
  *   classifyResumeState, ensureResumeSession, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers, director-watch window management for initial-gate retry
  *
  * @exports ResumeDeps, resumeCombo
- * @deps ../core/{combo,events,state}, ../infra/{config,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status, ./watchers
+ * @deps ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { hasSessionArgs, newSessionArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   ensureGatekeeperWindow,
@@ -258,7 +258,7 @@ export function resumeCombo(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const events = readEvents(runDir);
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
     requiredCheckNames: config.readyRequiredChecks,
   });

@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4530 lines.
+ *   deps so tests run without a real terminal or network. ~4635 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -34,7 +34,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state},
- *   ../infra/config-snapshot, ../roles/coder, ./main
+ *   ../infra/{config,config-snapshot}, ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -46,7 +46,8 @@ import { describe, expect, it, vi } from "vitest";
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
-import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot } from "../infra/config-snapshot.js";
+import { loadConfig } from "../infra/config.js";
+import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
@@ -1691,6 +1692,59 @@ $(echo boom)'`);
 
 // -- 4/4 HELPER · Remaining commands: resume, status, reviewer, events, park, stop, poll --
 describe("resume", () => {
+  it("uses the launch config snapshot for gatekeeper attach timing after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 42\nattach_retry_interval_seconds = 6\n",
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 3\nattach_retry_interval_seconds = 1\n",
+    );
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: [
+          "run:",
+          "  branch: combo/issue-7",
+          "  status: running",
+          "  steps[1]{step,status,findings,duration_ms}:",
+          "    ci,running,0,0",
+        ].join("\n"),
+        stderr: "",
+      }),
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const gatekeeperCommand = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    )?.at(-1) ?? "";
+    expect(gatekeeperCommand).toContain("timed out after 42 seconds");
+    expect(gatekeeperCommand).toContain("attempt $attempt/7");
+    expect(gatekeeperCommand).toContain("sleep 6");
+    expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
+  });
+
   it("starts reviewer and director monitoring for an existing reviewer-ready PR without a fresh run", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -4256,6 +4310,55 @@ describe("stop", () => {
 });
 
 describe("park", () => {
+  it("uses the launch config snapshot for handoff downstream status after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["launch-bot"]\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["drift-bot"]\n');
+    const prUrl = "https://github.com/o/r/pull/7";
+    appendEvent(dir, "pr_opened", { url: prUrl });
+
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              state: "OPEN",
+              statusCheckRollup: [
+                { name: "launch-bot", conclusion: "FAILURE" },
+                { name: "test", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["park", "-n", "o-r-7", "--by", "maintainer"]);
+
+    const summaryPath = readEvents(dir).at(-1)?.summary_path;
+    expect(typeof summaryPath).toBe("string");
+    const summary = readFileSync(summaryPath as string, "utf8");
+    expect(summary).toContain("downstream: PR ready for reviewer");
+  });
+
   it("writes a resumable handoff summary and stops tmux without terminally stopping the combo", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
