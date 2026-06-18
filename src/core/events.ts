@@ -1,6 +1,6 @@
 /**
  * @overview Event journal: append-only JSONL spine per combo run.
- *   ~220 lines, 12 exports, 1 canonical schema.
+ *   ~275 lines, 12 exports, 1 canonical schema, per-run append locking.
  *
  *   READING GUIDE
  *   ─────────────
@@ -12,7 +12,7 @@
  *
  *   MAIN FLOW
  *   ─────────
- *   runner.sh → emit command → appendEvent() → journal.jsonl
+ *   runner.sh → emit command → appendEvent() → journal lock → journal.jsonl
  *   reader → readEvents()/followEvents() → deriveStatus() in combo.ts
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
@@ -26,15 +26,16 @@
  *   │ ComboEventError     Thrown on schema/validation violations        │
  *   │ latestPrUrlFromEvents  Find latest pr_opened URL in an event array │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
- *   │ normalizeEvent       Canonicalize event names on read             │
- *   │ sleep               Abortable setTimeout wrapper                  │
+ *   │ withJournalAppendLock  Serializes writers per run directory       │
+ *   │ normalizeEvent         Canonicalize event names on read           │
+ *   │ sleep                 Abortable setTimeout wrapper                │
  *   │ EVENT_TYPES / LEGACY_EVENT_ALIASES / CanonicalEventName etc.     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
  * @deps node:fs, node:path
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 // -- 1/4 CORE · Event catalogue + types ← START HERE --
@@ -104,6 +105,11 @@ export function latestPrUrlFromEvents(events: ComboEvent[]): string | undefined 
 // -- 2/4 CORE · appendEvent --
 
 const JOURNAL = "journal.jsonl";
+const JOURNAL_APPEND_LOCK = ".journal.append.lock";
+const JOURNAL_APPEND_LOCK_TIMEOUT_MS = 5000;
+const JOURNAL_APPEND_LOCK_STALE_MS = 30000;
+const JOURNAL_APPEND_LOCK_POLL_MS = 10;
+const JOURNAL_LOCK_SLEEP = new Int32Array(new SharedArrayBuffer(4));
 
 export function journalPath(runDir: string): string {
   return join(runDir, JOURNAL);
@@ -130,10 +136,61 @@ export function appendEvent(
     t: new Date().toISOString(),
     event: canonical,
   };
-  // The run dir is created by writeCombo; emitting to a combo that was
-  // never created is a caller bug and should surface, not be papered over.
-  appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
+  withJournalAppendLock(runDir, () => {
+    // The run dir is created by writeCombo; emitting to a combo that was
+    // never created is a caller bug and should surface, not be papered over.
+    appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
+  });
   return entry;
+}
+
+function withJournalAppendLock<T>(runDir: string, action: () => T): T {
+  const lockPath = acquireJournalAppendLock(runDir);
+  try {
+    return action();
+  } finally {
+    rmSync(lockPath, { recursive: true, force: true });
+  }
+}
+
+function acquireJournalAppendLock(runDir: string): string {
+  const lockPath = join(runDir, JOURNAL_APPEND_LOCK);
+  const deadline = Date.now() + JOURNAL_APPEND_LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      mkdirSync(lockPath);
+      return lockPath;
+    } catch (error) {
+      if (!isErrnoException(error) || error.code !== "EEXIST") throw error;
+      if (isStaleJournalAppendLock(lockPath)) {
+        rmSync(lockPath, { recursive: true, force: true });
+        continue;
+      }
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        throw new ComboEventError(`Timed out waiting for journal append lock at ${lockPath}`);
+      }
+      sleepSync(Math.min(JOURNAL_APPEND_LOCK_POLL_MS, remainingMs));
+    }
+  }
+}
+
+function isStaleJournalAppendLock(lockPath: string): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs > JOURNAL_APPEND_LOCK_STALE_MS;
+  } catch (error) {
+    if (isErrnoException(error) && error.code === "ENOENT") return true;
+    throw error;
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(JOURNAL_LOCK_SLEEP, 0, 0, ms);
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 // -/ 2/4
 
@@ -150,8 +207,8 @@ export function readEvents(runDir: string): ComboEvent[] {
       const parsed = JSON.parse(line) as unknown;
       events.push(normalizeEvent(parsed));
     } catch {
-      // A torn last line can happen during concurrent writes (appendFileSync
-      // is not guaranteed atomic); ignored gracefully, re-read picks it up.
+      // A crash, legacy writer, or manual repair can leave a torn line.
+      // Ignore it rather than poisoning status; future complete lines still read.
     }
   }
   return events;
