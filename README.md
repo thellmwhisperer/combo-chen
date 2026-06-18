@@ -148,8 +148,11 @@ Reviewer commands must submit reviews with a single inline
 files, pipes, redirects, semicolons, or cleanup commands to publish a review.
 
 The target repo may also carry a local ignored `.no-mistakes.yaml` with explicit
-test, lint, and build commands. combo-chen copies that file into issue
-worktrees before gatekeeper runs so validation stays deterministic.
+test, lint, and build commands. combo-chen propagates it in two phases:
+copies it from the repo into issue worktrees, then from the worktree into the
+no-mistakes daemon's active run worktree before each gate, so validation stays
+deterministic. The daemon copy polls with up to
+`COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` retries (default 120, 1 s delay).
 
 ## Commands
 
