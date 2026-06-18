@@ -145,11 +145,16 @@ to the resumed coder, detect committed local HEAD changes, and run a
 post-address no-mistakes gate before anything is published again.
 
 If the source checkout has an ignored local `.no-mistakes.yaml`, combo-chen
-copies it into the combo worktree as a local artifact before the initial gate.
-It preserves content and mode, never overwrites an existing worktree config,
-and repeats the same copy step before post-address gates so older worktrees can
-recover if the artifact is missing. The artifact carries repo-specific
-test/lint/build commands for no-mistakes; combo-chen only propagates it.
+propagates it in two phases: first, it copies the file from the repo into the
+combo worktree as a local artifact before each gate. Second, the generated gate
+script copies it from the combo worktree into the no-mistakes daemon's active
+run worktree so the gate runner reads it. The daemon copy polls
+`no-mistakes status` to discover the worktree path and retries up to
+`COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default 120, 1 s delay).
+The gate command waits for this copy to complete before running. Both phases
+preserve content and mode, never overwrite an existing config, and the artifact
+carries repo-specific test/lint/build commands for no-mistakes; combo-chen only
+propagates it.
 
 ## 4. Coder responding contract
 

@@ -60,15 +60,24 @@ the next tick.
 
 The source checkout may have an ignored local `.no-mistakes.yaml` with explicit
 repo commands such as test, lint/typecheck, and build. Git worktrees do not
-materialize ignored working-tree files automatically, so combo-chen copies
-`<repoDir>/.no-mistakes.yaml` to `<worktree>/.no-mistakes.yaml` when:
+materialize ignored working-tree files automatically, so combo-chen propagates
+this config in two phases:
 
-- the source config exists;
-- the worktree config is missing;
-- an initial or post-address no-mistakes gate is about to run.
+1. **Repo → worktree copy.** When the source config exists and the worktree
+   config is missing, combo-chen copies `<repoDir>/.no-mistakes.yaml` to
+   `<worktree>/.no-mistakes.yaml` before each gate run. The copy preserves
+   content and mode, never overwrites an existing worktree config, and remains
+   a local artifact.
 
-The copy preserves content and mode, never overwrites an existing worktree
-config, and remains a local artifact. Do not stage or commit `.no-mistakes.yaml`.
+2. **Worktree → daemon worktree copy.** Before running the gate command, the
+   generated gate script copies `.no-mistakes.yaml` from the combo worktree
+   into the no-mistakes daemon's active run worktree so the gate runner has it.
+   It polls `no-mistakes status` to discover the daemon's worktree path and
+   retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
+   120, 1 s delay). The gate command waits for this copy to complete before
+   running so validation stays deterministic.
+
+Do not stage or commit `.no-mistakes.yaml`.
 
 ## Development Discipline
 
