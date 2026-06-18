@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.39](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.38...combo-chen-v0.0.39) (2026-06-18)
+
+
+### Features
+
+* **release:** Added a tested release producer helper that materializes deterministic tar.gz assets and sha256sum-compatible checksums from the existing release contract. ([5db4a36](https://github.com/thellmwhisperer/combo-chen/commit/5db4a36b6ff2000a40091369d77206ef1edcb988))
+* **release:** Added the tested release artifact contract helpers for asset naming, archive layout, and deterministic checksums, with full validation green. ([faf475e](https://github.com/thellmwhisperer/combo-chen/commit/faf475ef7c6a2f8b3837b7ac4e0d6e662e809a10))
+* **release:** Implemented the first release-foundation slice: builds now embed version metadata and the CLI exposes it via `--version`, with tests and full validation green. ([38e9a61](https://github.com/thellmwhisperer/combo-chen/commit/38e9a61fcebd8d6dab813fad2d64d3f3f9e0c848))
+
 ## [0.0.38](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.37...combo-chen-v0.0.38) (2026-06-18)
 
 
