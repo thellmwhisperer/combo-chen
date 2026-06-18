@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.33](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.32...combo-chen-v0.0.33) (2026-06-18)
+
+
+### Bug Fixes
+
+* **status:** auto-reconcile merged PRs and hide terminal combos by default ([aa269d1](https://github.com/thellmwhisperer/combo-chen/commit/aa269d1dc895e163fde27b9d1730d11f8b0e91d6))
+* **status:** Implemented the first issue [#90](https://github.com/thellmwhisperer/combo-chen/issues/90) slice: default status now hides terminal historical combos while `status --all` preserves the history view. ([81f9f71](https://github.com/thellmwhisperer/combo-chen/commit/81f9f71ddf8c26a74ecf8a32000bdff16c96068c))
+* **status:** Implemented the next issue [#90](https://github.com/thellmwhisperer/combo-chen/issues/90) slice: default status now quietly reconciles merged and closed GitHub PRs before rendering actionable rows. ([33e299b](https://github.com/thellmwhisperer/combo-chen/commit/33e299b115db380501d1288069ab7357aca80a74))
+* **status:** Implemented the remaining issue [#90](https://github.com/thellmwhisperer/combo-chen/issues/90) missing-tmux status slice and validated the final tree with the full suite green. ([e37d3fb](https://github.com/thellmwhisperer/combo-chen/commit/e37d3fb66ac6941d5c4e9eb682a749ac28dd019f))
+* **status:** respect parked combos in liveness checks ([e342246](https://github.com/thellmwhisperer/combo-chen/commit/e342246085e413c53b433e0f070167470b30b766))
+
 ## [0.0.32](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.31...combo-chen-v0.0.32) (2026-06-18)
 
 
