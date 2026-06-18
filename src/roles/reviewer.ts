@@ -2,7 +2,7 @@
  * @overview Reviewer adapter: renders the configured reviewer command with
  *   PR facts and the frozen review contract. The loop mechanics live in the
  *   orchestrator; this module owns what a reviewer session is told to do.
- *   ~105 lines, 8 exports.
+ *   ~130 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -30,9 +30,10 @@
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation
- * @deps ../core/state, ../infra/config
+ * @deps ../core/{state,work-plan}, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
+import { renderWorkPlanMarkdown, type WorkPlan } from "../core/work-plan.js";
 import { renderCommand } from "../infra/config.js";
 
 // -- 1/1 CORE · Prompt definitions + invocation ← START HERE --
@@ -42,6 +43,7 @@ export interface ReviewerPromptInput {
   combo: ComboRecord;
   prUrl: string;
   reviewerInstructions: string;
+  workPlan?: WorkPlan;
 }
 
 function hasUnquotedShellControl(command: string): boolean {
@@ -76,9 +78,13 @@ export function assertReviewerCommandSafe(command: string): void {
 
 export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
   const reviewerInstructions = input.reviewerInstructions.trim();
+  const workPlanContext = input.workPlan === undefined
+    ? undefined
+    : `Work plan context:\n${renderWorkPlanMarkdown(input.workPlan).trim()}`;
   return [
     `Review PR ${input.prUrl} for combo ${input.combo.id}.`,
     ...(reviewerInstructions.length > 0 ? [`Reviewer instructions: ${reviewerInstructions}.`] : []),
+    ...(workPlanContext === undefined ? [] : [workPlanContext]),
     "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
     "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
     'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',

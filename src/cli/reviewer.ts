@@ -1,5 +1,5 @@
 /**
- * @overview Reviewer CLI helpers. ~312 lines, 10 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~335 lines, 10 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
@@ -19,14 +19,15 @@
  *
  *   INTERNALS
  *   ---------
- *   none
+ *   reviewerWorkPlan
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
- * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers
+ * @deps ../core/{events,gh-api,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers, ./work-plan
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
-import { runDirFor, readCombo } from "../core/state.js";
+import { runDirFor, readCombo, type ComboRecord } from "../core/state.js";
+import type { WorkPlan } from "../core/work-plan.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
@@ -40,6 +41,7 @@ import {
   killWindowIfPresent,
 } from "./sessions.js";
 import { buildDirectorWatchCommand, reviewerTransientFailure } from "./watchers.js";
+import { readPersistedWorkPlan } from "./work-plan.js";
 
 // -- 1/4 HELPER · Dependency contracts --
 export interface ActivateReviewerDeps {
@@ -74,11 +76,13 @@ export function activateReviewer(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+  const workPlan = reviewerWorkPlan(runDir, combo);
   const reviewerCommand = buildReviewerInvocation({
     combo,
     prUrl,
     reviewerInstructions: config.reviewerPrompt,
     reviewerCommand: config.reviewerCommand,
+    workPlan,
   });
 
   killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
@@ -254,6 +258,7 @@ export async function tickReviewer(input: {
       combo,
       prUrl,
       reviewerInstructions: config.reviewerPrompt,
+      workPlan: reviewerWorkPlan(runDir, combo),
       oldSha: pinnedSha,
       newSha: headSha,
     }),
@@ -275,6 +280,19 @@ export async function tickReviewer(input: {
 // -/ 3/4
 
 // -- 4/4 HELPER · Journal and LGTM predicates --
+function reviewerWorkPlan(runDir: string, combo: ComboRecord): WorkPlan | undefined {
+  const hasWorkItemMetadata =
+    combo.workItemSourceType !== undefined ||
+    combo.workItemSourceReference !== undefined ||
+    combo.workItemTitle !== undefined;
+  try {
+    return readPersistedWorkPlan(runDir, combo);
+  } catch (error) {
+    if (!hasWorkItemMetadata) return undefined;
+    throw error;
+  }
+}
+
 export function latestOpenedPrUrl(runDir: string): string | undefined {
   return latestPrUrlFromEvents(readEvents(runDir));
 }
