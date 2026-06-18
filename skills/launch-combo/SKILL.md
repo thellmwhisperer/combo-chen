@@ -74,6 +74,7 @@ Poll on a cadence (journal, GitHub, tmux, configured coordination inbox). React 
 | New push to the PR | The previous verdict is stale. Re-run an incremental reviewer round and re-pin. |
 | New non-reviewer comments (bots included) | Sweep them via the coder responding mode. Nothing stays unanswered. |
 | `lgtm @ <head-sha>` current + checks green | Endpoint reached. Announce and go to vigil. |
+| Owned combo PR is `MERGED` | Run `combo-chen reconcile -n <comboId> --apply`. The command verifies GitHub PR state before mutating local state, appends missing terminal journal events, and tears down only this combo. Then verify no tmux session remains, no combo worktree remains, local branch is gone, and the journal contains `merged` and `combo_closed`. Already-clean local artifacts count as success, so reruns should be a no-op or report already clean. |
 | Coordination inbox: `merged` from a sibling combo | Rebase your branch on the new main early. Re-run checks. |
 | Coordination inbox: help request (stuck gate, saturated director) | Assist only with read/status actions unless you own that combo. |
 
@@ -121,6 +122,8 @@ In the normal path the runner writes every event. `combo-chen emit -n <comboId> 
 
 Each event moves the phase machine that `combo-chen status` and `director-watch` read (`deriveStatus`). That move IS the side-effect: emitting reclassifies the combo and unblocks (or re-gates) the workers keyed on that phase.
 
+Do not hand-emit `merged` or `combo_closed` as a substitute for post-merge cleanup. For a merged PR, run `combo-chen reconcile -n <comboId> --apply` so GitHub state is verified and local teardown happens through the idempotent scoped path.
+
 | Emit this | Phase it forces | Use it to revive when |
 |---|---|---|
 | `coder_started` (no fields) | CODING | the coder is running but `coder_started` never landed. |
@@ -131,7 +134,7 @@ Each event moves the phase machine that `combo-chen status` and `director-watch`
 | `gate_stale` / `lgtm_stale --field old_sha=<a> --field new_sha=<b>` | READY → REVIEWING | HEAD moved past a stale validation/LGTM and READY never reopened. |
 | `ready_for_merge --field sha=<sha> --field pr_url=<url>` | READY | every current-head signal agrees but the terminal READY event is missing. Verify all four signals first; do not shortcut the contract. |
 | `needs_human --field reason=<r>` | (sets needs-human) | you are escalating and want the flag to show in `status`. |
-| `merged --field sha=<sha> --field by=<who>` / `stopped --field by=<who>` / `combo_closed` | STOPPED | the combo reached a terminal state the runner never recorded (e.g. merged out of band); emit so teardown and siblings see it closed. |
+| `stopped --field by=<who>` | STOPPED | the combo reached a terminal non-merge state the runner never recorded; emit only after diagnosis proves the fact is true. |
 
 `coder_failed`, `gate_failed`, `rebase_failed`, `rebase_conflict` also force STALLED + needs-human, but these are failure facts the runner owns; do not hand-emit them to "park" a combo.
 
@@ -151,7 +154,7 @@ After emitting: re-run `combo-chen status` to confirm the phase flipped, then co
 When the PR is green with a current lgtm:
 1. Post nothing further; the PR speaks.
 2. Record a handoff in the configured coordination channel, if one exists: `combo <issue#>: PR <url> green and reviewed, awaiting merge`.
-3. Vigil: keep polling for the merge. On merge: confirm teardown (roles stopped, worktree and branch cleaned; manual cleanup may still be required), release the surface claim when your coordination channel supports it, and notify sibling combos so they rebase.
+3. Vigil: keep polling for the merge. On merge: run `combo-chen reconcile -n <comboId> --apply`, then verify no tmux session remains, no combo worktree remains, local branch is gone, and the journal contains `merged` and `combo_closed`. Release the surface claim when your coordination channel supports it, and notify sibling combos so they rebase.
 
 ## Recovery after interruption
 
