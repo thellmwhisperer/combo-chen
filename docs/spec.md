@@ -187,7 +187,8 @@ propagates it.
   rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
-- External agent comments are routed as review input for the coder. Clean or
+- External agent comments are routed as review input for the coder. Configure
+  their comment/noise filters with `[external_comments].agents`; clean or
   rate-limited external comments do not approve the PR and do not affect READY
   except through their configured GitHub check/status result.
 - If no-mistakes dies after publishing and journals `gate_failed` with

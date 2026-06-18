@@ -355,7 +355,7 @@ describe("signalFromComment", () => {
     expect(signalFromComment(42, "pr_comment")).toBeUndefined();
   });
 
-  it("ignores a pure ambient-reviewer retrigger bookkeeping PR comment", () => {
+  it("ignores a pure external-agent retrigger bookkeeping PR comment", () => {
     expect(
       signalFromComment(
         {
@@ -368,7 +368,7 @@ describe("signalFromComment", () => {
           user: { login: "maintainer-bot" },
         },
         "pr_comment",
-        { ambientReviewerAgents: ["coderabbit"] },
+        { externalCommentAgents: ["coderabbit"] },
       ),
     ).toBeUndefined();
 
@@ -384,7 +384,7 @@ describe("signalFromComment", () => {
           user: { login: "maintainer-bot" },
         },
         "pr_comment",
-        { ambientReviewerAgents: ["reviewdog"] },
+        { externalCommentAgents: ["reviewdog"] },
       ),
     ).toBeUndefined();
   });

@@ -79,6 +79,12 @@ Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code
 Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.
 '''
 
+[external_comments]
+# External comment agents are matched by review/comment author for noise
+# filtering and coder routing. They do not approve PRs or satisfy READY checks.
+# Environment override: COMBO_CHEN_EXTERNAL_COMMENT_AGENTS.
+agents = ["coderabbit"]
+
 [reviewer]
 # Free-form reviewer instructions passed into the generated prompt. Keep this
 # generic; put any personal/local review process in your own local config.
@@ -86,9 +92,6 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 # gh pr review <url> --comment --body "<body>"
 # Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
 # prompt = "Apply my local review process."
-# Ambient comment providers are matched by review/comment author for noise
-# filtering and coder routing. They do not approve PRs or satisfy READY checks.
-ambient = ["coderabbit"]
 
 [reviewer.claude]
 # {placeholders}: issue_url, pr_url, worktree, repo, branch, prompt.
