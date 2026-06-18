@@ -158,7 +158,7 @@ deterministic. The daemon copy polls with up to
 
 ```bash
 combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text>]
-combo-chen status [--deep]
+combo-chen status [--deep] [--all]
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
@@ -170,15 +170,20 @@ combo-chen stop -n <combo-id>
 
 ### Recovery Commands
 
-- `status --deep` compares the journal with downstream GitHub and gatekeeper
-  state.
+- `status` shows actionable live combos by default. Add `--all` to include
+  terminal historical rows, and `--deep` to compare the journal with downstream
+  GitHub and gatekeeper state. Before rendering, `status` quietly reconciles
+  non-terminal journals whose PR is already merged or closed on GitHub, then
+  hides those repaired terminal rows from the default view. If a non-terminal
+  combo no longer has its tmux session, status journals `tmux_missing` so it is
+  shown as needing human attention instead of looking supervised.
 - `park` writes a local handoff and stops tmux without making the combo
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream
   state. It does not start a fresh run on an existing combo.
 - `forensics` produces a read-only report for stalled or confusing runs.
-- `reconcile --apply` repairs journals that froze before a merged PR was
-  recorded locally.
+- `reconcile --apply` repairs journals that froze before a merged or closed PR
+  was recorded locally.
 
 ## State
 

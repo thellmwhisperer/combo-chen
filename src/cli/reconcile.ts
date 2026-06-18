@@ -1,6 +1,6 @@
 /**
- * @overview Reconcile local combo journals against GitHub PR truth. ~145 lines,
- *   2 exports, frozen merged journal repair.
+ * @overview Reconcile local combo journals against GitHub PR truth. ~250 lines,
+ *   2 exports, terminal PR repair for merged/closed combos.
  *
  *   READING GUIDE
  *   -------------
@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   listCombos -> latest pr_opened -> gh pr view -> append reconcile events -> teardown
+ *   listCombos -> latest pr_opened -> gh pr view -> append terminal events -> cleanup
  *
  *   PUBLIC API
  *   ----------
@@ -19,7 +19,7 @@
  *
  *   INTERNALS
  *   ---------
- *   reconcileCombo, readPrViewForReconcile
+ *   reconcileCombo, hasPrClosedNeedsHuman, readPrViewForReconcile, report
  *
  * @exports ReconcileDeps, reconcileCombos
  * @deps ../core/{events,state}, ../infra/{config,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
@@ -56,6 +56,7 @@ export async function reconcileCombos(input: {
   deps: ReconcileDeps;
   home: string;
   apply: boolean;
+  quiet?: boolean;
 }): Promise<void> {
   let changed = false;
   let reported = false;
@@ -63,6 +64,7 @@ export async function reconcileCombos(input: {
     const outcome = await reconcileCombo({
       deps: input.deps,
       apply: input.apply,
+      quiet: input.quiet === true,
       combo,
       runDir: runDirFor(input.home, combo.id),
     });
@@ -70,7 +72,7 @@ export async function reconcileCombos(input: {
     reported = reported || outcome.reported;
   }
 
-  if (!changed && !reported) {
+  if (!changed && !reported && input.quiet !== true) {
     input.deps.out("reconcile: no changes");
   }
 }
@@ -80,10 +82,11 @@ export async function reconcileCombos(input: {
 async function reconcileCombo(input: {
   deps: ReconcileDeps;
   apply: boolean;
+  quiet: boolean;
   combo: ComboRecord;
   runDir: string;
 }): Promise<ReconcileOutcome> {
-  const { deps, apply, combo, runDir } = input;
+  const { deps, apply, quiet, combo, runDir } = input;
   const events = readEvents(runDir);
   if (terminalReviewerEvent(events)) {
     return { changed: false, reported: false };
@@ -94,10 +97,41 @@ async function reconcileCombo(input: {
     return { changed: false, reported: false };
   }
 
-  const prView = readPrViewForReconcile(deps, combo, prUrl);
+  const prView = readPrViewForReconcile(deps, quiet, combo, prUrl);
   if (!prView) {
-    return { changed: false, reported: true };
+    return { changed: false, reported: !quiet };
   }
+
+  if (prView.state === "CLOSED") {
+    if (!apply) {
+      return report(
+        deps,
+        quiet,
+        `reconcile: ${combo.id} would append needs_human pr_closed and close combo`,
+      );
+    }
+
+    let changed = false;
+    if (!hasPrClosedNeedsHuman(events)) {
+      appendEvent(runDir, "needs_human", { reason: "pr_closed", source: "reconcile" });
+      changed = true;
+    }
+    appendEvent(runDir, "combo_closed", { source: "reconcile" });
+    changed = true;
+    try {
+      killComboSession(deps, combo);
+    } catch (error) {
+      report(
+        deps,
+        false,
+        `reconcile: ${combo.id} session kill failed: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const reported = report(deps, quiet, `reconcile: ${combo.id} closed PR; combo closed`).reported;
+    return { changed, reported };
+  }
+
   if (prView.state !== "MERGED") {
     return { changed: false, reported: false };
   }
@@ -105,23 +139,27 @@ async function reconcileCombo(input: {
   const by = prView.mergedBy ?? "unknown";
   const mergeSha = prView.mergeSha;
   if (!mergeSha) {
-    deps.out(`reconcile: ${combo.id} skipped: merged PR did not report mergeCommit.oid`);
-    return { changed: false, reported: true };
+    return report(deps, false, `reconcile: ${combo.id} skipped: merged PR did not report mergeCommit.oid`);
   }
   const baseRefName = prView.baseRefName;
   if (!baseRefName) {
-    deps.out(`reconcile: ${combo.id} skipped: merged PR did not report baseRefName`);
-    return { changed: false, reported: true };
+    return report(deps, false, `reconcile: ${combo.id} skipped: merged PR did not report baseRefName`);
   }
 
   const hasMerged = hasMergedEvent(events, [mergeSha, prView.headSha]);
+  const parked = events.at(-1)?.event === "parked";
   if (!apply) {
-    deps.out(
-      hasMerged
-        ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
-        : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`,
+    return report(
+      deps,
+      quiet,
+      parked
+        ? (hasMerged
+            ? `reconcile: ${combo.id} would skip pending teardown for ${mergeSha} (parked)`
+            : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and skip teardown (parked)`)
+        : (hasMerged
+            ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
+            : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`),
     );
-    return { changed: false, reported: true };
   }
 
   let changed = false;
@@ -130,45 +168,73 @@ async function reconcileCombo(input: {
     changed = true;
   }
 
-  try {
-    const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-    await teardownMergedCombo({
-      deps,
-      combo,
-      mergeSha,
-      baseRefName,
-      retries: config.limits.teardownGitRetries,
-      backoffSeconds: config.limits.teardownGitBackoffSeconds,
-    });
-  } catch (error) {
-    deps.out(
-      `reconcile: ${combo.id} teardown pending: ` +
-        `${error instanceof Error ? error.message : String(error)}`,
-    );
-    return { changed, reported: true };
+  if (!parked) {
+    try {
+      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+      await teardownMergedCombo({
+        deps,
+        combo,
+        mergeSha,
+        baseRefName,
+        retries: config.limits.teardownGitRetries,
+        backoffSeconds: config.limits.teardownGitBackoffSeconds,
+      });
+    } catch (error) {
+      report(
+        deps,
+        false,
+        `reconcile: ${combo.id} teardown pending: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { changed, reported: true };
+    }
   }
 
   appendEvent(runDir, "combo_closed", { source: "reconcile" });
   try {
     killComboSession(deps, combo);
   } catch (error) {
-    deps.out(
+    report(
+      deps,
+      false,
       `reconcile: ${combo.id} session kill failed: ` +
         `${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  deps.out(`reconcile: ${combo.id} merged ${mergeSha} by ${by}; teardown complete`);
-  return { changed: true, reported: true };
+  const reported = report(
+    deps,
+    quiet,
+    parked
+      ? `reconcile: ${combo.id} merged ${mergeSha} by ${by}; teardown skipped (parked)`
+      : `reconcile: ${combo.id} merged ${mergeSha} by ${by}; teardown complete`,
+  ).reported;
+  return { changed: true, reported };
+}
+
+function hasPrClosedNeedsHuman(events: Array<{ event: string; reason?: unknown }>): boolean {
+  return events.some((event) => event.event === "needs_human" && event.reason === "pr_closed");
+}
+
+function report(
+  deps: Pick<ReconcileDeps, "out">,
+  quiet: boolean,
+  line: string,
+): ReconcileOutcome {
+  if (!quiet) deps.out(line);
+  return { changed: false, reported: !quiet };
 }
 
 function readPrViewForReconcile(
   deps: ReconcileDeps,
+  quiet: boolean,
   combo: ComboRecord,
   prUrl: string,
 ): PrView | undefined {
   const result = deps.gh(["pr", "view", prUrl, "--json", PR_VIEW_FIELDS]);
   if (result.status !== 0) {
-    deps.out(
+    report(
+      deps,
+      quiet,
       `reconcile: ${combo.id} skipped: gh pr view failed (status ${result.status}): ` +
         `${result.stderr.trim() || "unknown error"}`,
     );
@@ -178,7 +244,9 @@ function readPrViewForReconcile(
   try {
     return parsePrView(result.stdout);
   } catch (error) {
-    deps.out(
+    report(
+      deps,
+      quiet,
       `reconcile: ${combo.id} skipped: failed to parse PR data: ` +
         `${error instanceof Error ? error.message : String(error)}`,
     );

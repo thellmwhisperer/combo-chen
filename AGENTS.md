@@ -104,9 +104,11 @@ Source files carry Sherpa-style navigable headers:
 v0 implements the issue-to-PR loop with coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer re-review,
 coder responding mode, single `director-watch` observation, frozen journal
-`reconcile` repair, local
-no-mistakes config propagation, read-only forensics reports, coder safety
-validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),
-`park`/`resume` for reboot-safe combo handoff, `status --deep` for downstream
-probes, and current-head READY agreement. Deferred: preflight, counterfactual
+`reconcile` repair for merged and closed PRs (preserving parked worktrees on
+merge and all worktrees on close), local no-mistakes config propagation,
+read-only forensics reports, coder safety validation (pinned gnhf with
+`--max-iterations`, `--stop-when`, stdin closed), `park`/`resume` for
+reboot-safe combo handoff, `status` (actionable by default, `--all` for
+history, `--deep` for downstream probes, auto-reconcile + tmux liveness),
+and current-head READY agreement. Deferred: preflight, counterfactual
 automerge log, treehouse pools, ACP role driving, and multi-combo dashboarding.
