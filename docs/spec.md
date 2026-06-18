@@ -1,8 +1,9 @@
 # The Combo Chen Protocol — spec v1
 
-A combo chen is an autonomous issue → PR pipeline run by fixed roles filled
-by configurable agents. This spec is the constitution: the CLI, the event
-schema, and the config schema must conform to it, not the other way around.
+A combo chen is an autonomous work-item → PR pipeline run by fixed roles filled
+by configurable agents. Work items can be GitHub issues or local markdown work
+plans. This spec is the constitution: the CLI, the event schema, and the config
+schema must conform to it, not the other way around.
 
 ## 1. Roles
 
@@ -10,7 +11,7 @@ schema, and the config schema must conform to it, not the other way around.
 | --- | --- | --- | --- |
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **coder** | implements the issue (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
-| **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
+| **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. For plan-backed combos, {issue_pr_intent} carries the rendered work-plan intent; other issue-specific placeholders are unsupported and cause a config error. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
 | **reviewer** | reviews the PR with configured prompt text, incrementally until merge | review its own changes | claude |
 | **merge** | the decision slot | — | human (hard default) |
 
@@ -55,7 +56,11 @@ a director concern, never a silent state.
 
 For `combo-chen run --issue <issue-url>`, the default gatekeeper intent is derived
 from the ComboRecord issue URL and issue details and includes a PR body
-requirement to preserve the exact visible line `Fixes #N`. That explicit
+requirement to preserve the exact visible line `Fixes #N`. For `combo-chen run
+--plan <file>`, the intent is derived from the normalized work-plan artifact and
+does not inject autoclose keywords unless the plan explicitly asks for one — the
+autoclose guard is skipped and the PR body describes the work-plan source and
+completed acceptance criteria. That explicit
 autoclose keyword is required for generated issue PRs; a plain mention such as
 `issue #N` is not treated as sufficient. Custom gatekeeper commands that still
 create source-issue PRs must preserve `{issue_pr_intent}` or provide an
@@ -179,7 +184,8 @@ ignored config or environment outside that file.
   default `codex resume <id>` (recommended `codex --profile sitter --no-alt-screen resume <id>` for tmux visibility),
   `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
-  primed with issue + PR diff + the comment. Degraded, never blocking.
+  primed with work-item context + PR diff + the comment. Degraded, never
+  blocking.
 - Two-bucket policy per comment (mirrors no-mistakes findings): mechanical
   addresses (rename, guard, doc, test tweak) are handled and answered
   autonomously; intent-touching comments emit `needs_human` and pause that
@@ -370,22 +376,59 @@ update code must verify `checksums.txt` before installing anything.
 
 ## 8b. Preflight
 
-- The issue is the combo's spec: plan quality buys autonomous runtime.
-  `combo-chen preflight --issue <url>` grades the issue (requirements,
-  acceptance criteria, measurable goal) and warns before launch; it also
-  warns when the target repo's AGENTS.md lacks testing instructions
-  (predictor of weak validation).
+- The issue or work plan is the combo's spec: plan quality buys autonomous
+  runtime. `combo-chen preflight --issue <url>` grades a GitHub issue
+  (requirements, acceptance criteria, measurable goal) and warns before
+  launch; it also warns when the target repo's AGENTS.md lacks testing
+  instructions (predictor of weak validation).
 - combo-chen carries no testing knowledge of its own: the target repo's
   AGENTS.md is the testing brain.
 - Anti-scope: combos are for issue-sized work. Typo-sized changes belong in
   direct sessions, not pipelines.
 
-## 9. Inherited hard limits
+## 9. Work plans
+
+A work plan is a markdown file that drives a combo without a GitHub issue.
+Work plans are canonicalized into a `WorkPlan` shape with structured sections
+and persisted alongside the combo record as `work-plan.md`.
+
+### Format
+
+A work plan must include a top-level heading (`# Title`) and one or more
+sections delimited by `##` headings. The following section names are recognized
+(case-insensitive, aliases listed):
+
+- **Problem / Context** (aliases: `Problem`, `Context`, `Background`, `Goal`, `Objective`) — what problem this work solves.
+- **Scope Boundaries** (aliases: `Scope`, `Constraints`) — what is in scope.
+- **Acceptance Criteria** (aliases: `Acceptance Criterion`, `Criteria`, `Done`, `Definition of Done`) — **required** for local plan launches; must be present before a plan can drive a combo.
+- **Validation** (aliases: `Validation Commands`, `Tests`, `Test Plan`) — commands or expectations that verify the work.
+- **Out Of Scope** (aliases: `Non Goals`, `Non-Goals`, `Non Goal`, `Non-Goal`) — explicitly excluded work.
+- **Human Intent Decisions** (aliases: `Intent Decisions`, `Product Intent Decisions`, `Must Not Change`) — decisions the coder must not change.
+
+### Launching
+
+```
+combo-chen run --plan <file> --repo <dir> [--base <ref>]
+```
+
+The work plan is normalized from the markdown file and persisted as
+`work-plan.md` in the combo run directory. The coder prompt references the
+normalized plan. The PR body describes the work-plan source and completed
+acceptance criteria; it does not inject GitHub autoclose keywords.
+
+### Normalization from GitHub issues
+
+GitHub issue facts are normalized into the same `WorkPlan` shape via
+`normalizeGitHubIssueWorkPlan`. This ensures both issue-backed and plan-backed
+combos produce the same `work-plan.md` artifact for downstream runtime commands
+(reviewer context, gatekeeper intent, forensics, status).
+
+## 10. Inherited hard limits
 
 No merge, no deploy, no rocaup, no LaunchAgents. The combo produces a PR and
 conversation, nothing else. Lingering processes die with the tmux session.
 
-## 10. Decided (vetoed via the plan-v1 lavish artifact, 2026-06-10)
+## 11. Decided (vetoed via the plan-v1 lavish artifact, 2026-06-10)
 
 1. **Claude codes v0**, TDD — Codex is the coder inside combos and the first
    director user is Claude.

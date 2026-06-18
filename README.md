@@ -4,12 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Status: Active Development](https://img.shields.io/badge/status-active%20development-brightgreen.svg)
 
-**A deterministic director for autonomous issue-to-PR work.**
+**A deterministic director for autonomous work-item-to-PR pipelines.**
 
-combo-chen turns one GitHub issue into one reviewed pull request. It creates an
-isolated worktree, starts the configured coder, routes the result through a
-gatekeeper, opens or updates the PR, starts a reviewer, and records every hard
-signal in an append-only journal.
+combo-chen turns one GitHub issue or a local work-plan file into one reviewed
+pull request. It creates an isolated worktree, starts the configured coder,
+routes the result through a gatekeeper, opens or updates the PR, starts a
+reviewer, and records every hard signal in an append-only journal.
 
 It does not replace your agents. It gives them a spine.
 
@@ -32,8 +32,8 @@ combo-chen makes the process explicit.
 
 ## How It Works
 
-1. You point combo-chen at a GitHub issue.
-2. It creates `.worktrees/issue-N` and a branch for that issue.
+1. You point combo-chen at a GitHub issue or a local work-plan file.
+2. It creates an isolated worktree and branch.
 3. A coder agent implements the issue and leaves local commits.
 4. A gatekeeper validates and publishes the branch to GitHub. If the initial gate
    fails before a PR opens, the director auto-retries it up to a configurable limit.
@@ -46,12 +46,12 @@ combo-chen makes the process explicit.
 The human still owns the merge.
 
 ```text
-GitHub issue
+GitHub issue or work-plan file
     |
     v
-combo-chen run
+combo-chen run (--issue <url> | --plan <file>)
     |
-    +--> isolated worktree + issue branch
+    +--> isolated worktree + branch
     |
     +--> coder agent writes local commits
     |
@@ -102,11 +102,21 @@ pnpm install
 pnpm build
 ```
 
-Run a combo:
+Run a combo from a GitHub issue:
 
 ```bash
 node dist/cli.mjs run --issue https://github.com/owner/repo/issues/123 --repo /path/to/repo --base origin/main
 ```
+
+Or from a local work-plan file:
+
+```bash
+node dist/cli.mjs run --plan plan.md --repo /path/to/repo --base origin/main
+```
+
+Work plans are markdown files with required `## Acceptance Criteria` and optional
+sections for problem, scope, validation, and intent decisions. See `docs/spec.md`
+section 9 for the full work-plan contract.
 
 Watch it:
 
@@ -233,6 +243,7 @@ verify and install.
 
 ```bash
 combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text>]
+combo-chen run --plan <file> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen status [--deep] [--all]
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
@@ -272,13 +283,14 @@ By default, run state lives under:
 
 Important files:
 
-- `combo.json`: repo, worktree, branch, and tmux identity.
+- `combo.json`: repo, worktree, branch, tmux identity, and work-item source metadata.
 - `journal.jsonl`: the source of truth.
 - `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
 - `runner.sh`: generated initial runner.
 - `coder.log`: initial coder output.
 - `gatekeeper.log`: initial gatekeeper output.
 - `gatekeeper-post-<sha>.sh`: generated post-address gate.
+- `work-plan.md`: normalized work-plan artifact; the canonical source of work-item intent for reviewer, gatekeeper, and forensics.
 - `park-handoff.md`: local summary created by `park`.
 
 Do not hand-edit `journal.jsonl`. Use `combo-chen emit` only when a real-world
@@ -310,11 +322,12 @@ through env, TOML, then fallback defaults.
 
 Active development.
 
-v0 implements the issue-to-PR loop with coder, gatekeeper, initial-gate retry
-with configurable attempts and backoff, reviewer, director watching,
+v0 implements the work-item-to-PR loop with coder, gatekeeper, initial-gate
+retry with configurable attempts and backoff, reviewer, director watching,
 review-comment routing, post-address gates, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
-and current-head READY agreement.
+and current-head READY agreement. Work items can be GitHub issues (`--issue`) or
+local markdown work plans (`--plan`).
 
 Deferred: preflight scoring, counterfactual automerge logs, worktree pools, ACP
 role driving, and multi-combo dashboards.
