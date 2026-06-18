@@ -23,7 +23,7 @@ merge = "human"                   # hard default: earn automerge with data first
 # Omit command/resume_command to use combo-chen's safe built-in codex/gnhf defaults:
 # coder command: pinned gnhf runs `--agent codex` with max-iteration,
 # stop-condition, sleep-prevention, and low-noise telemetry flags.
-# resume command: codex --profile sitter --no-alt-screen resume {thread_id}
+# resume command: codex resume {thread_id}
 # gnhf 0.1.41 does not expose a Codex profile/flag pass-through for the
 # coder path, so Codex terminal/profile flags belong in resume_command or a
 # repo-owned wrapper.
