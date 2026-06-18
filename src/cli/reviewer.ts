@@ -182,7 +182,7 @@ export async function tickReviewer(input: {
     if (!hasMergedEvent(events, [mergeSha, headSha])) {
       appendEvent(runDir, "merged", { sha: mergeSha, by });
     }
-    const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir });
+    const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
     try {
       await teardownMergedCombo({
         deps,
