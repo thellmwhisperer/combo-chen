@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~375 lines, 9 exports, 1 critical function.
+ *   ~390 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -194,7 +194,10 @@ function noMistakesDaemonConfigCopyScript(): string[] {
   ];
 }
 
-export function buildNoMistakesGatekeeperRunScript(gatekeeperCommand: string): string[] {
+export function buildNoMistakesGatekeeperRunScript(
+  gatekeeperCommand: string,
+  options: { waitForConfigBeforeRun?: boolean } = {},
+): string[] {
   return [
     "no_mistakes_config_copy_pid=",
     "if [ -f .no-mistakes.yaml ]; then",
@@ -203,6 +206,14 @@ export function buildNoMistakesGatekeeperRunScript(gatekeeperCommand: string): s
     "  ) &",
     "  no_mistakes_config_copy_pid=$!",
     "fi",
+    ...(options.waitForConfigBeforeRun
+      ? [
+        "if [ -n \"$no_mistakes_config_copy_pid\" ]; then",
+        "  wait \"$no_mistakes_config_copy_pid\" || exit 1",
+        "  no_mistakes_config_copy_pid=",
+        "fi",
+      ]
+      : []),
     gatekeeperCommand,
     "gatekeeper_inner_code=$?",
     "if [ -n \"$no_mistakes_config_copy_pid\" ]; then",
@@ -325,7 +336,7 @@ ${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_sta
 gatekeeper_code=0
 (
 ${gatekeeperMirrorIntent === undefined ? ":" : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n")}
-${buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand).map((line) => `  ${line}`).join("\n")}
+${buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, { waitForConfigBeforeRun: gatekeeperMirrorIntent !== undefined }).map((line) => `  ${line}`).join("\n")}
 ) < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
 if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then

@@ -867,7 +867,7 @@ exit 0
     expect(gatekeeperOutput).toContain("no-mistakes axi run");
   });
 
-  it("copies local no-mistakes config after axi run creates the daemon worktree", () => {
+  it("copies local no-mistakes config before the mirror-triggered axi run consumes it", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -903,6 +903,7 @@ if [ "$1" = "ls-remote" ]; then
   exit 0
 fi
 if [ "$1" = "push" ]; then
+  mkdir -p "$NO_MISTAKES_RUN_DIR"
   printf 'git %s\\n' "$*" >> "$GATEKEEPER_LOG"
   exit 0
 fi
@@ -923,7 +924,7 @@ exit 1
       `#!/bin/sh
 printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 if [ "$1" = "axi" ]; then
-  mkdir -p "$NO_MISTAKES_RUN_DIR"
+  test -f "$NO_MISTAKES_RUN_DIR/.no-mistakes.yaml"
   exit 0
 fi
 if [ "$1" = "status" ]; then
