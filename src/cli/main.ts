@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~800 lines, 18 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~830 lines, 19 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -85,8 +85,10 @@ import {
   ensureGatekeeperWindow,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
+  runPostAddressGateIfNeeded,
   scriptedMirrorGatekeeperCommandTemplate,
   startGatekeeperWindow,
+  startInitialGateRetry,
 } from "./gate.js";
 import { fetchForensicsGithubFacts, fetchIssueDetails, remoteSlug } from "./github.js";
 import { parkCombo } from "./park.js";
@@ -669,6 +671,32 @@ export function createProgram(deps: Deps): Command {
           issueBody: issueDetails.body,
         }),
       );
+    });
+
+  program
+    .command("gate-restart")
+    .description(
+      "Restart the no-mistakes gate for a combo using the canonical intent (one plain command; replaces a manual axi run)",
+    )
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const cli = cliInvocation();
+      const prUrl = latestPrUrlFromEvents(readEvents(runDir));
+      if (prUrl === undefined) {
+        const result = startInitialGateRetry({ deps, combo, runDir, cli });
+        if (result.started) {
+          deps.out(`gate-restart: initial gate restarted for ${combo.id} at ${result.headSha}`);
+        } else {
+          deps.out(
+            `gate-restart: initial gate not started for ${combo.id} (${result.reason}) at ${result.headSha}`,
+          );
+        }
+        return;
+      }
+      runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
+      deps.out(`gate-restart: post-address gate evaluated for ${combo.id}`);
     });
 
   program
