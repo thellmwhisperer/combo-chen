@@ -632,7 +632,7 @@ export function createProgram(deps: Deps): Command {
         // window is visible when the no-mistakes run becomes active.
         try {
           const combo = readCombo(runDir);
-          const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+          const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
           ensureGatekeeperWindow(deps, combo, {
             timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
             retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
