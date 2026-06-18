@@ -207,6 +207,7 @@ Important files:
 
 - `combo.json`: repo, worktree, branch, and tmux identity.
 - `journal.jsonl`: the source of truth.
+- `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
 - `runner.sh`: generated initial runner.
 - `coder.log`: initial coder output.
 - `gatekeeper.log`: initial gatekeeper output.
@@ -245,6 +246,7 @@ Active development.
 v0 implements the issue-to-PR loop with coder, gatekeeper, initial-gate retry
 with configurable attempts and backoff, reviewer, director watching,
 review-comment routing, post-address gates, park/resume, reconcile, forensics,
+launch-time config snapshots to protect runtime behavior from repo TOML drift,
 and current-head READY agreement.
 
 Deferred: preflight scoring, counterfactual automerge logs, worktree pools, ACP
