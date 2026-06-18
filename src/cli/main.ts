@@ -539,7 +539,7 @@ export function createProgram(deps: Deps): Command {
       const reports = combos.map((combo) => {
         const runDir = runDirFor(home, combo.id);
         const events = readEvents(runDir);
-        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+        const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
         return analyzeForensicsCombo({
           combo,
           events,
