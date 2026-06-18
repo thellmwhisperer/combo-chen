@@ -94,7 +94,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.externalCommentAgents).toEqual(["coderabbit"]);
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
     expect(config.reviewerLogins).toEqual(["claude"]);
-    expect(config.coderResumeCommand).toBe("codex --profile sitter --no-alt-screen resume {thread_id}");
+    expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
     expect(config.coderRespondingWindowName).toBe("coder-responding");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
