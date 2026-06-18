@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~310 lines, activate and nudge flows.
+ * @overview Unit tests for coder-response CLI helpers. ~470 lines, activate and nudge flows.
  *
  *   READING GUIDE
  *   -------------
@@ -20,7 +20,7 @@
  *   combo, writeThreadArtifact
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../roles/coder, ./coder
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./coder
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +29,8 @@ import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
 
@@ -101,6 +103,48 @@ describe("activateCoder", () => {
       `codex --profile sitter resume '${CODEX_THREAD_ID}'`,
     ]);
     expect(out).toEqual(["coder responding active for o-r-7"]);
+  });
+
+  it("uses the launch config snapshot after repo TOML changes", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[coder.codex]\nresume_command = "codex --profile launch resume {thread_id}"\n\n[coder_responding]\nwindow_name = "launch-sitter"\n',
+    );
+    writeCombo(runDir, record);
+    writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[coder.codex]\nresume_command = "codex --profile drifted resume {thread_id}"\n\n[coder_responding]\nwindow_name = "drifted-sitter"\n',
+    );
+    writeThreadArtifact(runDir);
+
+    activateCoder({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls[0]).toEqual([
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "launch-sitter",
+      `codex --profile launch resume '${CODEX_THREAD_ID}'`,
+    ]);
   });
 
   it("reports resumed coder startup failures", () => {
@@ -229,6 +273,85 @@ describe("nudgeReviewComments", () => {
       ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
     ]);
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
+  });
+
+  it("uses the launch config snapshot for routed review nudges after repo TOML changes", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[coder_responding]\nreview_nudge_prompt = "Launch prompt {url}"\nwindow_name = "launch-sitter"\n',
+    );
+    writeCombo(runDir, record);
+    writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[coder_responding]\nreview_nudge_prompt = "Drifted prompt {url}"\nwindow_name = "drifted-sitter"\n',
+    );
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    nudgeReviewComments({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+            return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+          }
+          if (args[0] === "rev-parse" && args[1] === "HEAD") {
+            return { status: 0, stdout: "abc123\n", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        gh: (args) => {
+          const endpoint = args.at(-1);
+          if (endpoint === "repos/o/r/issues/7/comments") {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                  user: { login: "coderabbitai" },
+                  body: "Please handle this.",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          return { status: 0, stdout: "[]", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(calls.filter((call) => call[0] === "tmux")).toEqual([
+      [
+        "tmux",
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-launch-sitter",
+        "Launch prompt 'https://github.com/o/r/pull/7#issuecomment-1'",
+      ],
+      [
+        "tmux",
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-launch-sitter",
+        "-t",
+        "combo-chen-owned-session:launch-sitter",
+      ],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:launch-sitter", "C-m"],
+    ]);
   });
 
   it("uses configured external comment agents when filtering review noise", () => {
