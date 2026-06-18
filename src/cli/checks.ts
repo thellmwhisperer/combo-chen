@@ -1,6 +1,6 @@
 /**
  * @overview GitHub check-rollup helpers for CI and configured READY checks.
- *   ~95 lines, 5 exports, provider-name matching without provider-specific logic.
+ *   ~105 lines, 6 exports, provider-name matching without provider-specific logic.
  *
  *   READING GUIDE
  *   -------------
@@ -15,6 +15,7 @@
  *   PUBLIC API
  *   ----------
  *   checkName                 Concatenate useful rollup labels.
+ *   checkNameMatchesAny       Exact match against any useful rollup label.
  *   checkSignalSucceeded      Broad success predicate for CI rollup.
  *   checkSignalIsSuccess      Exact SUCCESS predicate for required READY checks.
  *   checkRollupSucceeded      True when non-required CI checks all pass.
@@ -22,9 +23,9 @@
  *
  *   INTERNALS
  *   ---------
- *   isRecord, upperString, checkMatchesAny
+ *   isRecord, upperString, checkLabels
  *
- * @exports checkName, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded
+ * @exports checkName, checkNameMatchesAny, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded
  * @deps none
  */
 
@@ -40,12 +41,16 @@ function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
 }
 
-export function checkName(item: unknown): string {
-  if (!isRecord(item)) return "";
+function checkLabels(item: unknown): string[] {
+  if (!isRecord(item)) return [];
   const parts = [item["name"], item["context"], item["workflowName"]];
   const app = item["app"];
   if (isRecord(app)) parts.push(app["name"], app["slug"]);
-  return parts.filter((part): part is string => typeof part === "string").join(" ");
+  return parts.filter((part): part is string => typeof part === "string");
+}
+
+export function checkName(item: unknown): string {
+  return checkLabels(item).join(" ");
 }
 
 export function checkSignalSucceeded(item: unknown): boolean {
@@ -68,11 +73,11 @@ export function checkSignalIsSuccess(item: unknown): boolean {
 // -/ 1/2
 
 // -- 2/2 CORE · checkRollupSucceeded + requiredChecksSucceeded <- START HERE --
-function checkMatchesAny(item: unknown, names: string[]): boolean {
-  const label = checkName(item).toLowerCase();
+export function checkNameMatchesAny(item: unknown, names: string[]): boolean {
+  const labels = checkLabels(item).map((label) => label.trim().toLowerCase());
   return names.some((name) => {
     const needle = name.trim().toLowerCase();
-    return needle.length > 0 && label.includes(needle);
+    return needle.length > 0 && labels.includes(needle);
   });
 }
 
@@ -82,8 +87,8 @@ export function checkRollupSucceeded(
 ): boolean {
   if (rollup === undefined) return false;
   const ignoredCheckNames = options.requiredCheckNames ?? [];
-  const checks = rollup.filter((item) => !checkMatchesAny(item, ignoredCheckNames));
-  return checks.length > 0 && checks.every(checkSignalSucceeded);
+  const checks = rollup.filter((item) => !checkNameMatchesAny(item, ignoredCheckNames));
+  return rollup.length > 0 && checks.every(checkSignalSucceeded);
 }
 
 export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredCheckNames: string[]): boolean {
@@ -91,7 +96,7 @@ export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredC
   if (required.length === 0) return true;
   if (rollup === undefined) return false;
   return required.every((name) =>
-    rollup.some((item) => checkMatchesAny(item, [name]) && checkSignalIsSuccess(item)),
+    rollup.some((item) => checkNameMatchesAny(item, [name]) && checkSignalIsSuccess(item)),
   );
 }
 // -/ 2/2

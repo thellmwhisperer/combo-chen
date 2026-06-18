@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~235 lines, activate and nudge flows.
+ * @overview Unit tests for coder-response CLI helpers. ~310 lines, activate and nudge flows.
  *
  *   READING GUIDE
  *   -------------
@@ -229,6 +229,85 @@ describe("nudgeReviewComments", () => {
       ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
     ]);
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
+  });
+
+  it("uses configured external comment agents when filtering review noise", () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[external_comments]",
+        'agents = ["coderabbit"]',
+        "",
+        "[coder_responding]",
+        'review_nudge_prompt = "Please address {author} {url}"',
+        'window_name = "sitter"',
+      ].join("\n"),
+    );
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    nudgeReviewComments({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+            return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+          }
+          if (args[0] === "rev-parse" && args[1] === "HEAD") {
+            return { status: 0, stdout: "abc123\n", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        gh: (args) => {
+          calls.push(["gh", ...args]);
+          const endpoint = args.at(-1);
+          if (endpoint === "repos/o/r/issues/7/comments") {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                  user: { login: "coderabbitai" },
+                  body: "Review skipped: rate limited for this account.",
+                },
+                {
+                  html_url: "https://github.com/o/r/pull/7#issuecomment-2",
+                  user: { login: "maintainer" },
+                  body: "Please handle this.",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          return { status: 0, stdout: "[]", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+    });
+
+    const events = readEvents(runDir).filter((event) => event.event === "review_comment");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      author: "maintainer",
+      kind: "pr_comment",
+      url: "https://github.com/o/r/pull/7#issuecomment-2",
+      head_sha: "abc123",
+    });
+    expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-2"]);
+    expect(calls.some((call) => call.includes("https://github.com/o/r/pull/7#issuecomment-1"))).toBe(false);
   });
 });
 // -/ 3/3

@@ -26,7 +26,7 @@
  */
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { parseGitHubPullRequestUrl } from "../core/pr-url.js";
-import { checkName } from "./checks.js";
+import { checkNameMatchesAny } from "./checks.js";
 
 // -- 1/5 CORE · Issue metadata and remoteSlug <- START HERE --
 export interface GhResult {
@@ -339,7 +339,7 @@ function rollupSignal(
 ): GithubSignalState {
   if (rollup === undefined) return "unknown";
   const requiredCheckNames = options.requiredCheckNames ?? [];
-  const items = rollup.filter((item) => checkMatchesAny(item, requiredCheckNames) === options.selectRequired);
+  const items = rollup.filter((item) => checkNameMatchesAny(item, requiredCheckNames) === options.selectRequired);
   if (items.length === 0) return "unknown";
   const states = items.map(checkSignalState);
   if (states.includes("failure")) return "failure";
@@ -376,14 +376,6 @@ const FAILURE_CHECK_CONCLUSIONS = new Set([
 const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
 const FAILURE_STATUS_STATES = new Set(["ERROR", "FAILURE", "FAILED", "CANCELLED", "TIMED_OUT"]);
 const PENDING_STATUS_STATES = new Set(["EXPECTED", "IN_PROGRESS", "PENDING", "QUEUED", "REQUESTED", "WAITING"]);
-
-function checkMatchesAny(item: unknown, names: string[]): boolean {
-  const label = checkName(item).toLowerCase();
-  return names.some((name) => {
-    const needle = name.trim().toLowerCase();
-    return needle.length > 0 && label.includes(needle);
-  });
-}
 
 function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
