@@ -46,7 +46,7 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("codex");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
-    expect(config.externalCommentAgents).toEqual([]);
+    expect(config.externalCommentAgents).toEqual(["coderabbit"]);
     expect(config.readyRequiredChecks).toEqual([]);
     expect(config.roles.merge).toBe("human");
     expect(config.roles).not.toHaveProperty("rower");
@@ -142,6 +142,26 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("claude");
     expect(config.externalCommentAgents).toEqual(["reviewdog"]);
     expect(config).not.toHaveProperty("ambientReviewerAgents");
+  });
+
+  it("auto-includes non-active reviewer role entries as external comment agents", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles]",
+        'reviewer = ["claude", "reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.reviewerAgent).toBe("claude");
+    expect(config.externalCommentAgents).toEqual(["coderabbit", "reviewdog"]);
   });
 
   it("loads READY required checks separately from external comment filters", () => {

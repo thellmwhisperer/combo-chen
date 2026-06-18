@@ -175,7 +175,7 @@ const DEFAULTS = {
     ].join("\n"),
   },
   external_comments: {
-    agents: [],
+    agents: ["coderabbit"],
   },
   ready: {
     required_checks: [],
@@ -584,8 +584,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerTemplates[reviewerAgent]?.command,
     `command template for reviewer "${reviewerAgent}"`,
   );
-  const externalCommentAgents = pickStringArray(externalCommentsTable["agents"], "external_comments.agents")
+  const configuredAgents = pickStringArray(externalCommentsTable["agents"], "external_comments.agents")
     .filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
+  const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
+  const externalCommentAgents = [...new Set([...configuredAgents, ...legacyAmbient])];
   const readyRequiredChecks = [...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks"))];
   const workerPermissionPromptPatterns = pickNonEmptyStringArray(
     monitorTable["permission_prompt_patterns"],
