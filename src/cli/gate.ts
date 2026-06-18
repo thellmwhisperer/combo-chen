@@ -429,7 +429,7 @@ export function startInitialGateRetry(input: {
   combo: ComboRecord;
   runDir: string;
   cli: string;
-}): { started: boolean; headSha: string } {
+}): { started: true; headSha: string } | { started: false; headSha: string; reason: string } {
   const { deps, combo, runDir, cli } = input;
   if (propagateNoMistakesConfig(combo.repoDir, combo.worktree)) {
     deps.out(`no-mistakes: copied local config to ${combo.worktree}/${NO_MISTAKES_CONFIG_FILE}`);
@@ -438,7 +438,7 @@ export function startInitialGateRetry(input: {
   const headSha = worktreeHeadSha(deps, combo);
   if (hasUncommittedChanges(deps, combo)) {
     deps.out(`gate: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate retry`);
-    return { started: false, headSha };
+    return { started: false, headSha, reason: "uncommitted_changes" };
   }
 
   const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
