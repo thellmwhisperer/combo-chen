@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reconcile command helpers. ~185 lines, frozen journal repair.
+ * @overview Unit tests for reconcile command helpers. ~255 lines, frozen journal repair.
  *
  *   READING GUIDE
  *   -------------

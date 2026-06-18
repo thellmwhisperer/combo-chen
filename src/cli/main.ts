@@ -464,7 +464,7 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("status")
-    .description("Show combo status; auto-cleans up merged/closed combos (destroys worktrees, deletes branches, kills tmux sessions)")
+    .description("Show combo status; auto-resolves terminal merged/closed combos (tears down merged, closes closed; kills tmux sessions)")
     .option("--deep", "Probe downstream no-mistakes state")
     .option("--all", "Include terminal historical combos", false)
     .action(async (options: { deep?: boolean; all?: boolean }) => {
