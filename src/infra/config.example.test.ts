@@ -1,9 +1,9 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~115 lines, testing that combo-chen.example.toml and public docs use
- *   only OSS-friendly role names (no legacy rower/hodor/gordon terms), that
- *   the tracked no-mistakes policy is documented, and that the example config
- *   stays loadable by the config cascade.
+ *   ~120 lines, testing that combo-chen.example.toml and public docs use
+ *   only OSS-friendly role names, document the tracked no-mistakes and Codex
+ *   resume policies, and keep the example config loadable by the config
+ *   cascade.
  *
  *   READING GUIDE
  *   ─────────────
@@ -49,6 +49,12 @@ describe("combo-chen.example.toml", () => {
     expect(body).not.toMatch(/\bgnhf@\d/);
   });
 
+  it("documents the recommended Codex resume policy", () => {
+    const body = readFileSync(EXAMPLE_CONFIG, "utf8");
+
+    expect(body).toContain("codex --profile sitter --no-alt-screen resume {thread_id}");
+  });
+
   it("keeps shipped docs on the public OSS-friendly role vocabulary", () => {
     for (const doc of PUBLIC_DOCS) {
       const body = readFileSync(doc, "utf8");
@@ -88,6 +94,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.externalCommentAgents).toEqual(["coderabbit"]);
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
     expect(config.reviewerLogins).toEqual(["claude"]);
+    expect(config.coderResumeCommand).toBe("codex --profile sitter --no-alt-screen resume {thread_id}");
     expect(config.coderRespondingWindowName).toBe("coder-responding");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");

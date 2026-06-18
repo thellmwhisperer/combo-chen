@@ -74,7 +74,7 @@ describe("activateCoder", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-        "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
+        "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter --no-alt-screen resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -100,7 +100,7 @@ describe("activateCoder", () => {
       "combo-chen-o-r-7",
       "-n",
       "sitter",
-      `codex --profile sitter resume '${CODEX_THREAD_ID}'`,
+      `codex --profile sitter --no-alt-screen resume '${CODEX_THREAD_ID}'`,
     ]);
     expect(out).toEqual(["coder responding active for o-r-7"]);
   });

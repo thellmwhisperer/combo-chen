@@ -26,7 +26,10 @@ Validation at launch (hard failures, the combo refuses to start):
 - gnhf coder commands must be safe runner commands before any worktree is
   created: pinned `gnhf@<version>`, `--max-iterations`, `--stop-when`,
   `--prevent-sleep on`, and telemetry/noise disabled with
-  `--meteor-frequency 0`. The runner also closes coder stdin.
+  `--meteor-frequency 0`. The runner also closes coder stdin. gnhf 0.1.41
+  selects Codex with `--agent codex` but does not expose a general Codex CLI
+  profile/flag pass-through, so role-specific Codex terminal flags belong in
+  the resume command or in an explicit repo-owned wrapper.
 - reviewer submit commands must be safe before launch: one plain command, no
   heredocs, temp files, `cat`, `rm`, shell redirection, pipes, semicolons,
   `&&`, or `||`. The generated prompt tells reviewers to submit with
@@ -166,7 +169,8 @@ ignored config or environment outside that file.
 - On `coder_done`, combo-chen captures the implementing session's thread id
   (gnhf logs, or lookup in a configured session metadata store).
 - On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed:
-  `codex resume <id>`, `hermes --resume <session>`, or a stateful ACP session.
+  `codex --profile sitter --no-alt-screen resume <id>`,
+  `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with issue + PR diff + the comment. Degraded, never blocking.
 - Two-bucket policy per comment (mirrors no-mistakes findings): mechanical
@@ -243,6 +247,16 @@ ignored config or environment outside that file.
   Codex subscription, Hermes API providers).
 - Persistent roles run interactive sessions; headless `-p`/SDK calls are
   reserved for one-off sweeps (separate billing pool since 2026-06-15).
+- Direct noninteractive Codex runners are not part of v0. If added, they must
+  keep `-C <worktree>` explicit, avoid approval stalls with an isolated
+  `workspace-write`/`never` policy, emit `--json` events, capture the final
+  message artifact with `-o <run_dir>/final.md`, keep `--search` opt-in, and
+  preserve project/user rules unless the run is an explicitly hermetic
+  benchmark.
+- Reviewer roles stay tmux-visible and project-context-aware by default. A
+  future headless Claude reviewer whose output is machine-consumed must use
+  JSON or stream-JSON output, explicit budget/turn limits, read/review-focused
+  permissions, and separate cost/usage artifacts.
 
 ## 8. Director mechanics (v0)
 
