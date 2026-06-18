@@ -147,13 +147,18 @@ async function reconcileCombo(input: {
   }
 
   const hasMerged = hasMergedEvent(events, [mergeSha, prView.headSha]);
+  const parked = events.at(-1)?.event === "parked";
   if (!apply) {
     return report(
       deps,
       quiet,
-      hasMerged
-        ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
-        : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`,
+      parked
+        ? (hasMerged
+            ? `reconcile: ${combo.id} would skip pending teardown for ${mergeSha} (parked)`
+            : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and skip teardown (parked)`)
+        : (hasMerged
+            ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
+            : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`),
     );
   }
 
@@ -163,24 +168,26 @@ async function reconcileCombo(input: {
     changed = true;
   }
 
-  try {
-    const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
-    await teardownMergedCombo({
-      deps,
-      combo,
-      mergeSha,
-      baseRefName,
-      retries: config.limits.teardownGitRetries,
-      backoffSeconds: config.limits.teardownGitBackoffSeconds,
-    });
-  } catch (error) {
-    report(
-      deps,
-      false,
-      `reconcile: ${combo.id} teardown pending: ` +
-        `${error instanceof Error ? error.message : String(error)}`,
-    );
-    return { changed, reported: true };
+  if (!parked) {
+    try {
+      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+      await teardownMergedCombo({
+        deps,
+        combo,
+        mergeSha,
+        baseRefName,
+        retries: config.limits.teardownGitRetries,
+        backoffSeconds: config.limits.teardownGitBackoffSeconds,
+      });
+    } catch (error) {
+      report(
+        deps,
+        false,
+        `reconcile: ${combo.id} teardown pending: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { changed, reported: true };
+    }
   }
 
   appendEvent(runDir, "combo_closed", { source: "reconcile" });
@@ -197,7 +204,9 @@ async function reconcileCombo(input: {
   const reported = report(
     deps,
     quiet,
-    `reconcile: ${combo.id} merged ${mergeSha} by ${by}; teardown complete`,
+    parked
+      ? `reconcile: ${combo.id} merged ${mergeSha} by ${by}; teardown skipped (parked)`
+      : `reconcile: ${combo.id} merged ${mergeSha} by ${by}; teardown complete`,
   ).reported;
   return { changed: true, reported };
 }
