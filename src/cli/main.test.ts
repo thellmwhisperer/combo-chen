@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4700 lines.
+ *   deps so tests run without a real terminal or network. ~4750 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -2889,6 +2889,60 @@ describe("status", () => {
     await exec(deps, ["status", "--deep"]);
 
     expect(out.join("\n")).not.toContain("PR ready for reviewer");
+  });
+
+  it("uses the launch config snapshot for deep downstream status after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["launch-bot"]\n');
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["drift-bot"]\n');
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: ["run:", "  branch: combo/issue-7", "  status: completed"].join("\n"),
+        stderr: "",
+      }),
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: "OPEN",
+              statusCheckRollup: [
+                { name: "launch-bot", conclusion: "FAILURE" },
+                { name: "test", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status", "--deep"]);
+
+    expect(out.join("\n")).toContain("PR ready for reviewer");
   });
 });
 

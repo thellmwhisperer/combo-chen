@@ -508,7 +508,8 @@ export function createProgram(deps: Deps): Command {
           deps.out(line);
           continue;
         }
-        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+        const runDir = runDirFor(home, combo.id);
+        const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
         const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
           requiredCheckNames: config.readyRequiredChecks,
         });
