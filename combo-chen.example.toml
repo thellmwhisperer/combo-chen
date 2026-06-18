@@ -20,6 +20,8 @@ merge = "human"                   # hard default: earn automerge with data first
 [coder.codex]
 # {placeholders}: issue_url, worktree, repo, branch, prompt. Each value is
 # substituted as a single-quoted shell token; don't add quotes around them.
+# For plan-backed combos, {issue_url} is empty and the prompt is derived
+# from the work-plan artifact.
 # Omit command/resume_command to use combo-chen's safe built-in codex/gnhf defaults:
 # coder command: pinned gnhf runs `--agent codex` with max-iteration,
 # stop-condition, sleep-prevention, and low-noise telemetry flags.
@@ -41,15 +43,18 @@ merge = "human"                   # hard default: earn automerge with data first
 [gatekeeper]
 # Before this command runs, combo-chen publishes local HEAD to the
 # no-mistakes mirror with a base64-encoded `no-mistakes.intent=` git push
-# option. The command then starts the daemon and drives the gate with the full
-# issue-derived intent containing a PR body requirement to preserve `Fixes #N`
-# so GitHub closes the source issue when the PR is merged.
+# option. For issue-backed combos the intent includes a PR body requirement
+# to preserve `Fixes #N` so GitHub closes the source issue when the PR is
+# merged. For plan-backed combos the intent describes the work-plan source
+# and completed acceptance criteria, with no autoclose keywords.
 # Override this to use a custom gatekeeper pipeline.
 # {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent,
 # branch. Each value is substituted as a single-quoted shell token; don't
 # add quotes around them. Unknown placeholders cause run to fail with a
 # config error. Custom issue-closing PR commands should pass
 # {issue_pr_intent} or another explicit GitHub autoclose keyword.
+# For plan-backed combos, only {issue_pr_intent} and {branch} are valid;
+# {issue_url}, {issue_title}, and {issue_body} cause a config error.
 # Example with placeholders:
 # command = "no-mistakes axi run --yes --intent {issue_pr_intent}"
 command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}"
