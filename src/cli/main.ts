@@ -85,7 +85,7 @@ import {
   ensureGatekeeperWindow,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
-  runPostAddressGateIfNeeded,
+  restartPostAddressGate,
   scriptedMirrorGatekeeperCommandTemplate,
   startGatekeeperWindow,
   startInitialGateRetry,
@@ -658,7 +658,7 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("intent")
-    .description("Print the canonical no-mistakes issue PR intent for a combo (reuse for manual axi runs)")
+    .description("Print the canonical no-mistakes issue PR intent for a combo (inspection/forensics; to relaunch a gate use gate-restart)")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
@@ -695,8 +695,14 @@ export function createProgram(deps: Deps): Command {
         }
         return;
       }
-      runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
-      deps.out(`gate-restart: post-address gate evaluated for ${combo.id}`);
+      const result = restartPostAddressGate({ deps, combo, runDir, prUrl, cli });
+      if (result.started) {
+        deps.out(`gate-restart: post-address gate restarted for ${combo.id} at ${result.headSha}`);
+      } else {
+        deps.out(
+          `gate-restart: post-address gate not started for ${combo.id} (${result.reason}) at ${result.headSha}`,
+        );
+      }
     });
 
   program

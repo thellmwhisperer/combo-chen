@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~720 lines, 18 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~760 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -20,13 +20,13 @@
  *   buildGatekeeperAttachCommand, startGatekeeperWindow
  *   ensureGatekeeperWindow, remoteShaForRef, latestGateStatus
  *   latestPublishedGateSha, propagateNoMistakesConfig
- *   startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ *   startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  *
  *   INTERNALS
  *   ---------
  *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
- * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
@@ -586,6 +586,45 @@ function startPostAddressGate(input: {
         `${created.stderr.trim() || "unknown error"}`,
     );
   }
+}
+
+// Force a post-address gate for the current committed head, even when a prior
+// gate already failed at that same SHA. This is the manual recovery lever
+// (`gate-restart` after `pr_opened`); unlike runPostAddressGateIfNeeded it does
+// NOT suppress a restart for an already-failed head. It still refuses on
+// uncommitted changes and keeps the canonical intent + mirror push + autoclose
+// guard by going through the same generated gate script.
+export function restartPostAddressGate(input: {
+  deps: PostAddressGateDeps;
+  combo: ComboRecord;
+  runDir: string;
+  prUrl: string;
+  cli: string;
+}): { started: true; headSha: string } | { started: false; headSha: string; reason: string } {
+  const { deps, combo, runDir, prUrl, cli } = input;
+  if (propagateNoMistakesConfig(combo.repoDir, combo.worktree)) {
+    deps.out(`no-mistakes: copied local config to ${combo.worktree}/${NO_MISTAKES_CONFIG_FILE}`);
+  }
+
+  const headSha = worktreeHeadSha(deps, combo);
+  if (hasUncommittedChanges(deps, combo)) {
+    deps.out(`gate: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate restart`);
+    return { started: false, headSha, reason: "uncommitted_changes" };
+  }
+
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
+  startPostAddressGate({
+    deps,
+    combo,
+    runDir,
+    gatekeeperCommand: renderedGatekeeper.command,
+    gatekeeperMirrorIntent: renderedGatekeeper.pushIntent,
+    headSha,
+    prUrl,
+    cli,
+  });
+  return { started: true, headSha };
 }
 
 export function runPostAddressGateIfNeeded(input: {

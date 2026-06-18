@@ -66,10 +66,9 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// The `intent` CLI command prints this verbatim and the launch-combo skill
-// captures it with `"$(combo-chen intent ...)"`, which strips exactly one
-// trailing newline. Keep the result free of a trailing newline so that
-// captured intent stays byte-identical to the gate's `{issue_pr_intent}`.
+// Single source of truth for the gate's `{issue_pr_intent}`. The `intent` CLI
+// command prints this verbatim for inspection and forensics, so its output
+// stays identical to what the gate actually pushes.
 export function buildIssuePrIntent(input: {
   combo: Pick<ComboRecord, "issueUrl">;
   issueTitle: string;
