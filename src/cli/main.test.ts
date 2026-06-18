@@ -300,8 +300,8 @@ describe("command surface", () => {
       },
     });
 
-    // The skill captures stdout via `intent=$(...) && no-mistakes ...`; on
-    // failure stdout MUST stay empty so the `&&` aborts before publishing.
+    // On failure the command must throw and leave stdout empty: nothing partial
+    // is ever emitted as if it were a canonical intent.
     await expect(exec(deps, ["intent", "-n", "o-r-7"])).rejects.toThrow(/Issue details not reachable/);
     expect(out).toEqual([]);
   });
@@ -558,6 +558,34 @@ describe("gate-restart", () => {
     expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
     expect(existsSync(join(dir, `gatekeeper-initial-${HEAD.slice(0, 12)}.sh`))).toBe(false);
     expect(out.join("\n")).toContain("post-address gate restarted");
+    // Parity with the idempotent path: leave an address_done breadcrumb so the
+    // phase moves and there is a journal trace even before the gate emits.
+    expect(readEvents(dir).some((e) => e.event === "address_done" && e["head_sha"] === HEAD)).toBe(true);
+  });
+
+  it("warns but still restarts when a gate is in flight (fix_inflight) at HEAD", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+    appendEvent(dir, "gate_status", { state: "fix_inflight", head_sha: HEAD });
+    const { deps, out } = gateDeps(h);
+
+    await exec(deps, ["gate-restart", "-n", "o-r-7"]);
+
+    // It is a force lever: it still restarts, but it must surface that a gate
+    // was running so the director confirms a stall before clobbering it.
+    expect(out.join("\n")).toContain("in flight");
+    expect(out.join("\n")).toContain("post-address gate restarted");
+    expect(existsSync(join(dir, `gatekeeper-post-${HEAD.slice(0, 12)}.sh`))).toBe(true);
   });
 });
 
