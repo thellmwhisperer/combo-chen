@@ -309,6 +309,35 @@ ignored config or environment outside that file.
   `combo_closed` and stops tmux while preserving the local worktree and branch.
   Without `--apply` it reports what would change without mutating state.
 
+## 8a. Release artifact contract
+
+The release channel is a producer contract for future update code. A release
+build carries inspectable metadata: `combo-chen --version` reports the package
+version, commit, and build date embedded by the bundler. Automation supplies
+`COMBO_CHEN_COMMIT` and `COMBO_CHEN_BUILD_DATE`; local builds use deterministic
+fallbacks where configured and otherwise mark unknown/current values.
+
+Assets are platform archives named
+`combo-chen-vX.Y.Z-<platform>-<arch>.tar.gz`. The default release targets are
+`darwin-arm64`, `darwin-x64`, `linux-arm64`, and `linux-x64`. Each archive is
+rooted at `combo-chen-vX.Y.Z/` and contains `bin/combo-chen` with executable
+mode, sourced from `dist/cli.mjs`, plus package metadata, README, LICENSE, and
+`combo-chen.example.toml`.
+
+`checksums.txt` is sha256sum-compatible: one SHA-256 digest and filename per
+line, sorted by filename, covering every uploaded `.tar.gz` asset. `pnpm
+release:assets` runs the build and materializes reproducible archives plus
+`checksums.txt` under `dist/release/`.
+
+GitHub release automation runs the release asset producer for published and
+prereleased GitHub releases, using the release tag checkout and release creation
+timestamp, then uploads `dist/release/*.tar.gz` and
+`dist/release/checksums.txt` to that release.
+
+No network update or executable replacement behavior is part of this contract.
+The current system only defines, verifies, and publishes artifacts; future
+update code must verify `checksums.txt` before installing anything.
+
 ## 8b. Preflight
 
 - The issue is the combo's spec: plan quality buys autonomous runtime.

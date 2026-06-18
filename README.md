@@ -173,6 +173,34 @@ worktree before each gate, so validation stays deterministic. The daemon copy
 polls with up to
 `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` retries (default 120, 1 s delay).
 
+## Release Artifacts
+
+Release builds carry inspectable metadata: `combo-chen --version` prints the
+package version, commit, and build date embedded at build time. Local builds use
+safe fallbacks; release automation passes `COMBO_CHEN_COMMIT` and
+`COMBO_CHEN_BUILD_DATE`.
+
+The release asset contract is intentionally small because future update code
+will consume it directly:
+
+- Platform archives are named
+  `combo-chen-vX.Y.Z-<platform>-<arch>.tar.gz`; the default targets are
+  `darwin-arm64`, `darwin-x64`, `linux-arm64`, and `linux-x64`.
+- Each archive expands under `combo-chen-vX.Y.Z/` and installs the executable
+  CLI at `bin/combo-chen`, sourced from `dist/cli.mjs`, plus package metadata,
+  README, LICENSE, and `combo-chen.example.toml`.
+- `checksums.txt` is sha256sum-compatible, sorted by filename, and covers every
+  uploaded `.tar.gz` asset.
+- `pnpm release:assets` builds the CLI and writes reproducible archives plus
+  `checksums.txt` into `dist/release/`.
+- The `release-assets` workflow runs for published and prereleased GitHub
+  releases and uploads `dist/release/*.tar.gz` plus
+  `dist/release/checksums.txt` to the release.
+
+No network update or executable replacement behavior is introduced here. This
+contract only defines and produces the artifacts that a future updater will
+verify and install.
+
 ## Commands
 
 ```bash
