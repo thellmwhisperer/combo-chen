@@ -162,6 +162,33 @@ present with `SUCCESS`; these external checks are not reviewer approval.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
 filtered for bookkeeping/noise and otherwise routed to coder responding mode.
 
+## Agent CLI Policy
+
+The default Codex coder path is gnhf-managed: combo-chen runs pinned `gnhf` with
+`--agent codex`, `--max-iterations`, `--stop-when`, `--prevent-sleep on`,
+`--meteor-frequency 0`, and `--current-branch`. gnhf 0.1.41 does not expose a
+generic Codex CLI profile/flag pass-through, so Codex terminal flags are not
+part of the normal coder command. Coder responding mode resumes the captured
+thread with `codex --profile sitter --no-alt-screen resume {thread_id}` so tmux
+keeps visible scrollback and the original session remains resumable/auditable.
+Custom `resume_command` templates remain supported for local wrappers or other
+agents.
+
+If combo-chen later adds a direct noninteractive Codex runner, it must keep
+`-C {worktree}` explicit, use an autonomous isolated sandbox such as
+`--sandbox workspace-write --ask-for-approval never`, emit parseable events with
+`--json`, and capture the final answer with `-o {run_dir}/final.md`.
+`--search` stays opt-in per issue. Normal project agents should keep project
+rules and user config enabled, avoid `--ephemeral`, and avoid
+`dangerously-bypass-approvals-and-sandbox` unless another sandbox boundary owns
+that risk.
+
+Reviewer commands are tmux-visible interactive role commands by default and
+therefore honor project context. If a reviewer role is later moved to a
+headless Claude `-p`/SDK runner whose output is consumed by combo-chen, that
+runner should use JSON or stream-JSON output, explicit budget/turn limits, a
+read/review-oriented tool surface, and separate cost/usage artifacts.
+
 The target repo may carry a repo-level `.no-mistakes.yaml` with explicit test,
 lint, and build commands. combo-chen tracks this file in this repo on purpose
 so every worker and no-mistakes gate shares the same validation contract; keep

@@ -20,12 +20,18 @@ merge = "human"                   # hard default: earn automerge with data first
 [coder.codex]
 # {placeholders}: issue_url, worktree, repo, branch, prompt. Each value is
 # substituted as a single-quoted shell token; don't add quotes around them.
-# Omit command/resume_command to use combo-chen's safe built-in codex/gnhf defaults.
+# Omit command/resume_command to use combo-chen's safe built-in codex/gnhf defaults:
+# coder command: pinned gnhf runs `--agent codex` with max-iteration,
+# stop-condition, sleep-prevention, and low-noise telemetry flags.
+# resume command: codex --profile sitter --no-alt-screen resume {thread_id}
+# gnhf 0.1.41 does not expose a Codex profile/flag pass-through for the
+# coder path, so Codex terminal/profile flags belong in resume_command or a
+# repo-owned wrapper.
 # Override only when this repo owns a custom coder wrapper:
 # command = 'repo-coder --current-branch {prompt}'
 # {placeholders}: thread_id. Used by coder responding mode to resume the same
 # implementation context after PR review comments land.
-# resume_command = 'repo-coder resume {thread_id}'
+# resume_command = 'codex --profile sitter --no-alt-screen resume {thread_id}'
 
 # A hermes example (DeepSeek/Gemini/... via the Hermes harness):
 # [coder."hermes:deepseek"]
