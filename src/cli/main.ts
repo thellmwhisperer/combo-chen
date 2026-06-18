@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~840 lines, 19 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~910 lines, 19 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -27,12 +27,12 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,state}, ../infra/{config,config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper,reviewer},
+ *   ../core/{combo,events,state,work-plan}, ../infra/{config,config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper,reviewer},
  *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 
@@ -49,6 +49,7 @@ import {
 import {
   comboHome,
   comboIdFromIssueUrl,
+  comboIdFromWorkPlanSource,
   listCombos,
   parseIssueUrl,
   readCombo,
@@ -56,6 +57,12 @@ import {
   writeCombo,
   type ComboRecord,
 } from "../core/state.js";
+import {
+  normalizeGitHubIssueWorkPlan,
+  normalizeMarkdownWorkPlan,
+  renderWorkPlanMarkdown,
+  type WorkPlan,
+} from "../core/work-plan.js";
 import { assertSafeCoderInvocation, loadConfig } from "../infra/config.js";
 import { loadRuntimeConfig, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
@@ -72,11 +79,12 @@ import {
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
+  buildWorkPlanPrIntent,
   buildNoMistakesPushIntent,
   ensureIssueAutocloseInPrBody,
   hasIssueAutocloseInPrBody,
 } from "../roles/gatekeeper.js";
-import { buildCoderInvocation, persistCoderThreadArtifact } from "../roles/coder.js";
+import { buildCoderInvocation, defaultWorkPlanPrompt, persistCoderThreadArtifact } from "../roles/coder.js";
 import { assertReviewerCommandSafe } from "../roles/reviewer.js";
 import { parseEventFields } from "./args.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
@@ -158,6 +166,23 @@ function isParked(events: ComboEvent[]): boolean {
   return events.at(-1)?.event === "parked";
 }
 
+const WORK_PLAN_ARTIFACT = "work-plan.md";
+
+function readLocalMarkdownWorkPlan(planFile: string): WorkPlan {
+  const path = resolve(planFile);
+  let markdown: string;
+  try {
+    markdown = readFileSync(path, "utf8");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Work plan not readable: ${path} (${reason})`);
+  }
+  return normalizeMarkdownWorkPlan({
+    markdown,
+    source: { type: "local_file", reference: path },
+  });
+}
+
 function requireCleanSourceCheckout(deps: Deps, repoDir: string, requiredBranch: string): void {
   const branch = deps.git(["branch", "--show-current"], repoDir);
   if (branch.status !== 0) {
@@ -198,30 +223,46 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("run")
-    .description("Launch a combo for a GitHub issue")
-    .requiredOption("--issue <url>", "GitHub issue URL")
+    .description("Launch a combo for a GitHub issue or local markdown plan")
+    .option("--issue <url>", "GitHub issue URL")
+    .option("--plan <file>", "Local markdown work plan")
     .option("--repo <dir>", "Target repo directory", process.cwd())
     .option("--prompt <text>", "Override the coder's objective prompt")
     .option("--base <ref>", "Base ref for the combo branch", "origin/main")
-    .action(async (options: { issue: string; repo: string; prompt?: string; base: string }) => {
-      const issue = parseIssueUrl(options.issue);
-      if (!deps.issueExists(options.issue)) {
+    .action(async (options: { issue?: string; plan?: string; repo: string; prompt?: string; base: string }) => {
+      const hasIssue = options.issue !== undefined;
+      const hasPlan = options.plan !== undefined;
+      if (hasIssue === hasPlan) {
+        throw new Error("combo-chen run requires exactly one of --issue <url> or --plan <file>");
+      }
+
+      const issue = options.issue === undefined ? undefined : parseIssueUrl(options.issue);
+      if (options.issue !== undefined && !deps.issueExists(options.issue)) {
         throw new Error(`Issue not reachable: ${options.issue} (gh issue view failed)`);
       }
-      const issueDetails = fetchIssueDetails(deps.gh, options.issue);
+      const issueDetails = options.issue === undefined ? undefined : fetchIssueDetails(deps.gh, options.issue);
+      const workPlan = issueDetails === undefined
+        ? readLocalMarkdownWorkPlan(options.plan!)
+        : normalizeGitHubIssueWorkPlan({
+          issueUrl: options.issue!,
+          title: issueDetails.title,
+          body: issueDetails.body,
+        });
 
       // The wrong cwd must not silently row on unrelated code: when the
       // target repo has an origin, its slug has to equal the issue's
       // owner/repo exactly (substring matching would accept owner/repo-fork).
-      const remote = deps.git(["remote", "get-url", "origin"], options.repo);
-      const remoteUrl = remote.stdout.trim();
-      if (remote.status === 0 && remoteUrl !== "") {
-        const slug = remoteSlug(remoteUrl);
-        if (slug?.toLowerCase() !== `${issue.owner}/${issue.repo}`.toLowerCase()) {
-          throw new Error(
-            `Repo mismatch: origin is "${remoteUrl}" but the issue belongs to ${issue.owner}/${issue.repo}. ` +
-              `Pass the right --repo.`,
-          );
+      if (issue !== undefined) {
+        const remote = deps.git(["remote", "get-url", "origin"], options.repo);
+        const remoteUrl = remote.stdout.trim();
+        if (remote.status === 0 && remoteUrl !== "") {
+          const slug = remoteSlug(remoteUrl);
+          if (slug?.toLowerCase() !== `${issue.owner}/${issue.repo}`.toLowerCase()) {
+            throw new Error(
+              `Repo mismatch: origin is "${remoteUrl}" but the issue belongs to ${issue.owner}/${issue.repo}. ` +
+                `Pass the right --repo.`,
+            );
+          }
         }
       }
 
@@ -229,7 +270,9 @@ export function createProgram(deps: Deps): Command {
       requireCleanSourceCheckout(deps, options.repo, config.sourceBranch);
       fetchBaseRef(deps, options.repo, options.base);
       assertReviewerCommandSafe(config.reviewerCommand);
-      const id = comboIdFromIssueUrl(options.issue);
+      const id = options.issue === undefined
+        ? comboIdFromWorkPlanSource(workPlan.source, workPlan.title)
+        : comboIdFromIssueUrl(options.issue);
       const home = comboHome(deps.env);
       const runDir = runDirFor(home, id);
       const session = `combo-chen-${id}`;
@@ -238,11 +281,16 @@ export function createProgram(deps: Deps): Command {
         throw new Error(`Combo already running: tmux session "${session}" exists`);
       }
 
-      const branch = `combo/issue-${issue.number}`;
-      const worktree = join(options.repo, ".worktrees", `issue-${issue.number}`);
+      const branch = issue === undefined ? `combo/${id}` : `combo/issue-${issue.number}`;
+      const worktree = issue === undefined
+        ? join(options.repo, ".worktrees", id)
+        : join(options.repo, ".worktrees", `issue-${issue.number}`);
       const combo: ComboRecord = {
         id,
-        issueUrl: options.issue,
+        issueUrl: options.issue ?? "",
+        workItemSourceType: workPlan.source.type,
+        workItemSourceReference: workPlan.source.reference,
+        workItemTitle: workPlan.title,
         repoDir: options.repo,
         worktree,
         branch,
@@ -255,13 +303,18 @@ export function createProgram(deps: Deps): Command {
         combo,
       };
       if (options.prompt !== undefined) coderInput.prompt = options.prompt;
+      else if (issue === undefined) {
+        coderInput.prompt = defaultWorkPlanPrompt(workPlan, join(runDir, WORK_PLAN_ARTIFACT));
+      }
       assertSafeCoderInvocation(config.coderCommand, { requireGnhf: config.roles.coder === "codex" });
       const coderCommand = buildCoderInvocation(coderInput);
-      const issuePrIntent = buildIssuePrIntent({
-        combo,
-        issueTitle: issueDetails.title,
-        issueBody: issueDetails.body,
-      });
+      const prIntent = issueDetails === undefined
+        ? buildWorkPlanPrIntent(workPlan)
+        : buildIssuePrIntent({
+          combo,
+          issueTitle: issueDetails.title,
+          issueBody: issueDetails.body,
+        });
 
       const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch, options.base], options.repo);
       if (worktreeResult.status !== 0) {
@@ -274,6 +327,7 @@ export function createProgram(deps: Deps): Command {
       try {
         writeCombo(runDir, combo);
         writeConfigSnapshot(runDir, config);
+        writeFileSync(join(runDir, WORK_PLAN_ARTIFACT), renderWorkPlanMarkdown(workPlan));
       } catch (error) {
         rmSync(runDir, { recursive: true, force: true });
         deps.git(["worktree", "remove", "--force", worktree], options.repo);
@@ -284,21 +338,25 @@ export function createProgram(deps: Deps): Command {
       const gatekeeperCommand = buildGatekeeperInvocation({
         gatekeeperCommand: config.gatekeeperCommand,
         combo,
-        issueTitle: issueDetails.title,
-        issueBody: issueDetails.body,
+        ...(issueDetails === undefined
+          ? { workPlan }
+          : { issueTitle: issueDetails.title, issueBody: issueDetails.body }),
       });
       const quotedId = shellQuote(id);
-      const runner = buildRunnerScript({
+      const runnerInput: Parameters<typeof buildRunnerScript>[0] = {
         combo,
         baseRef: options.base,
         coderCommand,
         gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
-        gatekeeperMirrorIntent: buildNoMistakesPushIntent(issuePrIntent),
+        gatekeeperMirrorIntent: buildNoMistakesPushIntent(prIntent),
         activateCoder: `${cliInvocation()} activate-coder -n ${quotedId}`,
         emit: `${cliInvocation()} emit -n ${quotedId}`,
         activateReviewer: `${cliInvocation()} activate-reviewer -n ${quotedId}`,
-        ensurePrAutoclose: `${cliInvocation()} ensure-pr-autoclose -n ${quotedId} --pr-url`,
-      });
+      };
+      if (issue !== undefined) {
+        runnerInput.ensurePrAutoclose = `${cliInvocation()} ensure-pr-autoclose -n ${quotedId} --pr-url`;
+      }
+      const runner = buildRunnerScript(runnerInput);
       const runnerPath = join(runDir, "runner.sh");
       writeFileSync(runnerPath, runner);
       chmodSync(runnerPath, 0o755);
@@ -307,6 +365,9 @@ export function createProgram(deps: Deps): Command {
       // so journal ordering always matches the tested contract.
       appendEvent(runDir, "combo_created", {
         issue_url: combo.issueUrl,
+        work_item_source_type: workPlan.source.type,
+        work_item_source_reference: workPlan.source.reference,
+        work_item_title: workPlan.title,
         repo: combo.repoDir,
         worktree: combo.worktree,
         branch: combo.branch,

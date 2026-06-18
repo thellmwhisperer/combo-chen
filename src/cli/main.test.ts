@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4800 lines.
+ *   deps so tests run without a real terminal or network. ~5200 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -45,7 +45,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
-import { runDirFor, writeCombo } from "../core/state.js";
+import { listCombos, runDirFor, writeCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
@@ -1777,6 +1777,88 @@ describe("run", () => {
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
+  });
+
+  it("launches from a local markdown plan and persists the normalized work-plan artifact", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const planPath = join(repoDir, "launch-plan.md");
+    writeFileSync(
+      planPath,
+      [
+        "# Let plans launch combos",
+        "",
+        "## Problem",
+        "GitHub issues are currently the only launch carrier.",
+        "",
+        "## Scope Boundaries",
+        "- Accept a local markdown plan.",
+        "- Do not require a GitHub issue URL.",
+        "",
+        "## Acceptance Criteria",
+        "- `combo-chen run --plan launch-plan.md --repo .` starts a combo.",
+        "- The run records the normalized plan artifact.",
+        "",
+        "## Validation Commands",
+        "- `pnpm test`",
+      ].join("\n"),
+    );
+    const ghCalls: string[][] = [];
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      issueExists: () => {
+        throw new Error("issue lookup should not run for --plan");
+      },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["run", "--plan", planPath, "--repo", repoDir]);
+
+    expect(ghCalls).toEqual([]);
+    const [combo] = listCombos(h);
+    expect(combo).toMatchObject({
+      workItemSourceType: "local_file",
+      workItemSourceReference: planPath,
+      workItemTitle: "Let plans launch combos",
+    });
+    expect(combo?.id).toMatch(/^plan-let-plans-launch-combos-[0-9a-f]{8}$/);
+    expect(combo?.branch).toBe(`combo/${combo?.id}`);
+    expect(combo?.worktree).toBe(join(repoDir, ".worktrees", combo?.id ?? ""));
+
+    const runDir = runDirFor(h, combo!.id);
+    const artifact = readFileSync(join(runDir, "work-plan.md"), "utf8");
+    expect(artifact).toContain("# Let plans launch combos");
+    expect(artifact).toContain(`Source: local_file ${planPath}`);
+    expect(artifact).toContain("- The run records the normalized plan artifact.");
+
+    const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
+    expect(runner).toContain("Implement work plan Let plans launch combos.");
+    expect(runner).toContain("Read the normalized work plan artifact");
+    expect(runner).toContain("no-mistakes axi run --intent");
+    expect(runner).not.toContain("ensure-pr-autoclose");
+    expect(runner).not.toContain("Fixes #");
+    expect(spawnSync("sh", ["-n", join(runDir, "runner.sh")], { encoding: "utf8" }).status).toBe(0);
+
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${repoDir}`,
+      "worktree",
+      "add",
+      combo!.worktree,
+      "-b",
+      combo!.branch,
+      "origin/main",
+    ]);
+    const events = readEvents(runDir);
+    expect(events[0]).toMatchObject({
+      event: "combo_created",
+      work_item_source_type: "local_file",
+      work_item_source_reference: planPath,
+      work_item_title: "Let plans launch combos",
+    });
   });
 
   it("shell-quotes the combo id in runner command invocations", async () => {
