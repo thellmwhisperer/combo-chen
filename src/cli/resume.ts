@@ -166,6 +166,12 @@ function shouldRetryInitialGate(events: ComboEvent[], headSha: string | undefine
   ) {
     return true;
   }
+  if (hasEvent(events, "needs_human")) {
+    const hasGateFailedExhaustion = events.some(
+      (event) => event.event === "needs_human" && event["reason"] === "gate_failed",
+    );
+    if (hasGateFailedExhaustion) return false;
+  }
   return status?.state !== "fix_inflight" && status?.state !== "awaiting_approval";
 }
 
