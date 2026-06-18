@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4525 lines.
+ *   deps so tests run without a real terminal or network. ~4800 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -34,7 +34,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state},
- *   ../roles/coder, ./main
+ *   ../infra/{config,config-snapshot}, ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -46,6 +46,8 @@ import { describe, expect, it, vi } from "vitest";
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
@@ -1276,6 +1278,49 @@ describe("emit", () => {
     expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
   });
 
+  it("uses the launch config snapshot for gate_started window recovery after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 42\nattach_retry_interval_seconds = 6\n",
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 3\nattach_retry_interval_seconds = 1\n",
+    );
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "gate_started"]);
+
+    const gatekeeperCommand = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    )?.at(-1) ?? "";
+    expect(gatekeeperCommand).toContain("timed out after 42 seconds");
+    expect(gatekeeperCommand).toContain("attempt $attempt/7");
+    expect(gatekeeperCommand).toContain("sleep 6");
+    expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
+  });
+
   it("is a no-op when the gatekeeper tmux window already exists", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -1359,6 +1404,12 @@ describe("run", () => {
 
     const runDir = runDirFor(h, "o-r-7");
     expect(existsSync(join(runDir, "combo.json"))).toBe(true);
+    expect(existsSync(join(runDir, CONFIG_SNAPSHOT_FILE))).toBe(true);
+    expect(readConfigSnapshot(runDir).roles).toMatchObject({
+      coder: "codex",
+      gatekeeper: "no-mistakes",
+      merge: "human",
+    });
     const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
     expect(runner).toContain("gnhf");
     const daemonStart = runner.indexOf("no-mistakes daemon start");
@@ -1569,6 +1620,29 @@ exit 0
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
+  it("rolls back run state, worktree, and branch when config snapshot write fails", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    mkdirSync(join(runDir, CONFIG_SNAPSHOT_FILE), { recursive: true });
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow();
+
+    const worktreeAddIndex = calls.findIndex(
+      (call) => call[0] === "git" && call.includes("worktree") && call.includes("add"),
+    );
+    const worktreeRemoveIndex = calls.findIndex(
+      (call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"),
+    );
+    const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
+    expect(worktreeAddIndex).toBeGreaterThan(-1);
+    expect(worktreeRemoveIndex).toBeGreaterThan(worktreeAddIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(existsSync(runDir)).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+  });
+
   it("forces publish-only mode on a no-placeholder repo-level no-mistakes gatekeeper command", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -1684,6 +1758,59 @@ $(echo boom)'`);
 
 // -- 4/4 HELPER · Remaining commands: resume, status, reviewer, events, park, stop, poll --
 describe("resume", () => {
+  it("uses the launch config snapshot for gatekeeper attach timing after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 42\nattach_retry_interval_seconds = 6\n",
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 3\nattach_retry_interval_seconds = 1\n",
+    );
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: [
+          "run:",
+          "  branch: combo/issue-7",
+          "  status: running",
+          "  steps[1]{step,status,findings,duration_ms}:",
+          "    ci,running,0,0",
+        ].join("\n"),
+        stderr: "",
+      }),
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const gatekeeperCommand = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    )?.at(-1) ?? "";
+    expect(gatekeeperCommand).toContain("timed out after 42 seconds");
+    expect(gatekeeperCommand).toContain("attempt $attempt/7");
+    expect(gatekeeperCommand).toContain("sleep 6");
+    expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
+  });
+
   it("starts reviewer and director monitoring for an existing reviewer-ready PR without a fresh run", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -2786,6 +2913,60 @@ describe("status", () => {
 
     expect(out.join("\n")).not.toContain("PR ready for reviewer");
   });
+
+  it("uses the launch config snapshot for deep downstream status after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["launch-bot"]\n');
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["drift-bot"]\n');
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 0,
+        stdout: ["run:", "  branch: combo/issue-7", "  status: completed"].join("\n"),
+        stderr: "",
+      }),
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: "OPEN",
+              statusCheckRollup: [
+                { name: "launch-bot", conclusion: "FAILURE" },
+                { name: "test", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status", "--deep"]);
+
+    expect(out.join("\n")).toContain("PR ready for reviewer");
+  });
 });
 
 describe("forensics", () => {
@@ -2957,6 +3138,65 @@ describe("forensics", () => {
       "state,closedAt",
     ]);
   });
+
+  it("uses the launch config snapshot for GitHub check classification after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["launch-bot"]\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: "2026-06-11T10:00:00.000Z",
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["drift-bot"]\n');
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "def456",
+              state: "OPEN",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "launch-bot", status: "COMPLETED", conclusion: "FAILURE" },
+                { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ state: "OPEN", closedAt: null }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["forensics", "--issues", "7", "--format", "json"]);
+
+    const parsed = JSON.parse(out.join("\n")) as {
+      reports: Array<{ gates: { ci: string; ambientReviewer: string } }>;
+    };
+    expect(parsed.reports[0]?.gates).toMatchObject({
+      ci: "success",
+      ambientReviewer: "failure",
+    });
+  });
 });
 
 describe("activate-reviewer", () => {
@@ -3086,6 +3326,31 @@ describe("activate-reviewer", () => {
 });
 
 describe("director-watch command", () => {
+  it("uses the launch config snapshot for loop cadence after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nbabysit_poll_seconds = 42\n");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nbabysit_poll_seconds = 3\n");
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["director-watch", "-n", "o-r-7", "--iterations", "2"]);
+
+    expect(calls).toContainEqual(["sleep", "42000"]);
+    expect(calls).not.toContainEqual(["sleep", "3000"]);
+    expect(out.filter((line) => line === "director: tick complete for o-r-7")).toHaveLength(2);
+  });
+
   it("survives one failed director tick, journals watch_error, and runs the next tick", () => {
     const h = home();
     const tickCount = join(h, "tick-count");
@@ -4249,6 +4514,55 @@ describe("stop", () => {
 });
 
 describe("park", () => {
+  it("uses the launch config snapshot for handoff downstream status after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["launch-bot"]\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["drift-bot"]\n');
+    const prUrl = "https://github.com/o/r/pull/7";
+    appendEvent(dir, "pr_opened", { url: prUrl });
+
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              state: "OPEN",
+              statusCheckRollup: [
+                { name: "launch-bot", conclusion: "FAILURE" },
+                { name: "test", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["park", "-n", "o-r-7", "--by", "maintainer"]);
+
+    const summaryPath = readEvents(dir).at(-1)?.summary_path;
+    expect(typeof summaryPath).toBe("string");
+    const summary = readFileSync(summaryPath as string, "utf8");
+    expect(summary).toContain("downstream: PR ready for reviewer");
+  });
+
   it("writes a resumable handoff summary and stops tmux without terminally stopping the combo", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");

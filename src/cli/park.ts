@@ -22,7 +22,7 @@
  *   buildParkSummary
  *
  * @exports ParkDeps, parkCombo
- * @deps node:fs, node:path, ../core/{combo,events,state}, ../infra/{config,tmux}, ./github, ./status
+ * @deps node:fs, node:path, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ./github, ./status
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -30,7 +30,7 @@ import { join } from "node:path";
 import { deriveStatus, shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { hasSessionArgs, killSessionArgs, type TmuxResult } from "../infra/tmux.js";
 import type { GhRunner } from "./github.js";
 import { deepComboStatus, type CommandResult } from "./status.js";
@@ -89,9 +89,10 @@ export function parkCombo(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const events = readEvents(runDir);
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
     requiredCheckNames: config.readyRequiredChecks,
+    ambientCheckNames: config.externalCommentAgents,
   });
   const summaryPath = join(runDir, "park-handoff.md");
 

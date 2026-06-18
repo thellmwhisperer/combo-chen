@@ -1,12 +1,13 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~213 lines, attach, config artifact, and mirror sync.
+ * @overview Unit tests for gatekeeper CLI helpers. ~345 lines, attach, config artifact, mirror sync, and runtime snapshot use.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at gatekeeper attach window helpers <- tmux command rendering.
  *   2. Then syncNoMistakesMirror                 <- missing mirror no-op.
  *   3. propagateNoMistakesConfig                 <- local config artifact copy.
- *   4. remoteShaForRef/sync helpers              <- exact refs and safe pushes.
+ *   4. gatekeeper runtime gates                  <- snapshot-backed commands.
+ *   5. remoteShaForRef/sync helpers              <- exact refs and safe pushes.
  *
  *   MAIN FLOW
  *   ---------
@@ -21,7 +22,7 @@
  *   combo
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/state, ./gate
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./gate
  */
 import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,11 +35,16 @@ import {
   ensureGatekeeperWindow,
   propagateNoMistakesConfig,
   remoteShaForRef,
+  runPostAddressGateIfNeeded,
+  startInitialGateRetry,
   syncNoMistakesMirror,
 } from "./gate.js";
+import { appendEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 
-// -- 1/4 HELPER · combo and remoteShaForRef tests --
+// -- 1/5 HELPER · combo and remoteShaForRef tests --
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
   return {
     id: "o-r-7",
@@ -65,9 +71,9 @@ describe("remoteShaForRef", () => {
     ).toBe("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   });
 });
-// -/ 1/4
+// -/ 1/5
 
-// -- 2/4 CORE · gatekeeper attach window helpers <- START HERE --
+// -- 2/5 CORE · gatekeeper attach window helpers <- START HERE --
 describe("gatekeeper attach window helpers", () => {
   it("rejects non-positive timeout and retry values", () => {
     expect(() =>
@@ -133,9 +139,9 @@ describe("gatekeeper attach window helpers", () => {
     ]);
   });
 });
-// -/ 2/4
+// -/ 2/5
 
-// -- 3/4 CORE · no-mistakes config artifact propagation --
+// -- 3/5 CORE · no-mistakes config artifact propagation --
 describe("propagateNoMistakesConfig", () => {
   it("copies the source local config into the worktree preserving content and mode", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -169,9 +175,116 @@ describe("propagateNoMistakesConfig", () => {
     expect(existsSync(join(worktree, ".no-mistakes.yaml"))).toBe(false);
   });
 });
-// -/ 3/4
+// -/ 3/5
 
-// -- 4/4 CORE · syncNoMistakesMirror and post-address push safety --
+// -- 4/5 CORE · gatekeeper runtime gates use frozen config snapshots --
+describe("gatekeeper runtime config snapshots", () => {
+  it("uses the launch gatekeeper command for initial gate retries after repo TOML changes", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const record = combo({ repoDir, worktree: join(repoDir, ".worktrees", "issue-7") });
+    const calls: string[][] = [];
+
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[gatekeeper]\ncommand = "printf launch-gate && no-mistakes axi run --intent fixed"\n',
+    );
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[gatekeeper]\ncommand = "printf drifted-gate && no-mistakes axi run --intent fixed"\n',
+    );
+
+    const result = startInitialGateRetry({
+      deps: {
+        env: {},
+        out: () => undefined,
+        gh: () => ({ status: 0, stdout: '{"title":"Issue","body":"Body"}', stderr: "" }),
+        git: (args) => {
+          if (args.join(" ") === "rev-parse HEAD") {
+            return { status: 0, stdout: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n", stderr: "" };
+          }
+          if (args.join(" ") === "status --porcelain") {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      combo: record,
+      runDir,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(result).toEqual({ started: true, headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
+    expect(calls).toHaveLength(2);
+    const script = readFileSync(join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh"), "utf8");
+    expect(script).toContain("printf launch-gate");
+    expect(script).not.toContain("printf drifted-gate");
+  });
+
+  it("uses the launch gatekeeper command for post-address gates after repo TOML changes", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const record = combo({ repoDir, worktree: join(repoDir, ".worktrees", "issue-7") });
+    const calls: string[][] = [];
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[gatekeeper]\ncommand = "printf launch-post && no-mistakes axi run --intent fixed"\n',
+    );
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[gatekeeper]\ncommand = "printf drifted-post && no-mistakes axi run --intent fixed"\n',
+    );
+    appendEvent(runDir, "gate_validated", { sha: oldSha });
+    appendEvent(runDir, "review_comment", {
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+      author: "reviewer",
+      kind: "thread",
+      head_sha: oldSha,
+    });
+
+    runPostAddressGateIfNeeded({
+      deps: {
+        env: {},
+        out: () => undefined,
+        gh: () => ({ status: 0, stdout: '{"title":"Issue","body":"Body"}', stderr: "" }),
+        git: (args) => {
+          if (args.join(" ") === "rev-parse HEAD") {
+            return { status: 0, stdout: `${headSha}\n`, stderr: "" };
+          }
+          if (args.join(" ") === "status --porcelain") {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      combo: record,
+      runDir,
+      prUrl: "https://github.com/o/r/pull/7",
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls).toHaveLength(2);
+    const script = readFileSync(join(runDir, "gatekeeper-post-bbbbbbbbbbbb.sh"), "utf8");
+    expect(script).toContain("printf launch-post");
+    expect(script).not.toContain("printf drifted-post");
+  });
+});
+// -/ 4/5
+
+// -- 5/5 CORE · syncNoMistakesMirror and post-address push safety --
 describe("syncNoMistakesMirror", () => {
   it("treats a missing no-mistakes remote as a no-op", () => {
     const calls: string[][] = [];
@@ -228,4 +341,4 @@ describe("buildPostAddressGateScript", () => {
     expect(script).not.toContain("autoclose guard skipped");
   });
 });
-// -/ 4/4
+// -/ 5/5

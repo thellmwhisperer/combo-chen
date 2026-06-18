@@ -23,12 +23,12 @@
  *   none
  *
  * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, activateCoder, nudgeReviewComments
- * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./gate
+ * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate
  */
 import { readEvents } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildCoderRespondingResumeCommand,
@@ -73,7 +73,7 @@ export function activateCoder(input: {
   const { deps, home, comboId } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const artifact = readCoderThreadArtifact(runDir);
   const coderResponding = deps.tmux(
     newWindowArgs(
@@ -105,7 +105,7 @@ export function nudgeReviewComments(input: {
   if (prUrl === undefined) {
     throw new Error(`No pr_opened event for combo "${comboId}"`);
   }
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   try {
     const synced = syncNoMistakesMirror(deps, combo, runDir);
     if (synced) {

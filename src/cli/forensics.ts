@@ -41,6 +41,7 @@ export interface ForensicsGithubPrFacts {
   mergedAt?: string;
   ci?: ForensicsSignalState;
   readyRequiredChecks?: ForensicsSignalState;
+  ambientReviewer?: ForensicsSignalState;
   mergeState?: string;
   branchBehind?: boolean;
 }
@@ -102,6 +103,7 @@ export interface ForensicsComboReport {
   gates: {
     ci: ForensicsSignalState;
     readyRequiredChecks: ForensicsSignalState;
+    ambientReviewer?: ForensicsSignalState;
     mergeState?: string;
     branchBehind?: boolean;
     gatekeeper: {
@@ -183,6 +185,7 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
     gates: {
       ci: input.github?.pr?.ci ?? "unknown",
       readyRequiredChecks: input.github?.pr?.readyRequiredChecks ?? "unknown",
+      ambientReviewer: input.github?.pr?.ambientReviewer,
       ...(input.github?.pr?.mergeState !== undefined ? { mergeState: input.github.pr.mergeState } : {}),
       ...(input.github?.pr?.branchBehind !== undefined ? { branchBehind: input.github.pr.branchBehind } : {}),
       gatekeeper: {

@@ -31,6 +31,10 @@ Validation at launch (hard failures, the combo refuses to start):
   heredocs, temp files, `cat`, `rm`, shell redirection, pipes, semicolons,
   `&&`, or `||`. The generated prompt tells reviewers to submit with
   `gh pr review <pr-url> --comment --body "<body>"`.
+- After launch, all runtime behavior (director polling cadence, gatekeeper
+  command, reviewer settings, teardown retries) reads from the per-run
+  `config.snapshot.json` artifact, not from the mutable repo TOML. This
+  prevents runtime drift when repo config changes during a long-running combo.
 
 ## 2. Phases and transitions
 
@@ -250,6 +254,11 @@ propagates it.
   includes a short (12-line) journal pane showing live events. After PR open,
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
+- The director-watch polling loop, post-address gates, reviewer activation,
+  park/resume, reconcile teardown, `status --deep`, and forensics all read
+  runtime config from the launch-time `config.snapshot.json` in the run
+  directory, not from the mutable repo TOML. Poll cadence and gatekeeper
+  commands stay deterministic after repo config changes.
 - Post-address no-mistakes gates are launched with generated run scripts in
   the combo run directory. The tmux command stays short (`sh <script>`), while
   the script owns gate status events, log capture, PR autoclose repair, and
