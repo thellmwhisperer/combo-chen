@@ -1,5 +1,5 @@
 /**
- * @overview Merged-combo teardown helpers. ~90 lines, 2 exports, retrying git cleanup.
+ * @overview Merged-combo teardown helpers. ~125 lines, 2 exports, idempotent git cleanup.
  *
  *   READING GUIDE
  *   -------------
@@ -8,7 +8,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   teardownMergedCombo -> fetch base -> verify merge sha -> remove worktree -> delete branch
+ *   teardownMergedCombo -> fetch base -> verify merge sha -> remove/already-gone worktree -> delete/already-gone branch
  *
  *   PUBLIC API
  *   ----------
@@ -17,7 +17,7 @@
  *
  *   INTERNALS
  *   ---------
- *   requireGit
+ *   requireGit, gitFailureText, isAlreadyRemovedWorktree, isAlreadyDeletedBranch
  *
  * @exports LifecycleDeps, teardownMergedCombo
  * @deps ../core/state
@@ -30,21 +30,46 @@ export interface LifecycleDeps {
   sleep: (ms: number) => Promise<void>;
 }
 
+interface GitRetryOptions {
+  retries: number;
+  backoffSeconds: number;
+  acceptsFailure?: (result: { stdout: string; stderr: string }) => boolean;
+}
+
 async function requireGit(
   deps: LifecycleDeps,
   args: string[],
   cwd: string,
   description: string,
-  options: { retries: number; backoffSeconds: number },
+  options: GitRetryOptions,
 ): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     const result = deps.git(args, cwd);
     if (result.status === 0) return;
+    if (options.acceptsFailure?.(result) === true) return;
     if (attempt >= options.retries) {
-      throw new Error(`${description} failed: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`);
+      throw new Error(`${description} failed: ${gitFailureText(result)}`);
     }
     await deps.sleep(options.backoffSeconds * 1000 * (attempt + 1));
   }
+}
+
+function gitFailureText(result: { stdout: string; stderr: string }): string {
+  return result.stderr.trim() || result.stdout.trim() || "unknown error";
+}
+
+function normalizedGitFailure(result: { stdout: string; stderr: string }): string {
+  return `${result.stderr}\n${result.stdout}`.toLowerCase();
+}
+
+function isAlreadyRemovedWorktree(result: { stdout: string; stderr: string }): boolean {
+  const text = normalizedGitFailure(result);
+  return text.includes("not a working tree") || text.includes("no such file or directory");
+}
+
+function isAlreadyDeletedBranch(result: { stdout: string; stderr: string }): boolean {
+  const text = normalizedGitFailure(result);
+  return text.includes("branch") && text.includes("not found");
 }
 // -/ 1/2
 
@@ -78,14 +103,14 @@ export async function teardownMergedCombo(input: {
     ["worktree", "remove", "--force", input.combo.worktree],
     input.combo.repoDir,
     `git worktree remove ${input.combo.worktree}`,
-    retryOptions,
+    { ...retryOptions, acceptsFailure: isAlreadyRemovedWorktree },
   );
   await requireGit(
     input.deps,
     ["branch", "-D", input.combo.branch],
     input.combo.repoDir,
     `git branch delete ${input.combo.branch}`,
-    retryOptions,
+    { ...retryOptions, acceptsFailure: isAlreadyDeletedBranch },
   );
 }
 // -/ 2/2
