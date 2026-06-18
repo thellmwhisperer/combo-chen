@@ -215,6 +215,34 @@ describe("command surface", () => {
     ]);
   });
 
+  it("omits the issue body section but keeps the autoclose line when the issue has no body", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          return { status: 0, stdout: JSON.stringify({ title: "My title", body: "" }), stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["intent", "-n", "o-r-7"]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("Fixes #7");
+    expect(out[0]).not.toContain("Issue body:");
+  });
+
   it("ensures a generated PR body has a visible source issue autoclose line", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
