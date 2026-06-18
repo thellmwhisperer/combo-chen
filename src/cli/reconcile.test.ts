@@ -75,6 +75,75 @@ function fakeDeps(overrides: Partial<ReconcileDeps> = {}): { deps: ReconcileDeps
 
 // -- 2/2 CORE · reconcileCombos tests <- START HERE --
 describe("reconcileCombos", () => {
+  it("applies merged cleanup only to the named combo", async () => {
+    const h = home();
+    const targetRepo = mkdtempSync(join(tmpdir(), "combo-chen-repo-target-"));
+    const otherRepo = mkdtempSync(join(tmpdir(), "combo-chen-repo-other-"));
+    const targetDir = runDirFor(h, "o-r-7");
+    const otherDir = runDirFor(h, "o-r-8");
+    writeCombo(targetDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir: targetRepo,
+      worktree: join(targetRepo, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeCombo(otherDir, {
+      id: "o-r-8",
+      issueUrl: "https://github.com/o/r/issues/8",
+      repoDir: otherRepo,
+      worktree: join(otherRepo, ".worktrees", "issue-8"),
+      branch: "combo/issue-8",
+      tmuxSession: "combo-chen-o-r-8",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(targetDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(otherDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
+    const { deps, calls, out } = fakeDeps({
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout:
+            '{"headRefOid":"head777","baseRefName":"main","mergeCommit":{"oid":"merge777"},"state":"MERGED","mergedBy":{"login":"maintainer"}}',
+          stderr: "",
+        };
+      },
+    });
+
+    await reconcileCombos({ deps, home: h, apply: true, comboId: "o-r-7" });
+
+    expect(readEvents(targetDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "reconcile" },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+    expect(readEvents(otherDir).map((event) => event.event)).toEqual(["pr_opened"]);
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/7",
+      "--json",
+      "headRefOid,state,mergedBy,baseRefName,mergeCommit",
+    ]);
+    expect(calls.some((call) => call.includes("https://github.com/o/r/pull/8"))).toBe(false);
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${targetRepo}`,
+      "worktree",
+      "remove",
+      "--force",
+      join(targetRepo, ".worktrees", "issue-7"),
+    ]);
+    expect(calls.some((call) => call.includes(`cwd=${otherRepo}`))).toBe(false);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    expect(calls.some((call) => call.includes("combo-chen-o-r-8"))).toBe(false);
+    expect(out).toEqual(["reconcile: o-r-7 merged merge777 by maintainer; teardown complete"]);
+  });
+
   it("dry-runs by default so operators can inspect pending repairs before teardown", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

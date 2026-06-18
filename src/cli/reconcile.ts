@@ -1,5 +1,5 @@
 /**
- * @overview Reconcile local combo journals against GitHub PR truth. ~250 lines,
+ * @overview Reconcile local combo journals against GitHub PR truth. ~255 lines,
  *   2 exports, terminal PR repair for merged/closed combos.
  *
  *   READING GUIDE
@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   listCombos -> latest pr_opened -> gh pr view -> append terminal events -> cleanup
+ *   list/select combo -> latest pr_opened -> gh pr view -> append terminal events -> cleanup
  *
  *   PUBLIC API
  *   ----------
@@ -25,7 +25,7 @@
  * @deps ../core/{events,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
  */
 import { appendEvent, readEvents } from "../core/events.js";
-import { listCombos, runDirFor, type ComboRecord } from "../core/state.js";
+import { listCombos, readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { parsePrView, type GhResult, type PrView } from "./github.js";
@@ -57,10 +57,15 @@ export async function reconcileCombos(input: {
   home: string;
   apply: boolean;
   quiet?: boolean;
+  comboId?: string;
 }): Promise<void> {
   let changed = false;
   let reported = false;
-  for (const combo of listCombos(input.home)) {
+  const combos =
+    input.comboId === undefined
+      ? listCombos(input.home)
+      : [readCombo(runDirFor(input.home, input.comboId))];
+  for (const combo of combos) {
     const outcome = await reconcileCombo({
       deps: input.deps,
       apply: input.apply,

@@ -1645,6 +1645,65 @@ describe("emit", () => {
 
 // -/ 2/4
 
+describe("reconcile", () => {
+  it("scopes -n repairs to one combo", async () => {
+    const h = home();
+    const targetRepo = mkdtempSync(join(tmpdir(), "combo-chen-repo-target-"));
+    const otherRepo = mkdtempSync(join(tmpdir(), "combo-chen-repo-other-"));
+    const targetDir = runDirFor(h, "o-r-7");
+    const otherDir = runDirFor(h, "o-r-8");
+    writeCombo(targetDir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: targetRepo,
+      worktree: join(targetRepo, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeCombo(otherDir, {
+      id: "o-r-8",
+      issueUrl: "https://github.com/o/r/issues/8",
+      repoDir: otherRepo,
+      worktree: join(otherRepo, ".worktrees", "issue-8"),
+      branch: "combo/issue-8",
+      tmuxSession: "combo-chen-o-r-8",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(targetDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(otherDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "head777",
+            state: "MERGED",
+            baseRefName: "main",
+            mergeCommit: { oid: "merge777" },
+            mergedBy: { login: "maintainer" },
+          }),
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["reconcile", "-n", "o-r-7", "--apply"]);
+
+    expect(readEvents(targetDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "reconcile" },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+    expect(readEvents(otherDir).map((event) => event.event)).toEqual(["pr_opened"]);
+    expect(calls.some((call) => call.includes("https://github.com/o/r/pull/8"))).toBe(false);
+    expect(calls.some((call) => call.includes(`cwd=${otherRepo}`))).toBe(false);
+    expect(out).toEqual(["reconcile: o-r-7 merged merge777 by maintainer; teardown complete"]);
+  });
+});
+
 // -- 3/4 CORE · run (combo launch flow) --
 describe("run", () => {
   it("creates the record, the runner script, the tmux session, and the birth event", async () => {
