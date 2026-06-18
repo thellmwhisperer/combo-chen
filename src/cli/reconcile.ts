@@ -1,5 +1,5 @@
 /**
- * @overview Reconcile local combo journals against GitHub PR truth. ~185 lines,
+ * @overview Reconcile local combo journals against GitHub PR truth. ~250 lines,
  *   2 exports, terminal PR repair for merged/closed combos.
  *
  *   READING GUIDE
@@ -97,9 +97,9 @@ async function reconcileCombo(input: {
     return { changed: false, reported: false };
   }
 
-  const prView = readPrViewForReconcile(deps, combo, prUrl);
+  const prView = readPrViewForReconcile(deps, quiet, combo, prUrl);
   if (!prView) {
-    return { changed: false, reported: true };
+    return { changed: false, reported: !quiet };
   }
 
   if (prView.state === "CLOSED") {
@@ -217,12 +217,15 @@ function report(
 
 function readPrViewForReconcile(
   deps: ReconcileDeps,
+  quiet: boolean,
   combo: ComboRecord,
   prUrl: string,
 ): PrView | undefined {
   const result = deps.gh(["pr", "view", prUrl, "--json", PR_VIEW_FIELDS]);
   if (result.status !== 0) {
-    deps.out(
+    report(
+      deps,
+      quiet,
       `reconcile: ${combo.id} skipped: gh pr view failed (status ${result.status}): ` +
         `${result.stderr.trim() || "unknown error"}`,
     );
@@ -232,7 +235,9 @@ function readPrViewForReconcile(
   try {
     return parsePrView(result.stdout);
   } catch (error) {
-    deps.out(
+    report(
+      deps,
+      quiet,
       `reconcile: ${combo.id} skipped: failed to parse PR data: ` +
         `${error instanceof Error ? error.message : String(error)}`,
     );
