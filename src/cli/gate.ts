@@ -32,7 +32,12 @@
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { buildNoMistakesMirrorPublishScript, guardNoMistakesDaemonStart, shellQuote } from "../core/combo.js";
+import {
+  buildNoMistakesGatekeeperRunScript,
+  buildNoMistakesMirrorPublishScript,
+  guardNoMistakesDaemonStart,
+  shellQuote,
+} from "../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
@@ -375,7 +380,7 @@ function buildInitialGateRetryScript(input: {
     "gatekeeper_code=0",
     "(",
     indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 2),
-    `  ${input.gatekeeperCommand}`,
+    indentShellLines(buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand), 2),
     `) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?`,
     gateAlreadyRunningGuardScript(input),
     "if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' \"$gatekeeper_log\"; then",
@@ -496,7 +501,7 @@ export function buildPostAddressGateScript(input: {
     "  gatekeeper_code=0",
     "  (",
     indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 4),
-    `    ${input.gatekeeperCommand}`,
+    indentShellLines(buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand), 4),
     "  ) || gatekeeper_code=$?",
     `  printf '%s\\n' "$gatekeeper_code" > "$status_file"`,
     `) 2>&1 | tee "$gatekeeper_log"`,
