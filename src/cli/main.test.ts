@@ -1665,8 +1665,8 @@ describe("run", () => {
     expect(axiRun).toBeGreaterThan(daemonStart);
     expect(axiRun).toBeGreaterThan(mirrorPush);
     expect(runner).toContain("mirror_intent='no-mistakes.intent=");
-    expect(runner).toContain("activate-coder -n o-r-7");
-    expect(runner).toContain("activate-reviewer -n o-r-7");
+    expect(runner).toContain("activate-coder -n 'o-r-7'");
+    expect(runner).toContain("activate-reviewer -n 'o-r-7'");
 
     const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
     expect(gitCall).toBeDefined();
@@ -1711,6 +1711,25 @@ describe("run", () => {
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
+  });
+
+  it("shell-quotes the combo id in runner command invocations", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const hostileIssue = "https://github.com/o; echo pwn/r's/issues/7";
+    const hostileId = "o; echo pwn-r's-7";
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", hostileIssue, "--repo", repoDir]);
+
+    const runnerPath = join(runDirFor(h, hostileId), "runner.sh");
+    const runner = readFileSync(runnerPath, "utf8");
+    expect(runner).toContain(`emit -n ${shellQuote(hostileId)} coder_started`);
+    expect(runner).toContain(`emit -n ${shellQuote(hostileId)} pr_opened`);
+    expect(runner).toContain(`activate-coder -n ${shellQuote(hostileId)}`);
+    expect(runner).toContain(`activate-reviewer -n ${shellQuote(hostileId)}`);
+    expect(runner).toContain(`ensure-pr-autoclose -n ${shellQuote(hostileId)} --pr-url`);
+    expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
   });
 
   it("uses configured gatekeeper attach retry settings in the gatekeeper tmux window", async () => {

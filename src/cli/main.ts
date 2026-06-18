@@ -285,16 +285,17 @@ export function createProgram(deps: Deps): Command {
         issueTitle: issueDetails.title,
         issueBody: issueDetails.body,
       });
+      const quotedId = shellQuote(id);
       const runner = buildRunnerScript({
         combo,
         baseRef: options.base,
         coderCommand,
         gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
         gatekeeperMirrorIntent: buildNoMistakesPushIntent(issuePrIntent),
-        activateCoder: `${cliInvocation()} activate-coder -n ${id}`,
-        emit: `${cliInvocation()} emit -n ${id}`,
-        activateReviewer: `${cliInvocation()} activate-reviewer -n ${id}`,
-        ensurePrAutoclose: `${cliInvocation()} ensure-pr-autoclose -n ${shellQuote(id)} --pr-url`,
+        activateCoder: `${cliInvocation()} activate-coder -n ${quotedId}`,
+        emit: `${cliInvocation()} emit -n ${quotedId}`,
+        activateReviewer: `${cliInvocation()} activate-reviewer -n ${quotedId}`,
+        ensurePrAutoclose: `${cliInvocation()} ensure-pr-autoclose -n ${quotedId} --pr-url`,
       });
       const runnerPath = join(runDir, "runner.sh");
       writeFileSync(runnerPath, runner);
