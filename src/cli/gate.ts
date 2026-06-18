@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~720 lines, 17 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~720 lines, 18 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -11,7 +11,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   ensureGatekeeperWindow -> startGatekeeperWindow; resume/director -> generated gate script -> mirror push with intent -> tmux gatekeeper; syncNoMistakesMirror -> fetch -> compare -> guarded push
+ *   ensureGatekeeperWindow -> startGatekeeperWindow; resume/director -> generated gate script -> mirror push with intent -> config handoff + gatekeeper run; syncNoMistakesMirror -> fetch -> compare -> guarded push
  *
  *   PUBLIC API
  *   ----------
