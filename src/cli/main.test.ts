@@ -34,7 +34,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state},
- *   ../infra/{config,config-snapshot}, ../roles/coder, ./main
+ *   ../infra/{config,config-snapshot,release-metadata}, ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -48,6 +48,7 @@ import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
+import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildIssuePrIntent } from "../roles/gatekeeper.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
@@ -139,6 +140,12 @@ describe("command surface", () => {
     const script = "/repo/combo#chen/src/cli/main.ts";
 
     expect(isDirectRun(pathToFileURL(script).href, script)).toBe(true);
+  });
+
+  it("exposes release build metadata through the version flag", () => {
+    const { deps } = fakeDeps();
+
+    expect(createProgram(deps).version()).toBe(formatReleaseMetadata(releaseMetadata));
   });
 
   it("exposes the configured command surface", () => {
