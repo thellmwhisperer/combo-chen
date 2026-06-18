@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.34](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.33...combo-chen-v0.0.34) (2026-06-18)
+
+
+### Features
+
+* **config:** Implemented the external comment-agent config slice with green validation, moving comment routing/filtering off reviewer-owned ambient config and onto a neutral `[external_comments].agents` surface. ([dfc0829](https://github.com/thellmwhisperer/combo-chen/commit/dfc0829bf44e057c94d7fd0f0f6192e5e8640f6e))
+* **ready:** Implemented the first READY required-checks slice for issue [#105](https://github.com/thellmwhisperer/combo-chen/issues/105), replacing external clean-comment gating with configurable GitHub check requirements while keeping the full suite green. ([fa05202](https://github.com/thellmwhisperer/combo-chen/commit/fa0520219f7e3b5667e5d41fbe76997cfab15f9a))
+
+
+### Bug Fixes
+
+* **ready:** address required check review notes ([1960868](https://github.com/thellmwhisperer/combo-chen/commit/1960868df97962ab4493985bbc5e5fd95c723241))
+* **ready:** Completed the final issue [#105](https://github.com/thellmwhisperer/combo-chen/issues/105) cleanup by removing stale ambient-reviewer terminology from core READY-check forensics surfaces and validating the full suite. ([78148d7](https://github.com/thellmwhisperer/combo-chen/commit/78148d7db6a7ad5209d5885558d4fbae96724beb))
+
 ## [0.0.33](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.32...combo-chen-v0.0.33) (2026-06-18)
 
 
