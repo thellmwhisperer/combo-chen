@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~830 lines, 19 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~840 lines, 19 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,state}, ../infra/{config,config-snapshot,tmux}, ../roles/{coder,gatekeeper,reviewer},
+ *   ../core/{combo,events,state}, ../infra/{config,config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper,reviewer},
  *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -58,6 +58,7 @@ import {
 } from "../core/state.js";
 import { assertSafeCoderInvocation, loadConfig } from "../infra/config.js";
 import { loadRuntimeConfig, writeConfigSnapshot } from "../infra/config-snapshot.js";
+import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import {
   attachSessionArgs,
   hasSessionArgs,
@@ -193,6 +194,7 @@ export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
   program.description("Conductor for autonomous issue → PR pipelines.");
+  program.version(formatReleaseMetadata(releaseMetadata), "-v, --version", "Print release build metadata");
 
   program
     .command("run")
