@@ -264,7 +264,8 @@ describe("command surface", () => {
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
         if (args[0] === "issue" && args[1] === "view") {
-          return { status: 0, stdout: JSON.stringify({ title: "My title", body: "" }), stderr: "" };
+          // GitHub returns body: null (not "") for an issue with no body.
+          return { status: 0, stdout: JSON.stringify({ title: "My title", body: null }), stderr: "" };
         }
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -275,6 +276,41 @@ describe("command surface", () => {
     expect(out).toHaveLength(1);
     expect(out[0]).toContain("Fixes #7");
     expect(out[0]).not.toContain("Issue body:");
+  });
+
+  it("throws and writes nothing to stdout when the issue fetch fails", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          return { status: 1, stdout: "", stderr: "gh: not found" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    // The skill captures stdout via `intent=$(...) && no-mistakes ...`; on
+    // failure stdout MUST stay empty so the `&&` aborts before publishing.
+    await expect(exec(deps, ["intent", "-n", "o-r-7"])).rejects.toThrow(/Issue details not reachable/);
+    expect(out).toEqual([]);
+  });
+
+  it("throws and writes nothing to stdout for an unknown combo id", async () => {
+    const h = home();
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["intent", "-n", "missing"])).rejects.toThrow();
+    expect(out).toEqual([]);
   });
 
   it("ensures a generated PR body has a visible source issue autoclose line", async () => {

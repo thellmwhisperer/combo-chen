@@ -87,11 +87,13 @@ When the coder is gnhf, check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log`. A g
 
 When a gate stalls or exhausts its retries and you have to drive `no-mistakes axi run` by hand, never author the intent yourself. A hand-written or paraphrased intent silently drops the verbatim `Fixes #N` requirement that combo-chen bakes into the gate intent, so no-mistakes regenerates the PR body without the autoclose line and the merged PR leaves its source issue open (you then have to close it by hand).
 
-Get the canonical intent from the binary and pass it straight through:
+Capture the canonical intent into a variable first, then publish only if the capture succeeded:
 
 ```
-no-mistakes axi run --yes --intent "$(combo-chen intent -n <comboId>)" --skip=ci
+intent=$(combo-chen intent -n <comboId>) && no-mistakes axi run --yes --intent "$intent" --skip=ci
 ```
+
+Do NOT inline it as `--intent "$(combo-chen intent -n <comboId>)"`. Command substitution captures only stdout, so if `combo-chen intent` fails (wrong combo id, GitHub unreachable, corrupt record) it exits non-zero with empty stdout, the error goes to stderr where it is easy to miss, and no-mistakes still runs with `--intent ""`. That republishes the PR body WITHOUT the `Fixes #N` line, which is the exact bug this guards against. The assignment plus `&&` aborts before publishing when the capture fails.
 
 `combo-chen intent -n <comboId>` prints the exact `{issue_pr_intent}` the runner uses, including the "Pull request body requirement" block with the literal `Fixes #N` line. This applies to every manual publish: initial gate restart AND any post-address re-publish.
 
