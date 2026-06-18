@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reconcile command helpers. ~255 lines, frozen journal repair.
+ * @overview Unit tests for reconcile command helpers. ~295 lines, frozen journal repair.
  *
  *   READING GUIDE
  *   -------------
@@ -19,15 +19,17 @@
  *   home, fakeDeps
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./reconcile
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./reconcile
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { reconcileCombos, type ReconcileDeps } from "./reconcile.js";
 
 // -- 1/2 HELPER · Test harness --
@@ -149,6 +151,54 @@ describe("reconcileCombos", () => {
     expect(readEvents(runDir).filter((event) => event.event === "merged")).toHaveLength(1);
     expect(calls).toEqual([]);
     expect(out).toEqual(["reconcile: no changes"]);
+  });
+
+  it("uses the launch config snapshot for merged teardown retries after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[limits]\nteardown_git_retries = 2\nteardown_git_backoff_seconds = 3\n",
+    );
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[limits]\nteardown_git_retries = 0\nteardown_git_backoff_seconds = 99\n",
+    );
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    let fetchAttempts = 0;
+    const { deps, calls, out } = fakeDeps({
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "fetch") {
+          fetchAttempts += 1;
+          if (fetchAttempts <= 2) return { status: 1, stdout: "", stderr: "transient fetch" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await reconcileCombos({ deps, home: h, apply: true });
+
+    expect(readEvents(runDir).map((event) => event.event)).toEqual([
+      "pr_opened",
+      "merged",
+      "combo_closed",
+    ]);
+    expect(calls).toContainEqual(["sleep", "3000"]);
+    expect(calls).toContainEqual(["sleep", "6000"]);
+    expect(calls).not.toContainEqual(["sleep", "99000"]);
+    expect(out.join("\n")).toContain("reconcile: o-r-7 merged squash789 by maintainer; teardown complete");
   });
 
   it("skips teardown for parked combos with merged PRs, preserving worktrees", async () => {

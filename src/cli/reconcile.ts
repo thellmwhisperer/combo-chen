@@ -22,11 +22,11 @@
  *   reconcileCombo, hasPrClosedNeedsHuman, readPrViewForReconcile, report
  *
  * @exports ReconcileDeps, reconcileCombos
- * @deps ../core/{events,state}, ../infra/{config,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
+ * @deps ../core/{events,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
  */
 import { appendEvent, readEvents } from "../core/events.js";
 import { listCombos, runDirFor, type ComboRecord } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { parsePrView, type GhResult, type PrView } from "./github.js";
 import { teardownMergedCombo } from "./lifecycle.js";
@@ -170,7 +170,7 @@ async function reconcileCombo(input: {
 
   if (!parked) {
     try {
-      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+      const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
       await teardownMergedCombo({
         deps,
         combo,
