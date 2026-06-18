@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~750 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~775 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation, isParked; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
@@ -148,6 +148,10 @@ export function defaultDeps(): Deps {
 function cliInvocation(): string {
   const script = fileURLToPath(import.meta.url);
   return `"${process.execPath}" "${script}"`;
+}
+
+function isParked(events: ComboEvent[]): boolean {
+  return events.at(-1)?.event === "parked";
 }
 
 function requireCleanSourceCheckout(deps: Deps, repoDir: string, requiredBranch: string): void {
@@ -460,19 +464,41 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("status")
-    .description("One line per combo: phase, needs-human, PR")
+    .description("Show combo status; auto-resolves terminal merged/closed combos (tears down merged, closes closed; kills tmux sessions)")
     .option("--deep", "Probe downstream no-mistakes state")
-    .action(async (options: { deep?: boolean }) => {
-      const combos = listCombos(comboHome(deps.env));
+    .option("--all", "Include terminal historical combos", false)
+    .action(async (options: { deep?: boolean; all?: boolean }) => {
+      const home = comboHome(deps.env);
+      await reconcileCombos({ deps, home, apply: true, quiet: true });
+      const combos = listCombos(home);
       if (combos.length === 0) {
         deps.out("no combos. start one: combo-chen run --issue <url>");
         return;
       }
+      const rows = combos.map((combo) => {
+        const runDir = runDirFor(home, combo.id);
+        let events = readEvents(runDir);
+        let status = deriveStatus(events);
+        if (
+          !isParked(events) &&
+          status.phase !== "STOPPED" &&
+          !status.needsHuman &&
+          deps.tmux(hasSessionArgs(combo.tmuxSession)).status !== 0
+        ) {
+          appendEvent(runDir, "needs_human", { reason: "tmux_missing", source: "status" });
+          events = readEvents(runDir);
+          status = deriveStatus(events);
+        }
+        return { combo, events, status };
+      });
+      const visibleRows = options.all === true ? rows : rows.filter(({ status }) => status.phase !== "STOPPED");
+      if (visibleRows.length === 0) {
+        deps.out("no actionable combos. show history: combo-chen status --all");
+        return;
+      }
       const deep = options.deep === true;
       deps.out(deep ? "COMBO                          PHASE     NEEDS-HUMAN      PR DOWNSTREAM" : "COMBO                          PHASE     NEEDS-HUMAN      PR");
-      for (const combo of combos) {
-        const events = readEvents(runDirFor(comboHome(deps.env), combo.id));
-        const status = deriveStatus(events);
+      for (const { combo, events, status } of visibleRows) {
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const pr = status.pr ?? "—";
         const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`;

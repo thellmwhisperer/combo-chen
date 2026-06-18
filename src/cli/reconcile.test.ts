@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reconcile command helpers. ~145 lines, frozen journal repair.
+ * @overview Unit tests for reconcile command helpers. ~255 lines, frozen journal repair.
  *
  *   READING GUIDE
  *   -------------
@@ -35,7 +35,7 @@ function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-reconcile-"));
 }
 
-function fakeDeps(): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
+function fakeDeps(overrides: Partial<ReconcileDeps> = {}): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
   const calls: string[][] = [];
   const out: string[] = [];
   return {
@@ -65,6 +65,7 @@ function fakeDeps(): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
         calls.push(["sleep", String(ms)]);
         return Promise.resolve();
       },
+      ...overrides,
     },
   };
 }
@@ -148,6 +149,106 @@ describe("reconcileCombos", () => {
     expect(readEvents(runDir).filter((event) => event.event === "merged")).toHaveLength(1);
     expect(calls).toEqual([]);
     expect(out).toEqual(["reconcile: no changes"]);
+  });
+
+  it("skips teardown for parked combos with merged PRs, preserving worktrees", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "parked", {
+      by: "operator",
+      summary_path: join(runDir, "park-handoff.md"),
+    });
+    const { deps, calls, out } = fakeDeps();
+
+    await reconcileCombos({ deps, home: h, apply: true });
+
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
+      { event: "parked", by: "operator" },
+      { event: "merged", sha: "squash789", by: "maintainer", source: "reconcile" },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+
+    // tmux kill-session still runs (parked session may already be dead – best-effort)
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    // worktree is NOT removed
+    expect(
+      calls.some((call) => call[0] === "git" && call[2] === "worktree" && call[3] === "remove"),
+    ).toBe(false);
+    // branch is NOT deleted
+    expect(
+      calls.some((call) => call[0] === "git" && call[2] === "branch" && call[3] === "-D"),
+    ).toBe(false);
+    expect(out.join("\n")).toContain("reconcile: o-r-7 merged squash789 by maintainer; teardown skipped (parked)");
+  });
+
+  it("dry-runs parked merged combos reporting skip-teardown intent", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "parked", {
+      by: "operator",
+      summary_path: join(runDir, "park-handoff.md"),
+    });
+    const { deps, calls, out } = fakeDeps();
+
+    await reconcileCombos({ deps, home: h, apply: false });
+
+    expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened", "parked"]);
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux")).toBe(false);
+    expect(out).toEqual([
+      "reconcile: o-r-7 would append merged squash789 by maintainer and skip teardown (parked)",
+    ]);
+  });
+  it("keeps quiet embedded reconciliation silent on GitHub read failures", async () => {
+    for (const ghResult of [
+      { status: 1, stdout: "", stderr: "API rate limit exceeded" },
+      { status: 0, stdout: "not json", stderr: "" },
+    ]) {
+      const h = home();
+      const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+      const runDir = runDirFor(h, "o-r-7");
+      writeCombo(runDir, {
+        id: "o-r-7",
+        issueUrl: "https://github.com/o/r/issues/7",
+        repoDir,
+        worktree: join(repoDir, ".worktrees", "issue-7"),
+        branch: "combo/issue-7",
+        tmuxSession: "combo-chen-o-r-7",
+        createdAt: new Date().toISOString(),
+      });
+      appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+      const { deps, out } = fakeDeps({
+        gh: () => ghResult,
+      });
+
+      await reconcileCombos({ deps, home: h, apply: true, quiet: true });
+
+      expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened"]);
+      expect(out).toEqual([]);
+    }
   });
 });
 // -/ 2/2

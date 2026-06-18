@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4245 lines.
+ *   deps so tests run without a real terminal or network. ~4525 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -21,7 +21,7 @@
  *   │ emit                  Event append to journal                  │
  *   │ reconcile             Frozen journal repair command            │
  *   │ resume                Recovery routing without fresh run setup  │
- *   │ status                Table format + downstream deep output    │
+ *   │ status                Table format + liveness/deep output      │
  *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
@@ -2265,6 +2265,244 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("CODING");
     expect(text).toContain("gate_decision");
+  });
+
+  it("hides terminal historical combos by default and preserves them with --all", async () => {
+    const h = home();
+    const liveDir = runDirFor(h, "o-r-live");
+    writeCombo(liveDir, {
+      id: "o-r-live",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-live",
+      branch: "combo/issue-live",
+      tmuxSession: "combo-chen-o-r-live",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(liveDir, "coder_started", {});
+
+    const historicalDir = runDirFor(h, "o-r-merged");
+    writeCombo(historicalDir, {
+      id: "o-r-merged",
+      issueUrl: "https://github.com/o/r/issues/8",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-8",
+      branch: "combo/issue-8",
+      tmuxSession: "combo-chen-o-r-8",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(historicalDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
+    appendEvent(historicalDir, "merged", { sha: "abc1234", by: "maintainer" });
+    appendEvent(historicalDir, "combo_closed", {});
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    const defaultText = out.join("\n");
+    expect(defaultText).toContain("o-r-live");
+    expect(defaultText).not.toContain("o-r-merged");
+
+    out.length = 0;
+    await exec(deps, ["status", "--all"]);
+
+    const allText = out.join("\n");
+    expect(allText).toContain("o-r-live");
+    expect(allText).toContain("o-r-merged");
+    expect(allText).toContain("STOPPED");
+  });
+
+  it("prints a history hint when default status has no actionable combos", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-stopped");
+    writeCombo(dir, {
+      id: "o-r-stopped",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "stopped", { by: "operator" });
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    expect(out).toEqual(["no actionable combos. show history: combo-chen status --all"]);
+  });
+
+  it("reconciles merged and closed PRs before rendering default status", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const mergedDir = runDirFor(h, "o-r-merged");
+    writeCombo(mergedDir, {
+      id: "o-r-merged",
+      issueUrl: "https://github.com/o/r/issues/8",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-8"),
+      branch: "combo/issue-8",
+      tmuxSession: "combo-chen-o-r-merged",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(mergedDir, "pr_opened", { url: "https://github.com/o/r/pull/8" });
+
+    const closedDir = runDirFor(h, "o-r-closed");
+    writeCombo(closedDir, {
+      id: "o-r-closed",
+      issueUrl: "https://github.com/o/r/issues/9",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-9"),
+      branch: "combo/issue-9",
+      tmuxSession: "combo-chen-o-r-closed",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(closedDir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/8") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "head888",
+              state: "MERGED",
+              baseRefName: "main",
+              mergeCommit: { oid: "merge888" },
+              mergedBy: { login: "maintainer" },
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "pr" && args[1] === "view" && args[2] === "https://github.com/o/r/pull/9") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ headRefOid: "head999", state: "CLOSED", mergedBy: null }),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status"]);
+
+    expect(out).toEqual(["no actionable combos. show history: combo-chen status --all"]);
+    expect(readEvents(mergedDir)).toMatchObject([
+      { event: "pr_opened", url: "https://github.com/o/r/pull/8" },
+      { event: "merged", sha: "merge888", by: "maintainer", source: "reconcile" },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+    expect(readEvents(closedDir)).toMatchObject([
+      { event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+      { event: "needs_human", reason: "pr_closed", source: "reconcile" },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-merged"]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-closed"]);
+    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "worktree", "remove", "--force", join(repoDir, ".worktrees", "issue-8")]);
+    expect(calls.some((call) => call[0] === "git" && call.includes(join(repoDir, ".worktrees", "issue-9")))).toBe(false);
+    expect(
+      calls.some(
+        (call) =>
+          call[0] === "git" &&
+          call[2] === "branch" &&
+          call[3] === "-D" &&
+          call[4] === "combo/issue-9",
+      ),
+    ).toBe(false);
+  });
+
+  it("marks non-terminal combos with missing tmux sessions as needing human attention", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "no such session" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ headRefOid: "head777", state: "OPEN", mergedBy: null }),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status"]);
+
+    expect(out.join("\n")).toContain("tmux_missing");
+    expect(readEvents(dir)).toMatchObject([
+      { event: "coder_started" },
+      { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
+      { event: "needs_human", reason: "tmux_missing", source: "status" },
+    ]);
+    expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
+  });
+
+  it("does not mark parked combos as tmux_missing", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "parked", { by: "operator", summary_path: "/repos/r/.worktrees/issue-7/park-handoff.md" });
+    const before = readEvents(dir);
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "no such session" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ headRefOid: "head777", state: "OPEN", mergedBy: null }),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status"]);
+
+    expect(out.join("\n")).toContain("o-r-7");
+    expect(out.join("\n")).not.toContain("tmux_missing");
+    expect(readEvents(dir)).toEqual(before);
+    expect(calls).not.toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
   });
 
   it("prints downstream no-mistakes CI state in deep mode for stale stalled combos", async () => {
