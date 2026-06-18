@@ -341,24 +341,32 @@ function rollupSignal(
   const requiredCheckNames = options.requiredCheckNames ?? [];
   const items = rollup.filter((item) => checkNameMatchesAny(item, requiredCheckNames) === options.selectRequired);
   if (items.length === 0) return "unknown";
-  const states = items.map(checkSignalState);
+  const states = items.map((item) => checkSignalState(item, options.selectRequired));
   if (states.includes("failure")) return "failure";
   if (states.every((state) => state === "success")) return "success";
   if (states.includes("pending")) return "pending";
   return "unknown";
 }
 
-function checkSignalState(item: unknown): GithubSignalState {
+function checkSignalState(item: unknown, strictSuccess = false): GithubSignalState {
   if (!isRecord(item)) return "unknown";
   const conclusion = upperString(item["conclusion"]);
   if (conclusion !== undefined) {
-    if (SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion)) return "success";
+    if (strictSuccess) {
+      if (conclusion === "SUCCESS") return "success";
+    } else if (SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion)) {
+      return "success";
+    }
     if (FAILURE_CHECK_CONCLUSIONS.has(conclusion)) return "failure";
     return "unknown";
   }
   const state = upperString(item["state"] ?? item["status"]);
   if (state !== undefined) {
-    if (SUCCESSFUL_STATUS_STATES.has(state)) return "success";
+    if (strictSuccess) {
+      if (state === "SUCCESS") return "success";
+    } else if (SUCCESSFUL_STATUS_STATES.has(state)) {
+      return "success";
+    }
     if (FAILURE_STATUS_STATES.has(state)) return "failure";
     if (PENDING_STATUS_STATES.has(state)) return "pending";
   }
