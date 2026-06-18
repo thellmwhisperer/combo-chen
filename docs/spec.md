@@ -256,6 +256,13 @@ ignored config or environment outside that file.
   includes a short (12-line) journal pane showing live events. After PR open,
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
+- The journal is an append-only JSONL spine per combo run. Each append acquires
+  a per-run directory lock (30 s staleness timeout) that serializes concurrent
+  writers from the runner, director, emit command, and resume/reconcile paths.
+  A stale lock from a dead process is removed before the next writer proceeds;
+  lock contention is bounded to 5 s before the writer fails. The journal
+  tolerates torn lines from crashes (a reader skips unparseable lines) and
+  re-reads pick up complete entries that land after a torn fragment.
 - The director-watch polling loop, post-address gates, reviewer activation,
   park/resume, reconcile teardown, `status --deep`, and forensics all read
   runtime config from the launch-time `config.snapshot.json` in the run

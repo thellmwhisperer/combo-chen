@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~730 lines,
+ * @overview Unit tests for config loading and command rendering. ~816 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
