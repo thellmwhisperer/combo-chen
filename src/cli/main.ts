@@ -57,7 +57,7 @@ import {
   type ComboRecord,
 } from "../core/state.js";
 import { assertSafeCoderInvocation, loadConfig } from "../infra/config.js";
-import { writeConfigSnapshot } from "../infra/config-snapshot.js";
+import { loadRuntimeConfig, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
   attachSessionArgs,
   hasSessionArgs,
@@ -419,7 +419,7 @@ export function createProgram(deps: Deps): Command {
     .action(async (options: { name: string; iterations?: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
       const combo = readCombo(runDir);
-      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+      const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
       const maxTicks = options.iterations === undefined ? undefined : Number(options.iterations);
       if (maxTicks !== undefined && (!Number.isInteger(maxTicks) || maxTicks <= 0)) {
         throw new Error("--iterations must be a positive integer");
