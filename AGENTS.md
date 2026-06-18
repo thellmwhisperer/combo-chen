@@ -38,9 +38,10 @@ Hard rule: `reviewer != coder`.
    no-mistakes mirror with `--force-with-lease` when replacing an existing
    mirror branch; the tmux command stays short (`sh <script>`).
 7. READY is journaled only when all current-head signals agree:
-   gate validated the PR head SHA, reviewer LGTM is pinned to that SHA,
-   every configured required READY check is present with SUCCESS, and the
-   remaining CI/check rollup is successful for that SHA.
+   gate validated the PR head SHA, reviewer LGTM is pinned to that SHA by a
+   configured reviewer GitHub login, every configured required READY check is
+   present with SUCCESS, and the remaining CI/check rollup is successful for
+   that SHA.
 
 Rate limits and transient GitHub/git/tmux errors are operational events. Log a
 concise note, keep the director loop alive when possible, and re-evaluate on

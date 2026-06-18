@@ -261,6 +261,55 @@ describe("cli GitHub helpers", () => {
     ]);
   });
 
+  it("accepts LGTM pins only from allowed GitHub authors when configured", () => {
+    const calls: string[][] = [];
+    const gh = (args: string[]) => {
+      calls.push(args);
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: "lgtm @ aa11bb0",
+              user: { login: "drive-by" },
+              created_at: "2026-06-11T00:02:00Z",
+            },
+            {
+              body: "lgtm @ cc33dd0",
+              user: { login: "trusted-reviewer" },
+              created_at: "2026-06-11T00:01:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: "lgtm @ ee55ff0",
+              user: { login: "copilot" },
+              submitted_at: "2026-06-11T00:03:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(
+      latestGitHubLgtmSha(gh, "https://github.com/o/r/pull/7", undefined, {
+        allowedAuthors: ["Trusted-Reviewer"],
+      }),
+    ).toBe("cc33dd0");
+    expect(calls).toEqual([
+      ["api", "--paginate", "repos/o/r/issues/7/comments"],
+      ["api", "--paginate", "repos/o/r/pulls/7/reviews"],
+    ]);
+  });
+
   it("ignores fixture pins inside code spans, fenced code blocks, and quoted prose", () => {
     const fixtureSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
     const gh = (args: string[]) => {

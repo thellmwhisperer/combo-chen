@@ -137,6 +137,8 @@ merge = "human"
 [reviewer]
 # Optional free-form reviewer instructions.
 # prompt = "Apply my local review process."
+# GitHub authors allowed to satisfy "lgtm @ <sha>".
+logins = ["claude"]
 
 [ready]
 required_checks = ["CodeRabbit"]
@@ -152,6 +154,9 @@ command = "claude {prompt}"
 Reviewer commands must submit reviews with a single inline
 `gh pr review --comment --body "..."` command. They must not use heredocs, temp
 files, pipes, redirects, semicolons, or cleanup commands to publish a review.
+Only comments or reviews authored by `[reviewer].logins` can satisfy the
+SHA-pinned reviewer LGTM gate; by default this is the active reviewer agent
+name.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
 present with `SUCCESS`; these external checks are not reviewer approval.
 `[external_comments].agents` names GitHub App or bot logins whose comments are

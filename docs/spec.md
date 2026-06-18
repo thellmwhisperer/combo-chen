@@ -179,7 +179,8 @@ propagates it.
 ## 5. Review state
 
 - The reviewer emits `lgtm` (required field `sha`) to journal the reviewed commit;
-  the LGTM is pinned to that SHA.
+  the LGTM is pinned to that SHA and must come from a GitHub author listed in
+  `[reviewer].logins` before the director treats it as reviewer evidence.
 - Any push invalidates it and the journal records `lgtm_stale` (fields
   `old_sha`, `new_sha`); the reviewer re-reviews the delta
   (incremental: diff since last reviewed SHA), then re-LGTMs or files
