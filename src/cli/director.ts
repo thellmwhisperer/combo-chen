@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~425 lines, 5 exports, initial-gate retry and post-PR orchestration.
+ * @overview Director CLI helpers. ~310 lines, 5 exports, initial-gate retry and post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -24,19 +24,19 @@
  *   INTERNALS
  *   ---------
  *   runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, retry-count helpers,
- *   hasCleanAmbientReviewerSignal, review-comment helpers
+ *   required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
-import { createGhApiCache, readGhArray, type GhApiCache } from "../core/gh-api.js";
+import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import type { TmuxResult } from "../infra/tmux.js";
-import { latestPrUrl, parsePullRequestUrl } from "../roles/coder-responding.js";
+import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgeReviewComments } from "./coder.js";
-import { ambientCheckSucceeded, checkRollupSucceeded } from "./checks.js";
+import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import {
   latestGateStatus,
   latestPublishedGateSha,
@@ -132,7 +132,7 @@ export async function tickDirector(input: {
     }
   }
 
-  runReadyForMergeIfNeeded(deps, comboId, ghApiCache);
+  runReadyForMergeIfNeeded(deps, comboId);
   deps.out(`director: tick complete for ${comboId}`);
 }
 // -/ 2/3
@@ -212,104 +212,6 @@ async function runInitialGateRetryIfNeeded(input: {
   return true;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
-
-function shaMatches(candidate: unknown, headSha: string): boolean {
-  if (typeof candidate !== "string" || candidate.trim() === "") return false;
-  return candidate.trim().toLowerCase() === headSha.toLowerCase();
-}
-
-function isAmbientReviewerAuthor(value: unknown, ambientReviewerAgents: string[]): boolean {
-  if (ambientReviewerAgents.length === 0) return false;
-  if (!isRecord(value)) return false;
-  const login = value["login"];
-  if (typeof login !== "string") return false;
-  const normalizedLogin = login.toLowerCase();
-  return ambientReviewerAgents.some((agent) => {
-    const normalizedAgent = agent.trim().toLowerCase();
-    return normalizedAgent.length > 0 && normalizedLogin.startsWith(normalizedAgent);
-  });
-}
-
-const AMBIENT_REVIEWER_NO_REVIEW = /\breview\s+skipped\b|rate[-\s]?limit(?:ed)?|\bno[-\s]?review\b|unable to review|could not review/i;
-
-interface AmbientReviewerComment {
-  body: string;
-  t: number;
-}
-
-function timestampFromGitHubItem(item: Record<string, unknown>): number {
-  const raw =
-    item["submitted_at"] ??
-    item["submittedAt"] ??
-    item["created_at"] ??
-    item["createdAt"] ??
-    item["updated_at"] ??
-    item["updatedAt"];
-  const parsed = typeof raw === "string" ? Date.parse(raw) : Number.NaN;
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function ambientReviewerCommentForHead(
-  item: unknown,
-  headSha: string,
-  ambientReviewerAgents: string[],
-): AmbientReviewerComment | undefined {
-  if (!isRecord(item)) return undefined;
-  if (!isAmbientReviewerAuthor(item["user"] ?? item["author"], ambientReviewerAgents)) return undefined;
-  const body = item["body"];
-  if (typeof body !== "string" || body.trim() === "") return undefined;
-  const itemSha = item["commit_id"] ?? item["commitId"] ?? item["original_commit_id"] ?? item["originalCommitId"];
-  if (!shaMatches(itemSha, headSha) && !body.toLowerCase().includes(headSha.toLowerCase())) {
-    return undefined;
-  }
-  return { body, t: timestampFromGitHubItem(item) };
-}
-
-function latestAmbientReviewerCommentForHead(
-  gh: DirectorDeps["gh"],
-  prUrl: string,
-  headSha: string,
-  ambientReviewerAgents: string[],
-  cache?: GhApiCache,
-): AmbientReviewerComment | undefined {
-  const ref = parsePullRequestUrl(prUrl);
-  if (!ref) return undefined;
-  const endpoints = [
-    `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
-    `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/comments`,
-  ];
-  const comments = endpoints.flatMap((endpoint) =>
-    readGhArray(gh, endpoint, cache)
-      .map((item) => ambientReviewerCommentForHead(item, headSha, ambientReviewerAgents))
-      .filter((item): item is AmbientReviewerComment => item !== undefined),
-  );
-  comments.sort((a, b) => a.t - b.t);
-  return comments.at(-1);
-}
-
-function hasCleanAmbientReviewerSignal(
-  deps: DirectorDeps,
-  prUrl: string,
-  headSha: string,
-  rollup: unknown[] | undefined,
-  ambientReviewerAgents: string[],
-  cache?: GhApiCache,
-): boolean {
-  if (ambientReviewerAgents.length === 0) return true;
-  if (!ambientCheckSucceeded(rollup, ambientReviewerAgents)) return false;
-  const latestComment = latestAmbientReviewerCommentForHead(
-    deps.gh,
-    prUrl,
-    headSha,
-    ambientReviewerAgents,
-    cache,
-  );
-  return latestComment !== undefined && !AMBIENT_REVIEWER_NO_REVIEW.test(latestComment.body);
-}
-
 function hasReadyForMerge(events: ComboEvent[], headSha: string): boolean {
   return events.some((event) => event.event === "ready_for_merge" && event["sha"] === headSha);
 }
@@ -359,7 +261,7 @@ export function reviewStateAllowsReady(events: ComboEvent[], headSha: string): b
   return livePinnedLgtmSha(events) === headSha;
 }
 
-function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCache?: GhApiCache): void {
+function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
   let events = readEvents(runDir);
   const combo = readCombo(runDir);
@@ -387,38 +289,19 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string, ghApiCach
   const headSha = prView.headSha;
   if (!headStateAllowsReady(events, prView)) return;
   if (!reviewStateAllowsReady(events, headSha)) return;
-  if (!checkRollupSucceeded(prView.statusCheckRollup, { ambientCheckNames: config.ambientReviewerAgents })) return;
+  if (!checkRollupSucceeded(prView.statusCheckRollup, { requiredCheckNames: config.readyRequiredChecks })) return;
+  if (!requiredChecksSucceeded(prView.statusCheckRollup, config.readyRequiredChecks)) return;
   if (!gateStateAllowsReady(events, headSha)) {
     const status = latestGateStatus(events);
     if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return;
     // This substitutes local gate evidence only for daemon-death recovery.
-    // GitHub checks, ambient review, and pinned LGTM must already agree on the
+    // GitHub checks, required checks, and pinned LGTM must already agree on the
     // PR head, and generic no-mistakes failures are not recoverable here.
     appendEvent(runDir, "gate_status", { state: "idle", head_sha: headSha, source: "github" });
     appendEvent(runDir, "gate_validated", { sha: headSha, source: "github" });
     events = readEvents(runDir);
   }
   if (!gateStateAllowsReady(events, headSha)) return;
-
-  let ambientReviewerClean = false;
-  try {
-    ambientReviewerClean = hasCleanAmbientReviewerSignal(
-      deps,
-      prUrl,
-      headSha,
-      prView.statusCheckRollup,
-      config.ambientReviewerAgents,
-      ghApiCache,
-    );
-  } catch (error) {
-    deps.out(
-      `director: failed to read ambient reviewer signal for ${comboId}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-    return;
-  }
-  if (!ambientReviewerClean) return;
 
   appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: prUrl });
   deps.out(`director: ready_for_merge ${headSha}`);

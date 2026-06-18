@@ -508,7 +508,7 @@ export function createProgram(deps: Deps): Command {
         }
         const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
         const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
-          ambientCheckNames: config.ambientReviewerAgents,
+          requiredCheckNames: config.readyRequiredChecks,
         });
         deps.out(`${line} ${downstream ?? "—"}`);
       }

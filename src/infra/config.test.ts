@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~670 lines,
+ * @overview Unit tests for config loading and command rendering. ~710 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -47,6 +47,7 @@ describe("loadConfig", () => {
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.ambientReviewerAgents).toEqual(["coderabbit"]);
+    expect(config.readyRequiredChecks).toEqual([]);
     expect(config.roles.merge).toBe("human");
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
@@ -140,6 +141,46 @@ describe("loadConfig", () => {
 
     expect(config.reviewerAgent).toBe("claude");
     expect(config.ambientReviewerAgents).toEqual(["reviewdog"]);
+  });
+
+  it("loads READY required checks separately from reviewer ambient comment filters", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[ready]",
+        'required_checks = ["CodeRabbit", "ReviewDog"]',
+        "",
+        "[reviewer]",
+        'ambient = ["copilot"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.readyRequiredChecks).toEqual(["CodeRabbit", "ReviewDog"]);
+    expect(config.ambientReviewerAgents).toEqual(["copilot"]);
+  });
+
+  it("lets env override READY required checks", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      ["[ready]", 'required_checks = ["CodeRabbit"]'].join("\n"),
+    );
+
+    const config = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_READY_REQUIRED_CHECKS: '["ReviewDog","Copilot"]' },
+    });
+
+    expect(config.readyRequiredChecks).toEqual(["ReviewDog", "Copilot"]);
   });
 
   it("keeps configured ambient reviewer agents out of coder and active reviewer roles", () => {

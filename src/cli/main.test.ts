@@ -2679,17 +2679,14 @@ describe("status", () => {
     expect(text).toContain("PR ready for reviewer");
   });
 
-  it("does not count configured ambient reviewer checks as CI in deep mode", async () => {
+  it("does not count configured required READY checks as CI in deep mode", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       [
-        "[reviewer]",
-        'ambient = ["reviewdog"]',
-        "",
-        "[reviewer.claude]",
-        'command = "claude {prompt}"',
+        "[ready]",
+        'required_checks = ["reviewdog"]',
       ].join("\n"),
     );
     const worktree = join(repoDir, ".worktrees", "issue-7");

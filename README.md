@@ -41,7 +41,7 @@ combo-chen makes the process explicit.
 6. Review comments are routed back to the coder in responding mode.
 7. New addressing commits go back through the gatekeeper before publication.
 8. The run becomes ready only when the current PR head has gate validation,
-   reviewer LGTM, configured ambient reviewer success, and passing checks.
+   reviewer LGTM, configured required READY checks, and passing remaining checks.
 
 The human still owns the merge.
 
@@ -137,7 +137,11 @@ merge = "human"
 [reviewer]
 # Optional free-form reviewer instructions.
 # prompt = "Apply my local review process."
+# External comment/noise filters only; not approval and not READY checks.
 ambient = ["coderabbit"]
+
+[ready]
+required_checks = ["CodeRabbit"]
 
 [reviewer.claude]
 command = "claude {prompt}"
@@ -146,6 +150,8 @@ command = "claude {prompt}"
 Reviewer commands must submit reviews with a single inline
 `gh pr review --comment --body "..."` command. They must not use heredocs, temp
 files, pipes, redirects, semicolons, or cleanup commands to publish a review.
+`[ready].required_checks` names GitHub status contexts/check runs that must be
+present with `SUCCESS`; these external checks are not reviewer approval.
 
 The target repo may also carry a local ignored `.no-mistakes.yaml` with explicit
 test, lint, and build commands. combo-chen propagates it in two phases:
