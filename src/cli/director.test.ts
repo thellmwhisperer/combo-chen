@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~760 lines, initial-gate retry, READY, and post-address orchestration.
+ * @overview Unit tests for director CLI helpers. ~850 lines, initial-gate retry, READY, and post-address orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -20,7 +20,7 @@
  *   combo, event, fakeDeps, seedReadyCandidate
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./director
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./director
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +29,8 @@ import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
   gateStateAllowsReady,
   headStateAllowsReady,
@@ -359,6 +361,38 @@ describe("tickDirector", () => {
     );
   });
 
+  it("keeps director worker monitoring on the launch config snapshot after repo TOML changes", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      "[monitor]\npermission_prompt_patterns = ['^LAUNCH APPROVAL$']\n",
+    );
+    writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      "[monitor]\npermission_prompt_patterns = ['^DRIFT APPROVAL$']\n",
+    );
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "LAUNCH APPROVAL\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+    );
+  });
+
   it("deduplicates configured worker window names before inspecting panes", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -481,6 +515,60 @@ describe("tickDirector", () => {
       record,
       prHeadSha: headSha,
       externalCommentLogin: "reviewdog",
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
+      ],
+      codeRabbitComments: [
+        {
+          body: "ReviewDog review complete. No issues found.",
+          commitSha: headSha,
+          submittedAt: "2026-06-15T00:00:00Z",
+        },
+      ],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "ready_for_merge",
+        sha: headSha,
+        pr_url: "https://github.com/o/r/pull/7",
+      }),
+    );
+  });
+
+  it("keeps READY ambient reviewer matching on the launch config snapshot after repo TOML changes", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[reviewer]",
+        'ambient = ["reviewdog"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+    writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[reviewer]",
+        'ambient = ["driftbot"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+      ].join("\n"),
+    );
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      ambientReviewerLogin: "reviewdog",
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
