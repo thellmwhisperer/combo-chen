@@ -7,8 +7,9 @@
  *   1. Start at buildRunnerScript    ← generates runner.sh, the combo spine
  *   2. deriveStatus                  ← event → phase state machine
  *   3. buildNoMistakesMirrorPublishScript ← gate mirror push with intent
- *   4. guardNoMistakesDaemonStart    ← avoids double-starting mirror gates
- *   5. shellQuote                    ← POSIX-safe shell quoting
+ *   4. buildNoMistakesGatekeeperRunScript ← config handoff + gate run
+ *   5. guardNoMistakesDaemonStart    ← avoids double-starting mirror gates
+ *   6. shellQuote                    ← POSIX-safe shell quoting
  *
  *   MAIN FLOW (called from cli/main.ts)
  *   ───────────────────────────────────

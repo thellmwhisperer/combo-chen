@@ -1,5 +1,5 @@
 /**
- * @overview First-class resume routing for persisted combos. ~330 lines,
+ * @overview First-class resume routing for persisted combos. ~355 lines,
  *   2 exports, state-machine driven safe actions.
  *
  *   READING GUIDE
@@ -21,7 +21,7 @@
  *
  *   INTERNALS
  *   ---------
- *   classifyResumeState, ensureResumeSession, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers
+ *   classifyResumeState, ensureResumeSession, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers, director-watch window management for initial-gate retry
  *
  * @exports ResumeDeps, resumeCombo
  * @deps ../core/{combo,events,state}, ../infra/{config,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status, ./watchers
