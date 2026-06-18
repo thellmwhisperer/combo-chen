@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.40](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.39...combo-chen-v0.0.40) (2026-06-18)
+
+
+### Bug Fixes
+
+* **lifecycle:** Implemented the first issue [#133](https://github.com/thellmwhisperer/combo-chen/issues/133) slice: idempotent local teardown for already-clean worktrees, branches, and tmux sessions, with focused tests and full validation green. ([8b61361](https://github.com/thellmwhisperer/combo-chen/commit/8b61361473bb2ecd5bfc0955f6739909be4ad230))
+* **reconcile:** Added the scoped per-combo post-merge cleanup path as `combo-chen reconcile -n <combo-id> --apply` with focused helper and CLI coverage. ([01503ea](https://github.com/thellmwhisperer/combo-chen/commit/01503ea44f4ba7f2db79edd205d298ef53701a4d))
+
 ## [0.0.39](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.38...combo-chen-v0.0.39) (2026-06-18)
 
 
