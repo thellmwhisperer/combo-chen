@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1125 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1345 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -779,7 +779,95 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     expect(gatekeeperOutput).toContain("Fixes #7");
   });
 
-  it("copies local no-mistakes config into the daemon run worktree after mirror push", () => {
+  it("continues mirror publish when daemon start reports an already-running daemon", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const gatekeeperLog = join(dir, "gatekeeper.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "remote" ]; then exit 0; fi
+if [ "$1" = "ls-remote" ]; then exit 0; fi
+if [ "$1" = "push" ]; then exit 0; fi
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then
+  printf 'fake-head\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
+if [ "$1" = "daemon" ] && [ "$2" = "start" ]; then exit 1; fi
+if [ "$1" = "status" ]; then
+  printf '  daemon:  running\\n'
+  exit 0
+fi
+if [ "$1" = "axi" ]; then exit 0; fi
+exit 0
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: "true",
+        gatekeeperCommand: renderedDefaultGatekeeperCommand,
+        gatekeeperMirrorIntent: Buffer.from("Implement issue 7", "utf8").toString("base64"),
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        GATEKEEPER_LOG: gatekeeperLog,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
+    expect(gatekeeperOutput).toContain("no-mistakes daemon start");
+    expect(gatekeeperOutput).toContain("no-mistakes status");
+    expect(gatekeeperOutput).toContain("no-mistakes axi run");
+  });
+
+  it("copies local no-mistakes config after axi run creates the daemon worktree", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -789,7 +877,6 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     const daemonWorktree = join(dataDir, "worktrees", "dd1c02626404", runId);
     mkdirSync(worktree, { recursive: true });
     mkdirSync(bin, { recursive: true });
-    mkdirSync(daemonWorktree, { recursive: true });
     writeFileSync(join(worktree, ".no-mistakes.yaml"), "commands:\n  test: pnpm test\n");
 
     const eventsPath = join(dir, "events.log");
@@ -835,11 +922,17 @@ exit 1
       fakeNoMistakes,
       `#!/bin/sh
 printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
+if [ "$1" = "axi" ]; then
+  mkdir -p "$NO_MISTAKES_RUN_DIR"
+  exit 0
+fi
 if [ "$1" = "status" ]; then
-  printf '    repo:  /repo\\n'
-  printf '    gate:  %s\\n' "$NO_MISTAKES_GATE"
-  printf '\\n  Active run\\n'
-  printf '       id:  %s\\n' "$NO_MISTAKES_RUN_ID"
+  if [ -d "$NO_MISTAKES_RUN_DIR" ]; then
+    printf '    repo:  /repo\\n'
+    printf '    gate:  %s\\n' "$NO_MISTAKES_GATE"
+    printf '\\n  Active run\\n'
+    printf '       id:  %s\\n' "$NO_MISTAKES_RUN_ID"
+  fi
 fi
 `,
     );
@@ -872,6 +965,8 @@ fi
         GATEKEEPER_LOG: gatekeeperLog,
         NO_MISTAKES_GATE: gatePath,
         NO_MISTAKES_RUN_ID: runId,
+        NO_MISTAKES_RUN_DIR: daemonWorktree,
+        COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       },
     });
@@ -885,10 +980,8 @@ fi
     expect(existsSync(daemonConfig)).toBe(true);
     expect(readFileSync(daemonConfig, "utf8")).toBe("commands:\n  test: pnpm test\n");
     const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
-    expect(gatekeeperOutput.indexOf("git push")).toBeLessThan(gatekeeperOutput.indexOf("no-mistakes status"));
-    expect(gatekeeperOutput.indexOf("no-mistakes status")).toBeLessThan(
-      gatekeeperOutput.indexOf("no-mistakes axi run"),
-    );
+    expect(gatekeeperOutput).toContain("no-mistakes axi run");
+    expect(gatekeeperOutput).toContain("copied .no-mistakes.yaml");
   });
 
   it("exits the gate subshell when the mirror push fails, preventing the gatekeeper command from running", () => {
