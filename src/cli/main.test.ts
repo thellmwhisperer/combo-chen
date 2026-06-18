@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4525 lines.
+ *   deps so tests run without a real terminal or network. ~4530 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -34,7 +34,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state},
- *   ../roles/coder, ./main
+ *   ../infra/config-snapshot, ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -46,6 +46,7 @@ import { describe, expect, it, vi } from "vitest";
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo } from "../core/state.js";
+import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
@@ -1359,6 +1360,12 @@ describe("run", () => {
 
     const runDir = runDirFor(h, "o-r-7");
     expect(existsSync(join(runDir, "combo.json"))).toBe(true);
+    expect(existsSync(join(runDir, CONFIG_SNAPSHOT_FILE))).toBe(true);
+    expect(readConfigSnapshot(runDir).roles).toMatchObject({
+      coder: "codex",
+      gatekeeper: "no-mistakes",
+      merge: "human",
+    });
     const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
     expect(runner).toContain("gnhf");
     const daemonStart = runner.indexOf("no-mistakes daemon start");
