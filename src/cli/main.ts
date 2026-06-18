@@ -267,8 +267,15 @@ export function createProgram(deps: Deps): Command {
         deps.out(`no-mistakes: copied local config to ${worktree}/${NO_MISTAKES_CONFIG_FILE}`);
       }
 
-      writeCombo(runDir, combo);
-      writeConfigSnapshot(runDir, config);
+      try {
+        writeCombo(runDir, combo);
+        writeConfigSnapshot(runDir, config);
+      } catch (error) {
+        rmSync(runDir, { recursive: true, force: true });
+        deps.git(["worktree", "remove", "--force", worktree], options.repo);
+        deps.git(["branch", "-D", branch], options.repo);
+        throw error;
+      }
 
       const gatekeeperCommand = buildGatekeeperInvocation({
         gatekeeperCommand: config.gatekeeperCommand,

@@ -1,5 +1,5 @@
 /**
- * @overview Per-run config snapshot persistence. ~55 lines, 4 exports,
+ * @overview Per-run config snapshot persistence. ~65 lines, 4 exports,
  *   writes, reads, and resolves the frozen ComboConfig artifact used by a combo.
  *
  *   READING GUIDE
@@ -24,10 +24,11 @@
  *   none
  *
  * @exports CONFIG_SNAPSHOT_FILE, writeConfigSnapshot, readConfigSnapshot, loadRuntimeConfig
- * @deps node:{fs,path}, ./config
+ * @deps node:{fs,path,process}, ./config
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pid } from "node:process";
 
 import { loadConfig, type ComboConfig } from "./config.js";
 
@@ -36,7 +37,14 @@ export const CONFIG_SNAPSHOT_FILE = "config.snapshot.json";
 
 export function writeConfigSnapshot(runDir: string, config: ComboConfig): void {
   mkdirSync(runDir, { recursive: true });
-  writeFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), `${JSON.stringify(config, null, 2)}\n`);
+  const snapshotPath = join(runDir, CONFIG_SNAPSHOT_FILE);
+  const tempPath = `${snapshotPath}.tmp-${pid}-${Date.now()}`;
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(config, null, 2)}\n`);
+    renameSync(tempPath, snapshotPath);
+  } finally {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+  }
 }
 
 export function readConfigSnapshot(runDir: string): ComboConfig {

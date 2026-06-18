@@ -1620,6 +1620,29 @@ exit 0
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
+  it("rolls back run state, worktree, and branch when config snapshot write fails", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    mkdirSync(join(runDir, CONFIG_SNAPSHOT_FILE), { recursive: true });
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow();
+
+    const worktreeAddIndex = calls.findIndex(
+      (call) => call[0] === "git" && call.includes("worktree") && call.includes("add"),
+    );
+    const worktreeRemoveIndex = calls.findIndex(
+      (call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"),
+    );
+    const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
+    expect(worktreeAddIndex).toBeGreaterThan(-1);
+    expect(worktreeRemoveIndex).toBeGreaterThan(worktreeAddIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(existsSync(runDir)).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+  });
+
   it("forces publish-only mode on a no-placeholder repo-level no-mistakes gatekeeper command", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
