@@ -282,7 +282,7 @@ export function parsePrView(stdout: string): PrView {
 // -- 5/5 CORE · fetchForensicsGithubFacts --
 export function fetchForensicsGithubFacts(
   gh: GhRunner,
-  issueUrl: string,
+  issueUrl: string | undefined,
   prUrl: string | undefined,
   cache?: GhApiCache,
   options: { requiredCheckNames?: string[]; ambientCheckNames?: string[]; reviewerLogins?: string[] } = {},
@@ -336,10 +336,12 @@ export function fetchForensicsGithubFacts(
     }
   }
 
-  const issue = gh(["issue", "view", issueUrl, "--json", "state,closedAt"]);
-  if (issue.status === 0) {
-    const parsed = parseIssueView(issue.stdout);
-    if (parsed !== undefined) facts.issue = parsed;
+  if (issueUrl !== undefined && issueUrl.trim() !== "") {
+    const issue = gh(["issue", "view", issueUrl, "--json", "state,closedAt"]);
+    if (issue.status === 0) {
+      const parsed = parseIssueView(issue.stdout);
+      if (parsed !== undefined) facts.issue = parsed;
+    }
   }
 
   return facts.pr === undefined && facts.issue === undefined ? undefined : facts;

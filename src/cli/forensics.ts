@@ -1,5 +1,5 @@
 /**
- * @overview Combo forensics report model and renderers. ~235 lines, pure analysis only.
+ * @overview Combo forensics report model and renderers. ~245 lines, pure analysis only.
  *
  *   READING GUIDE
  *   -------------
@@ -26,7 +26,7 @@
  */
 import { deriveStatus, type Phase } from "../core/combo.js";
 import type { ComboEvent } from "../core/events.js";
-import type { ComboRecord } from "../core/state.js";
+import { describeWorkItem, type ComboRecord, type WorkItemDescriptor } from "../core/state.js";
 import { latestGateStatus, latestPublishedGateSha } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -79,6 +79,7 @@ export interface ForensicsIncident {
 
 export interface ForensicsComboReport {
   id: string;
+  workItem: WorkItemDescriptor;
   issueUrl: string;
   prUrl?: string;
   phase: Phase;
@@ -161,6 +162,7 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
 
   const report: ForensicsComboReport = {
     id: combo.id,
+    workItem: describeWorkItem(combo),
     issueUrl: combo.issueUrl,
     ...(prUrl !== undefined ? { prUrl } : {}),
     phase: status.phase,
@@ -271,7 +273,8 @@ export function renderForensicsMarkdown(reports: ForensicsComboReport[]): string
   const lines = ["# combo-chen forensics", ""];
   for (const report of reports) {
     lines.push(`## ${report.id}`);
-    lines.push(`- Issue: ${report.issueUrl}`);
+    lines.push(`- Work item: ${report.workItem.label}`);
+    lines.push(`- Issue: ${report.issueUrl.trim() === "" ? "none" : report.issueUrl}`);
     lines.push(`- PR: ${report.prUrl ?? "unknown"}`);
     lines.push(`- Phase: ${report.phase}`);
     lines.push(

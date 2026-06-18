@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~5200 lines.
+ *   deps so tests run without a real terminal or network. ~5250 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -2806,6 +2806,35 @@ describe("status", () => {
     expect(text).toContain("gate_decision");
   });
 
+  it("prints plan work item source and title", async () => {
+    const h = home();
+    const id = "plan-let-plans-launch-combos-12345678";
+    const planPath = "/plans/issue-134.md";
+    const dir = runDirFor(h, id);
+    writeCombo(dir, {
+      id,
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: planPath,
+      workItemTitle: "Let plans launch combos",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/plan-let-plans-launch-combos-12345678",
+      branch: "combo/plan-let-plans-launch-combos-12345678",
+      tmuxSession: `combo-chen-${id}`,
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "needs_human", { reason: "gate_decision" });
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("WORK ITEM");
+    expect(text).toContain("Let plans launch combos");
+    expect(text).toContain(`local_file:${planPath}`);
+  });
+
   it("hides terminal historical combos by default and preserves them with --all", async () => {
     const h = home();
     const liveDir = runDirFor(h, "o-r-live");
@@ -3608,6 +3637,65 @@ describe("forensics", () => {
       ci: "success",
       ambientReviewer: "failure",
     });
+  });
+
+  it("reports plan work item facts by name without fetching a GitHub issue", async () => {
+    const h = home();
+    const id = "plan-let-plans-launch-combos-12345678";
+    const planPath = "/plans/issue-134.md";
+    const dir = runDirFor(h, id);
+    writeCombo(dir, {
+      id,
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: planPath,
+      workItemTitle: "Let plans launch combos",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/plan-let-plans-launch-combos-12345678",
+      branch: "combo/plan-let-plans-launch-combos-12345678",
+      tmuxSession: `combo-chen-${id}`,
+      createdAt: "2026-06-11T10:00:00.000Z",
+    });
+    appendEvent(dir, "combo_created", {
+      issue_url: "",
+      work_item_source_type: "local_file",
+      work_item_source_reference: planPath,
+      work_item_title: "Let plans launch combos",
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/44" });
+
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(args);
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "def456",
+              state: "OPEN",
+              statusCheckRollup: [{ __typename: "CheckRun", name: "CI", conclusion: "SUCCESS" }],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["forensics", "-n", id, "--format", "json"]);
+
+    const parsed = JSON.parse(out.join("\n")) as {
+      reports: Array<{ workItem?: { title?: string; sourceType: string; sourceReference?: string } }>;
+    };
+    expect(parsed.reports[0]?.workItem).toMatchObject({
+      title: "Let plans launch combos",
+      sourceType: "local_file",
+      sourceReference: planPath,
+    });
+    expect(ghCalls.some((call) => call[0] === "issue" && call[1] === "view")).toBe(false);
   });
 });
 

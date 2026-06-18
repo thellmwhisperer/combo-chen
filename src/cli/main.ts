@@ -50,6 +50,7 @@ import {
   comboHome,
   comboIdFromIssueUrl,
   comboIdFromWorkPlanSource,
+  describeWorkItem,
   listCombos,
   parseIssueUrl,
   readCombo,
@@ -574,11 +575,16 @@ export function createProgram(deps: Deps): Command {
         return;
       }
       const deep = options.deep === true;
-      deps.out(deep ? "COMBO                          PHASE     NEEDS-HUMAN      PR DOWNSTREAM" : "COMBO                          PHASE     NEEDS-HUMAN      PR");
+      deps.out(
+        deep
+          ? "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                PR DOWNSTREAM"
+          : "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                PR",
+      );
       for (const { combo, events, status } of visibleRows) {
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const pr = status.pr ?? "—";
-        const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${pr}`;
+        const workItem = describeWorkItem(combo).label;
+        const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${workItem.padEnd(40)} ${pr}`;
         if (!deep) {
           deps.out(line);
           continue;
@@ -622,7 +628,7 @@ export function createProgram(deps: Deps): Command {
           events,
           github: fetchForensicsGithubFacts(
             deps.gh,
-            combo.issueUrl,
+            combo.issueUrl.trim() === "" ? undefined : combo.issueUrl,
             latestPrUrlFromEvents(events),
             undefined,
             {

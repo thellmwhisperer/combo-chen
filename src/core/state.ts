@@ -1,7 +1,7 @@
 /**
  * @overview Run identity and persistence: one directory per combo under the
  *   combo home, holding combo.json (the record) and journal.jsonl (the spine).
- *   ~140 lines, 11 exports.
+ *   ~160 lines, 13 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -9,6 +9,7 @@
  *   2. comboHome / runDirFor            ← filesystem layout
  *   3. writeCombo / readCombo           ← persist + load
  *   4. listCombos                       ← enumerate all runs
+ *   5. describeWorkItem                 ← source/title display facts
  *
  *   MAIN FLOW
  *   ─────────
@@ -24,13 +25,15 @@
  *   │ writeCombo           Persist a ComboRecord to disk              │
  *   │ readCombo            Load a ComboRecord from disk               │
  *   │ listCombos           Enumerate all persisted combos             │
+ *   │ describeWorkItem     Derive stable source/title display facts   │
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
+ *   │ WorkItemDescriptor   Display-safe work item source/title shape  │
  *   │ ComboStateError      Thrown on malformed URLs, missing records  │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ IssueRef, ISSUE_URL, slugForComboId, shortSourceHash             │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboStateError, IssueRef, ComboRecord, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos
+ * @exports ComboStateError, IssueRef, ComboRecord, WorkItemDescriptor, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos, describeWorkItem
  * @deps node:crypto, node:fs, node:os, node:path, ./work-plan
  */
 import { createHash } from "node:crypto";
@@ -60,6 +63,13 @@ export interface ComboRecord {
   branch: string;
   tmuxSession: string;
   createdAt: string;
+}
+
+export interface WorkItemDescriptor {
+  sourceType: string;
+  sourceReference?: string;
+  title?: string;
+  label: string;
 }
 
 const ISSUE_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)$/;
@@ -133,5 +143,26 @@ export function listCombos(home: string): ComboRecord[] {
     combos.push(readCombo(dir));
   }
   return combos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function describeWorkItem(
+  combo: Pick<ComboRecord, "issueUrl" | "workItemSourceType" | "workItemSourceReference" | "workItemTitle">,
+): WorkItemDescriptor {
+  const issueUrl = cleanOptional(combo.issueUrl);
+  const sourceType = combo.workItemSourceType ?? (issueUrl === undefined ? "unknown" : "github_issue");
+  const sourceReference = cleanOptional(combo.workItemSourceReference) ?? issueUrl;
+  const title = cleanOptional(combo.workItemTitle);
+  const sourceLabel = sourceReference === undefined ? sourceType : `${sourceType}:${sourceReference}`;
+  return {
+    sourceType,
+    ...(sourceReference !== undefined ? { sourceReference } : {}),
+    ...(title !== undefined ? { title } : {}),
+    label: title === undefined ? sourceLabel : `${title} (${sourceLabel})`,
+  };
+}
+
+function cleanOptional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === "" ? undefined : trimmed;
 }
 // -/ 2/2

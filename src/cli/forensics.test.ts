@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for combo forensics reports. ~120 lines, fixture-driven incidents.
+ * @overview Unit tests for combo forensics reports. ~140 lines, fixture-driven incidents.
  *
  *   READING GUIDE
  *   -------------
@@ -118,6 +118,37 @@ describe("forensics analyzer", () => {
       "merged_pr_open_issue",
       "local_status_stale",
     ]);
+  });
+
+  it("includes generic plan work item source and title in reports", () => {
+    const planCombo: ComboRecord = {
+      ...combo,
+      id: "plan-let-plans-launch-combos-12345678",
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: "/plans/issue-134.md",
+      workItemTitle: "Let plans launch combos",
+    };
+
+    const report = analyzeForensicsCombo({
+      combo: planCombo,
+      events: [
+        event("2026-06-11T10:00:00.000Z", "combo_created", {
+          work_item_source_type: "local_file",
+          work_item_source_reference: "/plans/issue-134.md",
+          work_item_title: "Let plans launch combos",
+        }),
+      ],
+    });
+
+    expect(report.workItem).toMatchObject({
+      title: "Let plans launch combos",
+      sourceType: "local_file",
+      sourceReference: "/plans/issue-134.md",
+    });
+    const markdown = renderForensicsMarkdown([report]);
+    expect(markdown).toContain("- Work item: Let plans launch combos (local_file:/plans/issue-134.md)");
+    expect(markdown).toContain("- Issue: none");
   });
 });
 // -/ 2/2
