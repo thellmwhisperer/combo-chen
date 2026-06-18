@@ -1,15 +1,16 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~92 lines, testing that combo-chen.example.toml and public docs use
- *   only OSS-friendly role names (no legacy rower/hodor/gordon terms) and
- *   that the example config stays loadable by the config cascade.
+ *   ~115 lines, testing that combo-chen.example.toml and public docs use
+ *   only OSS-friendly role names (no legacy rower/hodor/gordon terms), that
+ *   the tracked no-mistakes policy is documented, and that the example config
+ *   stays loadable by the config cascade.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at describe("combo-chen.example.toml")   ← single describe block
  *
  *   ┌─ TEST AREAS ────────────────────────────────────────────┐
- *   │ combo-chen.example.toml  Vocabulary check + loadability  │
+ *   │ combo-chen.example.toml  Vocabulary, policy, loadability │
  *   └──────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
@@ -26,6 +27,7 @@ import { loadConfig } from "./config.js";
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EXAMPLE_CONFIG = join(REPO_ROOT, "combo-chen.example.toml");
 const PUBLIC_DOCS = ["README.md", "docs/spec.md", "AGENTS.md"].map((path) => join(REPO_ROOT, path));
+const GITIGNORE = join(REPO_ROOT, ".gitignore");
 const LAUNCH_SKILL = join(REPO_ROOT, "skills", "launch-combo", "SKILL.md");
 const OLD_ROLE_TERMS =
   /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b|\bjudge-tick\b/i;
@@ -61,6 +63,17 @@ describe("combo-chen.example.toml", () => {
 
       expect(body).not.toMatch(OLD_PHASE_TERMS);
     }
+  });
+
+  it("documents the tracked repo-level no-mistakes policy", () => {
+    const gitignore = readFileSync(GITIGNORE, "utf8");
+    const docs = PUBLIC_DOCS.map((doc) => readFileSync(doc, "utf8")).join("\n");
+
+    expect(gitignore).not.toMatch(/^\.no-mistakes\.yaml$/m);
+    expect(gitignore).toContain(".no-mistakes.yaml is intentionally tracked");
+    expect(docs).toContain("repo-level `.no-mistakes.yaml`");
+    expect(docs).toContain("intentionally tracked");
+    expect(docs).not.toMatch(/ignored local `\.no-mistakes\.yaml`|Do not stage or commit `\.no-mistakes\.yaml`/);
   });
 
   it("stays loadable by the config cascade", () => {

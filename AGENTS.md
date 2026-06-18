@@ -59,16 +59,19 @@ the next tick.
 
 ## no-mistakes Config Artifact
 
-The source checkout may have an ignored local `.no-mistakes.yaml` with explicit
-repo commands such as test, lint/typecheck, and build. Git worktrees do not
-materialize ignored working-tree files automatically, so combo-chen propagates
-this config in two phases:
+The source checkout may have a repo-level `.no-mistakes.yaml` with explicit
+test, lint/typecheck, and build commands. In combo-chen itself this file is
+tracked on purpose so the validation contract is pinned for every worker and
+gate. User-local secrets and operator preferences belong in ignored local
+config such as `combo-chen.toml` or the user's environment, not in the tracked
+no-mistakes policy file. Target repos may also provide the same file as local
+ignored config; git worktrees do not materialize ignored working-tree files
+automatically. In both cases, combo-chen propagates the config in two phases:
 
 1. **Repo → worktree copy.** When the source config exists and the worktree
    config is missing, combo-chen copies `<repoDir>/.no-mistakes.yaml` to
    `<worktree>/.no-mistakes.yaml` before each gate run. The copy preserves
-   content and mode, never overwrites an existing worktree config, and remains
-   a local artifact.
+   content and mode and never overwrites an existing worktree config.
 
 2. **Worktree → daemon worktree copy.** Before running the gate command, the
    generated gate script copies `.no-mistakes.yaml` from the combo worktree
@@ -78,7 +81,8 @@ this config in two phases:
    120, 1 s delay). The gate command waits for this copy to complete before
    running so validation stays deterministic.
 
-Do not stage or commit `.no-mistakes.yaml`.
+Do not remove the tracked repo-level `.no-mistakes.yaml`; update it only when
+the shared validation commands intentionally change.
 
 ## Development Discipline
 
@@ -106,7 +110,7 @@ v0 implements the issue-to-PR loop with coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer re-review,
 coder responding mode, single `director-watch` observation, frozen journal
 `reconcile` repair for merged and closed PRs (preserving parked worktrees on
-merge and all worktrees on close), local no-mistakes config propagation,
+merge and all worktrees on close), no-mistakes config propagation,
 read-only forensics reports, coder safety validation (pinned gnhf with
 `--max-iterations`, `--stop-when`, stdin closed), `park`/`resume` for
 reboot-safe combo handoff, `status` (actionable by default, `--all` for
