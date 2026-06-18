@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for GitHub CLI parsing helpers. ~225 lines, gh JSON and URL parsing.
+ * @overview Unit tests for GitHub CLI parsing helpers. ~386 lines, gh JSON and URL parsing.
  *
  *   READING GUIDE
  *   -------------
