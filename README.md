@@ -169,10 +169,11 @@ The default Codex coder path is gnhf-managed: combo-chen runs pinned `gnhf` with
 `--meteor-frequency 0`, and `--current-branch`. gnhf 0.1.41 does not expose a
 generic Codex CLI profile/flag pass-through, so Codex terminal flags are not
 part of the normal coder command. Coder responding mode resumes the captured
-thread with `codex --profile sitter --no-alt-screen resume {thread_id}` so tmux
-keeps visible scrollback and the original session remains resumable/auditable.
-Custom `resume_command` templates remain supported for local wrappers or other
-agents.
+thread with the configured resume command (default `codex resume {thread_id}`).
+The recommended `codex --profile sitter --no-alt-screen resume {thread_id}`
+keeps tmux scrollback visible and the session resumable/auditable without
+changing the underlying default. Custom `resume_command` templates remain
+supported for local wrappers or other agents.
 
 If combo-chen later adds a direct noninteractive Codex runner, it must keep
 `-C {worktree}` explicit, use an autonomous isolated sandbox such as

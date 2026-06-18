@@ -168,8 +168,8 @@ ignored config or environment outside that file.
 
 - On `coder_done`, combo-chen captures the implementing session's thread id
   (gnhf logs, or lookup in a configured session metadata store).
-- On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed:
-  `codex --profile sitter --no-alt-screen resume <id>`,
+- On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed with the configured `resume_command` template:
+  default `codex resume <id>` (recommended `codex --profile sitter --no-alt-screen resume <id>` for tmux visibility),
   `hermes --resume <session>`, or a stateful ACP session.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with issue + PR diff + the comment. Degraded, never blocking.
