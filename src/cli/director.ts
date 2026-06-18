@@ -27,12 +27,12 @@
  *   required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
+ * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
  */
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgeReviewComments } from "./coder.js";
@@ -71,7 +71,7 @@ export async function tickDirector(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const ghApiCache = createGhApiCache();
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const initialGateActioned = await runInitialGateRetryIfNeeded({
     deps,
     combo,
@@ -265,7 +265,7 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
   let events = readEvents(runDir);
   const combo = readCombo(runDir);
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const prUrl = latestPrUrl(events);
   if (prUrl === undefined) return;
   if (!canReconcileGateFromGithub(events) || livePinnedLgtmSha(events) === undefined) return;
