@@ -269,22 +269,24 @@ propagates it.
   answer "which combos need a human RIGHT NOW" (phase + needs_human flag).
   Before rendering, status quietly reconciles non-terminal journals whose PR is
   already merged or closed on GitHub. If a non-terminal combo has no tmux
-  session, status journals `needs_human reason=tmux_missing` so the row remains
-  visible as stale. Terminal historical rows are hidden unless the operator
-  passes `status --all`.
+  session and is not parked, status journals `needs_human reason=tmux_missing`
+  so the row remains visible as stale. Parked combos are exempt from this check
+  because the missing session is expected. Terminal historical rows are hidden
+  unless the operator passes `status --all`.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
-- `combo-chen reconcile [--apply]` compares every persisted combo journal
+-   `combo-chen reconcile [--apply]` compares every persisted combo journal
   against GitHub PR state. For merged PRs whose journal froze before the
   director could record `merged`/`combo_closed`, it appends the missing
   terminal events (marked `source: "reconcile"`) and runs teardown (worktree
-  removal, branch deletion, tmux session kill). For closed PRs, it appends
-  `needs_human reason=pr_closed` plus `combo_closed` and stops tmux while
-  preserving the local worktree and branch. Without `--apply` it reports what
-  would change without mutating state.
+  removal, branch deletion, tmux session kill); parked combos skip worktree
+  removal and branch deletion but still receive the terminal events and tmux
+  cleanup. For closed PRs, it appends `needs_human reason=pr_closed` plus
+  `combo_closed` and stops tmux while preserving the local worktree and branch.
+  Without `--apply` it reports what would change without mutating state.
 
 ## 8b. Preflight
 
