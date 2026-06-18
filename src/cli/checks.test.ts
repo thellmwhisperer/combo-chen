@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for GitHub check-rollup readiness helpers.
- *   ~70 lines, configured READY checks and normal CI separation.
+ *   ~80 lines, configured READY checks and normal CI separation.
  *
  *   READING GUIDE
  *   -------------
@@ -45,6 +45,12 @@ describe("GitHub check readiness helpers", () => {
         { requiredCheckNames: ["CodeRabbit"] },
       ),
     ).toBe(false);
+    expect(
+      checkRollupSucceeded(
+        [checkRun("CodeRabbit", "SUCCESS")],
+        { requiredCheckNames: ["CodeRabbit"] },
+      ),
+    ).toBe(true);
   });
 
   it("requires every configured READY check to be present with SUCCESS", () => {
@@ -62,6 +68,7 @@ describe("GitHub check readiness helpers", () => {
         ["CodeRabbit", "ReviewDog"],
       ),
     ).toBe(false);
+    expect(requiredChecksSucceeded([checkRun("ReviewDog Extended", "SUCCESS")], ["ReviewDog"])).toBe(false);
   });
 });
 // -/ 1/1
