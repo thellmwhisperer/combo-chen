@@ -49,6 +49,7 @@ import { runDirFor, writeCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
+import { buildIssuePrIntent } from "../roles/gatekeeper.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
@@ -212,6 +213,39 @@ describe("command surface", () => {
         "Issue body:",
         "My body",
       ].join("\n"),
+    ]);
+  });
+
+  it("prints exactly the canonical buildIssuePrIntent, preserving shell-special content byte-for-byte", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    // Same intent the runner pushes (run command, main.ts:256) flows through the
+    // same buildIssuePrIntent. Pin that the intent command introduces no
+    // transformation, even for content that matters at the shell-capture boundary.
+    const title = 'Fix `$(rm -rf)` in "quoted" ${VAR} path';
+    const body = 'Line 1 with `backticks`\nLine 2 with $(cmd) and "quotes"\n\\backslash tail';
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          return { status: 0, stdout: JSON.stringify({ title, body }), stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["intent", "-n", "o-r-7"]);
+
+    expect(out).toEqual([
+      buildIssuePrIntent({ combo: { issueUrl: ISSUE }, issueTitle: title, issueBody: body }),
     ]);
   });
 
