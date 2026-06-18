@@ -78,7 +78,7 @@ describe("cli GitHub helpers", () => {
     ]);
   });
 
-  it("separates configured ambient reviewer checks from CI for forensics", () => {
+  it("separates configured required READY checks from CI for forensics", () => {
     const gh = (args: string[]) => {
       if (args[0] === "pr") {
         return {
@@ -108,11 +108,11 @@ describe("cli GitHub helpers", () => {
       "https://github.com/o/r/issues/84",
       "https://github.com/o/r/pull/84",
       undefined,
-      { ambientCheckNames: ["reviewdog"] },
+      { requiredCheckNames: ["reviewdog"] },
     );
 
     expect(facts?.pr?.ci).toBe("success");
-    expect(facts?.pr?.ambientReviewer).toBe("failure");
+    expect(facts?.pr?.readyRequiredChecks).toBe("failure");
     expect(facts?.pr).not.toHaveProperty("codeRabbit");
   });
 

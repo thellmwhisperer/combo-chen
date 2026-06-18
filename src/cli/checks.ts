@@ -1,6 +1,6 @@
 /**
  * @overview GitHub check-rollup helpers for CI and configured READY checks.
- *   ~105 lines, 6 exports, provider-name matching without provider-specific logic.
+ *   ~95 lines, 5 exports, provider-name matching without provider-specific logic.
  *
  *   READING GUIDE
  *   -------------
@@ -19,13 +19,12 @@
  *   checkSignalIsSuccess      Exact SUCCESS predicate for required READY checks.
  *   checkRollupSucceeded      True when non-required CI checks all pass.
  *   requiredChecksSucceeded   True when every configured READY check succeeds.
- *   ambientCheckSucceeded     True when configured ambient reviewer check passes.
  *
  *   INTERNALS
  *   ---------
  *   isRecord, upperString, checkMatchesAny
  *
- * @exports checkName, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, ambientCheckSucceeded
+ * @exports checkName, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded
  * @deps none
  */
 
@@ -79,10 +78,10 @@ function checkMatchesAny(item: unknown, names: string[]): boolean {
 
 export function checkRollupSucceeded(
   rollup: unknown[] | undefined,
-  options: { ambientCheckNames?: string[]; requiredCheckNames?: string[] } = {},
+  options: { requiredCheckNames?: string[] } = {},
 ): boolean {
   if (rollup === undefined) return false;
-  const ignoredCheckNames = [...(options.ambientCheckNames ?? []), ...(options.requiredCheckNames ?? [])];
+  const ignoredCheckNames = options.requiredCheckNames ?? [];
   const checks = rollup.filter((item) => !checkMatchesAny(item, ignoredCheckNames));
   return checks.length > 0 && checks.every(checkSignalSucceeded);
 }
@@ -94,10 +93,5 @@ export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredC
   return required.every((name) =>
     rollup.some((item) => checkMatchesAny(item, [name]) && checkSignalIsSuccess(item)),
   );
-}
-
-export function ambientCheckSucceeded(rollup: unknown[] | undefined, ambientCheckNames: string[]): boolean {
-  if (ambientCheckNames.length === 0) return true;
-  return rollup !== undefined && rollup.some((item) => checkMatchesAny(item, ambientCheckNames) && checkSignalIsSuccess(item));
 }
 // -/ 2/2
