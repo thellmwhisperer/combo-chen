@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4465 lines.
+ *   deps so tests run without a real terminal or network. ~4470 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -2403,6 +2403,15 @@ describe("status", () => {
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-closed"]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "worktree", "remove", "--force", join(repoDir, ".worktrees", "issue-8")]);
     expect(calls.some((call) => call[0] === "git" && call.includes(join(repoDir, ".worktrees", "issue-9")))).toBe(false);
+    expect(
+      calls.some(
+        (call) =>
+          call[0] === "git" &&
+          call[2] === "branch" &&
+          call[3] === "-D" &&
+          call[4] === "combo/issue-9",
+      ),
+    ).toBe(false);
   });
 
   it("marks non-terminal combos with missing tmux sessions as needing human attention", async () => {
