@@ -454,12 +454,14 @@ export function createProgram(deps: Deps): Command {
   program
     .command("reconcile")
     .description("Compare local combo journals with GitHub and repair missing terminal events")
+    .option("-n, --name <comboId>", "Only reconcile one combo")
     .option("--apply", "Append reconcile events and run pending teardown", false)
-    .action(async (options: { apply: boolean }) => {
+    .action(async (options: { apply: boolean; name?: string }) => {
       await reconcileCombos({
         deps,
         home: comboHome(deps.env),
         apply: options.apply,
+        comboId: options.name,
       });
     });
 
