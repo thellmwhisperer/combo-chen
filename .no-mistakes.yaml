@@ -1,0 +1,3 @@
+commands:
+  test: pnpm install --frozen-lockfile --silent && pnpm test
+  lint: pnpm install --frozen-lockfile --silent && pnpm typecheck
