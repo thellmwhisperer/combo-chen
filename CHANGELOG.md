@@ -375,6 +375,7 @@
 
 ### Features
 
+* **config:** per-run launch-time config snapshot (`config.snapshot.json`) prevents runtime drift when repo TOML changes during a long-running combo; all runtime commands (director-watch, gate, reviewer activation, park/resume, reconcile teardown, status --deep, forensics) now use the frozen snapshot ([#44](https://github.com/thellmwhisperer/combo-chen/issues/44))
 * **gatekeeper:** auto-retry initial gate failures before PR open with configurable retry count and backoff; exhausts to `needs_human reason=gate_failed` ([#59](https://github.com/thellmwhisperer/combo-chen/issues/59))
 
 * **park:** first-class park command for reboot-safe combo handoff with handoff summary and tmux cleanup ([#76](https://github.com/thellmwhisperer/combo-chen/issues/76))
