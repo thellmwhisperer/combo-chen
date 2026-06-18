@@ -83,10 +83,10 @@ export function checkNameMatchesAny(item: unknown, names: string[]): boolean {
 
 export function checkRollupSucceeded(
   rollup: unknown[] | undefined,
-  options: { requiredCheckNames?: string[] } = {},
+  options: { requiredCheckNames?: string[]; ambientCheckNames?: string[] } = {},
 ): boolean {
   if (rollup === undefined) return false;
-  const ignoredCheckNames = options.requiredCheckNames ?? [];
+  const ignoredCheckNames = (options.requiredCheckNames ?? []).concat(options.ambientCheckNames ?? []);
   const checks = rollup.filter((item) => !checkNameMatchesAny(item, ignoredCheckNames));
   return rollup.length > 0 && checks.every(checkSignalSucceeded);
 }

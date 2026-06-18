@@ -27,7 +27,7 @@
  *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, runPostAddressGateIfNeeded, syncNoMistakesMirror
- * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/gatekeeper, ./github, ./sessions
+ * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -40,7 +40,7 @@ import {
 } from "../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { listWindowsArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildGatekeeperInvocation,
@@ -441,7 +441,7 @@ export function startInitialGateRetry(input: {
     return { started: false, headSha, reason: "uncommitted_changes" };
   }
 
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
   const scriptPath = join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.sh`);
   writeFileSync(
@@ -645,7 +645,7 @@ export function runPostAddressGateIfNeeded(input: {
     appendEvent(runDir, "gate_stale", { old_sha: lastPublishedSha, new_sha: headSha });
   }
 
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
   startPostAddressGate({
     deps,

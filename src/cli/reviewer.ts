@@ -22,12 +22,12 @@
  *   none
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
- * @deps ../core/{events,gh-api,state}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers
+ * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
-import { loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { latestGitHubLgtmSha, parsePrView, type PrView } from "./github.js";
@@ -73,7 +73,7 @@ export function activateReviewer(input: {
     throw new Error(`Cannot activate reviewer for ${combo.id}: no pr_opened event in the journal`);
   }
 
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const reviewerCommand = buildReviewerInvocation({
     combo,
     prUrl,
@@ -182,7 +182,7 @@ export async function tickReviewer(input: {
     if (!hasMergedEvent(events, [mergeSha, headSha])) {
       appendEvent(runDir, "merged", { sha: mergeSha, by });
     }
-    const config = loadConfig({ repoDir: combo.repoDir });
+    const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
     try {
       await teardownMergedCombo({
         deps,
@@ -242,7 +242,7 @@ export async function tickReviewer(input: {
     return;
   }
 
-  const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   const reviewerCommand = buildReviewerInvocation({
     combo,
     prUrl,

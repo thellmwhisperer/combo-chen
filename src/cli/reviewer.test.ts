@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~225 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~400 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -20,15 +20,17 @@
  *   combo
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./reviewer
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./reviewer
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
+import { loadConfig } from "../infra/config.js";
+import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
   activateReviewer,
   canonicalLgtmShaForHead,
@@ -152,6 +154,71 @@ describe("activateReviewer", () => {
     ]);
   });
 
+  it("uses the launch config snapshot even when repo TOML changes before activation", () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[limits]",
+        "babysit_poll_seconds = 5",
+        "",
+        "[reviewer]",
+        'prompt = "launch reviewer prompt"',
+        "",
+        "[reviewer.claude]",
+        'command = "claude-launch {prompt}"',
+        "",
+      ].join("\n"),
+    );
+    writeCombo(runDir, record);
+    writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[limits]",
+        "babysit_poll_seconds = 999",
+        "",
+        "[reviewer]",
+        'prompt = "mutated reviewer prompt"',
+        "",
+        "[reviewer.claude]",
+        'command = "claude-mutated {prompt}"',
+        "",
+      ].join("\n"),
+    );
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "coder\ngatekeeper\n", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls[3]?.at(-1)).toContain("claude-launch");
+    expect(calls[3]?.at(-1)).toContain("launch reviewer prompt");
+    expect(calls[3]?.at(-1)).not.toContain("claude-mutated");
+    expect(calls[3]?.at(-1)).not.toContain("mutated reviewer prompt");
+    expect(calls[4]?.at(-1)).toContain("sleep 5");
+    expect(calls[4]?.at(-1)).not.toContain("sleep 999");
+    expect(out).toEqual([
+      "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
+      "director-watch: polling combo hard signals every 5s",
+    ]);
+  });
+
   it("rejects activation before a PR has opened", () => {
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
@@ -213,6 +280,79 @@ describe("activateReviewer", () => {
 
 // -- 4/4 CORE · tickReviewer tests --
 describe("tickReviewer", () => {
+  it("uses snapshot teardown retry limits when repo TOML changes before a merge tick", async () => {
+    const calls: string[][] = [];
+    const sleeps: number[] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    let fetchAttempts = 0;
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      "[limits]\nteardown_git_retries = 1\nteardown_git_backoff_seconds = 3\n",
+    );
+    writeCombo(runDir, record);
+    writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      "[limits]\nteardown_git_retries = 0\nteardown_git_backoff_seconds = 99\n",
+    );
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          if (args[0] === "fetch") {
+            fetchAttempts += 1;
+            if (fetchAttempts === 1) {
+              return { status: 1, stdout: "", stderr: "transient fetch" };
+            }
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        gh: (args) => {
+          calls.push(["gh", ...args]);
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "head456",
+              state: "MERGED",
+              mergedBy: { login: "maintainer" },
+              baseRefName: "main",
+              mergeCommit: { oid: "merge789" },
+            }),
+            stderr: "",
+          };
+        },
+        sleep: (ms) => {
+          sleeps.push(ms);
+          return Promise.resolve();
+        },
+      },
+      home,
+      comboId: record.id,
+    });
+
+    const fetchCalls = calls.filter((call) => call.slice(0, 4).join(" ") === `git cwd=${record.repoDir} fetch origin`);
+    expect(sleeps).toEqual([3000]);
+    expect(fetchCalls).toHaveLength(2);
+    expect(readEvents(runDir).slice(-2)).toMatchObject([
+      { event: "merged", sha: "merge789", by: "maintainer" },
+      { event: "combo_closed" },
+    ]);
+    expect(out).toEqual(["reviewer: merged merge789 by maintainer"]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+  });
+
   it("journals a closed PR and stops the combo without local git cleanup", async () => {
     const calls: string[][] = [];
     const out: string[] = [];

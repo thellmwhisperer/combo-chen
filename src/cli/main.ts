@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~775 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~780 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper,reviewer},
+ *   ../core/{combo,events,state}, ../infra/{config,config-snapshot,tmux}, ../roles/{coder,gatekeeper,reviewer},
  *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -57,6 +57,7 @@ import {
   type ComboRecord,
 } from "../core/state.js";
 import { assertSafeCoderInvocation, loadConfig } from "../infra/config.js";
+import { loadRuntimeConfig, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
   attachSessionArgs,
   hasSessionArgs,
@@ -266,7 +267,15 @@ export function createProgram(deps: Deps): Command {
         deps.out(`no-mistakes: copied local config to ${worktree}/${NO_MISTAKES_CONFIG_FILE}`);
       }
 
-      writeCombo(runDir, combo);
+      try {
+        writeCombo(runDir, combo);
+        writeConfigSnapshot(runDir, config);
+      } catch (error) {
+        rmSync(runDir, { recursive: true, force: true });
+        deps.git(["worktree", "remove", "--force", worktree], options.repo);
+        deps.git(["branch", "-D", branch], options.repo);
+        throw error;
+      }
 
       const gatekeeperCommand = buildGatekeeperInvocation({
         gatekeeperCommand: config.gatekeeperCommand,
@@ -417,7 +426,7 @@ export function createProgram(deps: Deps): Command {
     .action(async (options: { name: string; iterations?: string }) => {
       const runDir = runDirFor(comboHome(deps.env), options.name);
       const combo = readCombo(runDir);
-      const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+      const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
       const maxTicks = options.iterations === undefined ? undefined : Number(options.iterations);
       if (maxTicks !== undefined && (!Number.isInteger(maxTicks) || maxTicks <= 0)) {
         throw new Error("--iterations must be a positive integer");
@@ -506,9 +515,11 @@ export function createProgram(deps: Deps): Command {
           deps.out(line);
           continue;
         }
-        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+        const runDir = runDirFor(home, combo.id);
+        const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
         const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
           requiredCheckNames: config.readyRequiredChecks,
+          ambientCheckNames: config.externalCommentAgents,
         });
         deps.out(`${line} ${downstream ?? "—"}`);
       }
@@ -536,7 +547,7 @@ export function createProgram(deps: Deps): Command {
       const reports = combos.map((combo) => {
         const runDir = runDirFor(home, combo.id);
         const events = readEvents(runDir);
-        const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+        const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
         return analyzeForensicsCombo({
           combo,
           events,
@@ -545,7 +556,7 @@ export function createProgram(deps: Deps): Command {
             combo.issueUrl,
             latestPrUrlFromEvents(events),
             undefined,
-            { requiredCheckNames: config.readyRequiredChecks },
+            { requiredCheckNames: config.readyRequiredChecks, ambientCheckNames: config.externalCommentAgents },
           ),
           tmux: collectForensicsTmuxFacts(deps, combo),
         });
@@ -630,7 +641,7 @@ export function createProgram(deps: Deps): Command {
         // window is visible when the no-mistakes run becomes active.
         try {
           const combo = readCombo(runDir);
-          const config = loadConfig({ repoDir: combo.repoDir, env: deps.env });
+          const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
           ensureGatekeeperWindow(deps, combo, {
             timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
             retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
