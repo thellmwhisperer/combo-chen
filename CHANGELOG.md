@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.36](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.35...combo-chen-v0.0.36) (2026-06-18)
+
+
+### Features
+
+* **cli:** add gate-restart so the director relaunches the gate with one plain command ([e741c3b](https://github.com/thellmwhisperer/combo-chen/commit/e741c3bfac0d84735727a826b97dc201121f77a3))
+* **cli:** expose intent command to print the canonical issue PR intent ([9c642a6](https://github.com/thellmwhisperer/combo-chen/commit/9c642a668533f31f2ad646d0a1e02a5fd830a870))
+* **cli:** gate-restart para relanzar el gate del director con un comando plano ([333d414](https://github.com/thellmwhisperer/combo-chen/commit/333d414f330f5ad8cbfdff7badce2227192cc6d1))
+
+
+### Bug Fixes
+
+* **cli:** gate-restart force-restarts the post-address gate after pr_opened ([80ee8e8](https://github.com/thellmwhisperer/combo-chen/commit/80ee8e8c1e5253a85797f27e5c58bdd80235a850))
+* **launch-combo:** capture intent into a var so a failed capture aborts before publishing empty ([52743ab](https://github.com/thellmwhisperer/combo-chen/commit/52743ab54160ff9a681a906e08d168a4a55b8a0b))
+
 ## [0.0.35](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.34...combo-chen-v0.0.35) (2026-06-18)
 
 
