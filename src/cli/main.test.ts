@@ -2069,6 +2069,50 @@ describe("resume", () => {
     expect(out.join("\n")).toContain(`resume: initial gate relaunched for o-r-7 at ${newSha}`);
   });
 
+  it("does not retry the initial gate when gate_failed exhaustion has been journaled", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const headSha = "dddddddddddddddddddddddddddddddddddddddd";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_done", {});
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "gate_status", { state: "failed", head_sha: headSha });
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+    appendEvent(dir, "needs_human", { reason: "gate_failed" });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args) => {
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: `${headSha}\n`, stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      noMistakes: () => ({
+        status: 0,
+        stdout: ["run:", "  branch: combo/issue-7", "  status: cancelled", "outcome: failed"].join("\n"),
+        stderr: "",
+      }),
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    );
+    expect(gatekeeperWindow).toBeUndefined();
+    expect(out.join("\n")).toContain("resume: salvage required");
+  });
+
   it("ensures reviewer and director monitoring when a PR already exists", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
