@@ -11,3 +11,4 @@ dist/
 output/
 # local config (the example ships, the real one doesn't)
 combo-chen.toml
+.no-mistakes.yaml
