@@ -752,7 +752,7 @@ describe("activate-coder", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
+      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter --no-alt-screen resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -779,7 +779,7 @@ describe("activate-coder", () => {
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows).toHaveLength(1);
     expect(newWindows[0]).toContain("sitter");
-    expect(newWindows[0]?.at(-1)).toBe(`codex --profile sitter resume '${CODEX_THREAD_ID}'`);
+    expect(newWindows[0]?.at(-1)).toBe(`codex --profile sitter --no-alt-screen resume '${CODEX_THREAD_ID}'`);
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "gh")).toBe(false);
   });

@@ -90,9 +90,9 @@ describe("coder responding activation commands", () => {
           thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
           source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
         },
-        "codex resume {thread_id}",
+        "codex --profile sitter --no-alt-screen resume {thread_id}",
       ),
-    ).toBe("codex resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
+    ).toBe("codex --profile sitter --no-alt-screen resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
 
     expect(
       buildCoderRespondingResumeCommand(

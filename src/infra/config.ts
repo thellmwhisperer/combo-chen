@@ -156,7 +156,7 @@ const DEFAULTS = {
   coder: {
     codex: {
       command: DEFAULT_CODER_COMMAND,
-      resume_command: "codex resume {thread_id}",
+      resume_command: "codex --profile sitter --no-alt-screen resume {thread_id}",
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   gatekeeper: {

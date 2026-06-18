@@ -74,7 +74,7 @@ describe("loadConfig", () => {
     expect(config.coderCommand).toContain("--prevent-sleep on");
     expect(config.coderCommand).toContain("--meteor-frequency 0");
     expect(config.coderCommand).toContain("--current-branch {prompt}");
-    expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.coderResumeCommand).toBe("codex --profile sitter --no-alt-screen resume {thread_id}");
     expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
     expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
     expect(config.gatekeeperCommand).toContain("--skip=ci");
@@ -661,7 +661,7 @@ describe("loadConfig", () => {
     writeToml(
       repoDir,
       "combo-chen.toml",
-      '[rower.codex]\ncommand = 123\nresume_command = "codex resume {thread_id}"\n',
+      '[rower.codex]\ncommand = 123\nresume_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n',
     );
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
