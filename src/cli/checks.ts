@@ -1,11 +1,11 @@
 /**
- * @overview GitHub check-rollup helpers for CI and configured ambient reviewers.
- *   ~90 lines, 5 exports, provider-name matching without provider-specific logic.
+ * @overview GitHub check-rollup helpers for CI and configured READY checks.
+ *   ~105 lines, 6 exports, provider-name matching without provider-specific logic.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at checkRollupSucceeded       <- CI success excluding ambient review checks.
- *   2. Then ambientCheckSucceeded          <- configured ambient reviewer gate.
+ *   1. Start at checkRollupSucceeded       <- CI success excluding required READY checks.
+ *   2. Then requiredChecksSucceeded        <- every configured READY check succeeds.
  *   3. Read checkName/checkSignal*         <- low-level parsing helpers.
  *
  *   MAIN FLOW
@@ -16,15 +16,16 @@
  *   ----------
  *   checkName                 Concatenate useful rollup labels.
  *   checkSignalSucceeded      Broad success predicate for CI rollup.
- *   checkSignalIsSuccess      Exact SUCCESS predicate for ambient reviewer gates.
- *   checkRollupSucceeded      True when non-ambient CI checks all pass.
+ *   checkSignalIsSuccess      Exact SUCCESS predicate for required READY checks.
+ *   checkRollupSucceeded      True when non-required CI checks all pass.
+ *   requiredChecksSucceeded   True when every configured READY check succeeds.
  *   ambientCheckSucceeded     True when configured ambient reviewer check passes.
  *
  *   INTERNALS
  *   ---------
  *   isRecord, upperString, checkMatchesAny
  *
- * @exports checkName, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, ambientCheckSucceeded
+ * @exports checkName, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, ambientCheckSucceeded
  * @deps none
  */
 
@@ -67,7 +68,7 @@ export function checkSignalIsSuccess(item: unknown): boolean {
 }
 // -/ 1/2
 
-// -- 2/2 CORE · checkRollupSucceeded + ambientCheckSucceeded <- START HERE --
+// -- 2/2 CORE · checkRollupSucceeded + requiredChecksSucceeded <- START HERE --
 function checkMatchesAny(item: unknown, names: string[]): boolean {
   const label = checkName(item).toLowerCase();
   return names.some((name) => {
@@ -78,12 +79,21 @@ function checkMatchesAny(item: unknown, names: string[]): boolean {
 
 export function checkRollupSucceeded(
   rollup: unknown[] | undefined,
-  options: { ambientCheckNames?: string[] } = {},
+  options: { ambientCheckNames?: string[]; requiredCheckNames?: string[] } = {},
 ): boolean {
   if (rollup === undefined) return false;
-  const ambientCheckNames = options.ambientCheckNames ?? [];
-  const checks = rollup.filter((item) => !checkMatchesAny(item, ambientCheckNames));
+  const ignoredCheckNames = [...(options.ambientCheckNames ?? []), ...(options.requiredCheckNames ?? [])];
+  const checks = rollup.filter((item) => !checkMatchesAny(item, ignoredCheckNames));
   return checks.length > 0 && checks.every(checkSignalSucceeded);
+}
+
+export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredCheckNames: string[]): boolean {
+  const required = requiredCheckNames.map((name) => name.trim()).filter((name) => name.length > 0);
+  if (required.length === 0) return true;
+  if (rollup === undefined) return false;
+  return required.every((name) =>
+    rollup.some((item) => checkMatchesAny(item, [name]) && checkSignalIsSuccess(item)),
+  );
 }
 
 export function ambientCheckSucceeded(rollup: unknown[] | undefined, ambientCheckNames: string[]): boolean {

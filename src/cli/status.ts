@@ -58,7 +58,7 @@ export interface NoMistakesAxiStatus {
 
 type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
 interface DeepGithubStatusOptions {
-  ambientCheckNames?: string[];
+  requiredCheckNames?: string[];
 }
 
 function unquote(value: string): string {

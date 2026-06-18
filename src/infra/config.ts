@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~660 lines, 12 exports.
+ *   Repo wins on policy, user wins on local setup. ~690 lines, 12 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -25,7 +25,7 @@
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
- *   │ pickNonEmptyString, normalizeLimitAliases, ROLE_ALIASES,        │
+ *   │ pickNonEmptyString, pickStringArray, normalizeLimitAliases,     │
  *   │ DEFAULTS, PLACEHOLDER, gnhf safety predicates                    │
  *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
@@ -88,6 +88,8 @@ export interface ComboConfig {
   reviewerPrompt: string;
   /** Ambient review/status providers that are not the active command reviewer. */
   ambientReviewerAgents: string[];
+  /** GitHub check names that must be present with SUCCESS before READY. */
+  readyRequiredChecks: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
   /** Regex sources used to detect interactive permission prompts in worker panes. */
@@ -174,6 +176,9 @@ const DEFAULTS = {
   },
   reviewer: {
     ambient: ["coderabbit"],
+  },
+  ready: {
+    required_checks: [],
   },
   monitor: {
     worker_stall_ticks: 3,
@@ -406,6 +411,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
   let reviewerTableConfig: TomlTable = { ...DEFAULTS.reviewer };
+  let readyTable: TomlTable = { ...DEFAULTS.ready };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerPrompt = DEFAULT_REVIEWER_PROMPT;
   let monitorTable: TomlTable = { ...DEFAULTS.monitor };
@@ -468,6 +474,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         };
       }
     }
+    if (layer.table["ready"] !== undefined) {
+      readyTable = {
+        ...readyTable,
+        ...asTable(layer.table["ready"], `[ready] in ${layer.source}`),
+      };
+    }
     if (layer.table["monitor"] !== undefined) {
       monitorTable = {
         ...monitorTable,
@@ -518,6 +530,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "monitor.permission_prompt_patterns",
     );
   }
+  if (env["COMBO_CHEN_READY_REQUIRED_CHECKS"] !== undefined) {
+    readyTable["required_checks"] = parseEnvStringArray(
+      env["COMBO_CHEN_READY_REQUIRED_CHECKS"],
+      "ready.required_checks",
+    );
+  }
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
     runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
   }
@@ -558,6 +576,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     .filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const ambientReviewerAgents = [...new Set([...configuredAmbient, ...legacyAmbient])];
+  const readyRequiredChecks = [...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks"))];
   const workerPermissionPromptPatterns = pickNonEmptyStringArray(
     monitorTable["permission_prompt_patterns"],
     "monitor.permission_prompt_patterns",
@@ -637,6 +656,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerCommand,
     reviewerPrompt,
     ambientReviewerAgents,
+    readyRequiredChecks,
     workerStallTicks: pickPositiveInteger(
       monitorTable,
       "worker_stall_ticks",

@@ -73,6 +73,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.ambientReviewerAgents).toEqual(["coderabbit"]);
+    expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
     expect(config.coderRespondingWindowName).toBe("coder-responding");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
