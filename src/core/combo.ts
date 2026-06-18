@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~313 lines, 8 exports, 1 critical function.
+ *   ~346 lines, 8 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -21,12 +21,12 @@
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
  *     fetch/rebase baseRef → coder_started → coderCommand → coder_done
- *     → gate_started → mirror publish → gatekeeperCommand → pr_opened
+ *     → gate_started → mirror publish/config handoff → gatekeeperCommand → pr_opened
  *     → activateCoder + activateReviewer → needs_human
  *
  *   ┌─ CORE ─────────────────────────────────────────────────────────┐
  *   │ buildRunnerScript   Generates the runner shell script          │
- *   │ buildNoMistakesMirrorPublishScript Git push to local gate repo │
+ *   │ buildNoMistakesMirrorPublishScript Git push + config handoff   │
  *   │ guardNoMistakesDaemonStart Avoid duplicate no-mistakes starts  │
  *   │ shellQuote           POSIX-safe single-quoting                 │
  *   ├─ PHASE DERIVATION ────────────────────────────────────────────┤
@@ -163,6 +163,36 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+function noMistakesDaemonConfigCopyScript(): string[] {
+  return [
+    "    if [ -f .no-mistakes.yaml ]; then",
+    "      no_mistakes_config_copied=0",
+    "      no_mistakes_config_attempt=0",
+    "      while [ \"$no_mistakes_config_attempt\" -lt 30 ]; do",
+    "        no_mistakes_status=$(no-mistakes status 2>/dev/null || true)",
+    "        no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+    "        no_mistakes_gate_path=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*gate:[[:space:]]*//p' | sed -n '1p')",
+    "        if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$no_mistakes_gate_path\" ]; then",
+    "          no_mistakes_data_dir=$(dirname \"$(dirname \"$no_mistakes_gate_path\")\")",
+    "          no_mistakes_repo_id=$(basename \"$no_mistakes_gate_path\" .git)",
+    "          no_mistakes_run_dir=\"$no_mistakes_data_dir/worktrees/$no_mistakes_repo_id/$no_mistakes_run_id\"",
+    "          if [ -d \"$no_mistakes_run_dir\" ]; then",
+    "            cp -p .no-mistakes.yaml \"$no_mistakes_run_dir/.no-mistakes.yaml\" || exit 1",
+    "            no_mistakes_config_copied=1",
+    "            break",
+    "          fi",
+    "        fi",
+    "        no_mistakes_config_attempt=$((no_mistakes_config_attempt + 1))",
+    "        sleep 1",
+    "      done",
+    "      if [ \"$no_mistakes_config_copied\" != \"1\" ]; then",
+    "        printf '%s\\n' \"no-mistakes config copy failed: active run worktree not found\" >&2",
+    "        exit 1",
+    "      fi",
+    "    fi",
+  ];
+}
+
 export function buildNoMistakesMirrorPublishScript(combo: ComboRecord, pushIntent: string): string[] {
   return [
     "if git remote get-url no-mistakes >/dev/null 2>&1; then",
@@ -183,6 +213,7 @@ export function buildNoMistakesMirrorPublishScript(combo: ComboRecord, pushInten
     "    else",
     `      git push -o "$mirror_intent" no-mistakes "HEAD:$mirror_ref" || exit 1`,
     "    fi",
+    ...noMistakesDaemonConfigCopyScript(),
     "  else",
     `    printf '%s\\n' "no-mistakes mirror lookup failed for $mirror_branch" >&2`,
     "    exit 1",
