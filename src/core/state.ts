@@ -28,12 +28,13 @@
  *   │ describeWorkItem     Derive stable source/title display facts   │
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
  *   │ WorkItemDescriptor   Display-safe work item source/title shape  │
+ *   │ cleanOptional        Trim optional strings to undefined          │
  *   │ ComboStateError      Thrown on malformed URLs, missing records  │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ IssueRef, ISSUE_URL, slugForComboId, shortSourceHash             │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboStateError, IssueRef, ComboRecord, WorkItemDescriptor, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos, describeWorkItem
+ * @exports ComboStateError, IssueRef, ComboRecord, WorkItemDescriptor, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos, describeWorkItem, cleanOptional
  * @deps node:crypto, node:fs, node:os, node:path, ./work-plan
  */
 import { createHash } from "node:crypto";
@@ -161,7 +162,7 @@ export function describeWorkItem(
   };
 }
 
-function cleanOptional(value: string | undefined): string | undefined {
+export function cleanOptional(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed === undefined || trimmed === "" ? undefined : trimmed;
 }

@@ -19,7 +19,7 @@
  *
  *   INTERNALS
  *   ---------
- *   cleanOptional, workPlanSourceFromCombo
+ *   inferWorkItemSourceType, workPlanSourceFromCombo
  *
  * @exports WORK_PLAN_ARTIFACT, isGitHubIssueWorkItem, readPersistedWorkPlan
  * @deps node:{fs,path}, ../core/{state,work-plan}
@@ -27,7 +27,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { ComboRecord } from "../core/state.js";
+import { cleanOptional, type ComboRecord } from "../core/state.js";
 import {
   normalizeMarkdownWorkPlan,
   type WorkPlan,
@@ -42,7 +42,7 @@ export function isGitHubIssueWorkItem(
   combo: Pick<ComboRecord, "issueUrl" | "workItemSourceType">,
 ): boolean {
   const issueUrl = cleanOptional(combo.issueUrl);
-  const sourceType = combo.workItemSourceType ?? (issueUrl === undefined ? undefined : "github_issue");
+  const sourceType = inferWorkItemSourceType(combo);
   return sourceType === "github_issue" && issueUrl !== undefined;
 }
 
@@ -67,6 +67,13 @@ export function readPersistedWorkPlan(
   });
 }
 
+function inferWorkItemSourceType(
+  combo: Pick<ComboRecord, "issueUrl" | "workItemSourceType">,
+): WorkPlanSourceType | undefined {
+  const issueUrl = cleanOptional(combo.issueUrl);
+  return combo.workItemSourceType ?? (issueUrl === undefined ? undefined : "github_issue");
+}
+
 function workPlanSourceFromCombo(
   combo: Pick<
     ComboRecord,
@@ -74,16 +81,11 @@ function workPlanSourceFromCombo(
   >,
 ): WorkPlanSource {
   const issueUrl = cleanOptional(combo.issueUrl);
-  const type = combo.workItemSourceType ?? (issueUrl === undefined ? undefined : "github_issue");
+  const type = inferWorkItemSourceType(combo);
   const reference = cleanOptional(combo.workItemSourceReference) ?? issueUrl;
   if (type === undefined || reference === undefined) {
     throw new Error("Combo record lacks work item source metadata for persisted work plan");
   }
   return { type: type as WorkPlanSourceType, reference };
-}
-
-function cleanOptional(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed === undefined || trimmed === "" ? undefined : trimmed;
 }
 // -/ 1/1
