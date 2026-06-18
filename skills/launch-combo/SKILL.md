@@ -65,10 +65,10 @@ Poll on a cadence (journal, GitHub, tmux, configured coordination inbox). React 
 |---|---|
 | `coder_done` | Verify commits exist on the branch. Expect the gate stage (no-mistakes) next. |
 | `coder_failed` | Adjudicate before believing it: check the branch for new commits and the exit code. Exit via signal with the work present can be a false negative. |
-| gate stage / `gate_waiting` / `awaiting_approval` | Gate prompts can go quiet in the journal. If the pipeline stalls, run `no-mistakes axi status` yourself. Respond to the gate or escalate to the human if it touches intent. |
-| `gate_failed` before `pr_opened` | The director auto-retries the initial gate up to `[gatekeeper].initial_gate_retry_attempts` times with `[gatekeeper].initial_gate_retry_backoff_seconds` delay. After the retries are exhausted the combo journals `needs_human reason=gate_failed` and stops. Resume will not relaunch a retry after exhaustion; inspect the run directory and no-mistakes status, then restart the gate manually or escalate to the human. |
+| gate stage / `gate_waiting` / `awaiting_approval` | Gate prompts can go quiet in the journal. If the pipeline stalls, run `no-mistakes axi status` yourself. Respond to the gate or escalate to the human if it touches intent. If you need to relaunch the gate, use `combo-chen gate-restart -n <id>` (see "Restarting a stalled gate" below), never a hand-driven `axi run`. |
+| `gate_failed` before `pr_opened` | The director auto-retries the initial gate up to `[gatekeeper].initial_gate_retry_attempts` times with `[gatekeeper].initial_gate_retry_backoff_seconds` delay. After the retries are exhausted the combo journals `needs_human reason=gate_failed` and stops. Resume will not relaunch a retry after exhaustion; inspect the run directory and no-mistakes status, then either `combo-chen gate-restart -n <id>` (see "Restarting a stalled gate" below) or escalate to the human. Do not hand-drive `no-mistakes axi run`: it drops the verbatim `Fixes #N` requirement and the merged PR will not autoclose its issue. |
 | `pr_opened` | Start the review round: launch the reviewer (`combo-chen activate-reviewer -n <id>`) on the PR per the repo review protocol. Verdict as COMMENT review pinned to head SHA. |
-| PR opened out of band, no `pr_opened` in the journal | The gate-approval/manual-`axi run` path opens a PR without journaling `pr_opened`, so `activate-reviewer` refuses ("no pr_opened event") and the director loop never starts. Journal it through the binary, never by hand: `combo-chen emit -n <comboId> pr_opened --field url=<prUrl>`. Then proceed to the reviewer round. |
+| PR opened out of band, no `pr_opened` in the journal | The gate-approval/manual-`axi run` path opens a PR without journaling `pr_opened`, so `activate-reviewer` refuses ("no pr_opened event") and the director loop never starts. Journal it through the binary, never by hand: `combo-chen emit -n <comboId> pr_opened --field url=<prUrl>`. An out-of-band publish also skips the gate script's autoclose guard, so run `combo-chen ensure-pr-autoclose -n <comboId> --pr-url <prUrl>` before the reviewer round to re-inject and verify the `Fixes #N` line. Then proceed to the reviewer round. |
 | Subagent idle, waiting on a permission dialog | A stuck subagent is YOUR responsibility to detect (capture-pane on its window every cycle) and to report: escalate to the human immediately with the session:window and the pending tool, instead of letting it sit. Prevention is also yours: before launching any subagent, verify the repo's allowlist covers the tools its prompt will need, and flag gaps to the human BEFORE the launch, not after the freeze. |
 | Review findings (BLOCKED) | Activate the coder in responding mode (`combo-chen activate-coder`) to fix mechanical findings and reply to every comment. Intent-touching proposals escalate to the human, never auto-applied. |
 | New push to the PR | The previous verdict is stale. Re-run an incremental reviewer round and re-pin. |
@@ -82,6 +82,22 @@ Loop hygiene: check the configured coordination inbox every cycle. Coders do not
 ### Monitoring coder progress (gnhf)
 
 When the coder is gnhf, check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log`. A growing `iteration-N.jsonl` means the coder is active. No growth plus no terminal event is a stall to investigate, not a success.
+
+### Restarting a stalled gate: `gate-restart`, never a hand-driven `axi run`
+
+When a gate stalls or exhausts its retries (`needs_human reason=gate_failed`, or a gatekeeper window that died after retries), restart it with the first-class command, NOT by driving `no-mistakes axi run` yourself:
+
+```
+combo-chen gate-restart -n <comboId>
+```
+
+This is one plain command, so it obeys the command discipline above (no `&&`, no env-var prefix, no command substitution, nothing that trips a permission prompt). It restarts the gate through the same generated script the runner uses, so the canonical intent (including the verbatim `Fixes #N` requirement) and the `ensure-pr-autoclose` guard are baked in. It routes automatically: before `pr_opened` it relaunches the initial gate; after `pr_opened` it runs the post-address gate for the current head.
+
+Why never hand-drive it: a hand-written `no-mistakes axi run --intent ...` drops the `Fixes #N` block, so the regenerated PR body loses the autoclose line and the merged PR leaves its issue open. Capturing the intent inline with `--intent "$(combo-chen intent -n <id>)"` is also unsafe: command substitution captures only stdout, so if the command fails it publishes `--intent ""` and reintroduces the same bug, and the assignment-plus-`&&` form that would guard against it is a compound command the director cannot run safely. `gate-restart` removes the whole footgun.
+
+`combo-chen intent -n <comboId>` still exists as a primitive: it prints the exact `{issue_pr_intent}` the runner uses, for inspection or forensics. Do not build a manual publish around it.
+
+After any out-of-band publish, still run `combo-chen ensure-pr-autoclose -n <comboId> --pr-url <prUrl>` to re-inject and verify the line, because the manual path skips the gate script's autoclose guard.
 
 ## Park and resume (reboot-safe handoff)
 

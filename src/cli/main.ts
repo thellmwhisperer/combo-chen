@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~780 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~830 lines, 19 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -85,8 +85,10 @@ import {
   ensureGatekeeperWindow,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
+  restartPostAddressGate,
   scriptedMirrorGatekeeperCommandTemplate,
   startGatekeeperWindow,
+  startInitialGateRetry,
 } from "./gate.js";
 import { fetchForensicsGithubFacts, fetchIssueDetails, remoteSlug } from "./github.js";
 import { parkCombo } from "./park.js";
@@ -651,6 +653,55 @@ export function createProgram(deps: Deps): Command {
             `combo-chen: gatekeeper window recovery failed for ${options.name}: ${err instanceof Error ? err.message : String(err)}\n`,
           );
         }
+      }
+    });
+
+  program
+    .command("intent")
+    .description("Print the canonical no-mistakes issue PR intent for a combo (inspection/forensics; to relaunch a gate use gate-restart)")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const issueDetails = fetchIssueDetails(deps.gh, combo.issueUrl);
+      deps.out(
+        buildIssuePrIntent({
+          combo,
+          issueTitle: issueDetails.title,
+          issueBody: issueDetails.body,
+        }),
+      );
+    });
+
+  program
+    .command("gate-restart")
+    .description(
+      "Restart the no-mistakes gate for a combo using the canonical intent (one plain command; replaces a manual axi run)",
+    )
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const cli = cliInvocation();
+      const prUrl = latestPrUrlFromEvents(readEvents(runDir));
+      if (prUrl === undefined) {
+        const result = startInitialGateRetry({ deps, combo, runDir, cli });
+        if (result.started) {
+          deps.out(`gate-restart: initial gate restarted for ${combo.id} at ${result.headSha}`);
+        } else {
+          deps.out(
+            `gate-restart: initial gate not started for ${combo.id} (${result.reason}) at ${result.headSha}`,
+          );
+        }
+        return;
+      }
+      const result = restartPostAddressGate({ deps, combo, runDir, prUrl, cli });
+      if (result.started) {
+        deps.out(`gate-restart: post-address gate restarted for ${combo.id} at ${result.headSha}`);
+      } else {
+        deps.out(
+          `gate-restart: post-address gate not started for ${combo.id} (${result.reason}) at ${result.headSha}`,
+        );
       }
     });
 
