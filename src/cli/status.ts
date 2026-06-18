@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~225 lines, 8 exports, parsers for deep recovery status.
+ *   ~239 lines, 8 exports, parsers for deep recovery status.
  *
  *   READING GUIDE
  *   -------------
