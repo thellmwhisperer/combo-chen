@@ -239,7 +239,7 @@ combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
 combo-chen resume -n <combo-id>
 combo-chen forensics --issues <numbers> [--format json]
-combo-chen reconcile [--apply]
+combo-chen reconcile [-n <combo-id>] [--apply]
 combo-chen stop -n <combo-id>
 ```
 
@@ -258,7 +258,9 @@ combo-chen stop -n <combo-id>
   state. It does not start a fresh run on an existing combo.
 - `forensics` produces a read-only report for stalled or confusing runs.
 - `reconcile --apply` repairs journals that froze before a merged or closed PR
-  was recorded locally.
+  was recorded locally. Add `-n <combo-id>` to scope repair and teardown to a
+  single combo. Teardown is idempotent: already-clean worktrees, branches, and
+  tmux sessions count as success.
 
 ## State
 
