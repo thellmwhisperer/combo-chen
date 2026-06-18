@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~780 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~800 lines, 18 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -652,6 +652,23 @@ export function createProgram(deps: Deps): Command {
           );
         }
       }
+    });
+
+  program
+    .command("intent")
+    .description("Print the canonical no-mistakes issue PR intent for a combo (reuse for manual axi runs)")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const combo = readCombo(runDir);
+      const issueDetails = fetchIssueDetails(deps.gh, combo.issueUrl);
+      deps.out(
+        buildIssuePrIntent({
+          combo,
+          issueTitle: issueDetails.title,
+          issueBody: issueDetails.body,
+        }),
+      );
     });
 
   program

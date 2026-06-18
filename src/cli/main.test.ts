@@ -156,6 +156,7 @@ describe("command surface", () => {
         "ensure-pr-autoclose",
         "events",
         "forensics",
+        "intent",
         "reviewer-tick",
         "nudge-review-comments",
         "park",
@@ -166,6 +167,52 @@ describe("command surface", () => {
         "stop",
       ].sort(),
     );
+  });
+
+  it("prints the canonical issue PR intent with the verbatim autoclose requirement", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ title: "My title", body: "My body" }),
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["intent", "-n", "o-r-7"]);
+
+    expect(ghCalls[0]).toEqual(["gh", "issue", "view", ISSUE, "--json", "title,body"]);
+    expect(out).toEqual([
+      [
+        "Implement GitHub issue https://github.com/o/r/issues/7.",
+        "",
+        "Title: My title",
+        "",
+        "Pull request body requirement:",
+        "Include this exact visible line verbatim in the PR body, outside comments, code blocks, or collapsed details:",
+        "Fixes #7",
+        "",
+        "Issue body:",
+        "My body",
+      ].join("\n"),
+    ]);
   });
 
   it("ensures a generated PR body has a visible source issue autoclose line", async () => {
