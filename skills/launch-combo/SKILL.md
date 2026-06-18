@@ -90,10 +90,12 @@ When a gate stalls or exhausts its retries and you have to drive `no-mistakes ax
 Get the canonical intent from the binary and pass it straight through:
 
 ```
-no-mistakes axi run --yes --intent "$(combo-chen intent -n <comboId>)"
+no-mistakes axi run --yes --intent "$(combo-chen intent -n <comboId>)" --skip=ci
 ```
 
 `combo-chen intent -n <comboId>` prints the exact `{issue_pr_intent}` the runner uses, including the "Pull request body requirement" block with the literal `Fixes #N` line. This applies to every manual publish: initial gate restart AND any post-address re-publish.
+
+Keep `--skip=ci`: the gate always runs publish-only (combo-chen forces this flag into the gate command), so a manual run must add it by hand to match the canonical gate mode. The command assumes the no-mistakes daemon is already up from the stalled gate; if it is not, prefix `no-mistakes daemon start && `.
 
 After any out-of-band publish, still run `combo-chen ensure-pr-autoclose -n <comboId> --pr-url <prUrl>` to re-inject and verify the line, because the manual path skips the gate script's autoclose guard.
 
