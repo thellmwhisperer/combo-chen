@@ -66,6 +66,9 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// Single source of truth for the gate's `{issue_pr_intent}`. The `intent` CLI
+// command prints this verbatim for inspection and forensics, so its output
+// stays identical to what the gate actually pushes.
 export function buildIssuePrIntent(input: {
   combo: Pick<ComboRecord, "issueUrl">;
   issueTitle: string;

@@ -49,6 +49,7 @@ import { runDirFor, writeCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
+import { buildIssuePrIntent } from "../roles/gatekeeper.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
@@ -156,6 +157,8 @@ describe("command surface", () => {
         "ensure-pr-autoclose",
         "events",
         "forensics",
+        "gate-restart",
+        "intent",
         "reviewer-tick",
         "nudge-review-comments",
         "park",
@@ -166,6 +169,149 @@ describe("command surface", () => {
         "stop",
       ].sort(),
     );
+  });
+
+  it("prints the canonical issue PR intent with the verbatim autoclose requirement", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ title: "My title", body: "My body" }),
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["intent", "-n", "o-r-7"]);
+
+    expect(ghCalls[0]).toEqual(["gh", "issue", "view", ISSUE, "--json", "title,body"]);
+    expect(out).toEqual([
+      [
+        "Implement GitHub issue https://github.com/o/r/issues/7.",
+        "",
+        "Title: My title",
+        "",
+        "Pull request body requirement:",
+        "Include this exact visible line verbatim in the PR body, outside comments, code blocks, or collapsed details:",
+        "Fixes #7",
+        "",
+        "Issue body:",
+        "My body",
+      ].join("\n"),
+    ]);
+  });
+
+  it("prints exactly the canonical buildIssuePrIntent, preserving shell-special content byte-for-byte", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    // Same intent the runner pushes (run command, main.ts:256) flows through the
+    // same buildIssuePrIntent. Pin that the intent command introduces no
+    // transformation, even for content with shell-special characters.
+    const title = 'Fix `$(rm -rf)` in "quoted" ${VAR} path';
+    const body = 'Line 1 with `backticks`\nLine 2 with $(cmd) and "quotes"\n\\backslash tail';
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          return { status: 0, stdout: JSON.stringify({ title, body }), stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["intent", "-n", "o-r-7"]);
+
+    expect(out).toEqual([
+      buildIssuePrIntent({ combo: { issueUrl: ISSUE }, issueTitle: title, issueBody: body }),
+    ]);
+  });
+
+  it("omits the issue body section but keeps the autoclose line when the issue has no body", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          // GitHub returns body: null (not "") for an issue with no body.
+          return { status: 0, stdout: JSON.stringify({ title: "My title", body: null }), stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["intent", "-n", "o-r-7"]);
+
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain("Fixes #7");
+    expect(out[0]).not.toContain("Issue body:");
+  });
+
+  it("throws and writes nothing to stdout when the issue fetch fails", async () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "issue" && args[1] === "view") {
+          return { status: 1, stdout: "", stderr: "gh: not found" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    // The skill captures stdout via `intent=$(...) && no-mistakes ...`; on
+    // failure stdout MUST stay empty so the `&&` aborts before publishing.
+    await expect(exec(deps, ["intent", "-n", "o-r-7"])).rejects.toThrow(/Issue details not reachable/);
+    expect(out).toEqual([]);
+  });
+
+  it("throws and writes nothing to stdout for an unknown combo id", async () => {
+    const h = home();
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["intent", "-n", "missing"])).rejects.toThrow();
+    expect(out).toEqual([]);
   });
 
   it("ensures a generated PR body has a visible source issue autoclose line", async () => {
@@ -341,6 +487,77 @@ describe("command surface", () => {
     ).rejects.toThrow(
       "pr autoclose verification failed for https://github.com/o/r/pull/9: body still lacks a visible GitHub autoclose keyword for o-r-7",
     );
+  });
+});
+
+describe("gate-restart", () => {
+  const HEAD = "abcdef012345abcdef012345abcdef0123456789";
+
+  function gateDeps(h: string, overrides: Partial<Deps> = {}): ReturnType<typeof fakeDeps> {
+    return fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: `${HEAD}\n`, stderr: "" };
+        }
+        if (args[0] === "status" && args[1] === "--porcelain") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      ...overrides,
+    });
+  }
+
+  it("with no PR, restarts the initial gate with the canonical intent and autoclose guard", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, calls, out } = gateDeps(h);
+
+    await exec(deps, ["gate-restart", "-n", "o-r-7"]);
+
+    // The restart goes through the real gate script, which bakes in the
+    // canonical intent and the autoclose guard. No improvised axi run.
+    const script = readFileSync(join(dir, `gatekeeper-initial-${HEAD.slice(0, 12)}.sh`), "utf8");
+    expect(script).toContain("ensure-pr-autoclose");
+    expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
+    expect(out.join("\n")).toContain("initial gate restarted");
+  });
+
+  it("with a PR open and a failed gate at HEAD, force-restarts the post-address gate", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+    // The exact recovery case: a gate already FAILED at this same head. The
+    // idempotent director path would no-op here; gate-restart must force it.
+    appendEvent(dir, "gate_status", { state: "failed", head_sha: HEAD });
+    const { deps, calls, out } = gateDeps(h);
+
+    await exec(deps, ["gate-restart", "-n", "o-r-7"]);
+
+    const script = readFileSync(join(dir, `gatekeeper-post-${HEAD.slice(0, 12)}.sh`), "utf8");
+    expect(script).toContain("ensure-pr-autoclose");
+    expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
+    expect(existsSync(join(dir, `gatekeeper-initial-${HEAD.slice(0, 12)}.sh`))).toBe(false);
+    expect(out.join("\n")).toContain("post-address gate restarted");
   });
 });
 
