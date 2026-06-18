@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~120 lines, testing that combo-chen.example.toml and public docs use
+ *   ~135 lines, testing that combo-chen.example.toml and public docs use
  *   only OSS-friendly role names, document the tracked no-mistakes and Codex
  *   resume policies, and keep the example config loadable by the config
  *   cascade.
@@ -109,6 +109,18 @@ describe("combo-chen.example.toml", () => {
 
     expect(body).not.toMatch(LOCAL_REPO_PATH);
     expect(body).not.toMatch(FORBIDDEN_TMP_WORKTREE_PATH);
+  });
+
+  it("documents scoped post-merge cleanup in the launch skill", () => {
+    const body = readFileSync(LAUNCH_SKILL, "utf8");
+
+    expect(body).toContain("combo-chen reconcile -n <comboId> --apply");
+    expect(body).toContain("Owned combo PR is `MERGED`");
+    expect(body).toContain("no tmux session remains");
+    expect(body).toContain("no combo worktree remains");
+    expect(body).toContain("local branch is gone");
+    expect(body).toContain("journal contains `merged` and `combo_closed`");
+    expect(body).toContain("Do not hand-emit `merged` or `combo_closed` as a substitute");
   });
 });
 // -/ 1/1
