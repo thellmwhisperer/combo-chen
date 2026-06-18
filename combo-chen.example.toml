@@ -92,6 +92,9 @@ agents = ["coderabbit"]
 # gh pr review <url> --comment --body "<body>"
 # Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
 # prompt = "Apply my local review process."
+# GitHub logins allowed to satisfy the SHA-pinned reviewer LGTM gate. Defaults
+# to the active reviewer agent name; set this when the GitHub author differs.
+logins = ["claude"]
 
 [reviewer.claude]
 # {placeholders}: issue_url, pr_url, worktree, repo, branch, prompt.

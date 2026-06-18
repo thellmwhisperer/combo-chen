@@ -60,6 +60,7 @@ type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
 interface DeepGithubStatusOptions {
   requiredCheckNames?: string[];
   ambientCheckNames?: string[];
+  reviewerLogins?: string[];
 }
 
 function unquote(value: string): string {
@@ -212,7 +213,9 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
 
   let reviewerPin: string | undefined;
   try {
-    reviewerPin = latestGitHubLgtmSha(gh, prUrl);
+    reviewerPin = latestGitHubLgtmSha(gh, prUrl, undefined, {
+      allowedAuthors: options.reviewerLogins,
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return `GitHub review unavailable: ${firstLine(detail)}`;
