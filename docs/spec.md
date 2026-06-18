@@ -313,15 +313,19 @@ ignored config or environment outside that file.
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
--   `combo-chen reconcile [--apply]` compares every persisted combo journal
-  against GitHub PR state. For merged PRs whose journal froze before the
-  director could record `merged`/`combo_closed`, it appends the missing
-  terminal events (marked `source: "reconcile"`) and runs teardown (worktree
-  removal, branch deletion, tmux session kill); parked combos skip worktree
-  removal and branch deletion but still receive the terminal events and tmux
-  cleanup. For closed PRs, it appends `needs_human reason=pr_closed` plus
-  `combo_closed` and stops tmux while preserving the local worktree and branch.
-  Without `--apply` it reports what would change without mutating state.
+-   `combo-chen reconcile [-n <combo-id>] [--apply]` compares every persisted
+    combo journal against GitHub PR state. When `-n <combo-id>` is provided,
+    only that single combo is reconciled. For merged PRs whose journal froze
+    before the director could record `merged`/`combo_closed`, it appends the
+    missing terminal events (marked `source: "reconcile"`) and runs teardown
+    (worktree removal, branch deletion, tmux session kill); parked combos skip
+    worktree removal and branch deletion but still receive the terminal events
+    and tmux cleanup. Teardown is idempotent: already-gone worktrees (not a
+    working tree), already-deleted branches, and already-killed tmux sessions
+    count as success. For closed PRs, it appends `needs_human reason=pr_closed`
+    plus `combo_closed` and stops tmux while preserving the local worktree and
+    branch. Without `--apply` it reports what would change without mutating
+    state.
 
 ## 8a. Release artifact contract
 
