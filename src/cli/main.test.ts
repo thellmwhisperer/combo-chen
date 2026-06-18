@@ -157,6 +157,7 @@ describe("command surface", () => {
         "ensure-pr-autoclose",
         "events",
         "forensics",
+        "gate-restart",
         "intent",
         "reviewer-tick",
         "nudge-review-comments",
@@ -486,6 +487,71 @@ describe("command surface", () => {
     ).rejects.toThrow(
       "pr autoclose verification failed for https://github.com/o/r/pull/9: body still lacks a visible GitHub autoclose keyword for o-r-7",
     );
+  });
+});
+
+describe("gate-restart", () => {
+  const HEAD = "abcdef012345abcdef012345abcdef0123456789";
+
+  function gateDeps(h: string, overrides: Partial<Deps> = {}): ReturnType<typeof fakeDeps> {
+    return fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: `${HEAD}\n`, stderr: "" };
+        }
+        if (args[0] === "status" && args[1] === "--porcelain") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      ...overrides,
+    });
+  }
+
+  it("with no PR, restarts the initial gate with the canonical intent and autoclose guard", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps, calls, out } = gateDeps(h);
+
+    await exec(deps, ["gate-restart", "-n", "o-r-7"]);
+
+    // The restart goes through the real gate script, which bakes in the
+    // canonical intent and the autoclose guard. No improvised axi run.
+    const script = readFileSync(join(dir, `gatekeeper-initial-${HEAD.slice(0, 12)}.sh`), "utf8");
+    expect(script).toContain("ensure-pr-autoclose");
+    expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
+    expect(out.join("\n")).toContain("initial gate restarted");
+  });
+
+  it("with a PR open, routes to the post-address gate path instead of the initial retry", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+    const { deps, out } = gateDeps(h);
+
+    await exec(deps, ["gate-restart", "-n", "o-r-7"]);
+
+    expect(existsSync(join(dir, `gatekeeper-initial-${HEAD.slice(0, 12)}.sh`))).toBe(false);
+    expect(out.join("\n")).toContain("post-address gate");
   });
 });
 
