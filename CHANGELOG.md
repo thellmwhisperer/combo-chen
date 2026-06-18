@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.38](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.37...combo-chen-v0.0.38) (2026-06-18)
+
+
+### Bug Fixes
+
+* **checks:** Implemented the H-3 filtered check-rollup fix so external-comment/ambient checks alone can no longer stand in for normal CI, with full validation green. ([46b0a63](https://github.com/thellmwhisperer/combo-chen/commit/46b0a6390ae3a21b831aca93840132fe00b715e6))
+* **events:** Implemented the remaining H-4 journal append hardening with a per-run append lock and full validation green. ([63dceae](https://github.com/thellmwhisperer/combo-chen/commit/63dceaef8ddce9a3404982333a19a4693af04be9))
+* **reviewer:** Implemented the issue [#127](https://github.com/thellmwhisperer/combo-chen/issues/127) H-1 security fix so SHA-pinned reviewer LGTM evidence is accepted only from configured reviewer GitHub logins, with full validation green. ([cfedf67](https://github.com/thellmwhisperer/combo-chen/commit/cfedf6770216fb57f8a4490f63ec6672ed99cbc0))
+* **runner:** Implemented and validated the H-2 runner command quoting fix for combo ids derived from issue URLs. ([8a8ce1d](https://github.com/thellmwhisperer/combo-chen/commit/8a8ce1d9b547c38e5914a549e9fa6fd1055788a5))
+
 ## [0.0.37](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.36...combo-chen-v0.0.37) (2026-06-18)
 
 
