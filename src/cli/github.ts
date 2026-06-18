@@ -52,7 +52,7 @@ export interface ForensicsGithubFacts {
     state?: string;
     mergedAt?: string;
     ci?: GithubSignalState;
-    ambientReviewer?: GithubSignalState;
+    readyRequiredChecks?: GithubSignalState;
     mergeState?: string;
     branchBehind?: boolean;
   };
@@ -261,7 +261,7 @@ export function fetchForensicsGithubFacts(
   issueUrl: string,
   prUrl: string | undefined,
   cache?: GhApiCache,
-  options: { ambientCheckNames?: string[] } = {},
+  options: { requiredCheckNames?: string[] } = {},
 ): ForensicsGithubFacts | undefined {
   const facts: ForensicsGithubFacts = {};
 
@@ -281,12 +281,12 @@ export function fetchForensicsGithubFacts(
           headSha: parsed.headSha,
           state: parsed.state,
           ci: rollupSignal(parsed.statusCheckRollup, {
-            ambientCheckNames: options.ambientCheckNames,
-            selectAmbient: false,
+            requiredCheckNames: options.requiredCheckNames,
+            selectRequired: false,
           }),
-          ambientReviewer: rollupSignal(parsed.statusCheckRollup, {
-            ambientCheckNames: options.ambientCheckNames,
-            selectAmbient: true,
+          readyRequiredChecks: rollupSignal(parsed.statusCheckRollup, {
+            requiredCheckNames: options.requiredCheckNames,
+            selectRequired: true,
           }),
           ...(parsed.mergedAt !== undefined ? { mergedAt: parsed.mergedAt } : {}),
           ...(parsed.mergeStateStatus !== undefined
@@ -335,11 +335,11 @@ function parseIssueView(stdout: string): ForensicsGithubFacts["issue"] | undefin
 
 function rollupSignal(
   rollup: unknown[] | undefined,
-  options: { ambientCheckNames?: string[]; selectAmbient: boolean },
+  options: { requiredCheckNames?: string[]; selectRequired: boolean },
 ): GithubSignalState {
   if (rollup === undefined) return "unknown";
-  const ambientCheckNames = options.ambientCheckNames ?? [];
-  const items = rollup.filter((item) => checkMatchesAny(item, ambientCheckNames) === options.selectAmbient);
+  const requiredCheckNames = options.requiredCheckNames ?? [];
+  const items = rollup.filter((item) => checkMatchesAny(item, requiredCheckNames) === options.selectRequired);
   if (items.length === 0) return "unknown";
   const states = items.map(checkSignalState);
   if (states.includes("failure")) return "failure";
