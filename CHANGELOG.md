@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.32](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.31...combo-chen-v0.0.32) (2026-06-18)
+
+
+### Features
+
+* **config:** Added the initial-gate retry configuration surface with red-first coverage and full validation green. ([0a23415](https://github.com/thellmwhisperer/combo-chen/commit/0a234156ab8ea3ff0534389e58c0cf537b2ee1c0))
+
+
+### Bug Fixes
+
+* **config:** keep no-mistakes config local ([44eaa4f](https://github.com/thellmwhisperer/combo-chen/commit/44eaa4f46990bc8717524da750f050e1092205ef))
+* **director:** Implemented automatic pre-PR initial-gate retry for issue [#59](https://github.com/thellmwhisperer/combo-chen/issues/59) and validated the full suite green. ([b430fbb](https://github.com/thellmwhisperer/combo-chen/commit/b430fbba44bfc4180c664177f17c1f281c1893d2))
+* **gate:** copy no-mistakes config during gate run ([f64074a](https://github.com/thellmwhisperer/combo-chen/commit/f64074ae40db50e592dcb7eca151a84b43743ce0))
+* **gate:** copy no-mistakes config into daemon worktree ([ac3a99a](https://github.com/thellmwhisperer/combo-chen/commit/ac3a99add10e30dd3beeda61daa7e72752d6904a))
+* **gate:** wait for no-mistakes config handoff ([d51142f](https://github.com/thellmwhisperer/combo-chen/commit/d51142fa8259dcf59afd5d504cd328c33d819ba8))
+
 ## [0.0.31](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.30...combo-chen-v0.0.31) (2026-06-17)
 
 
