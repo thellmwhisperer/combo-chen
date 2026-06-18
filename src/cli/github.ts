@@ -1,10 +1,10 @@
 /**
- * @overview GitHub CLI parsing helpers. ~395 lines, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~440 lines, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at fetchIssueDetails     <- issue title/body for runner PR intent.
- *   2. Then latestGitHubLgtmSha       <- latest LGTM pin from comments/reviews.
+ *   2. Then latestGitHubLgtmSha       <- latest LGTM pin from comments/reviews, optionally filtered by allowed authors.
  *   3. Then parsePrView              <- normalized PR state for reviewer tick.
  *   4. Finish at fetchForensicsGithubFacts <- read-only report enrichment.
  *
@@ -19,7 +19,7 @@
  *
  *   INTERNALS
  *   ---------
- *   GitHubPin, lgtmCandidateLines, lgtmPinFromBody, pinsFromItems, rollupSignal, parseIssueView
+ *   LatestGitHubLgtmOptions, GitHubPin, loginFromItem, lgtmCandidateLines, lgtmPinFromBody, pinsFromItems, rollupSignal, parseIssueView
  *
  * @exports GhResult, GhRunner, IssueDetails, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, PrView, parsePrView, fetchForensicsGithubFacts
  * @deps ../core/gh-api, ../core/pr-url, ./checks
