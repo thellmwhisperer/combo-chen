@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~775 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~780 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,state}, ../infra/{config,tmux}, ../roles/{coder,gatekeeper,reviewer},
+ *   ../core/{combo,events,state}, ../infra/{config,config-snapshot,tmux}, ../roles/{coder,gatekeeper,reviewer},
  *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -57,6 +57,7 @@ import {
   type ComboRecord,
 } from "../core/state.js";
 import { assertSafeCoderInvocation, loadConfig } from "../infra/config.js";
+import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
   attachSessionArgs,
   hasSessionArgs,
@@ -267,6 +268,7 @@ export function createProgram(deps: Deps): Command {
       }
 
       writeCombo(runDir, combo);
+      writeConfigSnapshot(runDir, config);
 
       const gatekeeperCommand = buildGatekeeperInvocation({
         gatekeeperCommand: config.gatekeeperCommand,
