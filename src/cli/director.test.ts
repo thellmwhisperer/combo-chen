@@ -568,7 +568,7 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: headSha,
-      ambientReviewerLogin: "reviewdog",
+      externalCommentLogin: "reviewdog",
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
