@@ -1,12 +1,12 @@
 /**
  * @overview Gatekeeper adapter: invokes no-mistakes' blocking agent
  *   interface. Expands {placeholders} in commands, prepares push-safe
- *   base64 intent, and reads TOON outcomes tolerantly. ~330 lines, 7 exports.
+ *   base64 intent, and reads TOON outcomes tolerantly. ~370 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at buildGatekeeperInvocation ← the command the runner executes
- *   2. buildIssuePrIntent                  ← intent + PR autoclose requirement
+ *   2. buildIssuePrIntent / buildWorkPlanPrIntent ← PR intent shape
  *   3. buildNoMistakesPushIntent           ← base64 intent for git push options
  *   4. ensureIssueAutocloseInPrBody        ← injects "Fixes #N" into PR body
  *   5. parseAxiOutcome                     ← read no-mistakes outcome line
@@ -22,6 +22,7 @@
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
  *   │ buildGatekeeperInvocation  Expand {placeholders} in gatekeeper command │
  *   │ buildIssuePrIntent         Format issue facts + PR autoclose contract  │
+ *   │ buildWorkPlanPrIntent      Format generic work-plan PR intent          │
  *   │ buildNoMistakesPushIntent  Base64 encode intent for git push option    │
  *   │ ensureIssueAutocloseInPrBody Inject "Fixes #N" if missing from PR body │
  *   │ hasIssueAutocloseInPrBody  Check if PR body already autocloses issue   │
@@ -32,12 +33,13 @@
  *   │ MAX_INTENT_BODY_LENGTH, MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS      │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
- * @exports GatekeeperInput, buildIssuePrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
- * @deps ../core/state, ../core/combo, ../infra/config
+ * @exports GatekeeperInput, buildIssuePrIntent, buildWorkPlanPrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
+ * @deps ../core/state, ../core/combo, ../core/work-plan, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
 import { parseIssueUrl } from "../core/state.js";
 import { shellQuote } from "../core/combo.js";
+import { renderWorkPlanMarkdown, type WorkPlan } from "../core/work-plan.js";
 import { ComboConfigError } from "../infra/config.js";
 
 // -- 1/3 CORE · GatekeeperInput + constants + buildIssuePrIntent --
@@ -46,6 +48,7 @@ export interface GatekeeperInput {
   combo?: Pick<ComboRecord, "branch" | "issueUrl">;
   issueTitle?: string;
   issueBody?: string;
+  workPlan?: WorkPlan;
 }
 
 const PLACEHOLDER = /(?<!\$)\{([a-z_]+)\}/g;
@@ -93,6 +96,20 @@ export function buildIssuePrIntent(input: {
     intent.push("", "Issue body:", truncated);
   }
   return intent.join("\n");
+}
+
+export function buildWorkPlanPrIntent(plan: WorkPlan): string {
+  return [
+    `Implement work plan ${plan.title}.`,
+    "",
+    `Source: ${plan.source.type} ${plan.source.reference}`,
+    "",
+    "Pull request body requirement:",
+    "Describe the work-plan source and completed acceptance criteria; do not add GitHub autoclose keywords unless the plan explicitly asks for one.",
+    "",
+    "Work plan:",
+    renderWorkPlanMarkdown(plan).trim(),
+  ].join("\n");
 }
 
 export function buildNoMistakesPushIntent(intent: string): string {
@@ -309,7 +326,25 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
     }
   }
   if (!hasPlaceholders) return forceNoMistakesPublishOnly(input.gatekeeperCommand);
-  if (input.combo === undefined || input.issueTitle === undefined || input.issueBody === undefined) {
+  if (input.combo === undefined) {
+    throw new ComboConfigError("Gatekeeper command placeholders require issue facts during runner generation");
+  }
+  if (input.workPlan !== undefined) {
+    const vars: Record<string, string | undefined> = {
+      issue_pr_intent: buildWorkPlanPrIntent(input.workPlan),
+      branch: input.combo.branch,
+    };
+    return forceNoMistakesPublishOnly(
+      input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => {
+        const value = vars[name];
+        if (value === undefined) {
+          throw new ComboConfigError(`Gatekeeper placeholder {${name}} requires a GitHub issue source`);
+        }
+        return shellQuote(value);
+      }),
+    );
+  }
+  if (input.issueTitle === undefined || input.issueBody === undefined) {
     throw new ComboConfigError("Gatekeeper command placeholders require issue facts during runner generation");
   }
   const vars: Record<string, string> = {

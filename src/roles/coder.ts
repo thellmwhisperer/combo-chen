@@ -1,13 +1,13 @@
 /**
  * @overview Coder adapter: turns config + combo facts into a gnhf command.
- *   Extracts Codex thread IDs for resume. ~118 lines, 8 exports.
+ *   Extracts Codex thread IDs for resume. ~165 lines, 9 exports.
  *
  *   READING GUIDE
  *   ─────────────
  *   1. Start at buildCoderInvocation     ← the command the runner executes
  *   2. persistCoderThreadArtifact         ← captures thread_id for resume
  *   3. extractCodexThreadIdFromJsonl      ← parses gnhf JSONL for thread
- *   4. defaultPrompt                      ← read when tracing prompt shape
+ *   4. defaultPrompt / defaultWorkPlanPrompt ← read when tracing prompt shape
  *
  *   MAIN FLOW
  *   ─────────
@@ -20,7 +20,8 @@
  *   │ buildCoderInvocation       Render the coder command from template     │
  *   │ persistCoderThreadArtifact Extract + store thread_id for resume       │
  *   │ extractCodexThreadIdFromJsonl Parse gnhf JSONL → thread_id           │
- *   │ defaultPrompt              Standard coder objective prompt            │
+ *   │ defaultPrompt              Standard issue objective prompt            │
+ *   │ defaultWorkPlanPrompt      Standard plan objective prompt             │
  *   │ CoderThreadArtifact        {agent, thread_id, source} shape           │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
  *   │ latestGnhfIterationJsonl   Find newest iteration-1.jsonl in .gnhf    │
@@ -28,8 +29,8 @@
  *   │ CoderInput                                                            │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
- * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
- * @deps node:fs, node:path, ../infra/config, ../core/state
+ * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, defaultWorkPlanPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
+ * @deps node:fs, node:path, ../infra/config, ../core/state, ../core/work-plan
  */
 import {
   existsSync,
@@ -43,6 +44,7 @@ import { join, relative, sep } from "node:path";
 
 import { renderCommand } from "../infra/config.js";
 import type { ComboRecord } from "../core/state.js";
+import type { WorkPlan } from "../core/work-plan.js";
 
 // -- 1/3 HELPER · Types + constants + defaultPrompt --
 export const CODER_THREAD_ARTIFACT = "coder-thread.json";
@@ -60,6 +62,16 @@ export function defaultPrompt(issueUrl: string): string {
     `Read it first with: gh issue view ${issueUrl}. ` +
     `Work test-first: red test, minimal code to green, refactor. ` +
     `Stay strictly within the issue's scope.`
+  );
+}
+
+export function defaultWorkPlanPrompt(plan: WorkPlan, artifactPath: string): string {
+  return (
+    `Implement work plan ${plan.title}. ` +
+    `Read the normalized work plan artifact first: ${artifactPath}. ` +
+    `Source: ${plan.source.type} ${plan.source.reference}. ` +
+    `Work test-first: red test, minimal code to green, refactor. ` +
+    `Stay strictly within the work plan's scope and acceptance criteria.`
   );
 }
 

@@ -1,7 +1,7 @@
 /**
  * @overview Run identity and persistence: one directory per combo under the
  *   combo home, holding combo.json (the record) and journal.jsonl (the spine).
- *   ~78 lines, 9 exports.
+ *   ~140 lines, 11 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -18,6 +18,7 @@
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ parseIssueUrl        Parse GitHub issue URL → {owner,repo,number} │
  *   │ comboIdFromIssueUrl  Derive combo id from issue URL              │
+ *   │ comboIdFromWorkPlanSource Derive combo id from a generic plan    │
  *   │ comboHome            Resolve COMBO_CHEN_HOME dir (env or ~)      │
  *   │ runDirFor            Resolve run dir for a combo id             │
  *   │ writeCombo           Persist a ComboRecord to disk              │
@@ -26,15 +27,18 @@
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
  *   │ ComboStateError      Thrown on malformed URLs, missing records  │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
- *   │ IssueRef, ISSUE_URL                                             │
+ *   │ IssueRef, ISSUE_URL, slugForComboId, shortSourceHash             │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboStateError, IssueRef, ComboRecord, parseIssueUrl, comboIdFromIssueUrl, comboHome, runDirFor, writeCombo, readCombo, listCombos
- * @deps node:fs, node:os, node:path
+ * @exports ComboStateError, IssueRef, ComboRecord, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos
+ * @deps node:crypto, node:fs, node:os, node:path, ./work-plan
  */
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+import type { WorkPlanSource, WorkPlanSourceType } from "./work-plan.js";
 
 // -- 1/2 CORE · Identity + persistence ← START HERE --
 export class ComboStateError extends Error {}
@@ -48,6 +52,9 @@ export interface IssueRef {
 export interface ComboRecord {
   id: string;
   issueUrl: string;
+  workItemSourceType?: WorkPlanSourceType;
+  workItemSourceReference?: string;
+  workItemTitle?: string;
   repoDir: string;
   worktree: string;
   branch: string;
@@ -72,6 +79,10 @@ export function comboIdFromIssueUrl(url: string): string {
   return `${issue.owner}-${issue.repo}-${issue.number}`;
 }
 
+export function comboIdFromWorkPlanSource(source: WorkPlanSource, title: string): string {
+  return `plan-${slugForComboId(title || source.reference)}-${shortSourceHash(source)}`;
+}
+
 export function comboHome(env: Record<string, string | undefined> = process.env): string {
   return env["COMBO_CHEN_HOME"] ?? join(homedir(), ".combo-chen");
 }
@@ -83,6 +94,20 @@ export function runDirFor(home: string, comboId: string): string {
 
 // -- 2/2 CORE · Persistence (writeCombo, readCombo, listCombos) --
 const RECORD = "combo.json";
+
+function slugForComboId(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/g, "");
+  return slug === "" ? "work-plan" : slug;
+}
+
+function shortSourceHash(source: WorkPlanSource): string {
+  return createHash("sha1").update(`${source.type}:${source.reference}`).digest("hex").slice(0, 8);
+}
 
 export function writeCombo(runDir: string, combo: ComboRecord): void {
   mkdirSync(runDir, { recursive: true });
