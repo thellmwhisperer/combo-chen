@@ -592,8 +592,11 @@ function startPostAddressGate(input: {
 // gate already failed at that same SHA. This is the manual recovery lever
 // (`gate-restart` after `pr_opened`); unlike runPostAddressGateIfNeeded it does
 // NOT suppress a restart for an already-failed head. It still refuses on
-// uncommitted changes and keeps the canonical intent + mirror push + autoclose
-// guard by going through the same generated gate script.
+// uncommitted changes, warns when a gate is genuinely in flight (the caller
+// should confirm a stall first), writes the same address_done/gate_stale
+// breadcrumbs as the idempotent path so status and forensics stay in parity,
+// and keeps the canonical intent + mirror push + autoclose guard by going
+// through the same generated gate script.
 export function restartPostAddressGate(input: {
   deps: PostAddressGateDeps;
   combo: ComboRecord;
@@ -602,6 +605,15 @@ export function restartPostAddressGate(input: {
   cli: string;
 }): { started: true; headSha: string } | { started: false; headSha: string; reason: string } {
   const { deps, combo, runDir, prUrl, cli } = input;
+  const events = readEvents(runDir);
+
+  if (latestGateStatus(events)?.state === "fix_inflight") {
+    deps.out(
+      `gate-restart: warning - a gate is in flight for ${combo.id} (gate_status=fix_inflight); ` +
+        `restarting replaces the running gatekeeper. Confirm it is stalled (no-mistakes axi status) before forcing.`,
+    );
+  }
+
   if (propagateNoMistakesConfig(combo.repoDir, combo.worktree)) {
     deps.out(`no-mistakes: copied local config to ${combo.worktree}/${NO_MISTAKES_CONFIG_FILE}`);
   }
@@ -610,6 +622,18 @@ export function restartPostAddressGate(input: {
   if (hasUncommittedChanges(deps, combo)) {
     deps.out(`gate: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate restart`);
     return { started: false, headSha, reason: "uncommitted_changes" };
+  }
+
+  if (!hasAddressDone(events, headSha)) {
+    appendEvent(runDir, "address_done", { head_sha: headSha });
+  }
+  const lastPublishedSha = latestPublishedGateSha(events);
+  if (
+    lastPublishedSha !== undefined &&
+    lastPublishedSha !== headSha &&
+    !hasGateStale(events, lastPublishedSha, headSha)
+  ) {
+    appendEvent(runDir, "gate_stale", { old_sha: lastPublishedSha, new_sha: headSha });
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
