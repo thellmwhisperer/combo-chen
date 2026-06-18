@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~5250 lines.
+ *   deps so tests run without a real terminal or network. ~5430 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -46,11 +46,12 @@ import { describe, expect, it, vi } from "vitest";
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { listCombos, runDirFor, writeCombo } from "../core/state.js";
+import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
 import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { buildIssuePrIntent } from "../roles/gatekeeper.js";
+import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
@@ -321,6 +322,52 @@ describe("command surface", () => {
     expect(out).toEqual([]);
   });
 
+  it("prints the persisted work-plan intent without fetching a GitHub issue", async () => {
+    const h = home();
+    const dir = runDirFor(h, "plan-generic-work-1234abcd");
+    const plan = normalizeMarkdownWorkPlan({
+      markdown: [
+        "# Generic work",
+        "",
+        "## Problem",
+        "GitHub issues are only one carrier.",
+        "",
+        "## Acceptance Criteria",
+        "- Plan-backed intent is inspectable without an issue URL.",
+        "",
+        "## Validation",
+        "- pnpm test",
+      ].join("\n"),
+      source: { type: "local_file", reference: "/plans/generic-work.md" },
+    });
+    writeCombo(dir, {
+      id: "plan-generic-work-1234abcd",
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: "/plans/generic-work.md",
+      workItemTitle: "Generic work",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/plan-generic-work-1234abcd",
+      branch: "combo/plan-generic-work-1234abcd",
+      tmuxSession: "combo-chen-plan-generic-work-1234abcd",
+      createdAt: new Date().toISOString(),
+    });
+    writeFileSync(join(dir, "work-plan.md"), renderWorkPlanMarkdown(plan));
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        return { status: 1, stdout: "", stderr: "GitHub should not be consulted" };
+      },
+    });
+
+    await exec(deps, ["intent", "-n", "plan-generic-work-1234abcd"]);
+
+    expect(ghCalls).toEqual([]);
+    expect(out).toEqual([buildWorkPlanPrIntent(plan)]);
+  });
+
   it("ensures a generated PR body has a visible source issue autoclose line", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
@@ -568,6 +615,58 @@ describe("gate-restart", () => {
     // Parity with the idempotent path: leave an address_done breadcrumb so the
     // phase moves and there is a journal trace even before the gate emits.
     expect(readEvents(dir).some((e) => e.event === "address_done" && e["head_sha"] === HEAD)).toBe(true);
+  });
+
+  it("with a plan-backed PR open, restarts the post-address gate without issue fetch or autoclose guard", async () => {
+    const h = home();
+    const dir = runDirFor(h, "plan-generic-work-1234abcd");
+    const plan = normalizeMarkdownWorkPlan({
+      markdown: [
+        "# Generic work",
+        "",
+        "## Problem",
+        "GitHub issues are only one carrier.",
+        "",
+        "## Acceptance Criteria",
+        "- Plan-backed gates reuse the persisted plan artifact.",
+        "",
+        "## Validation",
+        "- pnpm test",
+      ].join("\n"),
+      source: { type: "local_file", reference: "/plans/generic-work.md" },
+    });
+    writeCombo(dir, {
+      id: "plan-generic-work-1234abcd",
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: "/plans/generic-work.md",
+      workItemTitle: "Generic work",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/plan-generic-work-1234abcd",
+      branch: "combo/plan-generic-work-1234abcd",
+      tmuxSession: "combo-chen-plan-generic-work-1234abcd",
+      createdAt: new Date().toISOString(),
+    });
+    writeFileSync(join(dir, "work-plan.md"), renderWorkPlanMarkdown(plan));
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+    appendEvent(dir, "gate_status", { state: "failed", head_sha: HEAD });
+    const ghCalls: string[][] = [];
+    const { deps, calls, out } = gateDeps(h, {
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        return { status: 1, stdout: "", stderr: "GitHub should not be consulted" };
+      },
+    });
+
+    await exec(deps, ["gate-restart", "-n", "plan-generic-work-1234abcd"]);
+
+    const script = readFileSync(join(dir, `gatekeeper-post-${HEAD.slice(0, 12)}.sh`), "utf8");
+    expect(ghCalls).toEqual([]);
+    expect(script).toContain("Implement work plan Generic work.");
+    expect(script).not.toContain("ensure-pr-autoclose");
+    expect(script).not.toContain("pr_autoclose_failed");
+    expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
+    expect(out.join("\n")).toContain("post-address gate restarted");
   });
 
   it("warns but still restarts when a gate is in flight (fix_inflight) at HEAD", async () => {

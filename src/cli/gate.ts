@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~760 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~810 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -27,7 +27,7 @@
  *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
- * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions
+ * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -46,9 +46,11 @@ import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
   buildNoMistakesPushIntent,
+  buildWorkPlanPrIntent,
 } from "../roles/gatekeeper.js";
 import { fetchIssueDetails } from "./github.js";
 import { killWindowIfPresent } from "./sessions.js";
+import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "./work-plan.js";
 
 // -- 1/5 HELPER · Types and constants --
 export interface GateDeps {
@@ -263,8 +265,17 @@ interface RenderedGatekeeperCommand {
 function renderGatekeeperCommand(
   deps: PostAddressGateDeps,
   combo: ComboRecord,
+  runDir: string,
   gatekeeperCommand: string,
 ): RenderedGatekeeperCommand {
+  if (!isGitHubIssueWorkItem(combo)) {
+    const workPlan = readPersistedWorkPlan(runDir, combo);
+    return {
+      command: buildGatekeeperInvocation({ gatekeeperCommand, combo, workPlan }),
+      pushIntent: buildNoMistakesPushIntent(buildWorkPlanPrIntent(workPlan)),
+    };
+  }
+
   let issueDetails: { title: string; body: string } | undefined;
   const loadIssueDetails = (): { title: string; body: string } => {
     issueDetails ??= fetchIssueDetails(deps.gh, combo.issueUrl);
@@ -308,9 +319,15 @@ export const scriptedMirrorGatekeeperCommandTemplate = guardNoMistakesDaemonStar
 function renderScriptedMirrorGatekeeperCommand(
   deps: PostAddressGateDeps,
   combo: ComboRecord,
+  runDir: string,
   gatekeeperCommand: string,
 ): RenderedGatekeeperCommand {
-  return renderGatekeeperCommand(deps, combo, scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand));
+  return renderGatekeeperCommand(
+    deps,
+    combo,
+    runDir,
+    scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
+  );
 }
 
 type ShellSection = string | string[];
@@ -362,7 +379,7 @@ function buildInitialGateRetryScript(input: {
   emit: string;
   activateCoder: string;
   activateReviewer: string;
-  ensurePrAutoclose: string;
+  ensurePrAutoclose?: string;
 }): string {
   const shortSha = input.headSha.slice(0, 12);
   const gatekeeperLog = join(input.runDir, `gatekeeper-initial-${shortSha}.log`);
@@ -403,15 +420,19 @@ function buildInitialGateRetryScript(input: {
     `  if [ -n "\${pr_head_sha:-}" ]; then`,
     `    gatekeeper_head_sha="$pr_head_sha"`,
     "  fi",
-    `  if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
-    "    :",
-    "  else",
-    "    autoclose_code=$?",
-    `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
-    `    ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
-    `    ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
-    `    exit "$autoclose_code"`,
-    "  fi",
+    input.ensurePrAutoclose === undefined
+      ? "  :"
+      : [
+        `  if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
+        "    :",
+        "  else",
+        "    autoclose_code=$?",
+        `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
+        `    ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
+        `    ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
+        `    exit "$autoclose_code"`,
+        "  fi",
+      ],
     `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
     `  ${input.emit} pr_opened --field url="$pr_url"`,
     `  ${input.activateCoder}`,
@@ -441,7 +462,7 @@ export function startInitialGateRetry(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, runDir, config.gatekeeperCommand);
   const scriptPath = join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.sh`);
   writeFileSync(
     scriptPath,
@@ -454,7 +475,9 @@ export function startInitialGateRetry(input: {
       emit: `${cli} emit -n ${shellQuote(combo.id)}`,
       activateCoder: `${cli} activate-coder -n ${shellQuote(combo.id)}`,
       activateReviewer: `${cli} activate-reviewer -n ${shellQuote(combo.id)}`,
-      ensurePrAutoclose: `${cli} ensure-pr-autoclose -n ${shellQuote(combo.id)} --pr-url`,
+      ...(isGitHubIssueWorkItem(combo)
+        ? { ensurePrAutoclose: `${cli} ensure-pr-autoclose -n ${shellQuote(combo.id)} --pr-url` }
+        : {}),
     })}\n`,
   );
   chmodSync(scriptPath, 0o755);
@@ -478,7 +501,7 @@ export function buildPostAddressGateScript(input: {
   headSha: string;
   prUrl: string;
   emit: string;
-  ensurePrAutoclose: string;
+  ensurePrAutoclose?: string;
 }): string {
   const shortSha = input.headSha.slice(0, 12);
   const gatekeeperLog = join(input.runDir, `gatekeeper-post-${shortSha}.log`);
@@ -527,19 +550,23 @@ export function buildPostAddressGateScript(input: {
     `if [ -n "\${pr_head_sha:-}" ]; then`,
     `  gatekeeper_head_sha="$pr_head_sha"`,
     "fi",
-    `if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
-    "  :",
-    "else",
-    "  autoclose_code=$?",
-    `  if [ -n "$gatekeeper_head_sha" ]; then`,
-    `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
-    "  else",
-    `    ${input.emit} gate_status --field state=failed`,
-    "  fi",
-    `  ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
-    `  ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
-    `  exit "$autoclose_code"`,
-    "fi",
+    input.ensurePrAutoclose === undefined
+      ? ":"
+      : [
+        `if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
+        "  :",
+        "else",
+        "  autoclose_code=$?",
+        `  if [ -n "$gatekeeper_head_sha" ]; then`,
+        `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
+        "  else",
+        `    ${input.emit} gate_status --field state=failed`,
+        "  fi",
+        `  ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
+        `  ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
+        `  exit "$autoclose_code"`,
+        "fi",
+      ],
     `if [ -n "$gatekeeper_head_sha" ]; then`,
     `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
     `  ${input.emit} gate_validated --field sha="$gatekeeper_head_sha"`,
@@ -570,7 +597,9 @@ function startPostAddressGate(input: {
       headSha: input.headSha,
       prUrl: input.prUrl,
       emit: `${input.cli} emit -n ${shellQuote(input.combo.id)}`,
-      ensurePrAutoclose: `${input.cli} ensure-pr-autoclose -n ${shellQuote(input.combo.id)} --pr-url`,
+      ...(isGitHubIssueWorkItem(input.combo)
+        ? { ensurePrAutoclose: `${input.cli} ensure-pr-autoclose -n ${shellQuote(input.combo.id)} --pr-url` }
+        : {}),
     })}\n`,
   );
   chmodSync(scriptPath, 0o755);
@@ -636,7 +665,7 @@ export function restartPostAddressGate(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, runDir, config.gatekeeperCommand);
   startPostAddressGate({
     deps,
     combo,
@@ -708,7 +737,7 @@ export function runPostAddressGateIfNeeded(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, config.gatekeeperCommand);
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, runDir, config.gatekeeperCommand);
   startPostAddressGate({
     deps,
     combo,
