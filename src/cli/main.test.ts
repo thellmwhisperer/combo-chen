@@ -4464,10 +4464,10 @@ describe("reviewer-tick", () => {
           return {
             status: 0,
             stdout: JSON.stringify([
-              { body: "no lgtm @ aa11bb0", created_at: "2026-06-11T00:00:00Z" },
-              { body: "NO LGTM @ cc22dd0", created_at: "2026-06-11T00:01:00Z" },
-              { body: "review result: not lgtm @ ee33ff0", created_at: "2026-06-11T00:02:00Z" },
-              { body: "sin lgtm @ 123abc0", created_at: "2026-06-11T00:03:00Z" },
+              { body: "no lgtm @ aa11bb0", user: { login: "claude" }, created_at: "2026-06-11T00:00:00Z" },
+              { body: "NO LGTM @ cc22dd0", user: { login: "claude" }, created_at: "2026-06-11T00:01:00Z" },
+              { body: "review result: not lgtm @ ee33ff0", user: { login: "claude" }, created_at: "2026-06-11T00:02:00Z" },
+              { body: "sin lgtm @ 123abc0", user: { login: "claude" }, created_at: "2026-06-11T00:03:00Z" },
             ]),
             stderr: "",
           };
@@ -4510,13 +4510,13 @@ describe("reviewer-tick", () => {
           return {
             status: 0,
             stdout: JSON.stringify([
-              { body: "no, lgtm @ aa11bb0", created_at: "2026-06-11T00:00:00Z" },
+              { body: "no, lgtm @ aa11bb0", user: { login: "claude" }, created_at: "2026-06-11T00:00:00Z" },
               { body: "lgtm @ def4560", user: { login: "claude" }, created_at: "2026-06-11T00:01:00Z" },
-              { body: "no. lgtm @ bb22cc0", created_at: "2026-06-11T00:02:00Z" },
-              { body: "no! lgtm @ cc33dd0", created_at: "2026-06-11T00:03:00Z" },
-              { body: "no - lgtm @ dd44ee0", created_at: "2026-06-11T00:04:00Z" },
-              { body: "no: lgtm @ ee55ff0", created_at: "2026-06-11T00:05:00Z" },
-              { body: "no; lgtm @ ff66aa0", created_at: "2026-06-11T00:06:00Z" },
+              { body: "no. lgtm @ bb22cc0", user: { login: "claude" }, created_at: "2026-06-11T00:02:00Z" },
+              { body: "no! lgtm @ cc33dd0", user: { login: "claude" }, created_at: "2026-06-11T00:03:00Z" },
+              { body: "no - lgtm @ dd44ee0", user: { login: "claude" }, created_at: "2026-06-11T00:04:00Z" },
+              { body: "no: lgtm @ ee55ff0", user: { login: "claude" }, created_at: "2026-06-11T00:05:00Z" },
+              { body: "no; lgtm @ ff66aa0", user: { login: "claude" }, created_at: "2026-06-11T00:06:00Z" },
             ]),
             stderr: "",
           };
