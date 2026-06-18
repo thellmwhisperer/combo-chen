@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~745 lines, 17 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~755 lines, 17 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation, isParked; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
@@ -148,6 +148,10 @@ export function defaultDeps(): Deps {
 function cliInvocation(): string {
   const script = fileURLToPath(import.meta.url);
   return `"${process.execPath}" "${script}"`;
+}
+
+function isParked(events: ComboEvent[]): boolean {
+  return events.at(-1)?.event === "parked";
 }
 
 function requireCleanSourceCheckout(deps: Deps, repoDir: string, requiredBranch: string): void {
@@ -475,7 +479,12 @@ export function createProgram(deps: Deps): Command {
         const runDir = runDirFor(home, combo.id);
         let events = readEvents(runDir);
         let status = deriveStatus(events);
-        if (status.phase !== "STOPPED" && !status.needsHuman && deps.tmux(hasSessionArgs(combo.tmuxSession)).status !== 0) {
+        if (
+          !isParked(events) &&
+          status.phase !== "STOPPED" &&
+          !status.needsHuman &&
+          deps.tmux(hasSessionArgs(combo.tmuxSession)).status !== 0
+        ) {
           appendEvent(runDir, "needs_human", { reason: "tmux_missing", source: "status" });
           events = readEvents(runDir);
           status = deriveStatus(events);

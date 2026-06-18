@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4400 lines.
+ *   deps so tests run without a real terminal or network. ~4465 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -2449,6 +2449,51 @@ describe("status", () => {
       { event: "needs_human", reason: "tmux_missing", source: "status" },
     ]);
     expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
+  });
+
+  it("does not mark parked combos as tmux_missing", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(dir, "parked", { by: "operator", summary_path: "/repos/r/.worktrees/issue-7/park-handoff.md" });
+    const before = readEvents(dir);
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "no such session" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ headRefOid: "head777", state: "OPEN", mergedBy: null }),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status"]);
+
+    expect(out.join("\n")).toContain("o-r-7");
+    expect(out.join("\n")).not.toContain("tmux_missing");
+    expect(readEvents(dir)).toEqual(before);
+    expect(calls).not.toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
   });
 
   it("prints downstream no-mistakes CI state in deep mode for stale stalled combos", async () => {

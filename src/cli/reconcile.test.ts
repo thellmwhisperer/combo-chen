@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reconcile command helpers. ~145 lines, frozen journal repair.
+ * @overview Unit tests for reconcile command helpers. ~185 lines, frozen journal repair.
  *
  *   READING GUIDE
  *   -------------
@@ -35,7 +35,7 @@ function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-reconcile-"));
 }
 
-function fakeDeps(): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
+function fakeDeps(overrides: Partial<ReconcileDeps> = {}): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
   const calls: string[][] = [];
   const out: string[] = [];
   return {
@@ -65,6 +65,7 @@ function fakeDeps(): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
         calls.push(["sleep", String(ms)]);
         return Promise.resolve();
       },
+      ...overrides,
     },
   };
 }
@@ -148,6 +149,35 @@ describe("reconcileCombos", () => {
     expect(readEvents(runDir).filter((event) => event.event === "merged")).toHaveLength(1);
     expect(calls).toEqual([]);
     expect(out).toEqual(["reconcile: no changes"]);
+  });
+
+  it("keeps quiet embedded reconciliation silent on GitHub read failures", async () => {
+    for (const ghResult of [
+      { status: 1, stdout: "", stderr: "API rate limit exceeded" },
+      { status: 0, stdout: "not json", stderr: "" },
+    ]) {
+      const h = home();
+      const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+      const runDir = runDirFor(h, "o-r-7");
+      writeCombo(runDir, {
+        id: "o-r-7",
+        issueUrl: "https://github.com/o/r/issues/7",
+        repoDir,
+        worktree: join(repoDir, ".worktrees", "issue-7"),
+        branch: "combo/issue-7",
+        tmuxSession: "combo-chen-o-r-7",
+        createdAt: new Date().toISOString(),
+      });
+      appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+      const { deps, out } = fakeDeps({
+        gh: () => ghResult,
+      });
+
+      await reconcileCombos({ deps, home: h, apply: true, quiet: true });
+
+      expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened"]);
+      expect(out).toEqual([]);
+    }
   });
 });
 // -/ 2/2
