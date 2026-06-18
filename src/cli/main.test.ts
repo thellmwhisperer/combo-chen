@@ -3147,6 +3147,31 @@ describe("activate-reviewer", () => {
 });
 
 describe("director-watch command", () => {
+  it("uses the launch config snapshot for loop cadence after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nbabysit_poll_seconds = 42\n");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nbabysit_poll_seconds = 3\n");
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["director-watch", "-n", "o-r-7", "--iterations", "2"]);
+
+    expect(calls).toContainEqual(["sleep", "42000"]);
+    expect(calls).not.toContainEqual(["sleep", "3000"]);
+    expect(out.filter((line) => line === "director: tick complete for o-r-7")).toHaveLength(2);
+  });
+
   it("survives one failed director tick, journals watch_error, and runs the next tick", () => {
     const h = home();
     const tickCount = join(h, "tick-count");
