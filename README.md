@@ -162,11 +162,15 @@ present with `SUCCESS`; these external checks are not reviewer approval.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
 filtered for bookkeeping/noise and otherwise routed to coder responding mode.
 
-The target repo may also carry a local ignored `.no-mistakes.yaml` with explicit
-test, lint, and build commands. combo-chen propagates it in two phases:
-copies it from the repo into issue worktrees, then from the worktree into the
-no-mistakes daemon's active run worktree before each gate, so validation stays
-deterministic. The daemon copy polls with up to
+The target repo may carry a repo-level `.no-mistakes.yaml` with explicit test,
+lint, and build commands. combo-chen tracks this file in this repo on purpose
+so every worker and no-mistakes gate shares the same validation contract; keep
+user-local secrets and operator preferences in ignored config such as
+`combo-chen.toml` or the user's environment. combo-chen propagates
+`.no-mistakes.yaml` in two phases: copies it from the repo into issue
+worktrees, then from the worktree into the no-mistakes daemon's active run
+worktree before each gate, so validation stays deterministic. The daemon copy
+polls with up to
 `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` retries (default 120, 1 s delay).
 
 ## Commands
