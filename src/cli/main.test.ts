@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4635 lines.
+ *   deps so tests run without a real terminal or network. ~4700 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -1276,6 +1276,49 @@ describe("emit", () => {
     ]);
     expect(gatekeeperWindow?.at(-1)).toContain(worktree);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
+  });
+
+  it("uses the launch config snapshot for gate_started window recovery after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 42\nattach_retry_interval_seconds = 6\n",
+    );
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      "[gatekeeper]\nattach_timeout_seconds = 3\nattach_retry_interval_seconds = 1\n",
+    );
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "gate_started"]);
+
+    const gatekeeperCommand = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    )?.at(-1) ?? "";
+    expect(gatekeeperCommand).toContain("timed out after 42 seconds");
+    expect(gatekeeperCommand).toContain("attempt $attempt/7");
+    expect(gatekeeperCommand).toContain("sleep 6");
+    expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
   });
 
   it("is a no-op when the gatekeeper tmux window already exists", async () => {
