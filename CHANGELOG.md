@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.37](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.36...combo-chen-v0.0.37) (2026-06-18)
+
+
+### Bug Fixes
+
+* **gate:** gate-restart parity breadcrumbs and in-flight warning ([c504cab](https://github.com/thellmwhisperer/combo-chen/commit/c504cab242812e39a0c2d221d6355095cbd3e094))
+* **gate:** gate-restart parity breadcrumbs and in-flight warning ([366757e](https://github.com/thellmwhisperer/combo-chen/commit/366757eeac353a0acc0ae21a91e7fd7948ab6acb))
+
 ## [0.0.36](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.35...combo-chen-v0.0.36) (2026-06-18)
 
 
