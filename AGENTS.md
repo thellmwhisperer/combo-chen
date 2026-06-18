@@ -1,6 +1,6 @@
 # combo-chen Agent Contract
 
-combo-chen is a deterministic director harness for autonomous issue-to-PR
+combo-chen is a deterministic director harness for autonomous work-item-to-PR
 work. It coordinates existing tools; it does not collapse their roles.
 
 ## Role Boundaries
@@ -22,8 +22,9 @@ Hard rule: `reviewer != coder`.
 
 ## Implemented Loop
 
-1. `combo-chen run --issue <url>` creates `.worktrees/issue-N`, writes
-   `runner.sh`, starts tmux, and journals `combo_created`.
+1. `combo-chen run --issue <url>` or `combo-chen run --plan <file>` creates an
+   isolated worktree, writes `runner.sh`, starts tmux, and journals
+   `combo_created`.
 2. Coder/gnhf runs in the worktree and commits locally.
 3. no-mistakes validates and publishes the initial PR. If the initial gate
    fails before the PR opens, the director auto-retries it up to configured
@@ -106,7 +107,7 @@ Source files carry Sherpa-style navigable headers:
 
 ## Status
 
-v0 implements the issue-to-PR loop with coder/gnhf, no-mistakes initial and
+v0 implements the work-item-to-PR loop with coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer re-review,
 coder responding mode, single `director-watch` observation, frozen journal
 `reconcile` repair for merged and closed PRs (preserving parked worktrees on

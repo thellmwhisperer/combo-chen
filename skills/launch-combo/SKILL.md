@@ -1,6 +1,6 @@
 ---
 name: launch-combo
-description: Act as the director of a combo-chen run. Use when asked to launch a combo for a GitHub issue, to direct/babysit an issue-to-PR pipeline, or when the user says "launch combo", "lanzar combo", "/combo-chen issue N", or "haz de director".
+description: Act as the director of a combo-chen run. Use when asked to launch a combo for a GitHub issue or work plan, to direct/babysit a work-item-to-PR pipeline, or when the user says "launch combo", "lanzar combo", "/combo-chen issue N", or "haz de director".
 user-invocable: true
 ---
 
@@ -14,7 +14,7 @@ Still the human's, always escalate and wait: merging or closing the PR, formal a
 
 ## Role
 
-You are the DIRECTOR of one combo. A combo turns one GitHub issue into one green, reviewed PR. You orchestrate; you never write code. Your endpoint is a PR with passing checks and a current `lgtm @ <head-sha>` verdict. The human only merges. Everything before the merge is yours.
+You are the DIRECTOR of one combo. A combo turns one GitHub issue or work plan into one green, reviewed PR. You orchestrate; you never write code. Your endpoint is a PR with passing checks and a current `lgtm @ <head-sha>` verdict. The human only merges. Everything before the merge is yours.
 
 ## Hard rules
 
@@ -35,7 +35,7 @@ Run PLAIN, single-purpose commands: one operation per Bash call, no `||`/`&&` ch
 ## Preflight (before launching anything)
 
 1. `gh auth status` works and you can read the target issue. If the token is invalid but SSH works, switch origin to SSH for git; escalate for token re-auth (gh pr operations still need the token).
-2. Read the issue end to end. It must carry a sharp mandate: scope, acceptance criteria, evidence. If it is not coder-ready, stop and tell the human what is missing.
+2. Read the issue or work plan end to end. It must carry a sharp mandate: scope, acceptance criteria, evidence. If it is not coder-ready, stop and tell the human what is missing.
 3. Surface claim via the configured coordination channel, when one exists:
    - If an open proposal claims files/modules overlapping your issue, do not launch. Report the conflict.
    - Claim your surface with issue number, repo, branch, and director identity.
@@ -47,9 +47,12 @@ Run PLAIN, single-purpose commands: one operation per Bash call, no `||`/`&&` ch
 
 ```
 combo-chen run --issue <issue-url> --repo <target-repo-dir>
+combo-chen run --plan <file> --repo <target-repo-dir> [--base <ref>]
 ```
 
 If `combo-chen` is not on PATH, use `node <combo-chen-repo>/dist/cli.mjs`.
+
+The `--plan` option takes a local markdown file that must include a `## Acceptance Criteria` section. The work plan is normalized into a `work-plan.md` artifact in the run directory. Plan-backed combos do not inject `Fixes #N` into the PR body.
 
 PITFALL: `combo-chen run` exits after SETUP, not after completion. The actual work runs inside tmux. A clean exit code means the combo was launched, not that it finished. Verify with `tmux list-sessions`.
 
@@ -92,7 +95,7 @@ When a gate stalls or exhausts its retries (`needs_human reason=gate_failed`, or
 combo-chen gate-restart -n <comboId>
 ```
 
-This is one plain command, so it obeys the command discipline above (no `&&`, no env-var prefix, no command substitution, nothing that trips a permission prompt). It restarts the gate through the same generated script the runner uses, so the canonical intent (including the verbatim `Fixes #N` requirement) and the `ensure-pr-autoclose` guard are baked in. It routes automatically: before `pr_opened` it relaunches the initial gate; after `pr_opened` it runs the post-address gate for the current head.
+This is one plain command, so it obeys the command discipline above (no `&&`, no env-var prefix, no command substitution, nothing that trips a permission prompt). It restarts the gate through the same generated script the runner uses, so the canonical intent (including the verbatim `Fixes #N` requirement for issue-backed combos) and the `ensure-pr-autoclose` guard (skipped for plan-backed combos) are baked in. It routes automatically: before `pr_opened` it relaunches the initial gate; after `pr_opened` it runs the post-address gate for the current head.
 
 Use it for a STALLED gate, not a live one. `gate-restart` is a force lever: after `pr_opened` it replaces the running gatekeeper window even if a gate is genuinely in flight. Confirm the gate is actually stalled first (`no-mistakes axi status`, and check whether the last `gate_status` is `fix_inflight` with a fresh timestamp). If it still looks alive, wait or escalate instead of clobbering it. When the latest status is `fix_inflight`, `gate-restart` prints a warning before proceeding.
 
