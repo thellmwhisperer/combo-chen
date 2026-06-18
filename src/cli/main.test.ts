@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~4750 lines.
+ *   deps so tests run without a real terminal or network. ~4800 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -3114,6 +3114,65 @@ describe("forensics", () => {
       "--json",
       "state,closedAt",
     ]);
+  });
+
+  it("uses the launch config snapshot for GitHub check classification after repo TOML changes", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["launch-bot"]\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: "2026-06-11T10:00:00.000Z",
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["drift-bot"]\n');
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "def456",
+              state: "OPEN",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "launch-bot", status: "COMPLETED", conclusion: "FAILURE" },
+                { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ state: "OPEN", closedAt: null }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["forensics", "--issues", "7", "--format", "json"]);
+
+    const parsed = JSON.parse(out.join("\n")) as {
+      reports: Array<{ gates: { ci: string; ambientReviewer: string } }>;
+    };
+    expect(parsed.reports[0]?.gates).toMatchObject({
+      ci: "success",
+      ambientReviewer: "failure",
+    });
   });
 });
 
