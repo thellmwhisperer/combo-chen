@@ -452,6 +452,11 @@
 * **forensics:** read-only combo forensics CLI with markdown and JSON reporting over local journal data, live GitHub PR/issue enrichment, tmux session probing, and incident detection for gate/drift conditions ([#55](https://github.com/thellmwhisperer/combo-chen/issues/55))
 * **watcher:** reviewer-watch retry loop with `watch_error`/`watch_dead` journal events, exponential backoff (doubling capped by configurable `[limits].watch_backoff_max_seconds`, default 3600 s), and configurable `[limits].watch_failure_limit` (default 5) for resilience against transient rate limits and network failures ([#56](https://github.com/thellmwhisperer/combo-chen/issues/56))
 * **gatekeeper:** `pr_autoclose_failed` journal event (required fields `exit_code`, `url`) transitions the combo to STALLED and marks the gate failed when the PR body still lacks a visible closing keyword after a post-edit verification pass ([#94](https://github.com/thellmwhisperer/combo-chen/issues/94))
+* **release:** Release foundation — builds embed version, commit, and build date metadata exposed via `combo-chen --version`; local builds use safe fallbacks, automation supplies `COMBO_CHEN_COMMIT` and `COMBO_CHEN_BUILD_DATE` ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
+* **release:** Platform release artifact contract — asset naming (`combo-chen-vX.Y.Z-<platform>-<arch>.tar.gz`), archive layout, and sha256sum-compatible `checksums.txt` format, with full validation green ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
+* **release:** Reproducible release producer materializing deterministic tar.gz assets and `checksums.txt` under `dist/release/`, plus a `pnpm release:assets` package script that builds first ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
+* **ci:** GitHub Actions release workflow uploading `dist/release/*.tar.gz` and `dist/release/checksums.txt` for published and prereleased GitHub releases, with validation green ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
+* **docs:** Release artifact contract documented in README and spec for future update code, pinned with focused docs contract tests ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
 
 ### Bug Fixes
 
