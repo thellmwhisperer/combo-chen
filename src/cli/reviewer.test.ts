@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~459 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~565 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
+import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
@@ -217,6 +218,109 @@ describe("activateReviewer", () => {
       "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
       "director-watch: polling combo hard signals every 5s",
     ]);
+  });
+
+  it("includes a plan-backed combo's persisted work plan in the reviewer prompt", () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({
+      id: "plan-reviewer-context-1234abcd",
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: "/plans/reviewer-context.md",
+      workItemTitle: "Reviewer context",
+      branch: "combo/plan-reviewer-context-1234abcd",
+      tmuxSession: "combo-chen-plan-reviewer-context-1234abcd",
+    });
+    const runDir = runDirFor(home, record.id);
+    const plan = normalizeMarkdownWorkPlan({
+      markdown: [
+        "# Reviewer context",
+        "",
+        "## Problem",
+        "Reviewers need the normalized plan, not just a PR URL.",
+        "",
+        "## Acceptance Criteria",
+        "- Reviewer prompt carries the persisted plan context.",
+      ].join("\n"),
+      source: { type: "local_file", reference: "/plans/reviewer-context.md" },
+    });
+
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "work-plan.md"), renderWorkPlanMarkdown(plan));
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/77" });
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "coder\ngatekeeper\n", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    expect(reviewerCommand).toContain("Work plan context:");
+    expect(reviewerCommand).toContain("# Reviewer context");
+    expect(reviewerCommand).toContain("Source: local_file /plans/reviewer-context.md");
+    expect(reviewerCommand).toContain("- Reviewer prompt carries the persisted plan context.");
+    expect(out[0]).toBe(
+      "reviewer: claude reviewing https://github.com/o/r/pull/77 in combo-chen-plan-reviewer-context-1234abcd:reviewer",
+    );
+  });
+
+  it("includes a GitHub issue combo's persisted work plan in the reviewer prompt", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const issueUrl = "https://github.com/o/r/issues/7";
+    const record = combo({
+      workItemSourceType: "github_issue",
+      workItemSourceReference: issueUrl,
+      workItemTitle: "Issue reviewer context",
+    });
+    const runDir = runDirFor(home, record.id);
+    const plan = normalizeMarkdownWorkPlan({
+      markdown: [
+        "# Issue reviewer context",
+        "",
+        "## Problem",
+        "GitHub issue launches still normalize into the same plan artifact.",
+        "",
+        "## Acceptance Criteria",
+        "- Reviewer prompt carries issue-derived work-plan context.",
+      ].join("\n"),
+      source: { type: "github_issue", reference: issueUrl },
+    });
+
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "work-plan.md"), renderWorkPlanMarkdown(plan));
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "coder\ngatekeeper\n", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    expect(reviewerCommand).toContain("Work plan context:");
+    expect(reviewerCommand).toContain("# Issue reviewer context");
+    expect(reviewerCommand).toContain(`Source: github_issue ${issueUrl}`);
+    expect(reviewerCommand).toContain("- Reviewer prompt carries issue-derived work-plan context.");
   });
 
   it("rejects activation before a PR has opened", () => {
