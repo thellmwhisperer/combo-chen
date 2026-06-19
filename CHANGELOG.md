@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.42](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.41...combo-chen-v0.0.42) (2026-06-19)
+
+
+### Features
+
+* **plan-run:** Implemented the first test-first `combo-chen run --plan <file>` launch slice for local markdown work plans without requiring a GitHub issue. ([5e17a21](https://github.com/thellmwhisperer/combo-chen/commit/5e17a2114e8c55c846f20a52b063be0fa382c41c))
+* **work-plan:** Added the first canonical work-plan foundation so generic markdown plans and GitHub issue facts can normalize into the same artifact shape. ([1f16756](https://github.com/thellmwhisperer/combo-chen/commit/1f167564270a6c795284ec11929cf8456649b7d1))
+
+
+### Bug Fixes
+
+* **plan-gates:** Implemented a plan-aware runtime intent/gate-restart slice so plan-backed combos reuse persisted work-plan artifacts instead of requiring a GitHub issue. ([023c498](https://github.com/thellmwhisperer/combo-chen/commit/023c498a080894c244c2b7dab2da501e4b689379))
+* **plan-inspection:** Implemented the next plan-inspection slice so status and forensics now surface generic work-plan source/title metadata without requiring a GitHub issue. ([6a9ee95](https://github.com/thellmwhisperer/combo-chen/commit/6a9ee951b026e9c3a3e069f21bc5094c2b46638f))
+* **plan:** harden local work-plan references ([4041d40](https://github.com/thellmwhisperer/combo-chen/commit/4041d404781bbfebc05254e5bc624a06aa19d257))
+* **reviewer:** Reviewer activation now carries normalized work-plan context for both plan-backed and GitHub issue-backed combos, completing issue [#134](https://github.com/thellmwhisperer/combo-chen/issues/134)'s remaining reviewer-context criterion. ([c12b625](https://github.com/thellmwhisperer/combo-chen/commit/c12b625bd68a0eb0f24d705947235ba9495d84ce))
+* **reviewer:** tolerate issue plans without criteria ([57aabbb](https://github.com/thellmwhisperer/combo-chen/commit/57aabbb55e81843738a66e53e7089c7e11447a45))
+
 ## [0.0.41](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.40...combo-chen-v0.0.41) (2026-06-19)
 
 
