@@ -66,7 +66,7 @@ export interface ComboConfig {
   coderCommand: string;
   /** Resume command template for the configured coder, with {thread_id}. */
   coderResumeCommand: string;
-  /** Command template for the gatekeeper's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body, issue_pr_intent, branch. */
+  /** Command template for the gatekeeper's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body (issue-backed combos only), issue_pr_intent, branch (all combos). */
   gatekeeperCommand: string;
   /** How long the gatekeeper tmux window waits for no-mistakes' active run. */
   gatekeeperAttachTimeoutSeconds: number;
@@ -114,8 +114,8 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROMPT = "";
 export const DEFAULT_CODER_STOP_WHEN =
-  "Every acceptance criterion stated in the GitHub issue is met and the full test suite is green. " +
-  "If the issue lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
+  "Every acceptance criterion stated in the work item is met and the full test suite is green. " +
+  "If the work item lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
 export const DEFAULT_CODER_COMMAND = [
   "npx -y gnhf@0.1.41",
   "--agent codex",
