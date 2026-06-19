@@ -33,7 +33,7 @@
  *   └────────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state},
+ * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state,work-plan},
  *   ../infra/{config,config-snapshot,release-metadata}, ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";

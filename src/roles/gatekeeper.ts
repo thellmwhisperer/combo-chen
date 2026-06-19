@@ -20,6 +20,7 @@
  *     → no-mistakes axi run → TOON outcome → parseAxiOutcome
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
+ *   │ GatekeeperInput            Gatekeeper command + combo/workPlan vars    │
  *   │ buildGatekeeperInvocation  Expand {placeholders} in gatekeeper command │
  *   │ buildIssuePrIntent         Format issue facts + PR autoclose contract  │
  *   │ buildWorkPlanPrIntent      Format generic work-plan PR intent          │

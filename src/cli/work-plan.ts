@@ -1,5 +1,5 @@
 /**
- * @overview CLI helpers for persisted work-plan artifacts. ~75 lines,
+ * @overview CLI helpers for persisted work-plan artifacts. ~90 lines,
  *   source detection and artifact loading for runtime commands.
  *
  *   READING GUIDE
