@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1345 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1340 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -217,17 +217,17 @@ describe("buildRunnerScript", () => {
     expect(customBase).toContain("git merge-base HEAD 'origin/release-candidate'");
   });
 
-  it("sequences coder, gatekeeper, PR detection, and the final handoff to humans", () => {
+  it("sequences coder, gatekeeper, PR detection, and reviewer activation", () => {
     const coder = script.indexOf("gnhf");
     const gatekeeper = script.indexOf("no-mistakes axi run");
     const pr = script.indexOf("gh pr list");
     const activateCoder = script.indexOf("activate-coder");
-    const handoff = script.indexOf("pr_ready");
+    const activateReviewer = script.indexOf("activate-reviewer");
     expect(coder).toBeGreaterThan(-1);
     expect(gatekeeper).toBeGreaterThan(coder);
     expect(pr).toBeGreaterThan(gatekeeper);
     expect(activateCoder).toBeGreaterThan(pr);
-    expect(handoff).toBeGreaterThan(activateCoder);
+    expect(activateReviewer).toBeGreaterThan(activateCoder);
   });
 
   it("emits lifecycle events with captured exit codes on failure", () => {
@@ -1290,7 +1290,7 @@ exit 130
     expect(script).toContain("--head 'combo/issue-7'");
   });
 
-  it("hands off as pr_ready only when a PR exists, pr_missing otherwise", () => {
+  it("does not use the obsolete pr_ready needs_human handoff after opening a PR", () => {
     const autoclose = script.indexOf("ensure-pr-autoclose");
     const autocloseLog = script.indexOf("autoclose_log");
     const prReady = script.indexOf("reason=pr_ready");
@@ -1298,18 +1298,20 @@ exit 130
     const prUrlBranch = script.indexOf('if [ -n "${pr_url:-}" ]');
     const prMissingElse = script.lastIndexOf("else");
     const coder = script.indexOf("activate-coder");
-    expect(prReady).toBeGreaterThan(-1);
+    const reviewer = script.indexOf("activate-reviewer -n o-r-7");
+    expect(prReady).toBe(-1);
     expect(prMissing).toBeGreaterThan(-1);
-    // pr_ready lives inside the if-branch that saw a URL; pr_missing in the
-    // final else (lastIndexOf: earlier elses belong to coder/gatekeeper failure).
-    expect(prUrlBranch).toBeLessThan(prReady);
+    // pr_missing is the true blocked handoff; PR discovery itself starts the
+    // reviewer workers and remains REVIEWING until ready_for_merge.
+    expect(prUrlBranch).toBeGreaterThan(-1);
     expect(autocloseLog).toBeGreaterThan(-1);
     expect(autoclose).toBeGreaterThan(prUrlBranch);
     expect(autoclose).toBeLessThan(coder);
-    expect(prReady).toBeLessThan(prMissingElse);
     expect(prMissing).toBeGreaterThan(prMissingElse);
     expect(coder).toBeGreaterThan(prUrlBranch);
     expect(coder).toBeLessThan(prMissingElse);
+    expect(reviewer).toBeGreaterThan(coder);
+    expect(reviewer).toBeLessThan(prMissingElse);
   });
 
   it("blocks the handoff when the PR autoclose guard fails", () => {
@@ -1321,13 +1323,13 @@ exit 130
     expect(script).not.toContain("autoclose guard skipped");
   });
 
-  it("activates the reviewer after journaling the opened PR and before human handoff", () => {
+  it("activates the reviewer after journaling the opened PR", () => {
     const prOpened = script.indexOf('pr_opened --field url="$pr_url"');
     const activateReviewer = script.indexOf("activate-reviewer -n o-r-7");
-    const handoff = script.indexOf("reason=pr_ready");
+    const prMissingElse = script.lastIndexOf("else");
     expect(prOpened).toBeGreaterThan(-1);
     expect(activateReviewer).toBeGreaterThan(prOpened);
-    expect(activateReviewer).toBeLessThan(handoff);
+    expect(activateReviewer).toBeLessThan(prMissingElse);
   });
 
   it("single-quotes derived values so paths with spaces or metacharacters stay literal", () => {
