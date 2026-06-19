@@ -27,6 +27,7 @@ import {
   ComboEventError,
   EVENT_TYPES,
   appendEvent,
+  appendEvents,
   followEvents,
   readEvents,
 } from "./events.js";
@@ -330,6 +331,46 @@ describe("journal", () => {
     await following;
 
     expect(seen).toEqual(["combo_created", "coder_started"]);
+  });
+  it("writes two events atomically under a single lock", () => {
+    const dir = runDir();
+    appendEvents(dir, [
+      { event: "gate_started", payload: { source: "director_retry" } },
+      { event: "gate_failed", payload: { exit_code: 1, reason: "retry_start_failed" } },
+    ]);
+
+    const events = readEvents(dir);
+    expect(events).toHaveLength(2);
+    expect(events[0]?.event).toBe("gate_started");
+    expect(events[0]?.source).toBe("director_retry");
+    expect(events[1]?.event).toBe("gate_failed");
+    expect(events[1]?.exit_code).toBe(1);
+    expect(events[1]?.reason).toBe("retry_start_failed");
+  });
+
+  it("deduplicates pr_opened in batch mode", () => {
+    const dir = runDir();
+    appendEvents(dir, [
+      { event: "pr_opened", payload: { url: "https://github.com/o/r/pull/7" } },
+      { event: "pr_opened", payload: { url: "https://github.com/o/r/pull/7" } },
+    ]);
+
+    const events = readEvents(dir);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.event).toBe("pr_opened");
+    expect(events[0]?.url).toBe("https://github.com/o/r/pull/7");
+  });
+
+  it("rejects invalid events in batch before acquiring the lock", () => {
+    const dir = runDir();
+    expect(() =>
+      appendEvents(dir, [
+        { event: "gate_started", payload: {} },
+        { event: "gate_failed", payload: {} },
+      ]),
+    ).toThrow(/requires field "exit_code"/);
+
+    expect(readEvents(dir)).toEqual([]);
   });
 });
 // -/ 2/2
