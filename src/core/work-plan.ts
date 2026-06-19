@@ -144,22 +144,40 @@ function parseMarkdownSections(markdown: string): MarkdownSections {
   let title = "";
   let currentHeading = "";
   let currentLines: string[] = [];
+  let currentLevel = 0;
   const byAlias = new Map<string, string>();
 
   const flush = (): void => {
     if (currentHeading === "") return;
     const body = currentLines.join("\n").trim();
     byAlias.set(normalizeHeading(currentHeading), body);
+    currentHeading = "";
+    currentLevel = 0;
   };
 
   for (const line of lines) {
     const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
     if (heading !== null) {
-      flush();
+      const level = heading[1]!.length;
       const text = stripMarkdownInline(heading[2] ?? "").trim();
-      if (title === "" && heading[1] === "#") title = text;
-      currentHeading = text;
-      currentLines = [];
+
+      if (level === 1) {
+        flush();
+        if (title === "") title = text;
+        continue;
+      }
+
+      if (level <= currentLevel) {
+        flush();
+      }
+
+      if (currentHeading !== "" && level > currentLevel) {
+        currentLines.push(line);
+      } else {
+        currentHeading = text;
+        currentLevel = level;
+        currentLines = [];
+      }
       continue;
     }
     if (currentHeading !== "") currentLines.push(line);
