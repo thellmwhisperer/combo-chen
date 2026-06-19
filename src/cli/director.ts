@@ -29,7 +29,7 @@
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
  */
-import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
+import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
@@ -224,8 +224,10 @@ async function runInitialGateRetryIfNeeded(input: {
 }
 
 function appendFailedInitialGateRetry(runDir: string): void {
-  appendEvent(runDir, "gate_started", { source: "director_retry" });
-  appendEvent(runDir, "gate_failed", { exit_code: 1, reason: "retry_start_failed" });
+  appendEvents(runDir, [
+    { event: "gate_started", payload: { source: "director_retry" } },
+    { event: "gate_failed", payload: { exit_code: 1, reason: "retry_start_failed" } },
+  ]);
 }
 
 function hasReadyForMerge(events: ComboEvent[], headSha: string): boolean {
