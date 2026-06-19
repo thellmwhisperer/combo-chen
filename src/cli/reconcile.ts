@@ -48,7 +48,7 @@ interface ReconcileOutcome {
   reported: boolean;
 }
 
-const PR_VIEW_FIELDS = "headRefOid,state,mergedBy,baseRefName,mergeCommit";
+const PR_VIEW_FIELDS = "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit";
 // -/ 1/3
 
 // -- 2/3 CORE · reconcileCombos <- START HERE --
@@ -169,7 +169,12 @@ async function reconcileCombo(input: {
 
   let changed = false;
   if (!hasMerged) {
-    appendEvent(runDir, "merged", { sha: mergeSha, by, source: "reconcile" });
+    appendEvent(runDir, "merged", {
+      sha: mergeSha,
+      by,
+      ...(prView.mergedAt !== undefined ? { mergedAt: prView.mergedAt } : {}),
+      source: "reconcile",
+    });
     changed = true;
   }
 

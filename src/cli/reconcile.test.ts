@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reconcile command helpers. ~380 lines, frozen journal repair.
+ * @overview Unit tests for reconcile command helpers. ~415 lines, frozen journal repair.
  *
  *   READING GUIDE
  *   -------------
@@ -127,7 +127,7 @@ describe("reconcileCombos", () => {
       "view",
       "https://github.com/o/r/pull/7",
       "--json",
-      "headRefOid,state,mergedBy,baseRefName,mergeCommit",
+      "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
     ]);
     expect(calls.some((call) => call.includes("https://github.com/o/r/pull/8"))).toBe(false);
     expect(calls).toContainEqual([
@@ -168,6 +168,61 @@ describe("reconcileCombos", () => {
     expect(out).toEqual(["reconcile: o-r-7 would append merged squash789 by maintainer and tear down"]);
   });
 
+  it("records GitHub mergedAt on synthesized merged journal events", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, calls } = fakeDeps({
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "head456",
+            baseRefName: "main",
+            mergeCommit: { oid: "squash789" },
+            state: "MERGED",
+            mergedAt: "2026-06-11T10:12:00.000Z",
+            mergedBy: { login: "maintainer" },
+          }),
+          stderr: "",
+        };
+      },
+    });
+
+    await reconcileCombos({ deps, home: h, apply: true });
+
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
+      {
+        event: "merged",
+        sha: "squash789",
+        by: "maintainer",
+        mergedAt: "2026-06-11T10:12:00.000Z",
+        source: "reconcile",
+      },
+      { event: "combo_closed", source: "reconcile" },
+    ]);
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/7",
+      "--json",
+      "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
+    ]);
+  });
+
   it("repairs a frozen merged journal and leaves a second pass as a no-op", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -197,7 +252,7 @@ describe("reconcileCombos", () => {
       "view",
       "https://github.com/o/r/pull/7",
       "--json",
-      "headRefOid,state,mergedBy,baseRefName,mergeCommit",
+      "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
     ]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "fetch", "origin", "main"]);
     expect(calls).toContainEqual([
