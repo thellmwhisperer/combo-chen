@@ -14,7 +14,7 @@
  *
  *   MAIN FLOW
  *   ─────────
- *   cli/main.ts → buildGatekeeperInvocation({gatekeeperCommand, combo, issueTitle, issueBody})
+ *   cli/main.ts → buildGatekeeperInvocation({gatekeeperCommand, combo, issueTitle, issueBody}) or buildGatekeeperInvocation({gatekeeperCommand, combo, workPlan})
  *     → buildIssuePrIntent → shellQuote placeholders
  *     → runner.sh executes the command
  *     → no-mistakes axi run → TOON outcome → parseAxiOutcome
@@ -330,7 +330,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
   }
   if (!hasPlaceholders) return forceNoMistakesPublishOnly(input.gatekeeperCommand);
   if (input.combo === undefined) {
-    throw new ComboConfigError("Gatekeeper command placeholders require issue facts during runner generation");
+    throw new ComboConfigError("Gatekeeper command placeholders require work item facts (issue or work plan) during runner generation");
   }
   if (input.workPlan !== undefined) {
     const vars: Record<string, string | undefined> = {
@@ -348,7 +348,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
     );
   }
   if (input.issueTitle === undefined || input.issueBody === undefined) {
-    throw new ComboConfigError("Gatekeeper command placeholders require issue facts during runner generation");
+    throw new ComboConfigError("Gatekeeper command placeholders require work item facts (issue or work plan) during runner generation");
   }
   const vars: Record<string, string> = {
     issue_url: input.combo.issueUrl,

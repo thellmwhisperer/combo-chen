@@ -288,7 +288,7 @@ function renderGatekeeperCommand(
   } catch (error) {
     if (
       !(error instanceof Error) ||
-      !error.message.includes("placeholders require issue facts")
+      !error.message.includes("placeholders require work item facts")
     ) {
       throw error;
     }
