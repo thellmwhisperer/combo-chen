@@ -224,6 +224,9 @@ describe("gatekeeper runtime config snapshots", () => {
     const script = readFileSync(join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-gate");
     expect(script).not.toContain("printf drifted-gate");
+    expect(script).toContain('pr_opened --field url="$pr_url"');
+    expect(script).not.toContain("reason=pr_ready");
+    expect(script).toContain("reason=pr_missing");
   });
 
   it("uses the launch gatekeeper command for post-address gates after repo TOML changes", () => {

@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~390 lines, 9 exports, 1 critical function.
+ *   ~385 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -23,7 +23,7 @@
  *   runner.sh lifecycle (what buildRunnerScript generates):
  *     fetch/rebase baseRef → coder_started → coderCommand → coder_done
  *     → gate_started → mirror publish → config handoff + gatekeeperCommand → pr_opened
- *     → activateCoder + activateReviewer → needs_human
+ *     → activateCoder + activateReviewer; missing PRs emit needs_human
  *
  *   ┌─ CORE ─────────────────────────────────────────────────────────┐
  *   │ buildRunnerScript   Generates the runner shell script          │
@@ -379,7 +379,6 @@ if [ -n "\${pr_url:-}" ]; then
   ${emit} pr_opened --field url="$pr_url"
   ${activateCoder}
   ${activateReviewer}
-  ${emit} needs_human --field reason=pr_ready
 else
   ${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
   ${emit} needs_human --field reason=pr_missing

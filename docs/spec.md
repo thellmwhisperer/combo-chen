@@ -64,7 +64,11 @@ After a PR URL exists, the hidden autoclose guard reads the PR body, edits it
 if needed, then reads it again and verifies the visible autoclose keyword is
 present. A guard failure journals `pr_autoclose_failed` (required fields
 `exit_code`, `url`), marks the gate `failed`, and exits non-zero instead of
-continuing to `pr_opened`, `gate_validated`, or `pr_ready`.
+continuing to `pr_opened` or `gate_validated`.
+New generated gate scripts do not emit the legacy `needs_human
+reason=pr_ready` handoff: `pr_opened` means the reviewer path has been
+started, `needs_human reason=pr_missing` is the blocked no-PR case, and
+`ready_for_merge` is the only READY transition.
 
 A recoverable coder failure journals `coder_retry` (no required fields) and
 the loop restarts; repeated failures transition to `STALLED`.

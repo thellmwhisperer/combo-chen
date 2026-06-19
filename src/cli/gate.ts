@@ -416,7 +416,6 @@ function buildInitialGateRetryScript(input: {
     `  ${input.emit} pr_opened --field url="$pr_url"`,
     `  ${input.activateCoder}`,
     `  ${input.activateReviewer}`,
-    `  ${input.emit} needs_human --field reason=pr_ready`,
     "else",
     `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
     `  ${input.emit} needs_human --field reason=pr_missing`,
