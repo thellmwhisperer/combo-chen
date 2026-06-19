@@ -274,7 +274,7 @@ export function renderForensicsMarkdown(reports: ForensicsComboReport[]): string
   for (const report of reports) {
     lines.push(`## ${report.id}`);
     lines.push(`- Work item: ${report.workItem.label}`);
-    lines.push(`- Issue: ${report.issueUrl.trim() === "" ? "none" : report.issueUrl}`);
+    if (report.issueUrl.trim() !== "") lines.push(`- GitHub issue: ${report.issueUrl}`);
     lines.push(`- PR: ${report.prUrl ?? "unknown"}`);
     lines.push(`- Phase: ${report.phase}`);
     lines.push(
