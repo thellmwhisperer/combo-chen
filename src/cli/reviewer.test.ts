@@ -20,7 +20,7 @@
  *   combo
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./reviewer
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state,work-plan}, ../infra/{config,config-snapshot}, ./reviewer
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

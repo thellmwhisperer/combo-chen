@@ -25,6 +25,7 @@
  *   │ ReviewerInvocationError   Reviewer command safety error           │
  *   │ ReviewerInput             Shape for buildReviewerInvocation       │
  *   │ ReviewerPromptInput       Shape for defaultReviewerPrompt         │
+ *   │ IncrementalReviewerPromptInput Shape for incrementalReviewerPrompt │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ (none — all exports are public)                                  │
  *   └──────────────────────────────────────────────────────────────────┘

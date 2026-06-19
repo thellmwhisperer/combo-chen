@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for combo forensics reports. ~140 lines, fixture-driven incidents.
+ * @overview Unit tests for combo forensics reports. ~155 lines, fixture-driven incidents.
  *
  *   READING GUIDE
  *   -------------
