@@ -108,7 +108,7 @@ export function resolveAttachCombo(
 
   const running = combos.filter((combo) => deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0);
   if (running.length === 0) {
-    throw new Error("No running combos. Start one: combo-chen run --issue <url>");
+    throw new Error("No running combos. Start one: combo-chen run --issue <url> or --plan <file>");
   }
   if (running.length > 1) {
     throw new Error(
