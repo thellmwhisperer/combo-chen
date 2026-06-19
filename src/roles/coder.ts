@@ -85,6 +85,11 @@ export interface CoderInput {
 
 // -- 2/3 CORE · buildCoderInvocation ← START HERE --
 export function buildCoderInvocation(input: CoderInput): string {
+  if (input.prompt === undefined && input.combo.issueUrl.trim() === "") {
+    throw new Error(
+      "buildCoderInvocation requires an explicit prompt for plan-backed combos (issueUrl is empty); pass a prompt override",
+    );
+  }
   const prompt = input.prompt ?? defaultPrompt(input.combo.issueUrl);
   return renderCommand(input.coderCommand, {
     issue_url: input.combo.issueUrl,
