@@ -85,6 +85,15 @@ describe("buildCoderInvocation", () => {
     });
     expect(command).toBe("gnhf 'fix the flaky test only'");
   });
+
+  it("throws when no prompt is provided and issueUrl is empty", () => {
+    expect(() =>
+      buildCoderInvocation({
+        coderCommand: "gnhf {prompt}",
+        combo: { ...combo, issueUrl: "" },
+      }),
+    ).toThrow("buildCoderInvocation requires an explicit prompt");
+  });
 });
 
 // -/ 1/3
