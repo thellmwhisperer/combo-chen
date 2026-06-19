@@ -340,7 +340,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
       input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => {
         const value = vars[name];
         if (value === undefined) {
-          throw new ComboConfigError(`Gatekeeper placeholder {${name}} requires a GitHub issue source`);
+          throw new ComboConfigError(`Gatekeeper placeholder {${name}} is not available`);
         }
         return shellQuote(value);
       }),
