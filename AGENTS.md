@@ -8,7 +8,7 @@ work. It coordinates existing tools; it does not collapse their roles.
 - **Director**: orchestrates only. Starts phases, watches hard signals, writes
   journal events, routes work, and escalates `needs_human`. It does not edit
   code, answer review threads, approve PRs, push, merge, or deploy.
-- **Coder**: implements the issue and later resumes the same thread for review
+- **Coder**: implements the work item and later resumes the same thread for review
   comments. The coder leaves local commits in the combo worktree and does not
   push to origin or the PR branch in the normal path.
 - **Reviewer**: reviews by comment and records a current SHA-pinned LGTM signal
