@@ -15,7 +15,7 @@ It does not replace your agents. It gives them a spine.
 
 ## The Problem
 
-Autonomous coding agents are good at bursts of work. Full issue-to-PR delivery
+Autonomous coding agents are good at bursts of work. Full work-item-to-PR delivery
 is a different problem.
 
 Someone still has to decide which branch owns the work, where the coder runs,
@@ -34,7 +34,7 @@ combo-chen makes the process explicit.
 
 1. You point combo-chen at a GitHub issue or a local work-plan file.
 2. It creates an isolated worktree and branch.
-3. A coder agent implements the issue and leaves local commits.
+3. A coder agent implements the work item and leaves local commits.
 4. A gatekeeper validates and publishes the branch to GitHub. If the initial gate
    fails before a PR opens, the director auto-retries it up to a configurable limit.
 5. A reviewer comments with a SHA-pinned verdict.
