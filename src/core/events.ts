@@ -1,6 +1,6 @@
 /**
  * @overview Event journal: append-only JSONL spine per combo run.
- *   ~275 lines, 12 exports, 1 canonical schema, per-run append locking.
+ *   ~290 lines, 12 exports, 1 canonical schema, per-run append locking.
  *
  *   READING GUIDE
  *   ─────────────
@@ -27,6 +27,7 @@
  *   │ latestPrUrlFromEvents  Find latest pr_opened URL in an event array │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ withJournalAppendLock  Serializes writers per run directory       │
+ *   │ existingPrOpenedEvent  Suppresses duplicate PR-open records       │
  *   │ normalizeEvent         Canonicalize event names on read           │
  *   │ sleep                 Abortable setTimeout wrapper                │
  *   │ EVENT_TYPES / LEGACY_EVENT_ALIASES / CanonicalEventName etc.     │
@@ -136,12 +137,25 @@ export function appendEvent(
     t: new Date().toISOString(),
     event: canonical,
   };
-  withJournalAppendLock(runDir, () => {
+  return withJournalAppendLock(runDir, () => {
+    const existingPrOpened = existingPrOpenedEvent(runDir, canonical, safePayload);
+    if (existingPrOpened !== undefined) return existingPrOpened;
     // The run dir is created by writeCombo; emitting to a combo that was
     // never created is a caller bug and should surface, not be papered over.
     appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
+    return entry;
   });
-  return entry;
+}
+
+function existingPrOpenedEvent(
+  runDir: string,
+  event: CanonicalEventName,
+  payload: Record<string, unknown>,
+): ComboEvent | undefined {
+  if (event !== "pr_opened" || typeof payload["url"] !== "string") return undefined;
+  return readEvents(runDir).find(
+    (candidate) => candidate.event === "pr_opened" && candidate["url"] === payload["url"],
+  );
 }
 
 function withJournalAppendLock<T>(runDir: string, action: () => T): T {
