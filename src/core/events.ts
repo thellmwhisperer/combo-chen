@@ -5,7 +5,7 @@
  *   READING GUIDE
  *   ─────────────
  *   1. Start at EVENT_TYPES              ← defines every possible event shape
- *   2. appendEvent                        ← writes a validated event to journal
+ *   2. appendEvent / appendEvents         ← write validated event(s) to journal
  *   3. readEvents                         ← reads + normalizes the full journal
  *   4. followEvents                       ← async iterator for tailing
  *   5. canonicalEventName                 ← legacy alias resolution
@@ -18,6 +18,7 @@
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ EVENT_TYPES         Canonical event catalogue (the schema)        │
  *   │ appendEvent         Write a validated event to the journal        │
+ *   │ appendEvents        Write validated events under a single lock    │
  *   │ readEvents          Read all events from the journal              │
  *   │ followEvents        Async generator: yield + poll for new events  │
  *   │ canonicalEventName  Resolve legacy aliases → canonical names      │
@@ -33,7 +34,7 @@
  *   │ EVENT_TYPES / LEGACY_EVENT_ALIASES / CanonicalEventName etc.     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
+ * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, appendEvents, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
  * @deps node:fs, node:path
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -201,6 +202,50 @@ function isStaleJournalAppendLock(lockPath: string): boolean {
 
 function sleepSync(ms: number): void {
   Atomics.wait(JOURNAL_LOCK_SLEEP, 0, 0, ms);
+}
+
+export function appendEvents(
+  runDir: string,
+  entries: Array<{ event: EventName; payload: Record<string, unknown> }>,
+): ComboEvent[] {
+  const validated: Array<{
+    canonical: CanonicalEventName;
+    entry: ComboEvent;
+    safePayload: Record<string, unknown>;
+  }> = [];
+  for (const { event, payload } of entries) {
+    const canonical = canonicalEventName(event);
+    if (canonical === undefined) {
+      throw new ComboEventError(`Unknown event "${String(event)}"`);
+    }
+    const schema = EVENT_TYPES[canonical];
+    for (const field of schema.required) {
+      if (payload[field] === undefined) {
+        throw new ComboEventError(`Event "${canonical}" requires field "${field}"`);
+      }
+    }
+    const { event: _ignoredEvent, t: _ignoredTimestamp, ...safePayload } = payload;
+    const entry: ComboEvent = {
+      ...safePayload,
+      t: new Date().toISOString(),
+      event: canonical,
+    };
+    validated.push({ canonical, entry, safePayload });
+  }
+
+  return withJournalAppendLock(runDir, () => {
+    const result: ComboEvent[] = [];
+    for (const { canonical, entry, safePayload } of validated) {
+      const existing = existingPrOpenedEvent(runDir, canonical, safePayload);
+      if (existing !== undefined) {
+        result.push(existing);
+      } else {
+        appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
+        result.push(entry);
+      }
+    }
+    return result;
+  });
 }
 
 function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
