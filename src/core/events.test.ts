@@ -1,6 +1,6 @@
 /**
- * @overview Unit tests for the event journal subsystem. ~320 lines, testing
- *   event schema validation, JSONL append/read, append locking, legacy alias
+ * @overview Unit tests for the event journal subsystem. ~335 lines, testing
+ *   event schema validation, JSONL append/read, PR-open idempotence, append locking, legacy alias
  *   mapping, torn-line tolerance, and the async follow/followEvents stream.
  *
  *   READING GUIDE
@@ -150,6 +150,15 @@ describe("journal", () => {
       event: "coder_started",
       note: "kept",
     });
+  });
+
+  it("keeps pr_opened idempotent for the same PR URL", () => {
+    const dir = runDir();
+    const first = appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const second = appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    expect(second).toEqual(first);
+    expect(readEvents(dir)).toEqual([first]);
   });
 
   it("serializes appends with a per-run lock directory", async () => {

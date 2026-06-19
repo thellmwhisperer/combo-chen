@@ -277,6 +277,9 @@ ignored config or environment outside that file.
   lock contention is bounded to 5 s before the writer fails. The journal
   tolerates torn lines from crashes (a reader skips unparseable lines) and
   re-reads pick up complete entries that land after a torn fragment.
+  Duplicate `pr_opened` append attempts for the same PR URL in one combo return
+  the existing event and do not write a second line, preserving one PR-open
+  transition even when retry paths re-emit the same fact.
 - The director-watch polling loop, post-address gates, reviewer activation,
   park/resume, reconcile teardown, `status --deep`, and forensics all read
   runtime config from the launch-time `config.snapshot.json` in the run
