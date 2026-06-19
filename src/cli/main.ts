@@ -226,7 +226,7 @@ function fetchBaseRef(deps: Deps, repoDir: string, baseRef: string): void {
 export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
-  program.description("Conductor for autonomous issue → PR pipelines.");
+  program.description("Conductor for autonomous work-item → PR pipelines.");
   program.version(formatReleaseMetadata(releaseMetadata), "-v, --version", "Print release build metadata");
 
   program
@@ -557,7 +557,7 @@ export function createProgram(deps: Deps): Command {
       await reconcileCombos({ deps, home, apply: true, quiet: true });
       const combos = listCombos(home);
       if (combos.length === 0) {
-        deps.out("no combos. start one: combo-chen run --issue <url>");
+        deps.out("no combos. start one: combo-chen run --issue <url> (or --plan <file>)");
         return;
       }
       const rows = combos.map((combo) => {
@@ -610,7 +610,7 @@ export function createProgram(deps: Deps): Command {
   program
     .command("forensics")
     .description("Produce a read-only combo forensics report")
-    .option("--issues <numbers>", "Comma-separated GitHub issue numbers to include")
+    .option("--issues <numbers>", "Comma-separated GitHub issue numbers (filters issue-backed combos)")
     .option("-n, --name <comboId>", "Combo id to include")
     .option("--format <format>", "markdown or json", "markdown")
     .action(async (options: { issues?: string; name?: string; format: string }) => {
