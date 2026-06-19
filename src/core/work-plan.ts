@@ -206,6 +206,7 @@ function parseMarkdownSections(markdown: string): MarkdownSections {
 
 function titleFromMarkdown(markdown: string): string {
   for (const line of markdown.split(/\r?\n/)) {
+    if (/^#+\s/.test(line)) continue;
     const stripped = stripMarkdownInline(line.replace(/^[-*]\s+/, "")).trim();
     if (stripped !== "") return stripped;
   }
