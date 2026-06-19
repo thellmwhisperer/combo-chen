@@ -1,5 +1,5 @@
 /**
- * @overview Reconcile local combo journals against GitHub PR truth. ~255 lines,
+ * @overview Reconcile local combo journals against GitHub PR truth. ~265 lines,
  *   2 exports, terminal PR repair for merged/closed combos.
  *
  *   READING GUIDE

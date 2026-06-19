@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the event journal subsystem. ~335 lines, testing
+ * @overview Unit tests for the event journal subsystem. ~375 lines, testing
  *   event schema validation, JSONL append/read, PR-open idempotence, append locking, legacy alias
  *   mapping, torn-line tolerance, and the async follow/followEvents stream.
  *
@@ -11,7 +11,8 @@
  *   ┌─ TEST AREAS ───────────────────────────────────────┐
  *   │ event schema  Pinned catalogue + required fields   │
  *   │ journal       JSONL read/write, append locking,    │
- *   │               legacy aliases, torn-line tolerance, │
+ *   │               PR-open idempotence, batch append,   │
+ *   │               legacy aliases, torn-line tolerance,  │
  *   │               async follow                         │
  *   └─────────────────────────────────────────────────────┘
  *
