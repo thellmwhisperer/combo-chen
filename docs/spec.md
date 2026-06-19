@@ -219,7 +219,8 @@ ignored config or environment outside that file.
 
 - Default: human merges. Always.
   - **Merged:** The combo journals `merged` (fields: `sha`=merge commit oid,
-    `by`, optional `source`), verifies the merge commit is in the base branch,
+    `by`, optional `mergedAt`=GitHub PR merge timestamp, optional `source`),
+    verifies the merge commit is in the base branch,
     removes the local worktree and branch, then journals `combo_closed`
     (fields: optional `source`). The remote branch is left alone by default.
     When `source` is `"reconcile"`, the event was synthesized from GitHub PR
@@ -327,7 +328,8 @@ ignored config or environment outside that file.
     combo journal against GitHub PR state. When `-n <combo-id>` is provided,
     only that single combo is reconciled. For merged PRs whose journal froze
     before the director could record `merged`/`combo_closed`, it appends the
-    missing terminal events (marked `source: "reconcile"`) and runs teardown
+    missing terminal events (marking `merged` with `source: "reconcile"` and
+    GitHub's `mergedAt` when available) and runs teardown
     (worktree removal, branch deletion, tmux session kill); parked combos skip
     worktree removal and branch deletion but still receive the terminal events
     and tmux cleanup. Teardown is idempotent: already-gone worktrees (not a
