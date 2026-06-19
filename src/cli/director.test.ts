@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~850 lines, initial-gate retry, READY, and post-address orchestration.
+ * @overview Unit tests for director CLI helpers. ~880 lines, initial-gate retry, READY, and post-address orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -278,6 +278,45 @@ describe("tickDirector", () => {
     expect(
       readEvents(runDir).some((entry) => entry.event === "needs_human" && entry["reason"] === "gate_failed"),
     ).toBe(false);
+  });
+
+  it("journals a canonical gate_started before fallback gate_failed when retry launch fails", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    mkdirSync(record.worktree, { recursive: true });
+    writeCombo(runDir, record);
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "gate_started", {});
+    appendEvent(runDir, "gate_failed", { exit_code: 1, reason: "gate_failed" });
+    const headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      worktreeHeadSha: headSha,
+      env: {
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS: "2",
+        COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS: "0",
+      },
+    });
+    deps.tmux = (args) => {
+      calls.push(["tmux", ...args]);
+      if (args[0] === "new-window" && args.includes("gatekeeper")) {
+        return { status: 1, stdout: "", stderr: "no server running" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    const events = readEvents(runDir);
+    expect(events.map((entry) => entry.event).slice(-2)).toEqual(["gate_started", "gate_failed"]);
+    expect(events.at(-1)).toMatchObject({
+      event: "gate_failed",
+      exit_code: 1,
+      reason: "retry_start_failed",
+    });
   });
 
   it("journals needs_human after configured pre-PR gate_failed retries are exhausted", async () => {
