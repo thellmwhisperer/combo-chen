@@ -407,14 +407,16 @@ sections delimited by `##` headings. The following section names are recognized
 
 ### Launching
 
-```
+```bash
 combo-chen run --plan <file> --repo <dir> [--base <ref>]
 ```
 
 The work plan is normalized from the markdown file and persisted as
 `work-plan.md` in the combo run directory. The coder prompt references the
 normalized plan. The PR body describes the work-plan source and completed
-acceptance criteria; it does not inject GitHub autoclose keywords.
+acceptance criteria; it must never include GitHub autoclose keywords. If a
+plan asks to close an issue, the gatekeeper should call that out for a human
+instead.
 
 ### Normalization from GitHub issues
 

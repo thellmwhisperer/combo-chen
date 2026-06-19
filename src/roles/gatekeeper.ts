@@ -106,7 +106,7 @@ export function buildWorkPlanPrIntent(plan: WorkPlan): string {
     `Source: ${plan.source.type} ${plan.source.reference}`,
     "",
     "Pull request body requirement:",
-    "Describe the work-plan source and completed acceptance criteria; do not add GitHub autoclose keywords unless the plan explicitly asks for one.",
+    "Describe the work-plan source and completed acceptance criteria; never include GitHub autoclose keywords (for example Fixes/Closes/Resolves `#N` or owner/repo#N) for plan-backed PRs. If the plan asks to close an issue, call that out for a human instead.",
     "",
     "Work plan:",
     renderWorkPlanMarkdown(plan).trim(),
