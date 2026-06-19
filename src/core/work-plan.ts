@@ -1,6 +1,6 @@
 /**
  * @overview Canonical work-plan model and markdown normalization helpers.
- *   ~220 lines, 6 exports, pure data shaping for issue and plan sources.
+ *   ~245 lines, 6 exports, pure data shaping for issue and plan sources.
  *
  *   READING GUIDE
  *   -------------

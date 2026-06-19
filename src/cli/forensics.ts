@@ -1,5 +1,5 @@
 /**
- * @overview Combo forensics report model and renderers. ~245 lines, pure analysis only.
+ * @overview Combo forensics report model and renderers. ~375 lines, pure analysis only.
  *
  *   READING GUIDE
  *   -------------

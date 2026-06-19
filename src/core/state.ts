@@ -1,7 +1,7 @@
 /**
  * @overview Run identity and persistence: one directory per combo under the
  *   combo home, holding combo.json (the record) and journal.jsonl (the spine).
- *   ~160 lines, 13 exports.
+ *   ~170 lines, 14 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -29,9 +29,10 @@
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
  *   │ WorkItemDescriptor   Display-safe work item source/title shape  │
  *   │ cleanOptional        Trim optional strings to undefined          │
+ *   │ IssueRef             Parsed GitHub issue owner/repo/number       │
  *   │ ComboStateError      Thrown on malformed URLs, missing records  │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
- *   │ IssueRef, ISSUE_URL, slugForComboId, shortSourceHash             │
+ *   │ ISSUE_URL, slugForComboId, shortSourceHash                       │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ComboStateError, IssueRef, ComboRecord, WorkItemDescriptor, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos, describeWorkItem, cleanOptional

@@ -23,10 +23,11 @@
  *   │ defaultPrompt              Standard issue objective prompt            │
  *   │ defaultWorkPlanPrompt      Standard plan objective prompt             │
  *   │ CoderThreadArtifact        {agent, thread_id, source} shape           │
+ *   │ CoderInput                 Template vars for the coder command         │
+ *   │ CODER_THREAD_ARTIFACT      Coder thread artifact filename              │
+ *   │ LEGACY_ROWER_THREAD_ARTIFACT Legacy rower thread artifact filename     │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
  *   │ latestGnhfIterationJsonl   Find newest iteration-1.jsonl in .gnhf    │
- *   │ CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT                   │
- *   │ CoderInput                                                            │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, defaultWorkPlanPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
