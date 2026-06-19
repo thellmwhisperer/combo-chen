@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~5430 lines.
+ *   deps so tests run without a real terminal or network. ~5530 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -1920,7 +1920,7 @@ describe("run", () => {
     const [combo] = listCombos(h);
     expect(combo).toMatchObject({
       workItemSourceType: "local_file",
-      workItemSourceReference: planPath,
+      workItemSourceReference: "launch-plan.md",
       workItemTitle: "Let plans launch combos",
     });
     expect(combo?.id).toMatch(/^plan-let-plans-launch-combos-[0-9a-f]{8}$/);
@@ -1930,7 +1930,8 @@ describe("run", () => {
     const runDir = runDirFor(h, combo!.id);
     const artifact = readFileSync(join(runDir, "work-plan.md"), "utf8");
     expect(artifact).toContain("# Let plans launch combos");
-    expect(artifact).toContain(`Source: local_file ${planPath}`);
+    expect(artifact).toContain("Source: local_file launch-plan.md");
+    expect(artifact).not.toContain(planPath);
     expect(artifact).toContain("- The run records the normalized plan artifact.");
 
     const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
@@ -1955,9 +1956,46 @@ describe("run", () => {
     expect(events[0]).toMatchObject({
       event: "combo_created",
       work_item_source_type: "local_file",
-      work_item_source_reference: planPath,
+      work_item_source_reference: "launch-plan.md",
       work_item_title: "Let plans launch combos",
     });
+  });
+
+  it("redacts external markdown plan source references before persistence", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const externalDir = mkdtempSync(join(tmpdir(), "combo-chen-private-user-"));
+    const planPath = join(externalDir, "secret-plan.md");
+    writeFileSync(
+      planPath,
+      [
+        "# External work",
+        "",
+        "## Problem",
+        "The plan lives outside the target repo.",
+        "",
+        "## Acceptance Criteria",
+        "- Persisted source references do not expose the external path.",
+      ].join("\n"),
+    );
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      issueExists: () => {
+        throw new Error("issue lookup should not run for --plan");
+      },
+    });
+
+    await exec(deps, ["run", "--plan", planPath, "--repo", repoDir]);
+
+    const [combo] = listCombos(h);
+    expect(combo?.workItemSourceType).toBe("local_file");
+    expect(combo?.workItemSourceReference).toMatch(/^external:[0-9a-f]{12}$/);
+    expect(combo?.workItemSourceReference).not.toContain(externalDir);
+    expect(combo?.id).toContain("plan-external-work-");
+
+    const artifact = readFileSync(join(runDirFor(h, combo!.id), "work-plan.md"), "utf8");
+    expect(artifact).toContain(`Source: local_file ${combo!.workItemSourceReference}`);
+    expect(artifact).not.toContain(externalDir);
   });
 
   it("shell-quotes the combo id in runner command invocations", async () => {

@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the gatekeeper role. ~225 lines, testing
+ * @overview Unit tests for the gatekeeper role. ~240 lines, testing
  *   gatekeeper invocation building, issue→PR intent generation (with
  *   autoclose keywords, truncation, and push-safe base64 encoding), axi
  *   TOON outcome parsing, and the PR body issue autoclose contract.
@@ -25,6 +25,7 @@ import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
   buildNoMistakesPushIntent,
+  buildWorkPlanPrIntent,
   ensureIssueAutocloseInPrBody,
   hasIssueAutocloseInPrBody,
   parseAxiOutcome,
@@ -112,6 +113,24 @@ describe("buildGatekeeperInvocation", () => {
     expect(intent).toContain("visible line verbatim in the PR body");
     expect(intent).toContain("This mentions issue #53 but not as a close directive.");
     expect(intent).toMatch(/\nFixes #53\n/);
+  });
+
+  it("forbids autoclose keywords in plan-backed PR intent even when the plan asks", () => {
+    const intent = buildWorkPlanPrIntent({
+      title: "Plan-driven work",
+      source: { type: "local_file", reference: "plans/work.md" },
+      problem: "The plan mentions Fixes #53 as a desired PR body line.",
+      scope: "",
+      acceptanceCriteria: "- Complete the work.",
+      validation: "",
+      outOfScope: "",
+      intentDecisions: "",
+      rawMarkdown: "# Plan-driven work\n\n## Acceptance Criteria\n- Complete the work.",
+    });
+
+    expect(intent).toContain("never include GitHub autoclose keywords");
+    expect(intent).toContain("If the plan asks to close an issue, call that out for a human instead.");
+    expect(intent).not.toContain("unless the plan explicitly asks");
   });
 
   it("keeps the required autoclose line before issue body truncation can drop it", () => {
