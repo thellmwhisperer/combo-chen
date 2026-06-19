@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.41](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.40...combo-chen-v0.0.41) (2026-06-19)
+
+
+### Bug Fixes
+
+* **director:** Automatic initial-gate retry launch failures now preserve the journal start-before-terminal contract, with full validation green. ([b94342c](https://github.com/thellmwhisperer/combo-chen/commit/b94342c6ab836a6b0c52e0f72c3baa772b89ba8c))
+* **events:** Implemented and validated the first journal-hygiene slice: duplicate `pr_opened` appends for the same PR URL are now idempotent. ([19f708f](https://github.com/thellmwhisperer/combo-chen/commit/19f708f61fcacff664df1e59bf92d9bfa4288e37))
+* **journal:** Removed obsolete new `needs_human reason=pr_ready` emission from generated initial gate paths and documented the replacement journal contract. ([29dfc14](https://github.com/thellmwhisperer/combo-chen/commit/29dfc14a88ef893d465b3efea2ce7131c04ce88a))
+* **reconcile:** Implemented the final journal-hygiene slice by preserving GitHub’s `mergedAt` timestamp on reconcile-synthesized `merged` events, with the full validation suite green. ([f533c83](https://github.com/thellmwhisperer/combo-chen/commit/f533c8345a33e2b774861684d7189eb75037559d))
+
 ## [0.0.40](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.39...combo-chen-v0.0.40) (2026-06-18)
 
 
