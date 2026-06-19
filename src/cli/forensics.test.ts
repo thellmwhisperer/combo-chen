@@ -148,7 +148,7 @@ describe("forensics analyzer", () => {
     });
     const markdown = renderForensicsMarkdown([report]);
     expect(markdown).toContain("- Work item: Let plans launch combos (local_file:/plans/issue-134.md)");
-    expect(markdown).toContain("- Issue: none");
+    expect(markdown).not.toContain("GitHub issue:");
   });
 });
 // -/ 2/2
