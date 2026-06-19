@@ -1,5 +1,5 @@
 /**
- * @overview Tests for canonical work-plan normalization. ~120 lines, no exports.
+ * @overview Tests for canonical work-plan normalization. ~140 lines, no exports.
  *
  *   READING GUIDE
  *   -------------
@@ -87,6 +87,27 @@ describe("work-plan normalization", () => {
         source: { type: "local_file", reference: "plan.md" },
       }),
     ).toThrow(/acceptance criteria/i);
+  });
+
+  it("extracts canonical sections nested below wrapper headings", () => {
+    const plan = normalizeMarkdownWorkPlan({
+      markdown: [
+        "# Nested plan",
+        "",
+        "## Planning Notes",
+        "These notes are just a wrapper.",
+        "",
+        "### Acceptance Criteria",
+        "- Nested canonical headings still count.",
+        "",
+        "### Validation Commands",
+        "- `pnpm test`",
+      ].join("\n"),
+      source: { type: "local_file", reference: "plans/nested.md" },
+    });
+
+    expect(plan.acceptanceCriteria).toBe("- Nested canonical headings still count.");
+    expect(plan.validation).toBe("- `pnpm test`");
   });
 
   it("normalizes GitHub issue facts without requiring a new issue-specific consumer", () => {

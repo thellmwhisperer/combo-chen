@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~910 lines, 19 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~930 lines, 19 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -23,16 +23,17 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation, isParked; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation, isParked, localPlanSourceReference; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
- * @deps commander, node:{child_process,fs,path,url},
+ * @deps commander, node:{child_process,crypto,fs,path,url},
  *   ../core/{combo,events,state,work-plan}, ../infra/{config,config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper,reviewer},
  *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 
@@ -168,7 +169,7 @@ function isParked(events: ComboEvent[]): boolean {
   return events.at(-1)?.event === "parked";
 }
 
-function readLocalMarkdownWorkPlan(planFile: string): WorkPlan {
+function readLocalMarkdownWorkPlan(planFile: string, repoDir: string): WorkPlan {
   const path = resolve(planFile);
   let markdown: string;
   try {
@@ -179,8 +180,15 @@ function readLocalMarkdownWorkPlan(planFile: string): WorkPlan {
   }
   return normalizeMarkdownWorkPlan({
     markdown,
-    source: { type: "local_file", reference: path },
+    source: { type: "local_file", reference: localPlanSourceReference({ path, markdown, repoDir }) },
   });
+}
+
+function localPlanSourceReference(input: { path: string; markdown: string; repoDir: string }): string {
+  const repoRelative = relative(resolve(input.repoDir), input.path);
+  if (!repoRelative.startsWith("..") && !isAbsolute(repoRelative)) return repoRelative;
+  const hash = createHash("sha256").update(input.markdown).digest("hex").slice(0, 12);
+  return `external:${hash}`;
 }
 
 function requireCleanSourceCheckout(deps: Deps, repoDir: string, requiredBranch: string): void {
@@ -242,7 +250,7 @@ export function createProgram(deps: Deps): Command {
       }
       const issueDetails = options.issue === undefined ? undefined : fetchIssueDetails(deps.gh, options.issue);
       const workPlan = issueDetails === undefined
-        ? readLocalMarkdownWorkPlan(options.plan!)
+        ? readLocalMarkdownWorkPlan(options.plan!, options.repo)
         : normalizeGitHubIssueWorkPlan({
           issueUrl: options.issue!,
           title: issueDetails.title,

@@ -1,6 +1,6 @@
 /**
  * @overview Canonical work-plan model and markdown normalization helpers.
- *   ~245 lines, 6 exports, pure data shaping for issue and plan sources.
+ *   ~260 lines, 6 exports, pure data shaping for issue and plan sources.
  *
  *   READING GUIDE
  *   -------------
@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   parseMarkdownSections, titleFromMarkdown, section aliases, renderSection
+ *   parseMarkdownSections, titleFromMarkdown, section aliases, CANONICAL_SECTION_HEADINGS, renderSection
  *
  * @exports WorkPlanSourceType, WorkPlanSource, WorkPlan, normalizeMarkdownWorkPlan, normalizeGitHubIssueWorkPlan, renderWorkPlanMarkdown
  * @deps none
@@ -91,6 +91,14 @@ const INTENT_HEADINGS = new Set([
   "intent decisions",
   "product intent decisions",
   "must not change",
+]);
+const CANONICAL_SECTION_HEADINGS = new Set([
+  ...PROBLEM_HEADINGS,
+  ...SCOPE_HEADINGS,
+  ...ACCEPTANCE_HEADINGS,
+  ...VALIDATION_HEADINGS,
+  ...OUT_OF_SCOPE_HEADINGS,
+  ...INTENT_HEADINGS,
 ]);
 const RENDER_SENTINEL = "_Not specified._";
 // -/ 1/3
@@ -160,6 +168,7 @@ function parseMarkdownSections(markdown: string): MarkdownSections {
     if (heading !== null) {
       const level = heading[1]!.length;
       const text = stripMarkdownInline(heading[2] ?? "").trim();
+      const normalized = normalizeHeading(text);
 
       if (level === 1) {
         flush();
@@ -167,13 +176,20 @@ function parseMarkdownSections(markdown: string): MarkdownSections {
         continue;
       }
 
+      if (CANONICAL_SECTION_HEADINGS.has(normalized)) {
+        flush();
+        currentHeading = text;
+        currentLevel = level;
+        currentLines = [];
+        continue;
+      }
+
       if (level <= currentLevel) {
         flush();
       }
 
-      if (currentHeading !== "" && level > currentLevel) {
-        currentLines.push(line);
-      } else {
+      if (currentHeading !== "" && level > currentLevel) currentLines.push(line);
+      else {
         currentHeading = text;
         currentLevel = level;
         currentLines = [];
