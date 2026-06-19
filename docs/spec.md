@@ -130,7 +130,10 @@ recording the PR `headRefOid` when a PR exists, otherwise the local worktree
 HEAD. Post-address gates run the PR autoclose
 guard before emitting `gate_validated`, so a successful no-mistakes run cannot
 be promoted to READY while the PR body still lacks a recognized closing
-keyword.
+keyword. Automatic initial-gate retry paths follow the same start-before-terminal
+contract: when the director cannot launch the retry script, it journals
+`gate_started` (`source=director_retry`) immediately before `gate_failed`
+(`reason=retry_start_failed`).
 
 When the worktree HEAD moves past the last validated or published SHA, the
 director journals `gate_stale` (fields `old_sha`, `new_sha`) to mark the old

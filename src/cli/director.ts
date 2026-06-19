@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~310 lines, 5 exports, initial-gate retry and post-PR orchestration.
+ * @overview Director CLI helpers. ~325 lines, 5 exports, initial-gate retry and post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -200,16 +200,32 @@ async function runInitialGateRetryIfNeeded(input: {
   if (input.backoffSeconds > 0) {
     await input.deps.sleep(input.backoffSeconds * 1000);
   }
-  const result = startInitialGateRetry({
-    deps: input.deps,
-    combo: input.combo,
-    runDir: input.runDir,
-    cli: input.cli,
-  });
+  let result: ReturnType<typeof startInitialGateRetry>;
+  try {
+    result = startInitialGateRetry({
+      deps: input.deps,
+      combo: input.combo,
+      runDir: input.runDir,
+      cli: input.cli,
+    });
+  } catch (error) {
+    appendFailedInitialGateRetry(input.runDir);
+    input.deps.out(
+      `director: initial gate retry failed to start for ${input.combo.id}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return true;
+  }
   if (!result.started && result.reason !== "uncommitted_changes") {
-    appendEvent(input.runDir, "gate_failed", { exit_code: 1 });
+    appendFailedInitialGateRetry(input.runDir);
   }
   return true;
+}
+
+function appendFailedInitialGateRetry(runDir: string): void {
+  appendEvent(runDir, "gate_started", { source: "director_retry" });
+  appendEvent(runDir, "gate_failed", { exit_code: 1, reason: "retry_start_failed" });
 }
 
 function hasReadyForMerge(events: ComboEvent[], headSha: string): boolean {
