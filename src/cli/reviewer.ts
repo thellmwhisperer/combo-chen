@@ -19,14 +19,14 @@
  *
  *   INTERNALS
  *   ---------
- *   reviewerWorkPlan
+ *   reviewerWorkPlan, hasCompleteWorkItemMetadata
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
  * @deps ../core/{events,gh-api,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers, ./work-plan
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
-import { runDirFor, readCombo, type ComboRecord } from "../core/state.js";
+import { cleanOptional, runDirFor, readCombo, type ComboRecord } from "../core/state.js";
 import type { WorkPlan } from "../core/work-plan.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
@@ -281,15 +281,20 @@ export async function tickReviewer(input: {
 
 // -- 4/4 HELPER · Journal and LGTM predicates --
 function reviewerWorkPlan(runDir: string, combo: ComboRecord): WorkPlan | undefined {
-  const hasWorkItemMetadata =
-    combo.workItemSourceType !== undefined ||
-    combo.workItemSourceReference !== undefined;
+  const hasWorkItemMetadata = hasCompleteWorkItemMetadata(combo);
   try {
     return readPersistedWorkPlan(runDir, combo);
   } catch (error) {
     if (!hasWorkItemMetadata) return undefined;
     throw error;
   }
+}
+
+function hasCompleteWorkItemMetadata(combo: ComboRecord): boolean {
+  const reference = cleanOptional(combo.workItemSourceReference) ?? (
+    combo.workItemSourceType === "github_issue" ? cleanOptional(combo.issueUrl) : undefined
+  );
+  return combo.workItemSourceType !== undefined && reference !== undefined;
 }
 
 export function latestOpenedPrUrl(runDir: string): string | undefined {

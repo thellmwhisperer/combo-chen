@@ -64,6 +64,7 @@ export function readPersistedWorkPlan(
   return normalizeMarkdownWorkPlan({
     markdown,
     source: workPlanSourceFromCombo(combo),
+    requireAcceptanceCriteria: false,
   });
 }
 

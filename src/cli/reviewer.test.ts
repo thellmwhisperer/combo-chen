@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~565 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~650 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
-import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
+import { normalizeGitHubIssueWorkPlan, normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
@@ -321,6 +321,82 @@ describe("activateReviewer", () => {
     expect(reviewerCommand).toContain("# Issue reviewer context");
     expect(reviewerCommand).toContain(`Source: github_issue ${issueUrl}`);
     expect(reviewerCommand).toContain("- Reviewer prompt carries issue-derived work-plan context.");
+  });
+
+  it("activates reviewer for an issue-sourced work plan without acceptance criteria", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const issueUrl = "https://github.com/o/r/issues/7";
+    const record = combo({
+      workItemSourceType: "github_issue",
+      workItemSourceReference: issueUrl,
+      workItemTitle: "Issue without formal criteria",
+    });
+    const runDir = runDirFor(home, record.id);
+    const plan = normalizeGitHubIssueWorkPlan({
+      issueUrl,
+      title: "Issue without formal criteria",
+      body: "## Problem\nSome existing GitHub issues do not carry an acceptance-criteria heading.",
+    });
+
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "work-plan.md"), renderWorkPlanMarkdown(plan));
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    expect(() =>
+      activateReviewer({
+        deps: {
+          env: { COMBO_CHEN_HOME: home },
+          out: () => undefined,
+          tmux: (args) => {
+            calls.push(args);
+            return { status: 0, stdout: "coder\ngatekeeper\n", stderr: "" };
+          },
+        },
+        home,
+        comboId: record.id,
+        cli: "node /repo/dist/cli.mjs",
+      }),
+    ).not.toThrow();
+
+    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    expect(reviewerCommand).toContain("Work plan context:");
+    expect(reviewerCommand).toContain("# Issue without formal criteria");
+    expect(reviewerCommand).toContain("## Acceptance Criteria\n_Not specified._");
+  });
+
+  it("ignores incomplete work item metadata when no persisted plan is readable", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: undefined,
+      workItemTitle: "Migrated partial metadata",
+    });
+    const runDir = runDirFor(home, record.id);
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    expect(() =>
+      activateReviewer({
+        deps: {
+          env: { COMBO_CHEN_HOME: home },
+          out: () => undefined,
+          tmux: (args) => {
+            calls.push(args);
+            return { status: 0, stdout: "coder\ngatekeeper\n", stderr: "" };
+          },
+        },
+        home,
+        comboId: record.id,
+        cli: "node /repo/dist/cli.mjs",
+      }),
+    ).not.toThrow();
+
+    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    expect(reviewerCommand).not.toContain("Work plan context:");
   });
 
   it("rejects activation before a PR has opened", () => {
