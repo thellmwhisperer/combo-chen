@@ -1,5 +1,5 @@
 /**
- * @overview Reviewer CLI helpers. ~373 lines, 11 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~385 lines, 11 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   activateReviewer -> reviewer + director-watch windows; tickReviewer -> gh pr view -> reviewer verdict/LGTM -> coder nudge, journal events, or re-review
+ *   activateReviewer -> reviewer + director-watch windows; tickReviewer -> gh pr view -> reviewer verdict/LGTM -> coder/director routing, journal events, or re-review
  *
  *   PUBLIC API
  *   ----------
@@ -23,7 +23,7 @@
  *   reviewerWorkPlan, hasCompleteWorkItemMetadata
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent, closurePendingReviewerEvent
- * @deps ../core/{events,gh-api,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./coder, ./github, ./sessions, ./watchers, ./work-plan
+ * @deps ../core/{events,gh-api,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./coder, ./director-prompt, ./github, ./sessions, ./watchers, ./work-plan
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
@@ -34,6 +34,7 @@ import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { nudgeReviewComments } from "./coder.js";
+import { promptDirector } from "./director-prompt.js";
 import { latestGitHubLgtmSha, latestGitHubReviewerVerdict, parsePrView, type PrView } from "./github.js";
 import {
   REVIEWER_WATCH_WINDOW,
@@ -225,6 +226,28 @@ export async function tickReviewer(input: {
     }
     if (reviewerVerdict?.code === 1) {
       nudgeReviewComments({ deps, home, comboId, ghApiCache });
+      return;
+    }
+    if (reviewerVerdict?.code === 2) {
+      try {
+        promptDirector({
+          deps,
+          home,
+          comboId,
+          reason: "reviewer_verdict_code_2",
+          message: [
+            `Reviewer verdict code 2 reported ambiguous or intent-sensitive work at current head ${headSha}.`,
+            `PR: ${prUrl}`,
+            "Decide whether to route a mechanical fix to coder responding or ask the human for intent.",
+          ].join("\n"),
+        });
+      } catch (error) {
+        deps.out(
+          reviewerTransientFailure(
+            `failed to prompt director for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
       return;
     }
     if (reviewerVerdict?.code === 3) {

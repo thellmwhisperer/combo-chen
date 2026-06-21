@@ -1,21 +1,22 @@
 /**
- * @overview Director prompt endpoint. ~170 lines, 5 exports, deterministic
+ * @overview Director prompt helper. ~170 lines, 6 exports, deterministic
  *   prompt rendering plus tmux paste-buffer delivery and journaling.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at promptDirector       <- command-level entry point.
+ *   1. Start at promptDirector       <- reviewer/director routing entry point.
  *   2. Then buildDirectorPrompt      <- exact prompt text sent to the director.
  *   3. Then sendPromptToTarget       <- tmux window check + paste-buffer calls.
  *   4. Helpers are target/preview    <- small deterministic formatters.
  *
  *   MAIN FLOW
  *   ---------
- *   CLI command -> promptDirector -> buildDirectorPrompt -> sendPromptToTarget -> director_prompted event
+ *   reviewer signal -> promptDirector -> buildDirectorPrompt -> sendPromptToTarget -> director_prompted event
  *
  *   PUBLIC API
  *   ----------
  *   PromptTarget          Stable tmux destination shape.
+ *   DirectorPromptDeps    Output and tmux dependencies for promptDirector.
  *   buildDirectorPrompt   Render the deterministic director intervention prompt.
  *   directorPromptTarget  Convert a combo + window name into a tmux target.
  *   sendPromptToTarget    Verify target window and paste prompt into tmux.
@@ -25,7 +26,7 @@
  *   ---------
  *   requiredText, promptSha, promptPreview, windowSet
  *
- * @exports PromptTarget, buildDirectorPrompt, directorPromptTarget, sendPromptToTarget, promptDirector
+ * @exports PromptTarget, DirectorPromptDeps, buildDirectorPrompt, directorPromptTarget, sendPromptToTarget, promptDirector
  * @deps node:crypto, ../core/{combo,events,runtime-ledger,state}, ../infra/tmux, ./sessions
  */
 import { createHash } from "node:crypto";
