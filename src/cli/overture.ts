@@ -90,7 +90,9 @@ export interface OvertureResources {
   worktree: string;
   tmuxSession: string;
   runDir: string;
+  /** Canonical launch base ref recorded in overture.json. */
   base: string;
+  /** Compatibility alias kept for earlier overture consumers; same value as base. */
   baseRef: string;
   sourceType: string;
   sourceReference: string;

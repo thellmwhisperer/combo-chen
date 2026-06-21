@@ -27,8 +27,10 @@ Validation at launch (hard failures, the combo refuses to start):
   coder_command_safe, reviewer_command_safe, no_mistakes_available,
   no_mistakes_run_free, no_mistakes_config_predictable.
 - The result is written as a machine-readable `overture.json` artifact in the
-  combo run directory, recording all resources the run is allowed to create and
-  every check result.
+  combo run directory when the run directory is available, recording all
+  resources the run is allowed to create and every check result. A
+  run-directory collision blocks launch before an overture artifact can be
+  written.
 - `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
 - the source checkout is clean and on `[run].source_branch` (default `main`,
@@ -60,7 +62,7 @@ OVERTURE    deterministic launch runway: checks work-item readability, repo/issu
   │           availability, run dir reuse, config parse, coder/reviewer command
   │           safety, no-mistakes availability and run conflict. Blocked checks
   │           print an X with the failing resource and exit before creating any
-  │           launch resources. Writes overture.json artifact on completion.
+  │           launch resources. Writes overture.json when the run dir is available.
   └─▶ SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
