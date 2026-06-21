@@ -1850,6 +1850,77 @@ describe("run", () => {
     });
   });
 
+  it("runs overture directly for a clean local work plan and records the full resource ledger", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const planPath = join(repoDir, "launch-plan.md");
+    writeFileSync(
+      planPath,
+      [
+        "# Local plan runway",
+        "",
+        "## Problem",
+        "A local plan should get the same deterministic runway as an issue.",
+        "",
+        "## Acceptance Criteria",
+        "- The direct overture command records plan resources.",
+      ].join("\n"),
+    );
+    const ghCalls: string[][] = [];
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      issueExists: () => {
+        throw new Error("issue lookup should not run for --plan");
+      },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["overture", "--plan", planPath, "--repo", repoDir, "--base", "origin/release-candidate"]);
+
+    const id = out[0]?.replace(/^overture\s+/, "") ?? "";
+    expect(id).toMatch(/^plan-local-plan-runway-[0-9a-f]{8}$/);
+    expect(out).toContain(`OK work_item_readable: ${planPath}`);
+    expect(out).toContain(`OK base_ref_resolved: origin/release-candidate`);
+    expect(out.every((line) => !line.startsWith("X "))).toBe(true);
+    expect(ghCalls).toEqual([]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, id), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: {
+        comboId: string;
+        base: string;
+        baseRef: string;
+        branch: string;
+        runDir: string;
+        sourceReference: string;
+        sourceTitle: string;
+        sourceType: string;
+        tmuxSession: string;
+        worktree: string;
+      };
+      checks: Array<{ id: string; status: string; resource: string }>;
+    };
+    expect(artifact.ok).toBe(true);
+    expect(artifact.checks.every((check) => check.status === "ok")).toBe(true);
+    expect(artifact.resources).toMatchObject({
+      comboId: id,
+      base: "origin/release-candidate",
+      baseRef: "origin/release-candidate",
+      branch: `combo/${id}`,
+      runDir: runDirFor(h, id),
+      sourceReference: "launch-plan.md",
+      sourceTitle: "Local plan runway",
+      sourceType: "local_file",
+      tmuxSession: `combo-chen-${id}`,
+      worktree: join(repoDir, ".worktrees", id),
+    });
+  });
+
   it("blocks an issue overture when the target repo origin cannot be confirmed", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

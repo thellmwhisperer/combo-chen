@@ -91,6 +91,7 @@ export interface OvertureResources {
   worktree: string;
   tmuxSession: string;
   runDir: string;
+  base: string;
   baseRef: string;
   sourceType: string;
   sourceReference: string;
@@ -391,6 +392,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     worktree,
     tmuxSession: session,
     runDir,
+    base: input.baseRef,
     baseRef: input.baseRef,
     sourceType: workPlan.source.type,
     sourceReference: workPlan.source.reference,
