@@ -5520,6 +5520,36 @@ describe("run ordering and safety", () => {
     });
   });
 
+  it("prints overture and blocks an existing worktree path before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /worktree_free.*path already exists/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain(`X worktree_free: ${worktree} path already exists`);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "worktree_free",
+      resource: worktree,
+      status: "failed",
+      detail: "path already exists",
+    });
+  });
+
   it("blocks an active no-mistakes run for the derived branch before creating launch resources", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
