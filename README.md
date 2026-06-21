@@ -268,6 +268,7 @@ combo-chen resume -n <combo-id>
 combo-chen forensics --issues <numbers> [--format json]
 combo-chen reconcile [-n <combo-id>] [--apply]
 combo-chen stop -n <combo-id>
+combo-chen director-prompt -n <combo-id> --reason <reason> <message...>
 ```
 
 `overture` checks the launch runway before spending agent tokens or creating
@@ -360,7 +361,7 @@ Active development.
 
 v0 implements the work-item-to-PR loop with deterministic overture launch
 runway, coder, gatekeeper, initial-gate
-retry with configurable attempts and backoff, reviewer, director watching,
+retry with configurable attempts and backoff, reviewer, director watching, promptable director window,
 review-comment routing, post-address gates, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
 a machine-readable runtime ledger for each combo capsule,

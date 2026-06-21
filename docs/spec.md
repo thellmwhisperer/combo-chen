@@ -315,6 +315,8 @@ ignored config or environment outside that file.
   window is created at launch with a non-polling promptable-director contract;
   `director-watch` owns deterministic polling and prompts the director only for
   ambiguity, malformed signals, intent-touching choices, or uncoded recovery.
+  Each prompt sent to the director journals `director_prompted` (required fields
+  `reason`, `target`) with the prompt SHA, preview, phase, and director window.
   The gatekeeper
   window resolves the branch's no-mistakes run id from the local no-mistakes
   state, then follows `no-mistakes axi status --run <id>` instead of using
