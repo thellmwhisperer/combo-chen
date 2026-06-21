@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~880 lines, initial-gate retry, READY, and post-address orchestration.
+ * @overview Unit tests for director CLI helpers. ~1020 lines, initial-gate retry, READY, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
@@ -385,6 +385,35 @@ describe("tickDirector", () => {
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker coder unchanged pane for 2 ticks"));
+  });
+
+  it("inspects pre-PR gatekeeper panes and escalates unchanged GATING stalls", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "gate_started", {});
+    const { deps, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      env: { COMBO_CHEN_WORKER_STALL_TICKS: "2" },
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "gatekeeper\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "still gating\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "gatekeeper" }),
+    );
+    expect(out).toContainEqual(expect.stringContaining("worker gatekeeper unchanged pane for 2 ticks"));
   });
 
   it("does not inspect worker panes before a pre-PR worker phase starts", async () => {

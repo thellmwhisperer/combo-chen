@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~325 lines, 5 exports, initial-gate retry and post-PR orchestration.
+ * @overview Director CLI helpers. ~350 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   runInitialGateRetryIfNeeded -> wait for PR -> inspectWorkerPanes -> tickReviewer -> nudgeReviewComments
+ *   runInitialGateRetryIfNeeded -> inspectWorkerPanes -> wait for PR -> tickReviewer -> nudgeReviewComments
  *     -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded
  *
  *   PUBLIC API
@@ -151,6 +151,8 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
   switch (deriveStatus(events).phase) {
     case "CODING":
       return [CODER_WINDOW];
+    case "GATING":
+      return [GATEKEEPER_WINDOW];
     default:
       return [];
   }
