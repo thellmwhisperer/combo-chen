@@ -129,6 +129,7 @@ read-only forensics reports, coder safety validation (pinned gnhf with
 `--max-iterations`, `--stop-when`, stdin closed), `park`/`resume` for
 reboot-safe combo handoff, `status` (actionable by default, `--all` for
 history, `--deep` for downstream probes, auto-reconcile + tmux liveness),
-launch-time config snapshots for deterministic runtime behavior, and
-current-head READY agreement. Deferred: preflight, counterfactual
-automerge log, treehouse pools, ACP role driving, and multi-combo dashboarding.
+launch-time config snapshots for deterministic runtime behavior,
+read-only dashboard artifacts, and current-head READY agreement.
+Deferred: preflight, counterfactual automerge log, treehouse pools,
+ACP role driving, and richer dashboard interactivity.
