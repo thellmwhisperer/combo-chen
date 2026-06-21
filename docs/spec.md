@@ -12,7 +12,7 @@ schema must conform to it, not the other way around.
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
 | **coder** | implements the work item (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
 | **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. For plan-backed combos, {issue_pr_intent} carries the rendered work-plan intent; other issue-specific placeholders are unsupported and cause a config error. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR with configured prompt text, incrementally until merge | review its own changes | claude |
+| **reviewer** | reviews the PR with configured prompt text, emits machine-readable verdict codes (0–3), incrementally until merge | review its own changes | claude |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
@@ -66,7 +66,7 @@ OVERTURE    deterministic launch runway: checks work-item readability, repo/issu
   └─▶ SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
-              └─▶ REVIEWING  director-watch observes reviewer and coder responding mode workers
+              └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, and coder responding mode workers; code-2 verdicts prompt the director via `director_prompted`
                     └─▶ READY      gate_current ∧ reviewer_current ∧ required_checks_current_success ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
@@ -186,12 +186,15 @@ and bookkeeping comments cannot by themselves trigger an addressing gate. The
 companion `address_noop` event (same required field `head_sha`) is defined for
 empty-addressing paths and transitions the combo out of READY the same way.
 After the PR exists, `director-watch` is the single observer. It repeatedly
-runs `director-tick` to poll reviewer hard signals, route new review comments
-to the resumed coder, detect committed local HEAD changes, and run a
-post-address no-mistakes gate before anything is published again. When the
-reviewer tick observes a GitHub `MERGED` PR, it records the merge fact, reports
-`closure_pending`, and stops the post-PR loop; resource convergence belongs to
-`combo-chen closure -n <combo-id>`.
+runs `director-tick` to poll reviewer hard signals (including machine-readable
+verdict codes from review comments), route new review comments to the resumed
+coder, detect committed local HEAD changes, and run a post-address no-mistakes
+gate before anything is published again. Verdict code 1 routes to coder
+responding mode through the existing review-comment path; verdict code 2
+prompts the director via `director_prompted`; verdict code 3 journals
+`needs_human`. When the reviewer tick observes a GitHub `MERGED` PR, it
+records the merge fact, reports `closure_pending`, and stops the post-PR loop;
+resource convergence belongs to `combo-chen closure -n <combo-id>`.
 
 If the source checkout has a repo-level `.no-mistakes.yaml`, combo-chen
 propagates it in two phases: first, it copies the file from the repo into the
@@ -226,13 +229,45 @@ ignored config or environment outside that file.
 
 ## 5. Review state
 
-- The reviewer emits `lgtm` (required field `sha`) to journal the reviewed commit;
-  the LGTM is pinned to that SHA and must come from a GitHub author listed in
-  `[reviewer].logins` before the director treats it as reviewer evidence.
-- Any push invalidates it and the journal records `lgtm_stale` (fields
-  `old_sha`, `new_sha`); the reviewer re-reviews the delta
-  (incremental: diff since last reviewed SHA), then re-LGTMs or files
-  findings.
+- The reviewer prompt requires a machine-readable verdict block in every
+  review body:
+
+  ```
+  combo-chen-reviewer-verdict:
+  head: <current PR head SHA>
+  code: <0|1|2|3>
+  ```
+
+  Verdict codes route deterministically without model interpretation:
+  - **0** (`OK, current-head LGTM`): treated as a current-head LGTM signal;
+    journals `lgtm` (required field `sha`) for that head SHA.
+  - **1** (`mechanical fix required`): routes to coder responding mode
+    through the existing review-comment nudge path.
+  - **2** (`ambiguous or intent-sensitive`): prompts the director via the
+    `director_prompted` event (required fields `reason`, `target`), which
+    delivers the prompt to the director's tmux window.
+  - **3** (`needs human`): journals `needs_human` with `reason=reviewer_needs_human`
+    and `verdict_code: 3`.
+
+  Only verdicts pinned to the current PR head SHA are accepted; stale-head
+  verdicts are ignored. The parser expects exactly one verdict block per
+  review body (duplicate headers cause rejection). Only verdicts authored by
+  GitHub logins listed in `[reviewer].logins` are accepted. The existing
+  `lgtm @ <sha>` path is preserved for compatibility.
+
+  Verdict codes 0, 1, and 2 are idempotent per head SHA (no duplicate events
+  for the same code and SHA). Code 3 (`needs_human`) is also guarded against
+  duplicate journaling for the same `reason` + `sha` combination.
+
+- The reviewer may also emit a plain `lgtm` (required field `sha`) to journal
+  the reviewed commit; the LGTM is pinned to that SHA and must come from a
+  GitHub author listed in `[reviewer].logins` before the director treats it as
+  reviewer evidence. This legacy path is preserved alongside the verdict
+  protocol.
+- Any push invalidates both verdict-code 0 and plain LGTM signals and the
+  journal records `lgtm_stale` (fields `old_sha`, `new_sha`); the reviewer
+  re-reviews the delta (incremental: diff since last reviewed SHA), then
+  re-LGTMs or files findings.
 - When all four signals agree on the current head SHA — gatekeeper has
   validated the SHA, the reviewer has a live pinned LGTM for that SHA,
   every configured `[ready].required_checks` entry is present in the GitHub
@@ -310,14 +345,8 @@ ignored config or environment outside that file.
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo: windows for coder, gatekeeper, director, and any
-  later interactive agent roles (reviewer, coder responding mode). The director
-  window is created at launch with a non-polling promptable-director contract;
-  `director-watch` owns deterministic polling and prompts the director only for
-  ambiguity, malformed signals, intent-touching choices, or uncoded recovery.
-  Each prompt sent to the director journals `director_prompted` (required fields
-  `reason`, `target`) with the prompt SHA, preview, phase, and director window.
-  The gatekeeper
+- One tmux session per combo: windows for coder, gatekeeper, director,
+  and any interactive agent roles (reviewer, coder responding mode). The gatekeeper
   window resolves the branch's no-mistakes run id from the local no-mistakes
   state, then follows `no-mistakes axi status --run <id>` instead of using
   global attach, so simultaneous combos cannot render each other's run. On

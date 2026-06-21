@@ -11,9 +11,11 @@ work. It coordinates existing tools; it does not collapse their roles.
 - **Coder**: implements the work item and later resumes the same thread for review
   comments. The coder leaves local commits in the combo worktree and does not
   push to origin or the PR branch in the normal path.
-- **Reviewer**: reviews by comment and records a current SHA-pinned LGTM signal
-  when clean. It does not use GitHub approval as the merge contract, does not
-  review its own code, and does not publish.
+- **Reviewer**: reviews by comment and records a machine-readable verdict block
+  with routing codes (0=OK/LGTM, 1=mechanical fix→coder, 2=ambiguous→director,
+  3=needs_human) alongside the current SHA-pinned LGTM signal. It does not use
+  GitHub approval as the merge contract, does not review its own code, and does
+  not publish.
 - **Gatekeeper**: no-mistakes is the normal publisher. It validates, pushes,
   and opens/updates the PR.
 - **Human**: owns merge decisions and intent-touching escalations.
@@ -33,7 +35,10 @@ Hard rule: `reviewer != coder`.
    `initial_gate_retry_attempts` with `initial_gate_retry_backoff_seconds`
    delay; after exhausting retries it journals `needs_human reason=gate_failed`.
 4. After `pr_opened`, `director-watch` is the single observer. Reviewer and
-   coder responding mode are worker windows.
+   coder responding mode are worker windows. Reviewer verdict codes drive
+   deterministic routing: code 0 feeds the LGTM journal path, code 1 nudges
+   coder responding, code 2 prompts the director, and code 3 journals
+   `needs_human`.
 5. Review comments are routed to the resumed coder thread. Mechanical fixes are
    handled locally; intent-touching decisions emit `needs_human`.
 6. Local addressing commits trigger a generated-script post-address
@@ -119,12 +124,13 @@ Source files carry Sherpa-style navigable headers:
 
 v0 implements the work-item-to-PR loop with deterministic overture launch runway,
 coder/gnhf, no-mistakes initial and
-post-address gates with automatic initial-gate retry, reviewer re-review,
+post-address gates with automatic initial-gate retry, reviewer with
+machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
 coder responding mode, single `director-watch` observation, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),
 merged-PR `reconcile` with merge-fact recording only (resource convergence
 deferred to `closure`), deterministic `closure` for post-merge local resource
-convergence, no-mistakes config propagation,
+convergence, director prompt delivery for code-2 verdicts, no-mistakes config propagation,
 read-only forensics reports, coder safety validation (pinned gnhf with
 `--max-iterations`, `--stop-when`, stdin closed), `park`/`resume` for
 reboot-safe combo handoff, `status` (actionable by default, `--all` for
