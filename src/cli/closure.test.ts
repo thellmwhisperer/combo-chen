@@ -246,5 +246,50 @@ describe("closeMergedCombo", () => {
       "closure: o-r-7 refused: no-mistakes active run remains for combo/issue-7 (no-mistakes running test)",
     ]);
   });
+
+  it("reports teardown pending on transient git failure and does not crash", async () => {
+    const h = home();
+    const { runDir } = writeTestCombo(h);
+    const { deps, calls, out } = fakeDeps({
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        return { status: 128, stdout: "", stderr: "fatal: unable to fetch from origin" };
+      },
+    });
+
+    await closeMergedCombo({ deps, home: h, comboId: "o-r-7" });
+
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+    ]);
+    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
+    expect(out).toEqual([
+      "closure: o-r-7 teardown pending: git fetch base branch failed: fatal: unable to fetch from origin",
+    ]);
+  });
+
+  it("completes closure with logged session kill failure when tmux kill fails", async () => {
+    const h = home();
+    const { runDir } = writeTestCombo(h);
+    const { deps, calls, out } = fakeDeps({
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        return { status: 1, stdout: "", stderr: "tmux: server unavailable" };
+      },
+    });
+
+    await closeMergedCombo({ deps, home: h, comboId: "o-r-7" });
+
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+      { event: "combo_closed", source: "closure" },
+    ]);
+    expect(out).toEqual([
+      "closure: o-r-7 session kill failed: tmux kill-session failed for \"combo-chen-o-r-7\": tmux: server unavailable",
+      "closure: o-r-7 closed merged PR merge777 by maintainer; already converged: tmux session already gone",
+    ]);
+  });
 });
 // -/ 2/2

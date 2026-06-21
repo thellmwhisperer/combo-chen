@@ -105,18 +105,41 @@ export async function closeMergedCombo(input: {
     return;
   }
 
-  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: input.deps.env });
-  const teardown = await teardownMergedCombo({
-    deps: input.deps,
-    combo,
-    mergeSha,
-    baseRefName,
-    retries: config.limits.teardownGitRetries,
-    backoffSeconds: config.limits.teardownGitBackoffSeconds,
-  });
-  const session = killComboSession(input.deps, combo);
+  let teardown: TeardownMergedComboResult;
+  try {
+    const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: input.deps.env });
+    teardown = await teardownMergedCombo({
+      deps: input.deps,
+      combo,
+      mergeSha,
+      baseRefName,
+      retries: config.limits.teardownGitRetries,
+      backoffSeconds: config.limits.teardownGitBackoffSeconds,
+    });
+  } catch (error) {
+    input.deps.out(
+      `closure: ${combo.id} teardown pending: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+    return;
+  }
+
+  let session: KillComboSessionResult;
+  try {
+    session = killComboSession(input.deps, combo);
+  } catch (error) {
+    input.deps.out(
+      `closure: ${combo.id} session kill failed: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    );
+    session = "already_missing";
+  }
+
   appendEvent(runDir, "combo_closed", { source: "closure" });
-  input.deps.out(`closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; ${closureCompletion(teardown, session)}`);
+  input.deps.out(
+    `closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; ` +
+      `${closureCompletion(teardown, session)}`,
+  );
 }
 // -/ 2/3
 
