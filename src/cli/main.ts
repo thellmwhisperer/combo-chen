@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~870 lines, 21 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~870 lines, 22 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,11 +28,11 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./closure, ./coder, ./director, ./forensics, ./gate, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./dashboard, ./director, ./forensics, ./gate, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 
@@ -83,6 +83,7 @@ import { buildCoderInvocation, defaultWorkPlanPrompt, persistCoderThreadArtifact
 import { parseEventFields } from "./args.js";
 import { closeMergedCombo } from "./closure.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
+import { collectDashboardRows, renderDashboardHtml } from "./dashboard.js";
 import { tickDirector } from "./director.js";
 import { analyzeForensicsCombo, renderForensicsMarkdown } from "./forensics.js";
 import {
@@ -536,6 +537,19 @@ export function createProgram(deps: Deps): Command {
         });
         deps.out(`${line} ${downstream ?? "—"}`);
       }
+    });
+
+  program
+    .command("dashboard")
+    .description("Render a read-only static HTML dashboard for combo capsules")
+    .option("--out <file>", "Path to write the static HTML artifact")
+    .action(async (options: { out?: string }) => {
+      const home = comboHome(deps.env);
+      const outPath = options.out ?? join(home, "dashboard.html");
+      const html = renderDashboardHtml(collectDashboardRows(home, deps));
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, html);
+      deps.out(`dashboard written: ${outPath}`);
     });
 
   program

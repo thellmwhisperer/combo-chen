@@ -254,6 +254,7 @@ combo-chen overture --plan <file> [--repo <dir>] [--base <ref>]
 combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen run --plan <file> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen status [--deep] [--all]
+combo-chen dashboard [--out <file>]
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
@@ -281,6 +282,10 @@ consume it automatically.
   `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
   combo no longer has its tmux session, status journals `tmux_missing` so it is
   shown as needing human attention instead of looking supervised.
+- `dashboard` writes a read-only static HTML fleet view from persisted combo
+  records, journals, tmux liveness, PR/check state, and no-mistakes state. It
+  never appends journal events; missing tmux sessions and parked combos are
+  displayed as facts.
 - `combo-chen closure -n <combo-id>` is the canonical merged happy-path cleanup
   command. Reviewer/director-watch and status can record or report the merge
   fact, but they leave resource convergence to closure.
@@ -348,12 +353,12 @@ v0 implements the work-item-to-PR loop with deterministic overture launch
 runway, coder, gatekeeper, initial-gate
 retry with configurable attempts and backoff, reviewer, director watching,
 review-comment routing, post-address gates, park/resume, reconcile, forensics,
-launch-time config snapshots to protect runtime behavior from repo TOML drift,
-and current-head READY agreement. Work items can be GitHub issues (`--issue`) or
-local markdown work plans (`--plan`).
+read-only dashboard artifacts, launch-time config snapshots to protect runtime
+behavior from repo TOML drift, and current-head READY agreement. Work items can
+be GitHub issues (`--issue`) or local markdown work plans (`--plan`).
 
 Deferred: preflight scoring, counterfactual automerge logs, worktree pools, ACP
-role driving, and multi-combo dashboards.
+role driving, and richer dashboard log surfacing.
 
 ## License
 
