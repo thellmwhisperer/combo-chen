@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for deterministic merged-combo closure. ~285 lines,
+ * @overview Unit tests for deterministic merged-combo closure. ~355 lines,
  *   command-level post-merge convergence.
  *
  *   READING GUIDE
