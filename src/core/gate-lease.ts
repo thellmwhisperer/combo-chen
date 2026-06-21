@@ -16,7 +16,7 @@
  *   GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult
  *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease, releaseGateLease
  *
- * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease, releaseGateLease
+ * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, GateLeaseHeartbeatResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease, releaseGateLease, heartbeatGateLease
  * @deps node:{fs,path}
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -132,6 +132,27 @@ export function releaseGateLease(options: {
   if (current.comboId !== options.owner.comboId) return { state: "not_owner", lease: current };
   rmSync(gateLeaseDir(options.home), { recursive: true, force: true });
   return { state: "released" };
+}
+
+export type GateLeaseHeartbeatResult =
+  | { state: "ok" }
+  | { state: "missing" }
+  | { state: "not_owner"; lease: GateLeaseRecord };
+
+export function heartbeatGateLease(options: {
+  home: string;
+  owner: Pick<GateLeaseOwner, "comboId">;
+  now?: Date;
+}): GateLeaseHeartbeatResult {
+  const current = readGateLease(options.home);
+  if (current === undefined) return { state: "missing" };
+  if (current.comboId !== options.owner.comboId) return { state: "not_owner", lease: current };
+  const updated: GateLeaseRecord = {
+    ...current,
+    heartbeatAt: (options.now ?? new Date()).toISOString(),
+  };
+  writeFileSync(gateLeaseRecordPath(options.home), `${JSON.stringify(updated, null, 2)}\n`);
+  return { state: "ok" };
 }
 
 function isStaleLease(lease: GateLeaseRecord, now: Date, staleAfterMs: number): boolean {

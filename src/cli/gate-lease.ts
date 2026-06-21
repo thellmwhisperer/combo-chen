@@ -25,7 +25,7 @@ import {
   releaseGateLease,
   type GateLeaseOwner,
 } from "../core/gate-lease.js";
-import { readCombo, runDirFor } from "../core/state.js";
+import { ComboStateError, readCombo, runDirFor } from "../core/state.js";
 
 // -- 1/2 HELPER · types and owner resolution --
 export const GATE_LEASE_BUSY_EXIT_CODE = 75;
@@ -114,17 +114,27 @@ export function releaseGateLeaseForCombo(input: {
   comboId: string;
   out: GateLeaseActionDeps["out"];
 }): GateLeaseActionResult {
-  const { owner } = ownerForCombo(input.home, input.comboId);
+  let comboIdLabel: string;
+  let owner: Pick<GateLeaseOwner, "comboId">;
+  try {
+    const resolved = ownerForCombo(input.home, input.comboId);
+    owner = resolved.owner;
+    comboIdLabel = resolved.owner.comboId;
+  } catch (error) {
+    if (!(error instanceof ComboStateError)) throw error;
+    owner = { comboId: input.comboId };
+    comboIdLabel = input.comboId;
+  }
   const result = releaseGateLease({ home: input.home, owner });
   if (result.state === "released") {
-    input.out(`gate lease released for ${owner.comboId}`);
+    input.out(`gate lease released for ${comboIdLabel}`);
     return { state: result.state, exitCode: 0 };
   }
   if (result.state === "not_owner") {
-    input.out(`gate lease not released for ${owner.comboId}; active owner ${result.lease.comboId}`);
+    input.out(`gate lease not released for ${comboIdLabel}; active owner ${result.lease.comboId}`);
     return { state: result.state, exitCode: 0 };
   }
-  input.out(`gate lease already absent for ${owner.comboId}`);
+  input.out(`gate lease already absent for ${comboIdLabel}`);
   return { state: result.state, exitCode: 0 };
 }
 // -/ 2/2
