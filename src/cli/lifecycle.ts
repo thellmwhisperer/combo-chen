@@ -1,5 +1,5 @@
 /**
- * @overview Merged-combo teardown helpers. ~125 lines, 2 exports, idempotent git cleanup.
+ * @overview Merged-combo teardown helpers. ~135 lines, 3 exports, idempotent git cleanup.
  *
  *   READING GUIDE
  *   -------------
@@ -13,13 +13,14 @@
  *   PUBLIC API
  *   ----------
  *   LifecycleDeps          Git/sleep deps for teardown.
+ *   TeardownMergedComboResult  Resource outcomes from teardown.
  *   teardownMergedCombo    Clean up local combo state after a merged PR.
  *
  *   INTERNALS
  *   ---------
  *   requireGit, gitFailureText, isAlreadyRemovedWorktree, isAlreadyDeletedBranch
  *
- * @exports LifecycleDeps, teardownMergedCombo
+ * @exports LifecycleDeps, TeardownMergedComboResult, teardownMergedCombo
  * @deps ../core/state
  */
 import type { ComboRecord } from "../core/state.js";
@@ -36,17 +37,19 @@ interface GitRetryOptions {
   acceptsFailure?: (result: { stdout: string; stderr: string }) => boolean;
 }
 
+type GitOutcome = "ok" | "accepted_failure";
+
 async function requireGit(
   deps: LifecycleDeps,
   args: string[],
   cwd: string,
   description: string,
   options: GitRetryOptions,
-): Promise<void> {
+): Promise<GitOutcome> {
   for (let attempt = 0; ; attempt += 1) {
     const result = deps.git(args, cwd);
-    if (result.status === 0) return;
-    if (options.acceptsFailure?.(result) === true) return;
+    if (result.status === 0) return "ok";
+    if (options.acceptsFailure?.(result) === true) return "accepted_failure";
     if (attempt >= options.retries) {
       throw new Error(`${description} failed: ${gitFailureText(result)}`);
     }
@@ -74,6 +77,11 @@ function isAlreadyDeletedBranch(result: { stdout: string; stderr: string }): boo
 // -/ 1/2
 
 // -- 2/2 CORE · teardownMergedCombo <- START HERE --
+export interface TeardownMergedComboResult {
+  worktree: "removed" | "already_removed";
+  branch: "deleted" | "already_deleted";
+}
+
 export async function teardownMergedCombo(input: {
   deps: LifecycleDeps;
   combo: ComboRecord;
@@ -81,7 +89,7 @@ export async function teardownMergedCombo(input: {
   baseRefName: string;
   retries: number;
   backoffSeconds: number;
-}): Promise<void> {
+}): Promise<TeardownMergedComboResult> {
   const retryOptions = { retries: input.retries, backoffSeconds: input.backoffSeconds };
   const baseRef = `origin/${input.baseRefName}`;
   await requireGit(
@@ -98,19 +106,23 @@ export async function teardownMergedCombo(input: {
     `merge verification for ${input.mergeSha} in ${baseRef}`,
     retryOptions,
   );
-  await requireGit(
+  const worktree = await requireGit(
     input.deps,
     ["worktree", "remove", "--force", input.combo.worktree],
     input.combo.repoDir,
     `git worktree remove ${input.combo.worktree}`,
     { ...retryOptions, acceptsFailure: isAlreadyRemovedWorktree },
   );
-  await requireGit(
+  const branch = await requireGit(
     input.deps,
     ["branch", "-D", input.combo.branch],
     input.combo.repoDir,
     `git branch delete ${input.combo.branch}`,
     { ...retryOptions, acceptsFailure: isAlreadyDeletedBranch },
   );
+  return {
+    worktree: worktree === "accepted_failure" ? "already_removed" : "removed",
+    branch: branch === "accepted_failure" ? "already_deleted" : "deleted",
+  };
 }
 // -/ 2/2

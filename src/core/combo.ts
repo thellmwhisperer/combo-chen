@@ -119,8 +119,12 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         needsHuman = true;
         reason = typeof event["reason"] === "string" ? (event["reason"] as string) : undefined;
         break;
-      case "stopped":
       case "merged":
+        phase = "STALLED";
+        needsHuman = true;
+        reason = "closure_pending";
+        break;
+      case "stopped":
       case "combo_closed":
         phase = "STOPPED";
         needsHuman = false;

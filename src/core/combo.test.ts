@@ -153,19 +153,24 @@ describe("deriveStatus", () => {
     expect(status.reason).toBe("coder_failed");
   });
 
-  it("treats merged and closed PR events as terminal", () => {
-    for (const terminal of [
+  it("keeps merged PRs actionable until closure records combo_closed", () => {
+    const merged = deriveStatus([
+      ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+      ev("needs_human", { reason: "pr_ready" }),
+      ev("merged", { sha: "def456", by: "maintainer" }),
+    ]);
+    expect(merged.phase).toBe("STALLED");
+    expect(merged.needsHuman).toBe(true);
+    expect(merged.reason).toBe("closure_pending");
+
+    const closed = deriveStatus([
+      ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+      ev("needs_human", { reason: "pr_ready" }),
       ev("merged", { sha: "def456", by: "maintainer" }),
       ev("combo_closed"),
-    ]) {
-      const status = deriveStatus([
-        ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
-        ev("needs_human", { reason: "pr_ready" }),
-        terminal,
-      ]);
-      expect(status.phase).toBe("STOPPED");
-      expect(status.needsHuman).toBe(false);
-    }
+    ]);
+    expect(closed.phase).toBe("STOPPED");
+    expect(closed.needsHuman).toBe(false);
   });
 });
 // -/ 1/2

@@ -77,7 +77,7 @@ Poll on a cadence (journal, GitHub, tmux, configured coordination inbox). React 
 | New push to the PR | The previous verdict is stale. Re-run an incremental reviewer round and re-pin. |
 | New non-reviewer comments (bots included) | Sweep them via the coder responding mode. Nothing stays unanswered. |
 | `lgtm @ <head-sha>` current + checks green | Endpoint reached. Announce and go to vigil. |
-| Owned combo PR is `MERGED` | Run `combo-chen reconcile -n <comboId> --apply`. The command verifies GitHub PR state before mutating local state, appends missing terminal journal events, and tears down only this combo. Then verify no tmux session remains, no combo worktree remains, local branch is gone, and the journal contains `merged` and `combo_closed`. Already-clean local artifacts count as success, so reruns should be a no-op or report already clean. |
+| Owned combo PR is `MERGED` | Run `combo-chen closure -n <comboId>`. The command verifies GitHub PR state (`MERGED`), records any missing `merged` event, refuses teardown while no-mistakes is active, removes the local worktree and branch, kills the tmux session, and journals `combo_closed`. Already-converged local artifacts count as success, so reruns should be a no-op or report already closed. |
 | Coordination inbox: `merged` from a sibling combo | Rebase your branch on the new main early. Re-run checks. |
 | Coordination inbox: help request (stuck gate, saturated director) | Assist only with read/status actions unless you own that combo. |
 
@@ -125,7 +125,7 @@ In the normal path the runner writes every event. `combo-chen emit -n <comboId> 
 
 Each event moves the phase machine that `combo-chen status` and `director-watch` read (`deriveStatus`). That move IS the side-effect: emitting reclassifies the combo and unblocks (or re-gates) the workers keyed on that phase.
 
-Do not hand-emit `merged` or `combo_closed` as a substitute for post-merge cleanup. For a merged PR, run `combo-chen reconcile -n <comboId> --apply` so GitHub state is verified and local teardown happens through the idempotent scoped path.
+Do not hand-emit `merged` or `combo_closed` as a substitute for post-merge cleanup. For a merged PR, run `combo-chen closure -n <comboId>` so GitHub state is verified and local resource convergence happens through the deterministic closure path.
 
 | Emit this | Phase it forces | Use it to revive when |
 |---|---|---|
@@ -157,7 +157,7 @@ After emitting: re-run `combo-chen status` to confirm the phase flipped, then co
 When the PR is green with a current lgtm:
 1. Post nothing further; the PR speaks.
 2. Record a handoff in the configured coordination channel, if one exists: `combo <issue#>: PR <url> green and reviewed, awaiting merge`.
-3. Vigil: keep polling for the merge. On merge: run `combo-chen reconcile -n <comboId> --apply`, then verify no tmux session remains, no combo worktree remains, local branch is gone, and the journal contains `merged` and `combo_closed`. Release the surface claim when your coordination channel supports it, and notify sibling combos so they rebase.
+3. Vigil: keep polling for the merge. On merge: run `combo-chen closure -n <comboId>`, then verify no tmux session remains, no combo worktree remains, local branch is gone, and the journal contains `merged` and `combo_closed`. Release the surface claim when your coordination channel supports it, and notify sibling combos so they rebase.
 
 ## Recovery after interruption
 

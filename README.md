@@ -42,6 +42,8 @@ combo-chen makes the process explicit.
 7. New addressing commits go back through the gatekeeper before publication.
 8. The run becomes ready only when the current PR head has gate validation,
    reviewer LGTM, configured required READY checks, and passing remaining checks.
+9. After the human merges the PR, `combo-chen closure -n <combo-id>` converges
+   local resources deterministically.
 
 The human still owns the merge.
 
@@ -67,6 +69,9 @@ combo-chen run (--issue <url> | --plan <file>)
     |
     v
 ready_for_merge
+    |
+    v
+human merge -> combo-chen closure -n <combo-id>
 ```
 
 ## What Makes It Different
@@ -258,11 +263,15 @@ combo-chen stop -n <combo-id>
 
 - `status` shows actionable live combos by default. Add `--all` to include
   terminal historical rows, and `--deep` to compare the journal with downstream
-  GitHub and gatekeeper state. Before rendering, `status` quietly reconciles
-  non-terminal journals whose PR is already merged or closed on GitHub, then
-  hides those repaired terminal rows from the default view. If a non-terminal
+  GitHub and gatekeeper state. Before rendering, `status` quietly closes
+  closed-PR salvage cases. For merged PRs it records the merge fact, leaves
+  resources untouched, and keeps the row visible as `closure_pending` until
+  `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
   combo no longer has its tmux session, status journals `tmux_missing` so it is
   shown as needing human attention instead of looking supervised.
+- `combo-chen closure -n <combo-id>` is the canonical merged happy-path cleanup
+  command. Reviewer/director-watch and status can record or report the merge
+  fact, but they leave resource convergence to closure.
 - `park` writes a local handoff and stops tmux without making the combo
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream

@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~155 lines, 9 exports, attach and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~160 lines, 10 exports, attach and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -14,13 +14,14 @@
  *   PUBLIC API
  *   ----------
  *   CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps
+ *   KillComboSessionResult
  *   killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
  *   paneCount, tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
  * @deps ../core/state, ../infra/tmux
  */
 import { type ComboRecord, listCombos } from "../core/state.js";
@@ -44,14 +45,19 @@ export interface SessionDeps {
   tmux: (args: string[]) => TmuxResult;
 }
 
-export function killComboSession(deps: SessionDeps, combo: ComboRecord): void {
+export type KillComboSessionResult = "killed" | "already_missing";
+
+export function killComboSession(deps: SessionDeps, combo: ComboRecord): KillComboSessionResult {
   const killed = deps.tmux(killSessionArgs(combo.tmuxSession));
-  if (killed.status !== 0 && !isMissingSession(killed)) {
+  if (killed.status === 0) return "killed";
+  if (isMissingSession(killed)) return "already_missing";
+  if (killed.status !== 0) {
     throw new Error(
       `tmux kill-session failed for "${combo.tmuxSession}": ` +
         `${killed.stderr.trim() || "unknown error"}`,
     );
   }
+  return "killed";
 }
 
 function tmuxFailureText(result: TmuxResult): string {
