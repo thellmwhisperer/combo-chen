@@ -177,7 +177,12 @@ export async function tickReviewer(input: {
     const by = prView.mergedBy ?? "unknown";
     const mergeSha = prView.mergeSha;
     if (!mergeSha) {
-      throw new Error(`Cannot report merged ${combo.id}: merged PR did not report mergeCommit.oid`);
+      deps.out(
+        reviewerTransientFailure(
+          `merged PR data missing mergeCommit.oid for ${combo.id}; will retry on next tick`,
+        ),
+      );
+      return;
     }
     if (!hasMergedEvent(events, [mergeSha, headSha])) {
       appendEvent(runDir, "merged", {
