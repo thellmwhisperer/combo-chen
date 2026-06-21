@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for GitHub CLI parsing helpers. ~386 lines, gh JSON and URL parsing.
+ * @overview Unit tests for GitHub CLI parsing helpers. ~500 lines, gh JSON and URL parsing.
  *
  *   READING GUIDE
  *   -------------
@@ -26,6 +26,7 @@ import {
   fetchForensicsGithubFacts,
   fetchIssueDetails,
   latestGitHubLgtmSha,
+  latestGitHubReviewerVerdict,
   parsePrView,
   remoteSlug,
 } from "./github.js";
@@ -381,6 +382,117 @@ describe("cli GitHub helpers", () => {
     };
 
     expect(latestGitHubLgtmSha(gh, "https://github.com/o/r/pull/7")).toBe(validSha);
+  });
+
+  it("finds the latest current-head reviewer verdict block", () => {
+    const headSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const gh = (args: string[]) => {
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 1"].join("\n"),
+              created_at: "2026-06-11T00:00:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 2"].join("\n"),
+              submitted_at: "2026-06-11T00:01:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha)).toEqual({
+      headSha,
+      code: 2,
+    });
+  });
+
+  it("rejects stale, malformed, and duplicate reviewer verdict blocks", () => {
+    const headSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const staleSha = "9af80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const gh = (args: string[]) => {
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${staleSha}`, "code: 1"].join("\n"),
+              created_at: "2026-06-11T00:00:00Z",
+            },
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 4"].join("\n"),
+              created_at: "2026-06-11T00:01:00Z",
+            },
+            {
+              body: [
+                "combo-chen-reviewer-verdict:",
+                `head: ${headSha}`,
+                "code: 1",
+                "",
+                "combo-chen-reviewer-verdict:",
+                `head: ${headSha}`,
+                "code: 2",
+              ].join("\n"),
+              created_at: "2026-06-11T00:02:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha)).toBeUndefined();
+  });
+
+  it("accepts reviewer verdict blocks only from allowed GitHub authors when configured", () => {
+    const headSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const gh = (args: string[]) => {
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 3"].join("\n"),
+              user: { login: "drive-by" },
+              created_at: "2026-06-11T00:02:00Z",
+            },
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 1"].join("\n"),
+              user: { login: "trusted-reviewer" },
+              created_at: "2026-06-11T00:01:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(
+      latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha, undefined, {
+        allowedAuthors: ["Trusted-Reviewer"],
+      }),
+    ).toEqual({ headSha, code: 1 });
   });
 });
 // -/ 1/1
