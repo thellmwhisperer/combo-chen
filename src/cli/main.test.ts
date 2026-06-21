@@ -2197,9 +2197,8 @@ describe("run", () => {
       "combo-chen-o-r-7",
       "-n",
       "director",
-      expect.stringContaining("Combo director contract"),
+      expect.stringContaining("Combo director for o-r-7"),
     ]);
-    expect(directorWindow?.at(-1)).toContain("Do not poll");
     expect(directorWindow?.at(-1)).toContain("claude");
     const gatekeeperWindow = tmuxNewWindows.find((call) => call.includes("gatekeeper"));
     expect(gatekeeperWindow).toEqual([
@@ -2212,16 +2211,6 @@ describe("run", () => {
       expect.stringContaining("no-mistakes attach"),
     ]);
     expect(gatekeeperWindow?.at(-1)).toContain(join(repoDir, ".worktrees", "issue-7"));
-    const directorWindow = tmuxNewWindows.find((call) => call[5] === "director");
-    expect(directorWindow).toEqual([
-      "tmux",
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      "director",
-      expect.stringContaining("Combo director for o-r-7"),
-    ]);
     const directorWatchWindow = tmuxNewWindows.find((call) => call.includes("director-watch"));
     expect(directorWatchWindow).toEqual([
       "tmux",

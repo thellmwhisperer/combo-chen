@@ -151,6 +151,12 @@ export function promptDirector(input: {
     message: input.message,
   });
 
+  sendPromptToTarget({
+    target,
+    prompt,
+    tmux: input.deps.tmux,
+  });
+
   appendEvent(runDir, "director_prompted", {
     reason,
     target: target.tmuxTarget,
@@ -159,12 +165,6 @@ export function promptDirector(input: {
     prompt_sha: promptSha(prompt),
     prompt_preview: promptPreview(prompt),
     ...(input.sha !== undefined ? { sha: input.sha } : {}),
-  });
-
-  sendPromptToTarget({
-    target,
-    prompt,
-    tmux: input.deps.tmux,
   });
 
   input.deps.out(`director-prompt: prompted ${target.tmuxTarget} for ${combo.id} (${reason})`);
