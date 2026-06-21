@@ -305,6 +305,37 @@ consume it automatically.
   single combo. Teardown is idempotent: already-clean worktrees, branches, and
   tmux sessions count as success.
 
+## Parallelize-First Operating Protocol
+
+Start with 2 live capsules, then 3, then 4 to 6 only after the previous wave has
+clean journal evidence and no unrecovered resource conflicts. A capsule is the
+unit of ownership: each capsule keeps one branch, one worktree, one tmux
+session, and one runtime ledger. Do not share branches across capsules.
+
+The shared gate lease serializes no-mistakes publication. Parallel coders and
+reviewers may run at the same time, but only the lease holder publishes through
+no-mistakes; other capsules journal `gate_status queued` or a human-facing lease
+conflict instead of starting a second publisher.
+
+Recovery playbook:
+
+- Parked combos: use `combo-chen resume -n <combo-id>` to reconstruct the next
+  action from the journal and downstream state.
+- Pre-PR coder stalls: use `status --deep` or `forensics` to confirm the stall,
+  then resume or park the capsule; do not relaunch on the same branch.
+- Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
+  rerun reviewer activation or prompt the reviewer without changing the coder
+  branch.
+- Gate lease contention: wait for the owner, inspect the lease owner in
+  `status`, or resolve stale/conflicting ownership before retrying the gate.
+- Post-merge closure: run `combo-chen closure -n <combo-id>` after GitHub reports
+  `MERGED`; status/reviewer may record the merge fact but do not remove local
+  resources.
+
+Future parallel runs should leave postmortem metadata: wave size, combo ids,
+branches, PRs, gate-lease waits/conflicts, recovery commands used, final
+closure state, and any changed wave limit.
+
 ## State
 
 By default, run state lives under:
