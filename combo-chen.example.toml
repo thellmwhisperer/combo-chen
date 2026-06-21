@@ -72,6 +72,15 @@ initial_gate_retry_attempts = 2
 # Environment override: COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS.
 initial_gate_retry_backoff_seconds = 10
 
+# Every generated gate script acquires a shared no-mistakes gate lease before
+# running the gate and releases it on EXIT via a trap. When another combo
+# holds the lease, the script journals gate_status queued and exits 0.
+# When the same branch is already owned by a different combo, it journals
+# needs_human reason=gate_lease_conflict and exits 76. Stale leases
+# (heartbeat older than 30 minutes) are automatically recovered. This is
+# always-on and not configurable; it prevents parallel combos from colliding
+# on the single no-mistakes daemon.
+
 [ready]
 # Required READY checks are GitHub status contexts/check runs, not reviewer
 # approval. Each configured name must be present with exact SUCCESS; all other

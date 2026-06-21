@@ -35,8 +35,11 @@ combo-chen makes the process explicit.
 1. You point combo-chen at a GitHub issue or a local work-plan file.
 2. It creates an isolated worktree and branch.
 3. A coder agent implements the work item and leaves local commits.
-4. A gatekeeper validates and publishes the branch to GitHub. If the initial gate
-   fails before a PR opens, the director auto-retries it up to a configurable limit.
+4. A gatekeeper validates and publishes the branch to GitHub. Before each gate run,
+   the generated script acquires a shared gate lease to serialize work across parallel
+   combos; a busy lease queues the gate with a `queued` status, and the lease releases on exit.
+   If the initial gate fails before a PR opens, the director auto-retries it up to
+   a configurable limit.
 5. A reviewer comments with a SHA-pinned verdict.
 6. Review comments are routed back to the coder in responding mode.
 7. New addressing commits go back through the gatekeeper before publication.
@@ -316,6 +319,11 @@ Important files:
 - `gatekeeper-post-<sha>.sh`: generated post-address gate.
 - `work-plan.md`: normalized work-plan artifact; the canonical source of work-item intent for reviewer, gatekeeper, and forensics.
 - `park-handoff.md`: local summary created by `park`.
+
+Shared cross-combo state lives at `~/.combo-chen/gate-lease.lock/lease.json` —
+the single global gate lease record that serializes no-mistakes gate runs across
+parallel combos. The directory uses a `.lock` suffix because `mkdir` is the
+atomicity primitive: only one combo can create it at a time.
 
 Do not hand-edit `journal.jsonl`. Use `combo-chen emit` only when a real-world
 fact happened and the journal missed it.
