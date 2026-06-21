@@ -5883,16 +5883,30 @@ describe("run ordering and safety", () => {
 
   it("refuses an origin that merely contains the issue's owner/repo as a prefix", async () => {
     // o/r-fork contains "o/r"; only exact slug equality may pass the guard.
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const origin = "git@github.com:o/r-fork.git";
     const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
       git: (args) =>
         args[0] === "remote"
-          ? { status: 0, stdout: "git@github.com:o/r-fork.git\n", stderr: "" }
+          ? { status: 0, stdout: `${origin}\n`, stderr: "" }
           : { status: 0, stdout: "", stderr: "" },
     });
 
-    await expect(
-      exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
-    ).rejects.toThrow(/origin/i);
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/origin/i);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "repo_matches_issue",
+      resource: origin,
+      status: "failed",
+      detail: "origin mismatch; issue belongs to o/r",
+    });
   });
 
   it("rolls back the run dir, the worktree, and the branch when config snapshot write fails", async () => {
