@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~870 lines, 21 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~890 lines, 21 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------

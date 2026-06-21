@@ -1,5 +1,5 @@
 /**
- * @overview Runtime ledger persistence for a combo capsule. ~205 lines,
+ * @overview Runtime ledger persistence for a combo capsule. ~235 lines,
  *   10 exports, writes and updates the machine-readable resource artifact.
  *
  *   READING GUIDE
