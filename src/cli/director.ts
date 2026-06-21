@@ -29,6 +29,7 @@
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
  */
+import { deriveStatus } from "../core/combo.js";
 import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
@@ -86,27 +87,25 @@ export async function tickDirector(input: {
     return;
   }
 
-  if (latestPrUrl(readEvents(runDir)) === undefined) {
-    deps.out(`director: tick complete for ${comboId}`);
-    return;
+  let events = readEvents(runDir);
+  const workerWindows = workerWindowsForEvents(events, config.coderRespondingWindowName);
+  if (workerWindows.length > 0) {
+    const workerInspection = inspectWorkerPanes({
+      deps,
+      combo,
+      runDir,
+      workerWindows,
+      stallTicks: config.workerStallTicks,
+      permissionPromptPatterns: config.workerPermissionPromptPatterns,
+    });
+    if (workerInspection.escalated) {
+      deps.out(`director: tick complete for ${comboId}`);
+      return;
+    }
+    events = readEvents(runDir);
   }
 
-  const workerWindows = [...new Set([
-    CODER_WINDOW,
-    REVIEWER_WINDOW,
-    GATEKEEPER_WINDOW,
-    config.coderRespondingWindowName,
-  ])];
-
-  const workerInspection = inspectWorkerPanes({
-    deps,
-    combo,
-    runDir,
-    workerWindows,
-    stallTicks: config.workerStallTicks,
-    permissionPromptPatterns: config.workerPermissionPromptPatterns,
-  });
-  if (workerInspection.escalated) {
+  if (latestPrUrl(events) === undefined) {
     deps.out(`director: tick complete for ${comboId}`);
     return;
   }
@@ -139,6 +138,24 @@ export async function tickDirector(input: {
 // -/ 2/3
 
 // -- 3/3 HELPER · Initial gate retry and READY agreement --
+function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
+  if (latestPrUrl(events) !== undefined) {
+    return [...new Set([
+      CODER_WINDOW,
+      REVIEWER_WINDOW,
+      GATEKEEPER_WINDOW,
+      coderRespondingWindowName,
+    ])];
+  }
+
+  switch (deriveStatus(events).phase) {
+    case "CODING":
+      return [CODER_WINDOW];
+    default:
+      return [];
+  }
+}
+
 interface InitialGateRetryState {
   failures: number;
   retryNumber: number;
