@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.44](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.43...combo-chen-v0.0.44) (2026-06-21)
+
+
+### Features
+
+* **overture:** deterministic launch runway before combo run ([#158](https://github.com/thellmwhisperer/combo-chen/issues/158)) ([8a5cf30](https://github.com/thellmwhisperer/combo-chen/commit/8a5cf30c193cbc0a3e5e5408a7954cc3600f11b2))
+
 ## [0.0.43](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.42...combo-chen-v0.0.43) (2026-06-21)
 
 
