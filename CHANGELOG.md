@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.50](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.49...combo-chen-v0.0.50) (2026-06-21)
+
+
+### Bug Fixes
+
+* **cli:** Added tested parallel capsule dashboard wording to CLI status/help and public docs for issue [#157](https://github.com/thellmwhisperer/combo-chen/issues/157). ([2d66fe9](https://github.com/thellmwhisperer/combo-chen/commit/2d66fe9dd15b7f4d9ee9893a2154f8fe2e9141b4))
+
 ## [0.0.49](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.48...combo-chen-v0.0.49) (2026-06-21)
 
 
