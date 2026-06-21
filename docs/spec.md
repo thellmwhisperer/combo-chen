@@ -150,10 +150,11 @@ and exits so the human/operator can restart or inspect the combo. On a
 successful tick the failure counter and backoff reset.
 
 `gate_started` marks the beginning of the gatekeeper lifecycle.  The
-`gate_status` event records the gatekeeper's ongoing lifecycle: `fix_inflight`
-(gatekeeper started and no-mistakes is running), `awaiting_approval` (gate requires
-human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper completed
-successfully, awaiting PR detection).  On successful completion the gate emits
+`gate_status` event records the gatekeeper's ongoing lifecycle: `queued`
+(another combo owns the shared no-mistakes gate lease), `fix_inflight`
+(the shared lease was acquired and no-mistakes is running), `awaiting_approval`
+(gate requires human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper
+completed successfully, awaiting PR detection).  On successful completion the gate emits
 `gate_validated` (required field `sha`) alongside the `idle` gate status,
 recording the PR `headRefOid` when a PR exists, otherwise the local worktree
 HEAD. Post-address gates run the PR autoclose
@@ -337,7 +338,10 @@ ignored config or environment outside that file.
 - Post-address no-mistakes gates are launched with generated run scripts in
   the combo run directory. The tmux command stays short (`sh <script>`), while
   the script owns gate status events, log capture, PR autoclose repair, and
-  current-head validation. Before running no-mistakes, the script publishes
+  current-head validation. Before running no-mistakes, the script acquires the
+  shared gate lease through the hidden `gate-lease` command, reports `queued`
+  with the active owner when busy, and releases an acquired lease via an EXIT
+  trap. After acquiring the lease, the script publishes
   `HEAD:refs/heads/<branch>` to the no-mistakes mirror; when the mirror branch
   already exists, it uses `--force-with-lease` against the observed mirror SHA
   instead of a broad force or plain `git push no-mistakes HEAD`. Transient

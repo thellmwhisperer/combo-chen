@@ -13,10 +13,10 @@
  *
  *   PUBLIC API
  *   ----------
- *   GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult
- *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease
+ *   GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult
+ *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease, releaseGateLease
  *
- * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease
+ * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease, releaseGateLease
  * @deps node:{fs,path}
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,6 +41,11 @@ export type GateLeaseAcquireResult =
   | { state: "busy"; lease: GateLeaseRecord }
   | { state: "recovered"; lease: GateLeaseRecord; staleLease: GateLeaseRecord }
   | { state: "same_branch_conflict"; lease: GateLeaseRecord };
+
+export type GateLeaseReleaseResult =
+  | { state: "released" }
+  | { state: "missing" }
+  | { state: "not_owner"; lease: GateLeaseRecord };
 
 export const DEFAULT_GATE_LEASE_STALE_MS = 30 * 60 * 1000;
 
@@ -116,6 +121,17 @@ export function acquireGateLease(options: {
       return { state: "busy", lease: current };
     }
   }
+}
+
+export function releaseGateLease(options: {
+  home: string;
+  owner: Pick<GateLeaseOwner, "comboId">;
+}): GateLeaseReleaseResult {
+  const current = readGateLease(options.home);
+  if (current === undefined) return { state: "missing" };
+  if (current.comboId !== options.owner.comboId) return { state: "not_owner", lease: current };
+  rmSync(gateLeaseDir(options.home), { recursive: true, force: true });
+  return { state: "released" };
 }
 
 function isStaleLease(lease: GateLeaseRecord, now: Date, staleAfterMs: number): boolean {
