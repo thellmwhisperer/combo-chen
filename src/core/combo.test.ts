@@ -267,20 +267,21 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("exit_code=$code");
   });
 
-  it("runs the coder with stdout and stderr redirected to coder.log beside the runner", () => {
+  it("streams coder stdout and stderr to tmux while keeping coder.log beside the runner", () => {
     expect(script).toContain('coder_log="$(dirname "$0")/coder.log"');
-    expect(script).toContain(') < /dev/null > "$coder_log" 2>&1; then');
+    expect(script).toContain('2>&1 | tee "$coder_log"');
+    expect(script).toContain('code=$(cat "$coder_status" 2>/dev/null || printf \'1\')');
 
     const coder = script.indexOf("gnhf");
-    const redirected = script.indexOf(') < /dev/null > "$coder_log" 2>&1; then');
+    const streamed = script.indexOf('2>&1 | tee "$coder_log"');
     const coderDone = script.indexOf("emit -n o-r-7 coder_done");
     expect(coder).toBeGreaterThan(-1);
-    expect(redirected).toBeGreaterThan(coder);
-    expect(coderDone).toBeGreaterThan(redirected);
+    expect(streamed).toBeGreaterThan(coder);
+    expect(coderDone).toBeGreaterThan(streamed);
   });
 
   it("runs the coder with stdin closed so the runner cannot block for input", () => {
-    expect(script).toContain(') < /dev/null > "$coder_log" 2>&1; then');
+    expect(script).toContain(") < /dev/null 2>&1 | tee \"$coder_log\"");
   });
 
   it("runs the gatekeeper phase with stdin closed so auth prompts cannot block the runner", () => {
@@ -592,7 +593,7 @@ exit 1
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
       status: 0,
-      stdout: "",
+      stdout: "fake coder completed\nfake coder stderr\n",
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
@@ -606,6 +607,89 @@ exit 1
     expect(readFileSync(join(dir, "coder.log"), "utf8")).toBe(
       "fake coder completed\nfake coder stderr\n",
     );
+  });
+
+  it("preserves the real coder exit code when streaming through tee", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeCoder = join(bin, "fake-coder");
+    writeFileSync(
+      fakeCoder,
+      `#!/bin/sh
+echo "coder started"
+echo "coder failed loudly" >&2
+exit 42
+`,
+    );
+    chmodSync(fakeCoder, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then printf 'head-sha\\n'; exit 0; fi
+if [ "$1" = "rev-list" ]; then printf '0\\n'; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 42,
+      stdout: "coder started\ncoder failed loudly\n",
+      stderr: "",
+    });
+    expect(readFileSync(join(dir, "coder.log"), "utf8")).toBe("coder started\ncoder failed loudly\n");
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "coder_started",
+      [
+        "coder_failed",
+        "--field exit_code=42",
+        "--field has_new_commits=false",
+        "--field base_sha=head-sha",
+        "--field head_sha=head-sha",
+        "--field new_commit_count=0",
+      ].join(" "),
+    ]);
   });
 
   it("starts no-mistakes daemon before the default axi run", () => {
@@ -1297,11 +1381,12 @@ exit 130
       encoding: "utf8",
     }).stdout.trim();
 
-    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+    expect({ status: result.status, stderr: result.stderr }).toEqual({
       status: 130,
-      stdout: "",
       stderr: "",
     });
+    expect(result.stdout).toContain("coder change");
+    expect(result.stdout).toContain("1 file changed");
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
       [
