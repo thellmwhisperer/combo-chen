@@ -1,5 +1,5 @@
 /**
- * @overview Deterministic post-merge closure for one combo. ~180 lines,
+ * @overview Deterministic post-merge closure for one combo. ~190 lines,
  *   GitHub-confirmed merged teardown and terminal journaling.
  *
  *   READING GUIDE
@@ -18,7 +18,7 @@
  *
  *   INTERNALS
  *   ---------
- *   readPrViewForClosure, activeNoMistakesConflict, report
+ *   readPrViewForClosure, activeNoMistakesConflict, closureCompletion, report
  *
  * @exports ClosureDeps, closeMergedCombo
  * @deps ../core/{events,state}, ../infra/config-snapshot, ./github, ./lifecycle, ./reviewer, ./sessions, ./status
@@ -28,9 +28,9 @@ import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { parsePrView, type GhResult, type PrView } from "./github.js";
-import { teardownMergedCombo } from "./lifecycle.js";
+import { teardownMergedCombo, type TeardownMergedComboResult } from "./lifecycle.js";
 import { hasMergedEvent, latestOpenedPrUrl, terminalReviewerEvent } from "./reviewer.js";
-import { killComboSession } from "./sessions.js";
+import { killComboSession, type KillComboSessionResult } from "./sessions.js";
 import { deepNoMistakesStatus, type CommandResult } from "./status.js";
 
 // -- 1/3 HELPER · Dependency contract --
@@ -106,7 +106,7 @@ export async function closeMergedCombo(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: input.deps.env });
-  await teardownMergedCombo({
+  const teardown = await teardownMergedCombo({
     deps: input.deps,
     combo,
     mergeSha,
@@ -114,9 +114,9 @@ export async function closeMergedCombo(input: {
     retries: config.limits.teardownGitRetries,
     backoffSeconds: config.limits.teardownGitBackoffSeconds,
   });
-  killComboSession(input.deps, combo);
+  const session = killComboSession(input.deps, combo);
   appendEvent(runDir, "combo_closed", { source: "closure" });
-  input.deps.out(`closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; teardown complete`);
+  input.deps.out(`closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; ${closureCompletion(teardown, session)}`);
 }
 // -/ 2/3
 
@@ -152,6 +152,20 @@ function activeNoMistakesConflict(deps: ClosureDeps, combo: ComboRecord): string
   } catch {
     return undefined;
   }
+}
+
+function closureCompletion(
+  teardown: TeardownMergedComboResult,
+  session: KillComboSessionResult,
+): string {
+  const alreadyConverged = [
+    teardown.worktree === "already_removed" ? "worktree already removed" : undefined,
+    teardown.branch === "already_deleted" ? "branch already deleted" : undefined,
+    session === "already_missing" ? "tmux session already gone" : undefined,
+  ].filter((entry): entry is string => entry !== undefined);
+
+  if (alreadyConverged.length === 0) return "teardown complete";
+  return `already converged: ${alreadyConverged.join(", ")}`;
 }
 
 function report(deps: Pick<ClosureDeps, "out">, line: string): void {

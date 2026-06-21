@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for deterministic merged-combo closure. ~215 lines,
+ * @overview Unit tests for deterministic merged-combo closure. ~255 lines,
  *   command-level post-merge convergence.
  *
  *   READING GUIDE
@@ -148,6 +148,41 @@ describe("closeMergedCombo", () => {
     expect(readEvents(runDir).filter((event) => event.event === "merged")).toHaveLength(1);
     expect(calls).toEqual([]);
     expect(out).toEqual(["closure: o-r-7 already closed"]);
+  });
+
+  it("closes a merged combo when local resources are already gone", async () => {
+    const h = home();
+    const { runDir, worktree } = writeTestCombo(h);
+    const { deps, calls, out } = fakeDeps({
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "worktree") {
+          return { status: 128, stdout: "", stderr: `fatal: '${worktree}' is not a working tree` };
+        }
+        if (args[0] === "branch") {
+          return { status: 1, stdout: "", stderr: "error: branch 'combo/issue-7' not found." };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        return { status: 1, stdout: "", stderr: "can't find session: combo-chen-o-r-7" };
+      },
+    });
+
+    await closeMergedCombo({ deps, home: h, comboId: "o-r-7" });
+
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+      { event: "combo_closed", source: "closure" },
+    ]);
+    expect(calls).toContainEqual(["git", expect.any(String), "worktree", "remove", "--force", worktree]);
+    expect(calls).toContainEqual(["git", expect.any(String), "branch", "-D", "combo/issue-7"]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    expect(out).toEqual([
+      "closure: o-r-7 closed merged PR merge777 by maintainer; already converged: worktree already removed, branch already deleted, tmux session already gone",
+    ]);
   });
 
   it("refuses teardown when GitHub does not report MERGED", async () => {
