@@ -14,7 +14,7 @@
  *
  *   PUBLIC API
  *   ----------
- *   GhResult, GhRunner, IssueDetails, ReviewerVerdict, ForensicsGithubFacts
+ *   GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts
  *   remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict
  *   PrView, parsePrView, fetchForensicsGithubFacts
  *
@@ -24,7 +24,7 @@
  *   reviewerCandidateLines, lgtmPinFromBody, reviewerVerdictFromBody, pinsFromItems,
  *   reviewerVerdictsFromItems, rollupSignal, parseIssueView
  *
- * @exports GhResult, GhRunner, IssueDetails, ReviewerVerdict, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict, PrView, parsePrView, fetchForensicsGithubFacts
+ * @exports GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict, PrView, parsePrView, fetchForensicsGithubFacts
  * @deps ../core/gh-api, ../core/pr-url, ./checks
  */
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
