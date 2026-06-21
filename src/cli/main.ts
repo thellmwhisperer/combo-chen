@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
+ *   ../core/{combo,events,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
  *   ./args, ./closure, ./coder, ./director, ./forensics, ./gate, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -46,6 +46,7 @@ import {
   type ComboEvent,
   type EventName,
 } from "../core/events.js";
+import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import {
   comboHome,
   describeWorkItem,
@@ -87,6 +88,7 @@ import { tickDirector } from "./director.js";
 import { analyzeForensicsCombo, renderForensicsMarkdown } from "./forensics.js";
 import {
   ensureGatekeeperWindow,
+  GATEKEEPER_WINDOW,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
   restartPostAddressGate,
@@ -255,6 +257,22 @@ export function createProgram(deps: Deps): Command {
         writeCombo(runDir, combo);
         writeConfigSnapshot(runDir, config);
         writeFileSync(join(runDir, WORK_PLAN_ARTIFACT), renderWorkPlanMarkdown(workPlan));
+        writeRuntimeLedger(
+          runDir,
+          buildRuntimeLedger({
+            combo,
+            runDir,
+            cli: cliInvocation(),
+            roleWindows: {
+              coder: CODER_WINDOW,
+              gatekeeper: GATEKEEPER_WINDOW,
+              directorWatch: DIRECTOR_WATCH_WINDOW,
+            },
+            promptTargets: {
+              workPlan: join(runDir, WORK_PLAN_ARTIFACT),
+            },
+          }),
+        );
       } catch (error) {
         rmSync(runDir, { recursive: true, force: true });
         deps.git(["worktree", "remove", "--force", worktree], options.repo);
