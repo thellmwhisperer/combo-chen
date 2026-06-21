@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.51](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.50...combo-chen-v0.0.51) (2026-06-21)
+
+
+### Bug Fixes
+
+* **runner:** fail coder phase when tee fails ([9d21a34](https://github.com/thellmwhisperer/combo-chen/commit/9d21a349b247f1ddf8e0aae33159bc9e557e11fb))
+* **runner:** stream coder output ([f364887](https://github.com/thellmwhisperer/combo-chen/commit/f364887571715bbb28909e24032ae26f152a2b8d))
+
 ## [0.0.50](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.49...combo-chen-v0.0.50) (2026-06-21)
 
 
