@@ -1,5 +1,5 @@
 /**
- * @overview Reviewer CLI helpers. ~335 lines, 11 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~340 lines, 11 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
