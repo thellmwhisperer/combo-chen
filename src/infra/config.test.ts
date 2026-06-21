@@ -102,6 +102,7 @@ describe("loadConfig", () => {
     expect(config.reviewerCommand).toBe("claude {prompt}");
     expect(config.reviewerPrompt).toBe("");
     expect(config.reviewerLogins).toEqual(["claude"]);
+    expect(config.directorCommand).toBe("claude {prompt}");
     expect(config.sourceBranch).toBe("main");
   });
 
@@ -166,6 +167,22 @@ describe("loadConfig", () => {
     const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
 
     expect(config.reviewerLogins).toEqual(["Javi", "claude-reviewer"]);
+  });
+
+  it("lets repo and env config override the promptable director command", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[director]\ncommand = \"director-agent {prompt}\"\n");
+
+    expect(loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") }).directorCommand).toBe(
+      "director-agent {prompt}",
+    );
+    expect(
+      loadConfig({
+        repoDir,
+        userConfigPath: join(tempDir(), "missing.toml"),
+        env: { COMBO_CHEN_DIRECTOR_COMMAND: "env-director {prompt}" },
+      }).directorCommand,
+    ).toBe("env-director {prompt}");
   });
 
   it("lets env override reviewer GitHub logins", () => {

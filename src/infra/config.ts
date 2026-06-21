@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~720 lines, 13 exports.
+ *   Repo wins on policy, user wins on local setup. ~730 lines, 12 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -87,6 +87,8 @@ export interface ComboConfig {
   reviewerAgent: string;
   /** Command template for the reviewer loop, with {placeholders}. */
   reviewerCommand: string;
+  /** Command template for the promptable director window, with {placeholders}. */
+  directorCommand: string;
   /** Free-form reviewer prompt text injected into the reviewer guardrails. */
   reviewerPrompt: string;
   /** GitHub logins allowed to publish SHA-pinned reviewer LGTM verdicts. */
@@ -116,6 +118,7 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROMPT = "";
+const DEFAULT_DIRECTOR_COMMAND = "claude {prompt}";
 export const DEFAULT_CODER_STOP_WHEN =
   "Every acceptance criterion stated in the work item is met and the full test suite is green. " +
   "If the work item lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
@@ -699,6 +702,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     ),
     reviewerAgent,
     reviewerCommand,
+    directorCommand: pickNonEmptyString(
+      directorTable["command"],
+      "command template for [director]",
+    ),
     reviewerPrompt,
     reviewerLogins: [...new Set(reviewerLogins ?? [reviewerAgent])],
     externalCommentAgents: [...new Set(externalCommentAgents)],
