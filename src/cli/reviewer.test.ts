@@ -1,11 +1,11 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~800 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~880 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at reviewer journal helpers <- pure LGTM/terminal predicates.
  *   2. Then activateReviewer             <- reviewer + director-watch tmux windows.
- *   3. Then tickReviewer                 <- PR state, reviewer verdict, and LGTM handling.
+ *   3. Then tickReviewer                 <- PR state, reviewer verdict, coder routing, and LGTM handling.
  *
  *   MAIN FLOW
  *   ---------
@@ -738,6 +738,86 @@ describe("tickReviewer", () => {
 
     expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
     expect(out).toEqual([`reviewer: lgtm current at ${headSha}`]);
+  });
+
+  it("routes reviewer verdict code 1 to coder responding", async () => {
+    const out: string[] = [];
+    const tmuxCalls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    const headSha = "def4560def4560def4560def4560def4560def45";
+    const verdictUrl = "https://github.com/o/r/pull/7#issuecomment-1";
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          tmuxCalls.push(args);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args) => {
+          if (args.join(" ") === "remote get-url no-mistakes") {
+            return { status: 2, stdout: "", stderr: "No such remote" };
+          }
+          if (args.join(" ") === "rev-parse HEAD") {
+            return { status: 0, stdout: `${headSha}\n`, stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        gh: (args) => {
+          if (args[0] === "pr") {
+            return { status: 0, stdout: JSON.stringify({ headRefOid: headSha, state: "OPEN" }), stderr: "" };
+          }
+          if (args.join(" ").includes("issues/7/comments")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 1"].join("\n"),
+                  html_url: verdictUrl,
+                  user: { login: "claude" },
+                  created_at: "2026-06-11T00:00:00Z",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          if (args.join(" ").includes("pulls/7/comments")) {
+            return { status: 0, stdout: "[]", stderr: "" };
+          }
+          if (args.join(" ").includes("pulls/7/reviews")) {
+            return { status: 0, stdout: "[]", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "review_comment",
+        author: "claude",
+        kind: "pr_comment",
+        url: verdictUrl,
+        head_sha: headSha,
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "lgtm")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(tmuxCalls).toEqual([
+      expect.arrayContaining(["set-buffer"]),
+      ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-coder-responding", "-t", "combo-chen-o-r-7:coder-responding"],
+      ["send-keys", "-t", "combo-chen-o-r-7:coder-responding", "C-m"],
+    ]);
+    expect(out).toEqual([`nudged ${verdictUrl}`]);
   });
 
   it("journals needs_human for reviewer verdict code 3", async () => {
