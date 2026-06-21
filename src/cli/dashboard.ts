@@ -107,17 +107,23 @@ const DASHBOARD_LOG_ORDER = new Map<string, number>([
 
 // -- 2/3 CORE · collectDashboardRows <- START HERE --
 export function collectDashboardRows(home: string, deps: DashboardDeps): DashboardRow[] {
-  return listDashboardCombos(home).map((combo) => {
-    const runDir = runDirFor(home, combo.id);
-    const events = readEvents(runDir);
-    return dashboardRowFromFacts({
-      combo,
-      events,
-      tmux: collectDashboardTmuxFacts(combo, deps),
-      logs: collectDashboardLogs(runDir),
-      downstreamStatus: collectDashboardDownstreamStatus(combo, runDir, events, deps),
-    });
-  });
+  const rows: DashboardRow[] = [];
+  for (const combo of listDashboardCombos(home)) {
+    try {
+      const runDir = runDirFor(home, combo.id);
+      const events = readEvents(runDir);
+      rows.push(dashboardRowFromFacts({
+        combo,
+        events,
+        tmux: collectDashboardTmuxFacts(combo, deps),
+        logs: collectDashboardLogs(runDir),
+        downstreamStatus: collectDashboardDownstreamStatus(combo, runDir, events, deps),
+      }));
+    } catch {
+      // skip corrupt combo
+    }
+  }
+  return rows;
 }
 
 function listDashboardCombos(home: string): ComboRecord[] {
@@ -204,7 +210,7 @@ function collectDashboardDownstreamStatus(
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return `downstream unavailable: ${firstLine(detail)}`;
+    return `no-mistakes unavailable: ${firstLine(detail)}`;
   }
 }
 
