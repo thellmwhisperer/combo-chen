@@ -24,7 +24,7 @@
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, gateLeaseScript, renderGatekeeperCommand
+ *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -35,6 +35,7 @@ import { join } from "node:path";
 import {
   buildNoMistakesGatekeeperRunScript,
   buildNoMistakesMirrorPublishScript,
+  gateLeaseScriptLines,
   guardNoMistakesDaemonStart,
   shellQuote,
 } from "../core/combo.js";
@@ -368,26 +369,6 @@ function gateAlreadyRunningGuardScript(input: {
   ];
 }
 
-function gateLeaseScript(input: {
-  acquire?: string;
-  release?: string;
-}): string[] {
-  if (input.acquire === undefined && input.release === undefined) return [];
-  if (input.acquire === undefined || input.release === undefined) {
-    throw new Error("gate lease acquire and release commands must be configured together");
-  }
-  return [
-    `${input.acquire} --head-sha "$gatekeeper_start_sha" || gate_lease_code=$?`,
-    'if [ "$gate_lease_code" -eq 75 ]; then exit 0; fi',
-    'if [ "$gate_lease_code" -eq 76 ]; then exit 0; fi',
-    'if [ "$gate_lease_code" -ne 0 ]; then exit "$gate_lease_code"; fi',
-    `gate_lease_release_cmd=${shellQuote(input.release)}`,
-    "gate_lease_release() {",
-    '  sh -c "$gate_lease_release_cmd" >/dev/null 2>&1 || true',
-    "}",
-    "trap gate_lease_release EXIT",
-  ];
-}
 // -/ 3/5
 
 // -- 4/5 CORE · Initial and post-address gate scripts --
@@ -417,7 +398,7 @@ function buildInitialGateRetryScript(input: {
     `${input.emit} gate_started`,
     "gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     "gate_lease_code=0",
-    gateLeaseScript({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease }),
+    gateLeaseScriptLines({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease }),
     `${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"`,
     "gatekeeper_code=0",
     "(",
@@ -547,7 +528,7 @@ export function buildPostAddressGateScript(input: {
     `${input.emit} gate_started`,
     "gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     "gate_lease_code=0",
-    gateLeaseScript({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease }),
+    gateLeaseScriptLines({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease }),
     `${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"`,
     `rm -f "$status_file"`,
     "(",

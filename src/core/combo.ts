@@ -38,7 +38,7 @@
  *   │ RunnerInput          Input shape for buildRunnerScript         │
  *   └────────────────────────────────────────────────────────────────┘
  *
- * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, buildNoMistakesGatekeeperRunScript, guardNoMistakesDaemonStart, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
+ * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, buildNoMistakesGatekeeperRunScript, gateLeaseScriptLines, guardNoMistakesDaemonStart, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
  * @deps ./events, ./state
  */
 import type { ComboEvent } from "./events.js";
@@ -270,21 +270,31 @@ export function guardNoMistakesDaemonStart(gatekeeperCommand: string): string {
     `else no-mistakes daemon start && ${remainder}; fi`;
 }
 
-function buildGateLeaseScript(input: Pick<RunnerInput, "gateLeaseAcquire" | "gateLeaseRelease">): string {
-  if (input.gateLeaseAcquire === undefined && input.gateLeaseRelease === undefined) return "";
-  if (input.gateLeaseAcquire === undefined || input.gateLeaseRelease === undefined) {
+export function gateLeaseScriptLines(input: {
+  acquire?: string;
+  release?: string;
+}): string[] {
+  if (input.acquire === undefined && input.release === undefined) return [];
+  if (input.acquire === undefined || input.release === undefined) {
     throw new Error("gate lease acquire and release commands must be configured together");
   }
-  return `${input.gateLeaseAcquire} --head-sha "$gatekeeper_start_sha" || gate_lease_code=$?
-if [ "$gate_lease_code" -eq 75 ]; then exit 0; fi
-if [ "$gate_lease_code" -eq 76 ]; then exit 0; fi
-if [ "$gate_lease_code" -ne 0 ]; then exit "$gate_lease_code"; fi
-gate_lease_release_cmd=${shellQuote(input.gateLeaseRelease)}
-gate_lease_release() {
-  sh -c "$gate_lease_release_cmd" >/dev/null 2>&1 || true
+  return [
+    `${input.acquire} --head-sha "$gatekeeper_start_sha" || gate_lease_code=$?`,
+    'if [ "$gate_lease_code" -eq 75 ]; then exit 0; fi',
+    'if [ "$gate_lease_code" -eq 76 ]; then exit 0; fi',
+    'if [ "$gate_lease_code" -ne 0 ]; then exit "$gate_lease_code"; fi',
+    `gate_lease_release_cmd=${shellQuote(input.release)}`,
+    "gate_lease_release() {",
+    '  sh -c "$gate_lease_release_cmd" >/dev/null 2>&1 || true',
+    "}",
+    "trap gate_lease_release EXIT",
+  ];
 }
-trap gate_lease_release EXIT
-`;
+
+function buildGateLeaseScript(input: Pick<RunnerInput, "gateLeaseAcquire" | "gateLeaseRelease">): string {
+  const lines = gateLeaseScriptLines({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease });
+  if (lines.length === 0) return "";
+  return lines.join("\n") + "\n";
 }
 
 // -/ 2/3

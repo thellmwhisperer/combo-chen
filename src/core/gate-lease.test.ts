@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireGateLease,
+  heartbeatGateLease,
   releaseGateLease,
   readGateLease,
   type GateLeaseOwner,
@@ -177,6 +178,88 @@ describe("gate lease", () => {
     expect(releaseGateLease({ home: dir, owner: currentOwner })).toEqual({ state: "released" });
     expect(readGateLease(dir)).toBeUndefined();
     expect(releaseGateLease({ home: dir, owner: currentOwner })).toEqual({ state: "missing" });
+  });
+
+  it("updates heartbeatAt for the owning combo", () => {
+    const dir = home();
+    acquireGateLease({
+      home: dir,
+      owner: owner(),
+      now: NOW,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    const later = new Date(NOW.getTime() + 600_000);
+    const result = heartbeatGateLease({
+      home: dir,
+      owner: { comboId: "o-r-7" },
+      now: later,
+    });
+
+    expect(result).toEqual({ state: "ok" });
+    const lease = readGateLease(dir);
+    expect(lease?.heartbeatAt).toBe(later.toISOString());
+    expect(lease?.acquiredAt).toBe(NOW.toISOString());
+  });
+
+  it("refuses heartbeat for a missing lease", () => {
+    const result = heartbeatGateLease({
+      home: home(),
+      owner: { comboId: "o-r-7" },
+    });
+
+    expect(result).toEqual({ state: "missing" });
+  });
+
+  it("refuses heartbeat for a non-owning combo", () => {
+    const dir = home();
+    acquireGateLease({
+      home: dir,
+      owner: owner(),
+      now: NOW,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    const result = heartbeatGateLease({
+      home: dir,
+      owner: { comboId: "o-r-8" },
+      now: NOW,
+    });
+
+    expect(result.state).toBe("not_owner");
+    if (result.state !== "not_owner") throw new Error("expected not_owner");
+    expect(result.lease.comboId).toBe("o-r-7");
+  });
+
+  it("heartbeat prevents a lease from being seen as stale", () => {
+    const dir = home();
+    const justBeforeStale = new Date(NOW.getTime() - STALE_AFTER_MS + 60_000);
+    acquireGateLease({
+      home: dir,
+      owner: owner(),
+      now: justBeforeStale,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    const later = new Date(justBeforeStale.getTime() + 30_000);
+    heartbeatGateLease({
+      home: dir,
+      owner: { comboId: "o-r-7" },
+      now: later,
+    });
+
+    const atStaleWindow = new Date(justBeforeStale.getTime() + STALE_AFTER_MS);
+    const result = acquireGateLease({
+      home: dir,
+      owner: owner({
+        comboId: "o-r-8",
+        branch: "combo/issue-8",
+      }),
+      now: atStaleWindow,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(result.state).toBe("busy");
   });
 });
 // -/ 1/1
