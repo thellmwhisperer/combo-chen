@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~385 lines, 9 exports, 1 critical function.
+ *   ~395 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -22,7 +22,7 @@
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
  *     fetch/rebase baseRef → coder_started → coderCommand →
- *       coder_done (success) | coder_failed + exit $code (failure, exit sanitized)
+ *       coder_done (success) | coder_failed + exit $code (failure/log failure, exit sanitized)
  *     → gate_started → optional gate lease → mirror publish → config handoff + gatekeeperCommand → pr_opened
  *     → activateCoder + activateReviewer; missing PRs emit needs_human
  *
@@ -354,10 +354,17 @@ rm -f "$coder_status"
   ) || coder_code=$?
   printf '%s\\n' "$coder_code" > "$coder_status"
 ) < /dev/null 2>&1 | tee "$coder_log"
+tee_status=$?
 code=$(cat "$coder_status" 2>/dev/null || printf '1')
 case "$code" in
   ""|*[!0-9]*) code=1 ;;
 esac
+case "$tee_status" in
+  ""|*[!0-9]*) tee_status=1 ;;
+esac
+if [ "$code" -eq 0 ] && [ "$tee_status" -ne 0 ]; then
+  code=$tee_status
+fi
 rm -f "$coder_status"
 
 if [ "$code" -eq 0 ]; then
