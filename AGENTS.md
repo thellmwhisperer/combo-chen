@@ -45,6 +45,14 @@ Hard rule: `reviewer != coder`.
    configured reviewer GitHub login, every configured required READY check is
    present with SUCCESS, and the remaining CI/check rollup is successful for
    that SHA.
+8. After the human merges the PR, `combo-chen closure -n <combo-id>`
+   deterministically converges the combo's local resources: it verifies
+   GitHub reports MERGED, records any missing `merged` event, refuses
+   teardown while no-mistakes is active, removes the worktree and branch,
+   kills the tmux session, and journals `combo_closed`. The reviewer and
+   director-watch only record the merge fact and report the closure command
+   to run; they do not perform cleanup themselves. Reconcile can record a
+   missing merge fact but similarly defers resource convergence to closure.
 
 Rate limits and transient GitHub/git/tmux errors are operational events. Log a
 concise note, keep the director loop alive when possible, and re-evaluate on
@@ -113,8 +121,10 @@ v0 implements the work-item-to-PR loop with deterministic overture launch runway
 coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer re-review,
 coder responding mode, single `director-watch` observation, frozen journal
-`reconcile` repair for merged and closed PRs (preserving parked worktrees on
-merge and all worktrees on close), no-mistakes config propagation,
+`reconcile` repair for closed PRs (preserving all worktrees on close),
+merged-PR `reconcile` with merge-fact recording only (resource convergence
+deferred to `closure`), deterministic `closure` for post-merge local resource
+convergence, no-mistakes config propagation,
 read-only forensics reports, coder safety validation (pinned gnhf with
 `--max-iterations`, `--stop-when`, stdin closed), `park`/`resume` for
 reboot-safe combo handoff, `status` (actionable by default, `--all` for

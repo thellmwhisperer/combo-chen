@@ -45,7 +45,7 @@ import {
   startInitialGateRetry,
 } from "./gate.js";
 import { parsePrView } from "./github.js";
-import { livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
+import { closurePendingReviewerEvent, livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
 import { CODER_WINDOW, REVIEWER_WINDOW } from "./sessions.js";
 import { inspectWorkerPanes } from "./worker-monitor.js";
 
@@ -112,7 +112,8 @@ export async function tickDirector(input: {
   }
 
   await tickReviewer({ deps, home, comboId, ghApiCache });
-  if (terminalReviewerEvent(readEvents(runDir))) {
+  const postReviewEvents = readEvents(runDir);
+  if (terminalReviewerEvent(postReviewEvents) || closurePendingReviewerEvent(postReviewEvents)) {
     deps.out(`director: tick complete for ${comboId}`);
     return;
   }

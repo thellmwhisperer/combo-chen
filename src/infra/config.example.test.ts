@@ -120,7 +120,7 @@ describe("combo-chen.example.toml", () => {
   it("documents scoped post-merge cleanup in the launch skill", () => {
     const body = readFileSync(LAUNCH_SKILL, "utf8");
 
-    expect(body).toContain("combo-chen reconcile -n <comboId> --apply");
+    expect(body).toContain("combo-chen closure -n <comboId>");
     expect(body).toContain("Owned combo PR is `MERGED`");
     expect(body).toContain("no tmux session remains");
     expect(body).toContain("no combo worktree remains");

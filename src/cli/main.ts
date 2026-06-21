@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~870 lines, 20 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~870 lines, 21 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./director, ./forensics, ./gate, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -81,6 +81,7 @@ import {
 } from "../roles/gatekeeper.js";
 import { buildCoderInvocation, defaultWorkPlanPrompt, persistCoderThreadArtifact } from "../roles/coder.js";
 import { parseEventFields } from "./args.js";
+import { closeMergedCombo } from "./closure.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
 import { tickDirector } from "./director.js";
 import { analyzeForensicsCombo, renderForensicsMarkdown } from "./forensics.js";
@@ -439,6 +440,18 @@ export function createProgram(deps: Deps): Command {
     });
 
   program
+    .command("closure")
+    .description("Converge one GitHub-merged combo's terminal journal and local resources")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      await closeMergedCombo({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+      });
+    });
+
+  program
     .command("reconcile")
     .description("Compare local combo journals with GitHub and repair missing terminal events")
     .option("-n, --name <comboId>", "Only reconcile one combo")
@@ -467,12 +480,12 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("status")
-    .description("Show combo status; auto-resolves terminal merged/closed combos (tears down merged, closes closed; kills tmux sessions)")
+    .description("Show combo status; marks merged combos closure-pending and auto-closes closed PR salvage cases")
     .option("--deep", "Probe downstream no-mistakes state")
     .option("--all", "Include terminal historical combos", false)
     .action(async (options: { deep?: boolean; all?: boolean }) => {
       const home = comboHome(deps.env);
-      await reconcileCombos({ deps, home, apply: true, quiet: true });
+      await reconcileCombos({ deps, home, apply: true, quiet: true, mergedTeardown: false });
       const combos = listCombos(home);
       if (combos.length === 0) {
         deps.out("no combos. start one: combo-chen run --issue <url> (or --plan <file>)");

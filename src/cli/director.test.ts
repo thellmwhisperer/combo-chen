@@ -92,6 +92,10 @@ function fakeDeps(input: {
   codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
   externalCommentLogin?: string;
   issueComments?: unknown[];
+  prState?: string;
+  mergeSha?: string;
+  mergedBy?: string;
+  mergedAt?: string;
   env?: Record<string, string | undefined>;
   git?: DirectorDeps["git"];
   sleep?: DirectorDeps["sleep"];
@@ -116,7 +120,13 @@ function fakeDeps(input: {
       }
       if (args[0] === "pr" && args[1] === "view") {
         const fields = args.at(-1) ?? "";
-        const base = { headRefOid: input.prHeadSha, state: "OPEN" };
+        const base = {
+          headRefOid: input.prHeadSha,
+          state: input.prState ?? "OPEN",
+          ...(input.mergeSha !== undefined ? { mergeCommit: { oid: input.mergeSha } } : {}),
+          ...(input.mergedBy !== undefined ? { mergedBy: { login: input.mergedBy } } : {}),
+          ...(input.mergedAt !== undefined ? { mergedAt: input.mergedAt } : {}),
+        };
         return {
           status: 0,
           stdout: JSON.stringify(
@@ -777,6 +787,49 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
     expect(readEvents(runDir).some((event) => event.event === "gate_validated" && event["source"] === "github"))
       .toBe(false);
+  });
+
+  it("stops post-PR routing when reviewer records merged closure pending", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_status", { state: "idle", head_sha: "head456" });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "head456",
+      prState: "MERGED",
+      mergeSha: "merge789",
+      mergedBy: "maintainer",
+      mergedAt: "2026-06-11T11:20:00.000Z",
+      issueComments: [
+        {
+          html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+          user: { login: "reviewer" },
+          body: "Please handle this.",
+        },
+      ],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "merged",
+        sha: "merge789",
+        by: "maintainer",
+        source: "reviewer",
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "review_comment")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "gate_stale")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+    expect(out).toContain("reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7");
+    expect(out).toContain("director: tick complete for o-r-7");
   });
 
   it("starts a post-address gate only when an actionable nudge is followed by a new committed HEAD", async () => {
