@@ -1,5 +1,5 @@
 /**
- * @overview Deterministic launch runway for combo creation. ~420 lines,
+ * @overview Deterministic launch runway for combo creation. ~480 lines,
  *   8 exports, checks launch inputs/resources before worker windows start.
  *
  *   READING GUIDE
@@ -205,7 +205,13 @@ function checkSourceCheckout(deps: OvertureDeps, repoDir: string, requiredBranch
 }
 
 function checkBaseRef(deps: OvertureDeps, repoDir: string, baseRef: string): OvertureCheck {
-  if (!baseRef.startsWith("origin/")) return ok("base_ref_resolved", baseRef, "non-origin ref");
+  if (!baseRef.startsWith("origin/")) {
+    const resolved = deps.git(["rev-parse", "--verify", baseRef], repoDir);
+    if (resolved.status !== 0) {
+      return failed("base_ref_resolved", baseRef, errorDetail(`git rev-parse --verify ${baseRef} failed`, resolved));
+    }
+    return ok("base_ref_resolved", baseRef, "local ref");
+  }
   const branch = baseRef.slice("origin/".length);
   const fetched = deps.git(["fetch", "origin", branch], repoDir);
   if (fetched.status !== 0) {
@@ -251,7 +257,7 @@ const ACTIVE_NO_MISTAKES_RUN_STATUSES = new Set(["active", "in_progress", "runni
 
 function parseNoMistakesWorktree(raw: string): string | undefined {
   for (const line of raw.split(/\r?\n/)) {
-    const worktree = /^\s{2}worktree:\s*(.+)\s*$/.exec(line);
+    const worktree = /^\s*worktree:\s*(.+)\s*$/.exec(line);
     if (worktree?.[1] !== undefined) return worktree[1].trim().replace(/^["']|["']$/g, "");
   }
   return undefined;

@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~5900 lines.
+ *   deps so tests run without a real terminal or network. ~6000 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -5640,6 +5640,98 @@ describe("run ordering and safety", () => {
       resource: "combo/issue-7",
       status: "failed",
       detail: "active no-mistakes run is running",
+    });
+  });
+
+  it("blocks an active no-mistakes run for the same worktree even when its branch differs", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: (args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        if (args[0] === "status") return { status: 0, stdout: "daemon: running\n", stderr: "" };
+        return {
+          status: 0,
+          stdout: [
+            "run:",
+            "  id: \"01KV-OLD\"",
+            "  branch: combo/sibling-branch",
+            "  status: running",
+            `      worktree: "${worktree}"`,
+            "  steps[1]{step,status,findings,duration_ms}:",
+            "    ci,running,0,0",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /no_mistakes_run_free.*issue-7/,
+    );
+
+    expect(out).toContain(`X no_mistakes_run_free: ${worktree} active no-mistakes run is running`);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: { noMistakes?: { branch?: string; status?: string; worktree?: string } };
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.resources.noMistakes).toMatchObject({
+      branch: "combo/sibling-branch",
+      status: "running",
+      worktree,
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "no_mistakes_run_free",
+      resource: worktree,
+      status: "failed",
+      detail: "active no-mistakes run is running",
+    });
+  });
+
+  it("blocks a non-origin base ref that cannot be resolved locally before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "rev-parse" && args[1] === "--verify") {
+          return { status: 128, stdout: "", stderr: "fatal: Needed a single revision\n" };
+        }
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(
+      exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir, "--base", "feature/missing"]),
+    ).rejects.toThrow(/base_ref_resolved.*feature\/missing/);
+
+    expect(out).toContain(
+      "X base_ref_resolved: feature/missing git rev-parse --verify feature/missing failed: fatal: Needed a single revision",
+    );
+    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "rev-parse", "--verify", "feature/missing"]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "base_ref_resolved",
+      resource: "feature/missing",
+      status: "failed",
+      detail: "git rev-parse --verify feature/missing failed: fatal: Needed a single revision",
     });
   });
 
