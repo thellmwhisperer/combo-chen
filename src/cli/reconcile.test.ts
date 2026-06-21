@@ -19,7 +19,7 @@
  *   home, fakeDeps
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./reconcile
+ * @deps vitest, node:{fs,os,path}, ../core/{events,runtime-ledger,state}, ../infra/{config,config-snapshot}, ./reconcile
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
+import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import { runDirFor, writeCombo } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
@@ -165,6 +166,37 @@ describe("reconcileCombos", () => {
     expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened"]);
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "tmux")).toBe(false);
+    expect(out).toEqual(["reconcile: o-r-7 would append merged squash789 by maintainer and tear down"]);
+  });
+
+  it("uses journal pr_opened when an existing runtime ledger has no PR URL", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    const combo = {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    };
+    writeCombo(runDir, combo);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    writeRuntimeLedger(runDir, buildRuntimeLedger({ combo, runDir, cli: "combo-chen" }));
+    const { deps, calls, out } = fakeDeps();
+
+    await reconcileCombos({ deps, home: h, apply: false });
+
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/7",
+      "--json",
+      "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
+    ]);
     expect(out).toEqual(["reconcile: o-r-7 would append merged squash789 by maintainer and tear down"]);
   });
 

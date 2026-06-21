@@ -28,7 +28,8 @@
  *
  *   INTERNALS
  *   ---------
- *   runtimeLedgerPath, commandSet, workItemFacts, timestamp, cleanRecord
+ *   runtimeLedgerPath, readPersistedLedger, synthesizeRuntimeLedger,
+ *   hydratePrUrlFromJournal, commandSet, workItemFacts, timestamp, cleanRecord
  *
  * @exports RUNTIME_LEDGER_FILE, RuntimeLedger, RuntimeLedgerInput, RuntimeLedgerReadOptions, RuntimeLedgerUpdate, RuntimeRoleWindows, buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger
  * @deps node:{fs,path}, ./combo, ./events, ./state
@@ -138,8 +139,13 @@ export function writeRuntimeLedger(runDir: string, ledger: RuntimeLedger): void 
 export function readRuntimeLedger(runDir: string, options: RuntimeLedgerReadOptions = {}): RuntimeLedger {
   const path = runtimeLedgerPath(runDir);
   if (existsSync(path)) {
-    return JSON.parse(readFileSync(path, "utf8")) as RuntimeLedger;
+    const persisted = readPersistedLedger(path);
+    if (persisted !== undefined) return hydratePrUrlFromJournal(runDir, persisted);
   }
+  return synthesizeRuntimeLedger(runDir, options);
+}
+
+function synthesizeRuntimeLedger(runDir: string, options: RuntimeLedgerReadOptions): RuntimeLedger {
   const combo = readCombo(runDir);
   return buildRuntimeLedger({
     combo,
@@ -150,6 +156,29 @@ export function readRuntimeLedger(runDir: string, options: RuntimeLedgerReadOpti
     prUrl: latestPrUrlFromEvents(readEvents(runDir)),
     now: options.now,
   });
+}
+
+function readPersistedLedger(path: string): RuntimeLedger | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (isRuntimeLedger(parsed)) return parsed;
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function hydratePrUrlFromJournal(runDir: string, ledger: RuntimeLedger): RuntimeLedger {
+  if (ledger.prUrl !== undefined) return ledger;
+  const prUrl = latestPrUrlFromEvents(readEvents(runDir));
+  if (prUrl === undefined) return ledger;
+  return { ...ledger, prUrl };
+}
+
+function isRuntimeLedger(value: unknown): value is RuntimeLedger {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as { schemaVersion?: unknown; comboId?: unknown };
+  return candidate.schemaVersion === 1 && typeof candidate.comboId === "string";
 }
 
 export function updateRuntimeLedger(runDir: string, update: RuntimeLedgerUpdate): RuntimeLedger {
