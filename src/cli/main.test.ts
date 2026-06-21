@@ -5550,6 +5550,44 @@ describe("run ordering and safety", () => {
     });
   });
 
+  it("prints overture and blocks an existing tmux session before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session" && args.at(-1) === "combo-chen-o-r-7") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /tmux_session_free.*session already exists/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain("X tmux_session_free: combo-chen-o-r-7 session already exists");
+    expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "tmux_session_free",
+      resource: "combo-chen-o-r-7",
+      status: "failed",
+      detail: "session already exists",
+    });
+  });
+
   it("blocks an active no-mistakes run for the derived branch before creating launch resources", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
