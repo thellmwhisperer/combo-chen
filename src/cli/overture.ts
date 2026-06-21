@@ -59,7 +59,6 @@ import { hasSessionArgs, type TmuxResult } from "../infra/tmux.js";
 import { assertReviewerCommandSafe } from "../roles/reviewer.js";
 import { fetchIssueDetails, remoteSlug, type GhRunner, type IssueDetails } from "./github.js";
 import { parseNoMistakesAxiStatus } from "./status.js";
-import { WORK_PLAN_ARTIFACT } from "./work-plan.js";
 
 // -- 1/3 HELPER · Types and local work-plan reading --
 export const OVERTURE_ARTIFACT = "overture.json";
@@ -232,6 +231,8 @@ function checkBranchFree(deps: OvertureDeps, repoDir: string, branch: string): O
   if (local.status !== 0) return failed("branch_free", branch, errorDetail("git branch --list failed", local));
   if (local.stdout.trim() !== "") return failed("branch_free", branch, "already exists locally");
 
+  const originCheck = deps.git(["remote", "get-url", "origin"], repoDir);
+  if (originCheck.status !== 0) return ok("branch_free", branch, "no origin remote");
   const remote = deps.git(["ls-remote", "--heads", "origin", branch], repoDir);
   if (remote.status !== 0) return failed("branch_free", branch, errorDetail("git ls-remote --heads origin failed", remote));
   if (remote.stdout.trim() !== "") return failed("branch_free", branch, "already exists on origin");
