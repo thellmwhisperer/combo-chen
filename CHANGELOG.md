@@ -553,6 +553,7 @@
 * **release:** Reproducible release producer materializing deterministic tar.gz assets and `checksums.txt` under `dist/release/`, plus a `pnpm release:assets` package script that builds first ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
 * **ci:** GitHub Actions release workflow uploading `dist/release/*.tar.gz` and `dist/release/checksums.txt` for published and prereleased GitHub releases, with validation green ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
 * **docs:** Release artifact contract documented in README and spec for future update code, pinned with focused docs contract tests ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
+* **gatekeeper:** shared no-mistakes gate lease serializes parallel combo gate runs with stale lease recovery (30-min heartbeat timeout), `same_branch_conflict` detection, `queued` gate_status journaling, `needs_human reason=gate_lease_conflict` escalation, and EXIT trap release; surfaced in `status` via the `GATE-LEASE` column ([#151](https://github.com/thellmwhisperer/combo-chen/issues/151))
 
 ### Bug Fixes
 

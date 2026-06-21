@@ -165,6 +165,12 @@ contract: when the director cannot launch the retry script, it journals
 `gate_started` (`source=director_retry`) immediately before `gate_failed`
 (`reason=retry_start_failed`).
 
+The hidden `gate-lease acquire` command returns exit code 75 when another
+combo currently owns the lease (the gate script journals `gate_status queued`
+and exits 0) and exit code 76 when the same branch is owned by a different
+combo (the script journals `needs_human reason=gate_lease_conflict` with the
+active owner's branch, worktree, and run directory).
+
 When the worktree HEAD moves past the last validated or published SHA, the
 director journals `gate_stale` (fields `old_sha`, `new_sha`) to mark the old
 validation as superseded and trigger a post-address gate.  The director
@@ -341,7 +347,18 @@ ignored config or environment outside that file.
   current-head validation. Before running no-mistakes, the script acquires the
   shared gate lease through the hidden `gate-lease` command, reports `queued`
   with the active owner when busy, and releases an acquired lease via an EXIT
-  trap. After acquiring the lease, the script publishes
+  trap. The lease is persisted in `~/.combo-chen/gate-lease.lock/lease.json`;
+  the directory uses a `.lock` suffix because `mkdir` is the atomicity
+  primitive — only one writer can create it at a time. Each lease carries a
+  `heartbeatAt` timestamp refreshed by the owning combo; a lease whose
+  heartbeat is older than 30 minutes (`DEFAULT_GATE_LEASE_STALE_MS`) is
+  considered stale. A new acquirer recovers a stale lease atomically by
+  removing the dead owner's record before installing its own, proceeding
+  without blocking. When the lease is held by a different combo on the same
+  branch (`same_branch_conflict`), the gate script journals
+  `needs_human reason=gate_lease_conflict` and exits 76 — this is a hard
+  conflict because two combos cannot share one branch safely. After acquiring
+  the lease, the script publishes
   `HEAD:refs/heads/<branch>` to the no-mistakes mirror; when the mirror branch
   already exists, it uses `--force-with-lease` against the observed mirror SHA
   instead of a broad force or plain `git push no-mistakes HEAD`. Transient
