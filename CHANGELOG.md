@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.48](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.47...combo-chen-v0.0.48) (2026-06-21)
+
+
+### Features
+
+* **director:** Implemented the first promptable-director slice: a verified `director-prompt` command that sends deterministic prompts via tmux paste-buffer and journals prompt facts. ([63d0b86](https://github.com/thellmwhisperer/combo-chen/commit/63d0b861e9627bb02d128d4b2b7a291b6094c72b))
+* **director:** Implemented the launch-time promptable director window slice and validated it with the full local suite. ([17accf5](https://github.com/thellmwhisperer/combo-chen/commit/17accf5345b1186663419ca10916f17115005a39))
+
 ## [0.0.47](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.46...combo-chen-v0.0.47) (2026-06-21)
 
 
