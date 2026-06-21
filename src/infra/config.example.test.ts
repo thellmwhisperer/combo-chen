@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~135 lines, testing that combo-chen.example.toml and public docs use
+ *   ~165 lines, testing that combo-chen.example.toml and public docs use
  *   only OSS-friendly role names, document the tracked no-mistakes and Codex
  *   resume policies, and keep the example config loadable by the config
  *   cascade.
@@ -27,13 +27,19 @@ import { loadConfig } from "./config.js";
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EXAMPLE_CONFIG = join(REPO_ROOT, "combo-chen.example.toml");
 const PUBLIC_DOCS = ["README.md", "docs/spec.md", "AGENTS.md"].map((path) => join(REPO_ROOT, path));
+const SPEC = join(REPO_ROOT, "docs", "spec.md");
 const GITIGNORE = join(REPO_ROOT, ".gitignore");
 const LAUNCH_SKILL = join(REPO_ROOT, "skills", "launch-combo", "SKILL.md");
+const OVERTURE_SOURCE = join(REPO_ROOT, "src", "cli", "overture.ts");
 const OLD_ROLE_TERMS =
   /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b|\bjudge-tick\b/i;
 const OLD_PHASE_TERMS = /\b(ROWING|JUDGING)\b/;
 const LOCAL_REPO_PATH = /\/local\/developer\/workspace\/combo-chen\//;
 const FORBIDDEN_TMP_WORKTREE_PATH = /\/external-disk\/tmp\//;
+
+function normalizeDoc(body: string): string {
+  return body.replace(/\s+/g, " ");
+}
 
 // -- 1/1 CORE · Example config validation ← START HERE --
 describe("combo-chen.example.toml", () => {
@@ -121,6 +127,27 @@ describe("combo-chen.example.toml", () => {
     expect(body).toContain("local branch is gone");
     expect(body).toContain("journal contains `merged` and `combo_closed`");
     expect(body).toContain("Do not hand-emit `merged` or `combo_closed` as a substitute");
+  });
+
+  it("documents overture artifact persistence as conditional on the run dir", () => {
+    const spec = normalizeDoc(readFileSync(SPEC, "utf8"));
+
+    expect(spec).toContain("when the run directory is available");
+    expect(spec).toContain("A run-directory collision blocks launch before an overture artifact can be written");
+  });
+
+  it("documents both issue and plan direct overture commands in the launch skill", () => {
+    const body = readFileSync(LAUNCH_SKILL, "utf8");
+
+    expect(body).toContain("combo-chen overture --issue <url> --repo <dir>");
+    expect(body).toContain("combo-chen overture --plan <file> --repo <dir>");
+  });
+
+  it("documents the overture base/baseRef compatibility alias", () => {
+    const body = readFileSync(OVERTURE_SOURCE, "utf8");
+
+    expect(body).toContain("Canonical launch base ref recorded in overture.json");
+    expect(body).toContain("Compatibility alias kept for earlier overture consumers; same value as base");
   });
 });
 // -/ 1/1

@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~5530 lines.
+ *   deps so tests run without a real terminal or network. ~6000 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -14,6 +14,7 @@
  *
  *   ┌─ TEST SECTIONS (by CLI command) ───────────────────────────────┐
  *   │ command surface       Verifies all commands are registered     │
+ *   │ overture              Launch runway checklist + artifact       │
  *   │ run                   Worktree + runner.sh + tmux session      │
  *   │ attach                Session resolution and journal pane      │
  *   │ activate-coder        Coder resume worker                      │
@@ -100,6 +101,10 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
     },
     noMistakes: (args, cwd) => {
       calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+      if (args[0] === "status") return { status: 0, stdout: "daemon: running\n", stderr: "" };
+      if (args[0] === "axi" && args[1] === "status") {
+        return { status: 1, stdout: "No active run.\n", stderr: "" };
+      }
       return { status: 1, stdout: "", stderr: "no no-mistakes status" };
     },
     sleep: (ms) => {
@@ -170,6 +175,7 @@ describe("command surface", () => {
         "intent",
         "reviewer-tick",
         "nudge-review-comments",
+        "overture",
         "park",
         "reconcile",
         "resume",
@@ -1851,6 +1857,153 @@ describe("reconcile", () => {
 
 // -- 3/4 CORE · run (combo launch flow) --
 describe("run", () => {
+  it("runs overture directly for a clean issue without creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain(`OK work_item_readable: ${ISSUE}`);
+    expect(out).toContain("OK branch_free: combo/issue-7");
+    expect(out).toContain(`OK no_mistakes_available: ${repoDir}`);
+    expect(out).toContain("OK no_mistakes_run_free: combo/issue-7 no active run");
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: { comboId: string; branch: string; worktree: string; tmuxSession: string };
+      checks: Array<{ id: string; status: string; resource: string }>;
+    };
+    expect(artifact.ok).toBe(true);
+    expect(artifact.resources).toMatchObject({
+      comboId: "o-r-7",
+      branch: "combo/issue-7",
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      tmuxSession: "combo-chen-o-r-7",
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "branch_free",
+      status: "ok",
+      resource: "combo/issue-7",
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "no_mistakes_available",
+      status: "ok",
+      resource: repoDir,
+    });
+  });
+
+  it("runs overture directly for a clean local work plan and records the full resource ledger", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const planPath = join(repoDir, "launch-plan.md");
+    writeFileSync(
+      planPath,
+      [
+        "# Local plan runway",
+        "",
+        "## Problem",
+        "A local plan should get the same deterministic runway as an issue.",
+        "",
+        "## Acceptance Criteria",
+        "- The direct overture command records plan resources.",
+      ].join("\n"),
+    );
+    const ghCalls: string[][] = [];
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      issueExists: () => {
+        throw new Error("issue lookup should not run for --plan");
+      },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["overture", "--plan", planPath, "--repo", repoDir, "--base", "origin/release-candidate"]);
+
+    const id = out[0]?.replace(/^overture\s+/, "") ?? "";
+    expect(id).toMatch(/^plan-local-plan-runway-[0-9a-f]{8}$/);
+    expect(out).toContain(`OK work_item_readable: ${planPath}`);
+    expect(out).toContain(`OK base_ref_resolved: origin/release-candidate`);
+    expect(out.every((line) => !line.startsWith("X "))).toBe(true);
+    expect(ghCalls).toEqual([]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, id), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: {
+        comboId: string;
+        base: string;
+        baseRef: string;
+        branch: string;
+        runDir: string;
+        sourceReference: string;
+        sourceTitle: string;
+        sourceType: string;
+        tmuxSession: string;
+        worktree: string;
+      };
+      checks: Array<{ id: string; status: string; resource: string }>;
+    };
+    expect(artifact.ok).toBe(true);
+    expect(artifact.checks.every((check) => check.status === "ok")).toBe(true);
+    expect(artifact.resources).toMatchObject({
+      comboId: id,
+      base: "origin/release-candidate",
+      baseRef: "origin/release-candidate",
+      branch: `combo/${id}`,
+      runDir: runDirFor(h, id),
+      sourceReference: "launch-plan.md",
+      sourceTitle: "Local plan runway",
+      sourceType: "local_file",
+      tmuxSession: `combo-chen-${id}`,
+      worktree: join(repoDir, ".worktrees", id),
+    });
+  });
+
+  it("blocks an issue overture when the target repo origin cannot be confirmed", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
+          return { status: 2, stdout: "", stderr: "error: No such remote 'origin'\n" };
+        }
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /repo_matches_issue.*origin unavailable/,
+    );
+
+    expect(out).toContain("X repo_matches_issue: origin origin unavailable: error: No such remote 'origin'");
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "repo_matches_issue",
+      status: "failed",
+      resource: "origin",
+      detail: "origin unavailable: error: No such remote 'origin'",
+    });
+  });
+
   it("creates the record, the runner script, the tmux session, and the birth event", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -2088,7 +2241,6 @@ describe("run", () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
-    mkdirSync(worktree, { recursive: true });
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
@@ -2215,26 +2367,19 @@ exit 0
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
-  it("rolls back run state, worktree, and branch when config snapshot write fails", async () => {
+  it("blocks an occupied run dir before creating a worktree", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const runDir = runDirFor(h, "o-r-7");
     mkdirSync(join(runDir, CONFIG_SNAPSHOT_FILE), { recursive: true });
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow();
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/run_dir_free/);
 
-    const worktreeAddIndex = calls.findIndex(
-      (call) => call[0] === "git" && call.includes("worktree") && call.includes("add"),
-    );
-    const worktreeRemoveIndex = calls.findIndex(
-      (call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"),
-    );
-    const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
-    expect(worktreeAddIndex).toBeGreaterThan(-1);
-    expect(worktreeRemoveIndex).toBeGreaterThan(worktreeAddIndex);
-    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
-    expect(existsSync(runDir)).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("-D"))).toBe(false);
+    expect(existsSync(runDir)).toBe(true);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
   });
 
@@ -5259,6 +5404,257 @@ describe("run ordering and safety", () => {
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
   });
 
+  it("prints overture and blocks an existing local branch before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--list") return { status: 0, stdout: "combo/issue-7\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /branch.*combo\/issue-7.*exists locally/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain("X branch_free: combo/issue-7 already exists locally");
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "branch_free",
+      resource: "combo/issue-7",
+      status: "failed",
+      detail: "already exists locally",
+    });
+  });
+
+  it("prints overture and blocks an existing worktree path before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /worktree_free.*path already exists/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain(`X worktree_free: ${worktree} path already exists`);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "worktree_free",
+      resource: worktree,
+      status: "failed",
+      detail: "path already exists",
+    });
+  });
+
+  it("prints overture and blocks an existing tmux session before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session" && args.at(-1) === "combo-chen-o-r-7") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /tmux_session_free.*session already exists/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain("X tmux_session_free: combo-chen-o-r-7 session already exists");
+    expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "tmux_session_free",
+      resource: "combo-chen-o-r-7",
+      status: "failed",
+      detail: "session already exists",
+    });
+  });
+
+  it("blocks an active no-mistakes run for the derived branch before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: (args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        expect(cwd).toBe(repoDir);
+        if (args[0] === "status") return { status: 0, stdout: "daemon: running\n", stderr: "" };
+        expect(args).toEqual(["axi", "status"]);
+        return {
+          status: 0,
+          stdout: [
+            "run:",
+            "  id: \"01KV-OLD\"",
+            "  branch: combo/issue-7",
+            "  status: running",
+            "  worktree: /repos/r/.worktrees/issue-7",
+            "  steps[1]{step,status,findings,duration_ms}:",
+            "    ci,running,0,0",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /no_mistakes_run_free.*combo\/issue-7/,
+    );
+
+    expect(out).toContain("X no_mistakes_run_free: combo/issue-7 active no-mistakes run is running");
+    expect(calls).toContainEqual(["no-mistakes", `cwd=${repoDir}`, "status"]);
+    expect(calls).toContainEqual(["no-mistakes", `cwd=${repoDir}`, "axi", "status"]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: { noMistakes?: { branch?: string; status?: string; worktree?: string } };
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.resources.noMistakes).toMatchObject({
+      branch: "combo/issue-7",
+      status: "running",
+      worktree: "/repos/r/.worktrees/issue-7",
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "no_mistakes_run_free",
+      resource: "combo/issue-7",
+      status: "failed",
+      detail: "active no-mistakes run is running",
+    });
+  });
+
+  it("blocks an active no-mistakes run for the same worktree even when its branch differs", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: (args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        if (args[0] === "status") return { status: 0, stdout: "daemon: running\n", stderr: "" };
+        return {
+          status: 0,
+          stdout: [
+            "run:",
+            "  id: \"01KV-OLD\"",
+            "  branch: combo/sibling-branch",
+            "  status: running",
+            `      worktree: "${worktree}"`,
+            "  steps[1]{step,status,findings,duration_ms}:",
+            "    ci,running,0,0",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /no_mistakes_run_free.*issue-7/,
+    );
+
+    expect(out).toContain(`X no_mistakes_run_free: ${worktree} active no-mistakes run is running`);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: { noMistakes?: { branch?: string; status?: string; worktree?: string } };
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.resources.noMistakes).toMatchObject({
+      branch: "combo/sibling-branch",
+      status: "running",
+      worktree,
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "no_mistakes_run_free",
+      resource: worktree,
+      status: "failed",
+      detail: "active no-mistakes run is running",
+    });
+  });
+
+  it("blocks a non-origin base ref that cannot be resolved locally before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "rev-parse" && args[1] === "--verify") {
+          return { status: 128, stdout: "", stderr: "fatal: Needed a single revision\n" };
+        }
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(
+      exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir, "--base", "feature/missing"]),
+    ).rejects.toThrow(/base_ref_resolved.*feature\/missing/);
+
+    expect(out).toContain(
+      "X base_ref_resolved: feature/missing git rev-parse --verify feature/missing failed: fatal: Needed a single revision",
+    );
+    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "rev-parse", "--verify", "feature/missing"]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "base_ref_resolved",
+      resource: "feature/missing",
+      status: "failed",
+      detail: "git rev-parse --verify feature/missing failed: fatal: Needed a single revision",
+    });
+  });
+
   it("refuses to launch from a non-main source checkout before creating the worktree", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -5320,7 +5716,8 @@ describe("run ordering and safety", () => {
 
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
-    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "overture.json"))).toBe(true);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
   it("rejects an unsafe reviewer command before creating a worktree or tmux session", async () => {
@@ -5338,7 +5735,8 @@ describe("run ordering and safety", () => {
 
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
-    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "overture.json"))).toBe(true);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
   it("journals combo_created before the tmux session starts", async () => {
@@ -5361,31 +5759,134 @@ describe("run ordering and safety", () => {
     expect(journalAtSessionStart).toEqual(["combo_created"]);
   });
 
-  it("refuses a repo whose origin does not match the issue's owner/repo", async () => {
-    const { deps } = fakeDeps({
-      git: (args) =>
-        args[0] === "remote"
-          ? { status: 0, stdout: "git@github.com:someone/else.git\n", stderr: "" }
-          : { status: 0, stdout: "", stderr: "" },
+  it("prints overture and blocks a repo origin mismatch before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const mismatchedOrigin = "git@github.com:someone/else.git";
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
+          return { status: 0, stdout: `${mismatchedOrigin}\n`, stderr: "" };
+        }
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
     });
 
-    await expect(
-      exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
-    ).rejects.toThrow(/origin/i);
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /repo_matches_issue.*someone\/else/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain(
+      `X repo_matches_issue: ${mismatchedOrigin} origin mismatch; issue belongs to o/r`,
+    );
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "repo_matches_issue",
+      resource: mismatchedOrigin,
+      status: "failed",
+      detail: "origin mismatch; issue belongs to o/r",
+    });
   });
 
   it("refuses an origin that merely contains the issue's owner/repo as a prefix", async () => {
     // o/r-fork contains "o/r"; only exact slug equality may pass the guard.
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const origin = "git@github.com:o/r-fork.git";
     const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
       git: (args) =>
         args[0] === "remote"
-          ? { status: 0, stdout: "git@github.com:o/r-fork.git\n", stderr: "" }
+          ? { status: 0, stdout: `${origin}\n`, stderr: "" }
           : { status: 0, stdout: "", stderr: "" },
     });
 
-    await expect(
-      exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
-    ).rejects.toThrow(/origin/i);
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/origin/i);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "repo_matches_issue",
+      resource: origin,
+      status: "failed",
+      detail: "origin mismatch; issue belongs to o/r",
+    });
+  });
+
+  it("rolls back the run dir, the worktree, and the branch when config snapshot write fails", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    const snapshotPath = join(runDir, CONFIG_SNAPSHOT_FILE);
+    const teardownSnapshots: Array<{ step: string; runDirExists: boolean; comboExists: boolean }> = [];
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "worktree" && args[1] === "add") {
+          mkdirSync(snapshotPath, { recursive: true });
+        }
+        if (args[0] === "worktree" && args[1] === "remove") {
+          teardownSnapshots.push({
+            step: "worktree-remove",
+            runDirExists: existsSync(runDir),
+            comboExists: existsSync(join(runDir, "combo.json")),
+          });
+        }
+        if (args[0] === "branch" && args[1] === "-D") {
+          teardownSnapshots.push({
+            step: "branch-delete",
+            runDirExists: existsSync(runDir),
+            comboExists: existsSync(join(runDir, "combo.json")),
+          });
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(CONFIG_SNAPSHOT_FILE);
+
+    const worktreeAddIndex = calls.findIndex((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"));
+    const worktreeRemoveIndex = calls.findIndex(
+      (c) => c[0] === "git" && c.includes("worktree") && c.includes("remove"),
+    );
+    const branchDeleteIndex = calls.findIndex((c) => c[0] === "git" && c.includes("branch") && c.includes("-D"));
+    expect(worktreeAddIndex).toBeGreaterThan(-1);
+    expect(calls[worktreeRemoveIndex]).toEqual([
+      "git",
+      `cwd=${repoDir}`,
+      "worktree",
+      "remove",
+      "--force",
+      join(repoDir, ".worktrees", "issue-7"),
+    ]);
+    expect(calls[branchDeleteIndex]).toEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
+    expect(worktreeRemoveIndex).toBeGreaterThan(worktreeAddIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(teardownSnapshots).toEqual([
+      { step: "worktree-remove", runDirExists: false, comboExists: false },
+      { step: "branch-delete", runDirExists: false, comboExists: false },
+    ]);
+    expect(existsSync(runDir)).toBe(false);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
   });
 
   it("rolls back the run dir, the worktree, and the branch when tmux fails to start the session", async () => {
