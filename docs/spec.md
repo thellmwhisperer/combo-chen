@@ -225,10 +225,13 @@ ignored config or environment outside that file.
 
 - Default: human merges. Always.
   - **Merged:** The combo journals `merged` (fields: `sha`=merge commit oid,
-    `by`, optional `mergedAt`=GitHub PR merge timestamp, optional `source`),
-    verifies the merge commit is in the base branch,
-    removes the local worktree and branch, then journals `combo_closed`
-    (fields: optional `source`). The remote branch is left alone by default.
+    `by`, optional `mergedAt`=GitHub PR merge timestamp, optional `source`).
+    A `merged` event records the GitHub fact but is not resource convergence;
+    until `combo_closed` appears, `status` reports the combo as
+    `closure_pending`. Closure verifies the merge commit is in the base
+    branch, removes the local worktree and branch, then journals
+    `combo_closed` (fields: optional `source`). The remote branch is left
+    alone by default.
     When `source` is `"closure"`, the event was synthesized by the explicit
     `combo-chen closure -n <combo-id>` convergence command. When `source` is
     `"reconcile"`, the event was synthesized from GitHub PR state during a
@@ -320,12 +323,14 @@ ignored config or environment outside that file.
   `worker_stalled`.
 - Attention surface: tmux window titles + default `combo-chen status` always
   answer "which combos need a human RIGHT NOW" (phase + needs_human flag).
-  Before rendering, status quietly reconciles non-terminal journals whose PR is
-  already merged or closed on GitHub. If a non-terminal combo has no tmux
-  session and is not parked, status journals `needs_human reason=tmux_missing`
-  so the row remains visible as stale. Parked combos are exempt from this check
-  because the missing session is expected. Terminal historical rows are hidden
-  unless the operator passes `status --all`.
+  Before rendering, status quietly reconciles closed PRs into the human-salvage
+  terminal state. For merged PRs it records the GitHub merge fact, then leaves
+  resources untouched and keeps the row visible as `closure_pending` until
+  `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
+  combo has no tmux session and is not parked, status journals `needs_human
+  reason=tmux_missing` so the row remains visible as stale. Parked combos are
+  exempt from this check because the missing session is expected. Terminal
+  historical rows are hidden unless the operator passes `status --all`.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
@@ -354,7 +359,9 @@ ignored config or environment outside that file.
     count as success. For closed PRs, it appends `needs_human reason=pr_closed`
     plus `combo_closed` and stops tmux while preserving the local worktree and
     branch. Without `--apply` it reports what would change without mutating
-    state.
+    state. The `status` command uses reconcile in a status-only mode for merged
+    PRs: it can record the missing `merged` fact, but it does not run teardown
+    or append `combo_closed`.
 
 ## 8a. Release artifact contract
 

@@ -562,12 +562,12 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("status")
-    .description("Show combo status; auto-resolves terminal merged/closed combos (tears down merged, closes closed; kills tmux sessions)")
+    .description("Show combo status; marks merged combos closure-pending and auto-closes closed PR salvage cases")
     .option("--deep", "Probe downstream no-mistakes state")
     .option("--all", "Include terminal historical combos", false)
     .action(async (options: { deep?: boolean; all?: boolean }) => {
       const home = comboHome(deps.env);
-      await reconcileCombos({ deps, home, apply: true, quiet: true });
+      await reconcileCombos({ deps, home, apply: true, quiet: true, mergedTeardown: false });
       const combos = listCombos(home);
       if (combos.length === 0) {
         deps.out("no combos. start one: combo-chen run --issue <url> (or --plan <file>)");

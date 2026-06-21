@@ -3082,7 +3082,7 @@ describe("status", () => {
     expect(out).toEqual(["no actionable combos. show history: combo-chen status --all"]);
   });
 
-  it("reconciles merged and closed PRs before rendering default status", async () => {
+  it("reports merged PRs as closure pending while preserving closed-PR salvage", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const mergedDir = runDirFor(h, "o-r-merged");
@@ -3139,20 +3139,41 @@ describe("status", () => {
 
     await exec(deps, ["status"]);
 
-    expect(out).toEqual(["no actionable combos. show history: combo-chen status --all"]);
+    const text = out.join("\n");
+    expect(text).toContain("COMBO");
+    expect(text).toContain("o-r-merged");
+    expect(text).toContain("STALLED");
+    expect(text).toContain("closure_pending");
+    expect(text).not.toContain("o-r-closed");
     expect(readEvents(mergedDir)).toMatchObject([
       { event: "pr_opened", url: "https://github.com/o/r/pull/8" },
       { event: "merged", sha: "merge888", by: "maintainer", source: "reconcile" },
-      { event: "combo_closed", source: "reconcile" },
     ]);
+    expect(readEvents(mergedDir).some((event) => event.event === "combo_closed")).toBe(false);
     expect(readEvents(closedDir)).toMatchObject([
       { event: "pr_opened", url: "https://github.com/o/r/pull/9" },
       { event: "needs_human", reason: "pr_closed", source: "reconcile" },
       { event: "combo_closed", source: "reconcile" },
     ]);
-    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-merged"]);
+    expect(calls).not.toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-merged"]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-closed"]);
-    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "worktree", "remove", "--force", join(repoDir, ".worktrees", "issue-8")]);
+    expect(calls).not.toContainEqual([
+      "git",
+      `cwd=${repoDir}`,
+      "worktree",
+      "remove",
+      "--force",
+      join(repoDir, ".worktrees", "issue-8"),
+    ]);
+    expect(
+      calls.some(
+        (call) =>
+          call[0] === "git" &&
+          call[2] === "branch" &&
+          call[3] === "-D" &&
+          call[4] === "combo/issue-8",
+      ),
+    ).toBe(false);
     expect(calls.some((call) => call[0] === "git" && call.includes(join(repoDir, ".worktrees", "issue-9")))).toBe(false);
     expect(
       calls.some(

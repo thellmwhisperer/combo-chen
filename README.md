@@ -258,9 +258,10 @@ combo-chen stop -n <combo-id>
 
 - `status` shows actionable live combos by default. Add `--all` to include
   terminal historical rows, and `--deep` to compare the journal with downstream
-  GitHub and gatekeeper state. Before rendering, `status` quietly reconciles
-  non-terminal journals whose PR is already merged or closed on GitHub, then
-  hides those repaired terminal rows from the default view. If a non-terminal
+  GitHub and gatekeeper state. Before rendering, `status` quietly closes
+  closed-PR salvage cases. For merged PRs it records the merge fact, leaves
+  resources untouched, and keeps the row visible as `closure_pending` until
+  `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
   combo no longer has its tmux session, status journals `tmux_missing` so it is
   shown as needing human attention instead of looking supervised.
 - `park` writes a local handoff and stops tmux without making the combo
