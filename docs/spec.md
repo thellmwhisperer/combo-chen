@@ -106,7 +106,8 @@ rebase failure journals
 transition the combo immediately to `STALLED`.
 
 A terminal coder failure (non-zero exit) journals `coder_failed` (required
-fields: `exit_code`, `has_new_commits`). The runner captures the git HEAD
+fields: `exit_code`, `has_new_commits`). An empty or non-numeric exit code
+is sanitized to 1 before journaling. The runner captures the git HEAD
 before and after the coder run: `base_sha`, `head_sha`, and
 `new_commit_count` quantify what — if anything — the coder committed before
 failing. `coder_failed` transitions the combo immediately to `STALLED`.
@@ -352,7 +353,7 @@ ignored config or environment outside that file.
   global attach, so simultaneous combos cannot render each other's run. On
   `gate_started` the emit handler recreates the gatekeeper window so the live
   role window is visible when no-mistakes becomes active. The coder window
-  includes a short (12-line) journal pane showing live events. After PR open,
+  streams live coder stdout/stderr and includes a short (12-line) journal pane showing live events. After PR open,
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
 - The journal is an append-only JSONL spine per combo run. Each combo run
