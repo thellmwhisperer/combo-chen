@@ -330,6 +330,7 @@ fi`;
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
 coder_log="$(dirname "$0")/coder.log"
+coder_status="$(dirname "$0")/coder.exit"
 gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
 rebase_log="$(dirname "$0")/rebase.log"
@@ -344,12 +345,20 @@ coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 ${emit} coder_started
 
-if (
-  ${coderCommand}
-) < /dev/null > "$coder_log" 2>&1; then
+rm -f "$coder_status"
+(
+  coder_code=0
+  (
+    ${coderCommand}
+  ) || coder_code=$?
+  printf '%s\\n' "$coder_code" > "$coder_status"
+) < /dev/null 2>&1 | tee "$coder_log"
+code=$(cat "$coder_status" 2>/dev/null || printf '1')
+rm -f "$coder_status"
+
+if [ "$code" -eq 0 ]; then
   ${emit} coder_done
 else
-  code=$?
   coder_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
   new_commit_count=0
   if [ -n "$coder_base_sha" ] && [ -n "$coder_head_sha" ]; then
