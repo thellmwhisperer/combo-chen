@@ -2,7 +2,7 @@
  * @overview Reviewer adapter: renders the configured reviewer command with
  *   PR facts and the frozen review contract. The loop mechanics live in the
  *   orchestrator; this module owns what a reviewer session is told to do.
- *   ~130 lines, 8 exports.
+ *   ~135 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -88,6 +88,9 @@ export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
     ...(workPlanContext === undefined ? [] : [workPlanContext]),
     "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
     "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
+    "Every review body must include exactly one machine-readable verdict block:",
+    "combo-chen-reviewer-verdict:\nhead: <current PR head SHA>\ncode: <0|1|2|3>",
+    "Verdict codes: 0 = OK, current-head LGTM; 1 = mechanical fix required; 2 = ambiguous or intent-sensitive; 3 = needs human.",
     'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',
     "On a new push, treat any earlier LGTM as stale and re-review only the delta since the last reviewed SHA.",
     "If anything is intent-touching, emit needs_human instead of deciding product intent.",

@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the reviewer role. ~72 lines, testing
+ * @overview Unit tests for the reviewer role. ~120 lines, testing
  *   the default reviewer prompt contract (COMMENT-only, never-APPROVE,
  *   lgtm convention, reviewer!=coder rule), shell-safe review submission,
  *   reviewer instructions, and reviewer invocation command rendering.
@@ -59,6 +59,19 @@ describe("defaultReviewerPrompt", () => {
     expect(prompt).toContain("--comment --body");
     expect(prompt).toContain("Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||");
     expect(prompt).toContain("one plain command per tool call");
+  });
+
+  it("requires one machine-readable reviewer verdict block with routing codes", () => {
+    const prompt = defaultReviewerPrompt({ combo, prUrl, reviewerInstructions });
+
+    expect(prompt).toContain("combo-chen-reviewer-verdict:");
+    expect(prompt).toContain("head: <current PR head SHA>");
+    expect(prompt).toContain("code: <0|1|2|3>");
+    expect(prompt).toContain("0 = OK, current-head LGTM");
+    expect(prompt).toContain("1 = mechanical fix required");
+    expect(prompt).toContain("2 = ambiguous or intent-sensitive");
+    expect(prompt).toContain("3 = needs human");
+    expect(prompt).toContain("exactly one");
   });
 
 });
