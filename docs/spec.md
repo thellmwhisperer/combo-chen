@@ -335,9 +335,11 @@ ignored config or environment outside that file.
     resource convergence command. It reads the persisted combo record, latest
     `pr_opened` event, and GitHub PR facts; it refuses teardown unless GitHub
     reports `MERGED`; then it records any missing `merged` event with
-    `source: "closure"`, removes the local worktree and branch, kills the tmux
-    session, and records `combo_closed` with `source: "closure"`. Existing
-    `combo_closed` events are treated as already converged.
+    `source: "closure"`, refuses resource teardown while no-mistakes still
+    reports an active or awaiting run for the combo branch, removes the local
+    worktree and branch, kills the tmux session, and records `combo_closed`
+    with `source: "closure"`. Existing `combo_closed` events are treated as
+    already converged.
 -   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
     pass that compares every persisted
     combo journal against GitHub PR state. When `-n <combo-id>` is provided,

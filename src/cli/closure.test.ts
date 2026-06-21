@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for deterministic merged-combo closure. ~150 lines,
+ * @overview Unit tests for deterministic merged-combo closure. ~215 lines,
  *   command-level post-merge convergence.
  *
  *   READING GUIDE
@@ -22,7 +22,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./closure
  */
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -88,6 +88,10 @@ function fakeDeps(overrides: Partial<ClosureDeps> = {}): { deps: ClosureDeps; ca
       sleep: (ms) => {
         calls.push(["sleep", String(ms)]);
         return Promise.resolve();
+      },
+      noMistakes: (args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        return { status: 1, stdout: "", stderr: "No active run." };
       },
       ...overrides,
     },
@@ -170,6 +174,42 @@ describe("closeMergedCombo", () => {
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "tmux")).toBe(false);
     expect(out).toEqual(["closure: o-r-7 refused: GitHub PR state is OPEN (expected MERGED)"]);
+  });
+
+  it("refuses resource teardown while no-mistakes still has an active run for the combo branch", async () => {
+    const h = home();
+    const { runDir, worktree } = writeTestCombo(h);
+    mkdirSync(worktree, { recursive: true });
+    const { deps, calls, out } = fakeDeps({
+      noMistakes: (args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        return {
+          status: 0,
+          stdout: [
+            "run:",
+            "  branch: combo/issue-7",
+            "  status: running",
+            "  steps[1]{step,status,findings,duration_ms}:",
+            "    test,running,0,0",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    });
+
+    await closeMergedCombo({ deps, home: h, comboId: "o-r-7" });
+
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+    ]);
+    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
+    expect(calls).toContainEqual(["no-mistakes", `cwd=${worktree}`, "axi", "status"]);
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux")).toBe(false);
+    expect(out).toEqual([
+      "closure: o-r-7 refused: no-mistakes active run remains for combo/issue-7 (no-mistakes running test)",
+    ]);
   });
 });
 // -/ 2/2

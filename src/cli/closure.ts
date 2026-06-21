@@ -1,5 +1,5 @@
 /**
- * @overview Deterministic post-merge closure for one combo. ~155 lines,
+ * @overview Deterministic post-merge closure for one combo. ~180 lines,
  *   GitHub-confirmed merged teardown and terminal journaling.
  *
  *   READING GUIDE
@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   combo id -> latest pr_opened -> gh pr view MERGED -> merged event -> teardown -> tmux kill -> combo_closed
+ *   combo id -> latest pr_opened -> gh pr view MERGED -> merged event -> no-mistakes idle -> teardown -> tmux kill -> combo_closed
  *
  *   PUBLIC API
  *   ----------
@@ -18,10 +18,10 @@
  *
  *   INTERNALS
  *   ---------
- *   readPrViewForClosure, report
+ *   readPrViewForClosure, activeNoMistakesConflict, report
  *
  * @exports ClosureDeps, closeMergedCombo
- * @deps ../core/{events,state}, ../infra/config-snapshot, ./github, ./lifecycle, ./reviewer, ./sessions
+ * @deps ../core/{events,state}, ../infra/config-snapshot, ./github, ./lifecycle, ./reviewer, ./sessions, ./status
  */
 import { appendEvent, readEvents } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
@@ -31,6 +31,7 @@ import { parsePrView, type GhResult, type PrView } from "./github.js";
 import { teardownMergedCombo } from "./lifecycle.js";
 import { hasMergedEvent, latestOpenedPrUrl, terminalReviewerEvent } from "./reviewer.js";
 import { killComboSession } from "./sessions.js";
+import { deepNoMistakesStatus, type CommandResult } from "./status.js";
 
 // -- 1/3 HELPER · Dependency contract --
 export interface ClosureDeps {
@@ -39,6 +40,7 @@ export interface ClosureDeps {
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => GhResult;
+  noMistakes: (args: string[], cwd: string) => CommandResult;
   sleep: (ms: number) => Promise<void>;
 }
 
@@ -95,6 +97,14 @@ export async function closeMergedCombo(input: {
     });
   }
 
+  const noMistakesConflict = activeNoMistakesConflict(input.deps, combo);
+  if (noMistakesConflict !== undefined) {
+    input.deps.out(
+      `closure: ${combo.id} refused: no-mistakes active run remains for ${combo.branch} (${noMistakesConflict})`,
+    );
+    return;
+  }
+
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: input.deps.env });
   await teardownMergedCombo({
     deps: input.deps,
@@ -130,6 +140,16 @@ function readPrViewForClosure(deps: ClosureDeps, combo: ComboRecord, prUrl: stri
       `closure: ${combo.id} refused: failed to parse PR data: ` +
         `${error instanceof Error ? error.message : String(error)}`,
     );
+    return undefined;
+  }
+}
+
+function activeNoMistakesConflict(deps: ClosureDeps, combo: ComboRecord): string | undefined {
+  try {
+    const status = deepNoMistakesStatus(combo, deps.noMistakes);
+    if (status === undefined || status.startsWith("no-mistakes unavailable:")) return undefined;
+    return status;
+  } catch {
     return undefined;
   }
 }
