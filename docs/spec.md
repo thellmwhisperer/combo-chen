@@ -229,9 +229,10 @@ ignored config or environment outside that file.
     verifies the merge commit is in the base branch,
     removes the local worktree and branch, then journals `combo_closed`
     (fields: optional `source`). The remote branch is left alone by default.
-    When `source` is `"reconcile"`, the event was synthesized from GitHub PR
-    state during a frozen journal repair pass, not observed live by the
-    director loop.
+    When `source` is `"closure"`, the event was synthesized by the explicit
+    `combo-chen closure -n <combo-id>` convergence command. When `source` is
+    `"reconcile"`, the event was synthesized from GitHub PR state during a
+    frozen journal repair pass, not observed live by the director loop.
   - **Closed without merge:** The combo journals `needs_human` (fields:
     `reason`=`"pr_closed"`), then `combo_closed`. The reviewer stops the tmux
     session but does NOT remove the worktree or local branch, preserving
@@ -330,7 +331,15 @@ ignored config or environment outside that file.
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
--   `combo-chen reconcile [-n <combo-id>] [--apply]` compares every persisted
+-   `combo-chen closure -n <combo-id>` is the canonical merged happy-path
+    resource convergence command. It reads the persisted combo record, latest
+    `pr_opened` event, and GitHub PR facts; it refuses teardown unless GitHub
+    reports `MERGED`; then it records any missing `merged` event with
+    `source: "closure"`, removes the local worktree and branch, kills the tmux
+    session, and records `combo_closed` with `source: "closure"`. Existing
+    `combo_closed` events are treated as already converged.
+-   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
+    pass that compares every persisted
     combo journal against GitHub PR state. When `-n <combo-id>` is provided,
     only that single combo is reconciled. For merged PRs whose journal froze
     before the director could record `merged`/`combo_closed`, it appends the
@@ -436,7 +445,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
 3. **v0 scope as proposed**:
-   `run`/`attach`/`status`/`park`/`resume`/`stop`/`events`/`forensics`/`reconcile`/`activate-reviewer`,
+   `run`/`attach`/`status`/`park`/`resume`/`stop`/`events`/`forensics`/`closure`/`reconcile`/`activate-reviewer`,
    coder (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental
    re-review), director-owned tmux poll loop; manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo dashboard deferred to v1+.

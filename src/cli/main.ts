@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~930 lines, 19 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~950 lines, 20 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,crypto,fs,path,url},
  *   ../core/{combo,events,state,work-plan}, ../infra/{config,config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper,reviewer},
- *   ./args, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./director, ./forensics, ./gate, ./github, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -89,6 +89,7 @@ import {
 import { buildCoderInvocation, defaultWorkPlanPrompt, persistCoderThreadArtifact } from "../roles/coder.js";
 import { assertReviewerCommandSafe } from "../roles/reviewer.js";
 import { parseEventFields } from "./args.js";
+import { closeMergedCombo } from "./closure.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
 import { tickDirector } from "./director.js";
 import { analyzeForensicsCombo, renderForensicsMarkdown } from "./forensics.js";
@@ -518,6 +519,18 @@ export function createProgram(deps: Deps): Command {
         if (maxTicks !== undefined && ticks >= maxTicks) break;
         await deps.sleep(config.limits.babysitPollSeconds * 1000);
       }
+    });
+
+  program
+    .command("closure")
+    .description("Converge one GitHub-merged combo's terminal journal and local resources")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .action(async (options: { name: string }) => {
+      await closeMergedCombo({
+        deps,
+        home: comboHome(deps.env),
+        comboId: options.name,
+      });
     });
 
   program

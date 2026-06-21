@@ -159,6 +159,7 @@ describe("command surface", () => {
         "activate-coder",
         "activate-reviewer",
         "attach",
+        "closure",
         "director-tick",
         "director-watch",
         "emit",
@@ -1743,6 +1744,51 @@ describe("emit", () => {
 });
 
 // -/ 2/4
+
+describe("closure", () => {
+  it("closes the named combo through the CLI command", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "head777",
+            state: "MERGED",
+            baseRefName: "main",
+            mergeCommit: { oid: "merge777" },
+            mergedBy: { login: "maintainer" },
+          }),
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["closure", "-n", "o-r-7"]);
+
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+      { event: "combo_closed", source: "closure" },
+    ]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    expect(out).toEqual(["closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete"]);
+  });
+});
 
 describe("reconcile", () => {
   it("scopes -n repairs to one combo", async () => {
