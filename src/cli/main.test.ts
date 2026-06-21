@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~5600 lines.
+ *   deps so tests run without a real terminal or network. ~5900 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -5801,6 +5801,66 @@ describe("run ordering and safety", () => {
     await expect(
       exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
     ).rejects.toThrow(/origin/i);
+  });
+
+  it("rolls back the run dir, the worktree, and the branch when config snapshot write fails", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    const snapshotPath = join(runDir, CONFIG_SNAPSHOT_FILE);
+    const teardownSnapshots: Array<{ step: string; runDirExists: boolean; comboExists: boolean }> = [];
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "worktree" && args[1] === "add") {
+          mkdirSync(snapshotPath, { recursive: true });
+        }
+        if (args[0] === "worktree" && args[1] === "remove") {
+          teardownSnapshots.push({
+            step: "worktree-remove",
+            runDirExists: existsSync(runDir),
+            comboExists: existsSync(join(runDir, "combo.json")),
+          });
+        }
+        if (args[0] === "branch" && args[1] === "-D") {
+          teardownSnapshots.push({
+            step: "branch-delete",
+            runDirExists: existsSync(runDir),
+            comboExists: existsSync(join(runDir, "combo.json")),
+          });
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(CONFIG_SNAPSHOT_FILE);
+
+    const worktreeAddIndex = calls.findIndex((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"));
+    const worktreeRemoveIndex = calls.findIndex(
+      (c) => c[0] === "git" && c.includes("worktree") && c.includes("remove"),
+    );
+    const branchDeleteIndex = calls.findIndex((c) => c[0] === "git" && c.includes("branch") && c.includes("-D"));
+    expect(worktreeAddIndex).toBeGreaterThan(-1);
+    expect(calls[worktreeRemoveIndex]).toEqual([
+      "git",
+      `cwd=${repoDir}`,
+      "worktree",
+      "remove",
+      "--force",
+      join(repoDir, ".worktrees", "issue-7"),
+    ]);
+    expect(calls[branchDeleteIndex]).toEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
+    expect(worktreeRemoveIndex).toBeGreaterThan(worktreeAddIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(teardownSnapshots).toEqual([
+      { step: "worktree-remove", runDirExists: false, comboExists: false },
+      { step: "branch-delete", runDirExists: false, comboExists: false },
+    ]);
+    expect(existsSync(runDir)).toBe(false);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
   });
 
   it("rolls back the run dir, the worktree, and the branch when tmux fails to start the session", async () => {
