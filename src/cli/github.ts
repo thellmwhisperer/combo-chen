@@ -163,11 +163,10 @@ function loginFromItem(entry: object): string | undefined {
   return typeof login === "string" && login.trim().length > 0 ? login : undefined;
 }
 
-function authorAllowed(entry: object, options: LatestReviewerSignalOptions): boolean {
-  if (options.allowedAuthors === undefined) return true;
-  const allowedAuthors = new Set(options.allowedAuthors.map((author) => author.toLowerCase()));
+function authorAllowed(entry: object, allowedAuthorsSet: Set<string> | undefined): boolean {
+  if (allowedAuthorsSet === undefined) return true;
   const author = loginFromItem(entry);
-  return author !== undefined && allowedAuthors.has(author.toLowerCase());
+  return author !== undefined && allowedAuthorsSet.has(author.toLowerCase());
 }
 
 function timestampFromItem(entry: object): number {
@@ -183,9 +182,12 @@ function timestampFromItem(entry: object): number {
 }
 
 function validReviewerEntries(entries: unknown[], options: LatestReviewerSignalOptions): object[] {
+  const allowedAuthorsSet = options.allowedAuthors
+    ? new Set(options.allowedAuthors.map((author) => author.toLowerCase()))
+    : undefined;
   return entries.filter((entry): entry is object => {
     if (typeof entry !== "object" || entry === null) return false;
-    return authorAllowed(entry, options);
+    return authorAllowed(entry, allowedAuthorsSet);
   });
 }
 

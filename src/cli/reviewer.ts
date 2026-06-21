@@ -228,13 +228,14 @@ export async function tickReviewer(input: {
       nudgeReviewComments({ deps, home, comboId, ghApiCache });
       return;
     }
-    if (reviewerVerdict?.code === 2) {
+    if (reviewerVerdict?.code === 2 && !events.some((e) => e.event === "director_prompted" && e["sha"] === headSha)) {
       try {
         promptDirector({
           deps,
           home,
           comboId,
           reason: "reviewer_verdict_code_2",
+          sha: headSha,
           message: [
             `Reviewer verdict code 2 reported ambiguous or intent-sensitive work at current head ${headSha}.`,
             `PR: ${prUrl}`,
@@ -250,7 +251,7 @@ export async function tickReviewer(input: {
       }
       return;
     }
-    if (reviewerVerdict?.code === 3) {
+    if (reviewerVerdict?.code === 3 && !events.some((e) => e.event === "needs_human" && e["sha"] === headSha)) {
       appendEvent(runDir, "needs_human", {
         reason: "reviewer_needs_human",
         sha: headSha,
@@ -265,7 +266,6 @@ export async function tickReviewer(input: {
         `failed to read reviewer verdicts for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
       ),
     );
-    return;
   }
 
   let githubPinnedSha: string | undefined;
