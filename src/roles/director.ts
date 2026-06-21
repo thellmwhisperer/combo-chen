@@ -1,6 +1,6 @@
 /**
  * @overview Director adapter: renders the persistent promptable director
- *   command used as the code-2 verdict target. ~55 lines, 3 exports.
+ *   command used as the code-2 verdict target. ~55 lines, 4 exports.
  *
  *   READING GUIDE
  *   -------------
@@ -11,7 +11,7 @@
  *   ---------
  *   cli launch/activate -> buildDirectorInvocation -> tmux director window
  *
- * @exports DirectorPromptInput, defaultDirectorPrompt, buildDirectorInvocation
+ * @exports DirectorPromptInput, DirectorInput, defaultDirectorPrompt, buildDirectorInvocation
  * @deps ../core/state, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";

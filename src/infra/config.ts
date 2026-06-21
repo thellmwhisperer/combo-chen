@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~730 lines, 12 exports.
+ *   Repo wins on policy, user wins on local setup. ~730 lines, 14 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -31,7 +31,7 @@
  *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
