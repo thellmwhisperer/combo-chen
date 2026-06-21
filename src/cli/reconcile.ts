@@ -30,7 +30,8 @@ import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { parsePrView, type GhResult, type PrView } from "./github.js";
 import { teardownMergedCombo } from "./lifecycle.js";
-import { hasMergedEvent, latestOpenedPrUrl, terminalReviewerEvent } from "./reviewer.js";
+import { hasMergedEvent, terminalReviewerEvent } from "./reviewer.js";
+import { readRuntimeLedger } from "../core/runtime-ledger.js";
 import { killComboSession } from "./sessions.js";
 
 // -- 1/3 HELPER · Dependency contracts --
@@ -100,7 +101,7 @@ async function reconcileCombo(input: {
     return { changed: false, reported: false };
   }
 
-  const prUrl = latestOpenedPrUrl(runDir);
+  const prUrl = readRuntimeLedger(runDir).prUrl;
   if (!prUrl) {
     return { changed: false, reported: false };
   }
