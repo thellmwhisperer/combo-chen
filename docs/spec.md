@@ -481,7 +481,50 @@ No network update or executable replacement behavior is part of this contract.
 The current system only defines, verifies, and publishes artifacts; future
 update code must verify `checksums.txt` before installing anything.
 
-## 8b. Preflight
+## 8b. Parallelize-first operating contract
+
+Parallel operation scales by waves, not by unbounded launch. Start with 2 live
+capsules, then 3, then 4 to 6 only after the previous wave has clean journal
+evidence, no unresolved ownership collisions, and no unexplained gate lease
+holds. Higher concurrency requires a new observed limit and a postmortem that
+justifies it.
+
+A capsule is the isolation boundary: each capsule keeps one branch, one
+worktree, one tmux session, and one runtime ledger. The director may supervise
+many capsules, but role boundaries do not collapse: coders leave local commits,
+the gatekeeper publishes, reviewers comment, and humans own merges and
+intent-changing decisions.
+
+The shared resource rule is publication-first: the shared gate lease serializes
+no-mistakes publication. Parallel coder and reviewer work can continue while
+another capsule owns the lease. A busy lease journals `gate_status queued`; a
+same-branch owner mismatch journals `needs_human reason=gate_lease_conflict`.
+No capsule starts a second no-mistakes publisher while another capsule owns the
+lease.
+
+Recovery playbook:
+
+- Parked combos resume through `combo-chen resume -n <combo-id>`; missing tmux is
+  expected for parked combos and must not be treated as drift.
+- Pre-PR coder stalls are diagnosed with `status --deep`, `forensics`, and pane
+  health signals. Resume or park the same capsule; do not launch a replacement
+  on the same branch.
+- Reviewer auth failures are configuration/auth problems. Restore the configured
+  reviewer GitHub login and rerun reviewer activation or prompt the reviewer;
+  do not mark the review current by hand.
+- Gate lease contention is resolved by waiting for the owner, inspecting the
+  `status` gate-lease column, or clearing stale/conflicting ownership through
+  the existing lease recovery path before retrying the gate.
+- Post-merge closure belongs to `combo-chen closure -n <combo-id>`. Watchers and
+  status may record the merge fact, but local resource removal waits for the
+  closure command.
+
+Every future parallel run should capture postmortem metadata: wave size,
+combo ids, branches, PR URLs, gate lease wait/conflict counts, reviewer auth
+incidents, parked/resumed capsules, closure outcomes, validation commands, and
+whether the wave-derived limit changed.
+
+## 8c. Preflight
 
 - The issue or work plan is the combo's spec: plan quality buys autonomous
   runtime. `combo-chen preflight --issue <url>` grades a GitHub issue
