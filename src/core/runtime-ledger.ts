@@ -1,38 +1,44 @@
 /**
- * @overview Runtime ledger persistence for a combo capsule. ~125 lines,
- *   6 exports, writes the machine-readable launch/resource artifact.
+ * @overview Runtime ledger persistence for a combo capsule. ~205 lines,
+ *   10 exports, writes and updates the machine-readable resource artifact.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at buildRuntimeLedger     <- ComboRecord + run dir -> artifact shape.
- *   2. Then writeRuntimeLedger         <- filesystem persistence.
- *   3. Constants/types are support     <- stable filename and schema fields.
+ *   2. Then readRuntimeLedger          <- ledger-or-legacy fallback reader.
+ *   3. Then updateRuntimeLedger        <- merge newly discovered resources.
+ *   4. Constants/types are support     <- stable filename and schema fields.
  *
  *   MAIN FLOW
  *   ---------
- *   cli/main.ts run -> buildRuntimeLedger -> writeRuntimeLedger -> runtime-ledger.json
+ *   launch builds ledger -> write/read/update helpers keep runtime-ledger.json current
  *
  *   PUBLIC API
  *   ----------
  *   RUNTIME_LEDGER_FILE  Stable runtime ledger artifact filename.
  *   RuntimeLedger        Machine-readable capsule resources.
  *   RuntimeLedgerInput   Inputs for launch-time ledger construction.
+ *   RuntimeLedgerReadOptions Inputs for legacy fallback construction.
+ *   RuntimeLedgerUpdate  Patch of newly discovered runtime resources.
  *   RuntimeRoleWindows   Role window names recorded in the ledger.
  *   buildRuntimeLedger   Build a ledger from combo launch facts.
+ *   readRuntimeLedger    Read ledger or synthesize one from combo.json + journal.
+ *   updateRuntimeLedger  Merge resource updates and persist the ledger.
  *   writeRuntimeLedger   Persist the ledger under the run directory.
  *
  *   INTERNALS
  *   ---------
- *   runtimeLedgerPath, commandSet, workItemFacts, cleanRecord
+ *   runtimeLedgerPath, commandSet, workItemFacts, timestamp, cleanRecord
  *
- * @exports RUNTIME_LEDGER_FILE, RuntimeLedger, RuntimeLedgerInput, RuntimeRoleWindows, buildRuntimeLedger, writeRuntimeLedger
- * @deps node:{fs,path}, ./combo, ./state
+ * @exports RUNTIME_LEDGER_FILE, RuntimeLedger, RuntimeLedgerInput, RuntimeLedgerReadOptions, RuntimeLedgerUpdate, RuntimeRoleWindows, buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger
+ * @deps node:{fs,path}, ./combo, ./events, ./state
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { shellQuote } from "./combo.js";
-import { cleanOptional, type ComboRecord } from "./state.js";
+import { latestPrUrlFromEvents, readEvents } from "./events.js";
+import { cleanOptional, readCombo, type ComboRecord } from "./state.js";
 
 // -- 1/2 HELPER · Types and constants --
 export const RUNTIME_LEDGER_FILE = "runtime-ledger.json";
@@ -53,6 +59,17 @@ export interface RuntimeLedgerInput {
   promptTargets?: Record<string, string>;
   prUrl?: string;
   now?: () => string;
+}
+
+export interface RuntimeLedgerReadOptions {
+  cli?: string;
+  roleWindows?: RuntimeRoleWindows;
+  promptTargets?: Record<string, string>;
+  now?: () => string;
+}
+
+export interface RuntimeLedgerUpdate extends RuntimeLedgerReadOptions {
+  prUrl?: string;
 }
 
 export interface RuntimeLedger {
@@ -84,7 +101,7 @@ export interface RuntimeLedger {
 }
 // -/ 1/2
 
-// -- 2/2 CORE · buildRuntimeLedger + writeRuntimeLedger <- START HERE --
+// -- 2/2 CORE · build/read/update/write runtime ledger <- START HERE --
 export function buildRuntimeLedger(input: RuntimeLedgerInput): RuntimeLedger {
   const { combo, runDir } = input;
   const timestamp = input.now?.() ?? combo.createdAt;
@@ -118,6 +135,38 @@ export function writeRuntimeLedger(runDir: string, ledger: RuntimeLedger): void 
   writeFileSync(runtimeLedgerPath(runDir), `${JSON.stringify(ledger, null, 2)}\n`);
 }
 
+export function readRuntimeLedger(runDir: string, options: RuntimeLedgerReadOptions = {}): RuntimeLedger {
+  const path = runtimeLedgerPath(runDir);
+  if (existsSync(path)) {
+    return JSON.parse(readFileSync(path, "utf8")) as RuntimeLedger;
+  }
+  const combo = readCombo(runDir);
+  return buildRuntimeLedger({
+    combo,
+    runDir,
+    cli: options.cli ?? "combo-chen",
+    roleWindows: options.roleWindows,
+    promptTargets: options.promptTargets,
+    prUrl: latestPrUrlFromEvents(readEvents(runDir)),
+    now: options.now,
+  });
+}
+
+export function updateRuntimeLedger(runDir: string, update: RuntimeLedgerUpdate): RuntimeLedger {
+  const current = readRuntimeLedger(runDir, update);
+  const updated: RuntimeLedger = {
+    ...current,
+    roleWindows: cleanRecord({ ...current.roleWindows, ...update.roleWindows }),
+    ...(update.promptTargets !== undefined
+      ? { promptTargets: cleanRecord({ ...(current.promptTargets ?? {}), ...update.promptTargets }) }
+      : {}),
+    ...(update.prUrl !== undefined ? { prUrl: update.prUrl } : {}),
+    updatedAt: timestamp(update.now),
+  };
+  writeRuntimeLedger(runDir, updated);
+  return updated;
+}
+
 function runtimeLedgerPath(runDir: string): string {
   return join(runDir, RUNTIME_LEDGER_FILE);
 }
@@ -143,6 +192,10 @@ function workItemFacts(combo: ComboRecord): RuntimeLedger["workItem"] {
     ...(title !== undefined ? { title } : {}),
     ...(issueUrl !== undefined ? { issueUrl } : {}),
   };
+}
+
+function timestamp(now: (() => string) | undefined): string {
+  return now?.() ?? new Date().toISOString();
 }
 
 function cleanRecord(record: object): Record<string, string> {

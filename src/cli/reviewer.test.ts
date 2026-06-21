@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~650 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~700 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -20,14 +20,15 @@
  *   combo
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state,work-plan}, ../infra/{config,config-snapshot}, ./reviewer
+ * @deps vitest, node:{fs,os,path}, ../core/{events,runtime-ledger,state,work-plan}, ../infra/{config,config-snapshot}, ./reviewer
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
+import { RUNTIME_LEDGER_FILE } from "../core/runtime-ledger.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { normalizeGitHubIssueWorkPlan, normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
@@ -164,6 +165,15 @@ describe("activateReviewer", () => {
       "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
       "director-watch: polling combo hard signals every 120s",
     ]);
+    const ledger = JSON.parse(readFileSync(join(runDir, RUNTIME_LEDGER_FILE), "utf8")) as {
+      prUrl?: string;
+      roleWindows: Record<string, string>;
+    };
+    expect(ledger.prUrl).toBe("https://github.com/o/r/pull/7");
+    expect(ledger.roleWindows).toMatchObject({
+      reviewer: "reviewer",
+      directorWatch: "director-watch",
+    });
   });
 
   it("uses the launch config snapshot even when repo TOML changes before activation", () => {
