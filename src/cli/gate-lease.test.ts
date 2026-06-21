@@ -19,11 +19,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { readEvents } from "../core/events.js";
-import { acquireGateLease, readGateLease } from "../core/gate-lease.js";
-import { runDirFor, writeCombo } from "../core/state.js";
+import { acquireGateLease, readGateLease, releaseGateLease } from "../core/gate-lease.js";
+import { ComboStateError, runDirFor, writeCombo } from "../core/state.js";
 import {
   acquireGateLeaseForCombo,
   GATE_LEASE_BUSY_EXIT_CODE,
+  releaseGateLeaseForCombo,
 } from "./gate-lease.js";
 
 function home(): string {
@@ -77,6 +78,147 @@ describe("gate lease CLI actions", () => {
         lease_run_dir: currentRunDir,
       }),
     ]);
+  });
+
+  it("releases a lease owned by the calling combo", () => {
+    const h = home();
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    acquireGateLease({
+      home: h,
+      owner: {
+        comboId: "o-r-7",
+        branch: "combo/issue-7",
+        worktree: "/repos/r/.worktrees/issue-7",
+        runDir,
+        headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    });
+
+    const result = releaseGateLeaseForCombo({
+      home: h,
+      comboId: "o-r-7",
+      out: () => undefined,
+    });
+
+    expect(result).toEqual({ state: "released", exitCode: 0 });
+    expect(readGateLease(h)).toBeUndefined();
+  });
+
+  it("handles a missing lease without error", () => {
+    const h = home();
+
+    const result = releaseGateLeaseForCombo({
+      home: h,
+      comboId: "o-r-7",
+      out: () => undefined,
+    });
+
+    expect(result).toEqual({ state: "missing", exitCode: 0 });
+  });
+
+  it("reports not-owner when another combo owns the lease", () => {
+    const h = home();
+    const ownerDir = runDirFor(h, "o-r-1");
+    writeCombo(ownerDir, {
+      id: "o-r-1",
+      issueUrl: "https://github.com/o/r/issues/1",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-1",
+      branch: "combo/issue-1",
+      tmuxSession: "combo-chen-o-r-1",
+      createdAt: new Date().toISOString(),
+    });
+    acquireGateLease({
+      home: h,
+      owner: {
+        comboId: "o-r-1",
+        branch: "combo/issue-1",
+        worktree: "/repos/r/.worktrees/issue-1",
+        runDir: ownerDir,
+        headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    });
+
+    const notOwnerDir = runDirFor(h, "o-r-7");
+    writeCombo(notOwnerDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const result = releaseGateLeaseForCombo({
+      home: h,
+      comboId: "o-r-7",
+      out: () => undefined,
+    });
+
+    expect(result.state).toBe("not_owner");
+    expect(result.exitCode).toBe(0);
+    expect(readGateLease(h)?.comboId).toBe("o-r-1");
+  });
+
+  it("releases the lease even when the combo record is absent", () => {
+    const h = home();
+    acquireGateLease({
+      home: h,
+      owner: {
+        comboId: "o-r-7",
+        branch: "combo/issue-7",
+        worktree: "/repos/r/.worktrees/issue-7",
+        runDir: runDirFor(h, "o-r-7"),
+        headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    });
+
+    try {
+      readEvents(runDirFor(h, "o-r-7"));
+    } catch (error) {
+      expect(error).toBeInstanceOf(ComboStateError);
+    }
+
+    const result = releaseGateLeaseForCombo({
+      home: h,
+      comboId: "o-r-7",
+      out: () => undefined,
+    });
+
+    expect(result).toEqual({ state: "released", exitCode: 0 });
+    expect(readGateLease(h)).toBeUndefined();
+  });
+
+  it("handles not-owner release when combo record is absent", () => {
+    const h = home();
+    acquireGateLease({
+      home: h,
+      owner: {
+        comboId: "o-r-1",
+        branch: "combo/issue-1",
+        worktree: "/repos/r/.worktrees/issue-1",
+        runDir: runDirFor(h, "o-r-1"),
+        headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    });
+
+    const result = releaseGateLeaseForCombo({
+      home: h,
+      comboId: "o-r-7",
+      out: () => undefined,
+    });
+
+    expect(result.state).toBe("not_owner");
+    expect(readGateLease(h)?.comboId).toBe("o-r-1");
   });
 });
 // -/ 1/1
