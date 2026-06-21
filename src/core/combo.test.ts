@@ -235,6 +235,30 @@ describe("buildRunnerScript", () => {
     expect(activateReviewer).toBeGreaterThan(activateCoder);
   });
 
+  it("can guard the gatekeeper run with a shared gate lease", () => {
+    const leased = buildRunnerScript({
+      combo,
+      coderCommand: "true",
+      gatekeeperCommand: "no-mistakes axi run",
+      emit: "emit",
+      activateCoder: "activate-coder",
+      activateReviewer: "activate-reviewer",
+      gateLeaseAcquire: "combo-chen gate-lease acquire -n o-r-7",
+      gateLeaseRelease: "combo-chen gate-lease release -n o-r-7",
+    });
+
+    const acquire = leased.indexOf('combo-chen gate-lease acquire -n o-r-7 --head-sha "$gatekeeper_start_sha"');
+    const fixInflight = leased.indexOf("gate_status --field state=fix_inflight");
+    const gatekeeper = leased.indexOf("no-mistakes axi run");
+
+    expect(acquire).toBeGreaterThan(leased.indexOf("gatekeeper_start_sha=$(git rev-parse HEAD"));
+    expect(fixInflight).toBeGreaterThan(acquire);
+    expect(gatekeeper).toBeGreaterThan(fixInflight);
+    expect(leased).toContain('if [ "$gate_lease_code" -eq 75 ]; then exit 0; fi');
+    expect(leased).toContain('if [ "$gate_lease_code" -eq 76 ]; then exit 0; fi');
+    expect(leased).toContain("combo-chen gate-lease release -n o-r-7");
+  });
+
   it("emits lifecycle events with captured exit codes on failure", () => {
     expect(script).toContain("emit -n o-r-7 coder_started");
     expect(script).toContain("emit -n o-r-7 coder_done");

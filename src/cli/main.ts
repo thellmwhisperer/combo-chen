@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~890 lines, 21 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~890 lines, 22 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
- *   ./args, ./closure, ./coder, ./director, ./forensics, ./gate, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./director, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -96,6 +96,7 @@ import {
   startGatekeeperWindow,
   startInitialGateRetry,
 } from "./gate.js";
+import { acquireGateLeaseForCombo, releaseGateLeaseForCombo } from "./gate-lease.js";
 import { fetchForensicsGithubFacts, fetchIssueDetails } from "./github.js";
 import {
   assertOverturePassed,
@@ -297,6 +298,8 @@ export function createProgram(deps: Deps): Command {
         activateCoder: `${cliInvocation()} activate-coder -n ${quotedId}`,
         emit: `${cliInvocation()} emit -n ${quotedId}`,
         activateReviewer: `${cliInvocation()} activate-reviewer -n ${quotedId}`,
+        gateLeaseAcquire: `${cliInvocation()} gate-lease acquire -n ${quotedId}`,
+        gateLeaseRelease: `${cliInvocation()} gate-lease release -n ${quotedId}`,
       };
       if (issue !== undefined) {
         runnerInput.ensurePrAutoclose = `${cliInvocation()} ensure-pr-autoclose -n ${quotedId} --pr-url`;
@@ -724,6 +727,32 @@ export function createProgram(deps: Deps): Command {
       }
 
       deps.out(buildWorkPlanPrIntent(readPersistedWorkPlan(runDir, combo)));
+    });
+
+  program
+    .command("gate-lease", { hidden: true })
+    .description("Acquire or release the shared no-mistakes gate lease for generated scripts")
+    .argument("<action>", "acquire or release")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .option("--head-sha <sha>", "Current gate head SHA for acquire")
+    .action(async (action: string, options: { name: string; headSha?: string }) => {
+      const home = comboHome(deps.env);
+      const result = action === "acquire"
+        ? acquireGateLeaseForCombo({
+          home,
+          comboId: options.name,
+          headSha: options.headSha,
+          out: deps.out,
+        })
+        : action === "release"
+          ? releaseGateLeaseForCombo({
+            home,
+            comboId: options.name,
+            out: deps.out,
+          })
+          : undefined;
+      if (result === undefined) throw new Error("gate-lease action must be acquire or release");
+      if (result.exitCode !== 0) process.exitCode = result.exitCode;
     });
 
   program
