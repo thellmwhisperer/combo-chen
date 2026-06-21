@@ -27,6 +27,7 @@
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
+import { updateRuntimeLedger } from "../core/runtime-ledger.js";
 import { cleanOptional, runDirFor, readCombo, type ComboRecord } from "../core/state.js";
 import type { WorkPlan } from "../core/work-plan.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
@@ -123,6 +124,14 @@ export function activateReviewer(input: {
     );
   }
 
+  updateRuntimeLedger(runDir, {
+    cli,
+    prUrl,
+    roleWindows: {
+      reviewer: REVIEWER_WINDOW,
+      directorWatch: DIRECTOR_WATCH_WINDOW,
+    },
+  });
   deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
   deps.out(`${DIRECTOR_WATCH_WINDOW}: polling combo hard signals every ${config.limits.babysitPollSeconds}s`);
 }

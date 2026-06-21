@@ -46,7 +46,7 @@ import {
   type ComboEvent,
   type EventName,
 } from "../core/events.js";
-import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
+import { buildRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import {
   comboHome,
   describeWorkItem,
@@ -668,7 +668,19 @@ export function createProgram(deps: Deps): Command {
         const combo = readCombo(runDir);
         persistCoderThreadArtifact({ runDir, worktree: combo.worktree });
       }
-      appendEvent(runDir, event as EventName, parseEventFields(options.field));
+      const payload = parseEventFields(options.field);
+      appendEvent(runDir, event as EventName, payload);
+      if (canonicalEvent === "pr_opened" && typeof payload["url"] === "string") {
+        updateRuntimeLedger(runDir, {
+          cli: cliInvocation(),
+          prUrl: payload["url"],
+          roleWindows: {
+            coder: CODER_WINDOW,
+            gatekeeper: GATEKEEPER_WINDOW,
+            directorWatch: DIRECTOR_WATCH_WINDOW,
+          },
+        });
+      }
       if (canonicalEvent === "gate_started") {
         // The gatekeeper tmux window runs `no-mistakes attach`, which exits when
         // no active no-mistakes run exists — often before the runner's gatekeeper

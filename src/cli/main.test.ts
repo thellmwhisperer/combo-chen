@@ -1562,6 +1562,39 @@ describe("emit", () => {
     ]);
   });
 
+  it("records the opened PR URL in the runtime ledger", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: "2026-06-21T17:00:00.000Z",
+    });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, [
+      "emit",
+      "-n",
+      "o-r-7",
+      "pr_opened",
+      "--field",
+      "url=https://github.com/o/r/pull/7",
+    ]);
+
+    const ledger = JSON.parse(readFileSync(join(dir, "runtime-ledger.json"), "utf8")) as {
+      comboId: string;
+      prUrl?: string;
+      commands: Record<string, string>;
+    };
+    expect(ledger.comboId).toBe("o-r-7");
+    expect(ledger.prUrl).toBe("https://github.com/o/r/pull/7");
+    expect(ledger.commands.closure).toContain("closure -n 'o-r-7'");
+  });
+
   it("surfaces emitting to a combo that was never created (caller bug)", async () => {
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: home() } });
     await expect(exec(deps, ["emit", "-n", "ghost", "coder_started"])).rejects.toThrow(/ENOENT/);
