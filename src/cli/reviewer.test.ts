@@ -908,7 +908,7 @@ describe("tickReviewer", () => {
     ]);
   });
 
-  it("journals reviewer verdict code 2 before best-effort director tmux delivery", async () => {
+  it("does not journal director_prompted when tmux delivery fails for verdict code 2", async () => {
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
@@ -957,13 +957,9 @@ describe("tickReviewer", () => {
       comboId: record.id,
     });
 
-    expect(readEvents(runDir)).toContainEqual(
+    expect(readEvents(runDir)).not.toContainEqual(
       expect.objectContaining({
         event: "director_prompted",
-        reason: "reviewer_verdict_code_2",
-        target: "combo-chen-o-r-7:director",
-        window: "director",
-        sha: headSha,
       }),
     );
     expect(out).toEqual([

@@ -246,7 +246,6 @@ export function createProgram(deps: Deps): Command {
       const directorCommand = buildDirectorInvocation({
         combo,
         directorCommand: config.directorCommand,
-        workPlan,
       });
       const prIntent = issueDetails === undefined
         ? buildWorkPlanPrIntent(workPlan)
@@ -357,13 +356,6 @@ export function createProgram(deps: Deps): Command {
           timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
           retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
         });
-        const director = deps.tmux(newWindowArgs(session, DIRECTOR_WINDOW, directorCommand));
-        if (director.status !== 0) {
-          throw new Error(
-            `tmux failed to start director in "${session}": ` +
-              `${director.stderr.trim() || "unknown error"}`,
-          );
-        }
         const directorWatch = deps.tmux(
           newWindowArgs(
             session,

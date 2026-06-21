@@ -85,7 +85,9 @@ initial_gate_retry_backoff_seconds = 10
 # Promptable interactive director window, created at launch. It does not poll;
 # director-watch does deterministic polling and prompts this window only when
 # ambiguity, malformed signals, intent-touching choices, or uncoded recovery
-# need judgment.
+# need judgment. Also the persistent prompt target for reviewer verdict code 2;
+# this is distinct from director-watch, which is the deterministic polling loop
+# and is not promptable.
 # Environment override: COMBO_CHEN_DIRECTOR_COMMAND.
 # {placeholders}: issue_url, worktree, repo, branch, prompt.
 command = "claude {prompt}"
@@ -129,13 +131,6 @@ logins = ["claude"]
 
 [reviewer.claude]
 # {placeholders}: issue_url, pr_url, worktree, repo, branch, prompt.
-command = "claude {prompt}"
-
-[director]
-# Persistent prompt target for reviewer verdict code 2. This is distinct from
-# director-watch, which is the deterministic polling loop and is not promptable.
-# Environment override: COMBO_CHEN_DIRECTOR_COMMAND.
-# {placeholders}: issue_url, worktree, repo, branch, prompt.
 command = "claude {prompt}"
 
 [monitor]
