@@ -78,6 +78,7 @@ describe("loadConfig", () => {
     expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
     expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
     expect(config.gatekeeperCommand).toContain("--skip=ci");
+    expect(config.directorCommand).toBe("claude {prompt}");
     expect(config.gatekeeperInitialGateRetryAttempts).toBe(2);
     expect(config.gatekeeperInitialGateRetryBackoffSeconds).toBe(10);
     expect(config.gatekeeperCommand.indexOf("no-mistakes daemon start")).toBeLessThan(
@@ -225,6 +226,19 @@ describe("loadConfig", () => {
 
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit", "ReviewDog"]);
     expect(config.externalCommentAgents).toEqual(["copilot"]);
+  });
+
+  it("lets repo config override the director command", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      ["[director]", 'command = "director-cli --stay-visible {prompt}"'].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.directorCommand).toBe("director-cli --stay-visible {prompt}");
   });
 
   it("lets env override READY required checks", () => {
