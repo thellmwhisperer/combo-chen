@@ -227,6 +227,8 @@ describe("gatekeeper runtime config snapshots", () => {
     expect(script).toContain('pr_opened --field url="$pr_url"');
     expect(script).not.toContain("reason=pr_ready");
     expect(script).toContain("reason=pr_missing");
+    expect(script).toContain("gate-lease acquire -n 'o-r-7'");
+    expect(script.indexOf("gate-lease acquire")).toBeLessThan(script.indexOf("no-mistakes axi run"));
   });
 
   it("uses the launch gatekeeper command for post-address gates after repo TOML changes", () => {
@@ -342,6 +344,30 @@ describe("buildPostAddressGateScript", () => {
     expect(script).toContain('pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"');
     expect(script).toContain('exit "$autoclose_code"');
     expect(script).not.toContain("autoclose guard skipped");
+  });
+
+  it("can acquire and release a shared lease around the post-address no-mistakes run", () => {
+    const script = buildPostAddressGateScript({
+      combo: combo(),
+      runDir: mkdtempSync(join(tmpdir(), "combo-chen-run-")),
+      gatekeeperCommand: "no-mistakes axi run --intent 'post-address gate'",
+      gatekeeperMirrorIntent: "SW1wbGVtZW50IGlzc3VlIDc=",
+      headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      prUrl: "https://github.com/o/r/pull/7",
+      emit: "combo-chen emit -n o-r-7",
+      gateLeaseAcquire: "combo-chen gate-lease acquire -n o-r-7",
+      gateLeaseRelease: "combo-chen gate-lease release -n o-r-7",
+      ensurePrAutoclose: "combo-chen ensure-pr-autoclose -n o-r-7 --pr-url",
+    });
+
+    expect(script.indexOf("gate-lease acquire")).toBeLessThan(
+      script.indexOf("gate_status --field state=fix_inflight"),
+    );
+    expect(script.indexOf("gate_status --field state=fix_inflight")).toBeLessThan(
+      script.indexOf("no-mistakes axi run"),
+    );
+    expect(script).toContain('if [ "$gate_lease_code" -eq 75 ]; then exit 0; fi');
+    expect(script).toContain("gate-lease release -n o-r-7");
   });
 });
 // -/ 5/5

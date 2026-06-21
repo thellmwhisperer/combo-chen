@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the shared no-mistakes gate lease contract.
- *   Covers free, busy, stale, and same-branch lease states.
+ *   Covers free, busy, stale, same-branch, and release lease states.
  *
  *   READING GUIDE
  *   -------------
@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   acquireGateLease,
+  releaseGateLease,
   readGateLease,
   type GateLeaseOwner,
 } from "./gate-lease.js";
@@ -149,6 +150,33 @@ describe("gate lease", () => {
     expect(second.state).toBe("same_branch_conflict");
     expect(second.lease).toEqual(first.lease);
     expect(readGateLease(dir)).toEqual(first.lease);
+  });
+
+  it("releases only the current owning combo lease", () => {
+    const dir = home();
+    const currentOwner = owner();
+    const acquired = acquireGateLease({
+      home: dir,
+      owner: currentOwner,
+      now: NOW,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(
+      releaseGateLease({
+        home: dir,
+        owner: owner({
+          comboId: "o-r-8",
+          branch: "combo/issue-8",
+          worktree: "/repo/.worktrees/issue-8",
+        }),
+      }),
+    ).toEqual({ state: "not_owner", lease: acquired.lease });
+    expect(readGateLease(dir)).toEqual(acquired.lease);
+
+    expect(releaseGateLease({ home: dir, owner: currentOwner })).toEqual({ state: "released" });
+    expect(readGateLease(dir)).toBeUndefined();
+    expect(releaseGateLease({ home: dir, owner: currentOwner })).toEqual({ state: "missing" });
   });
 });
 // -/ 1/1

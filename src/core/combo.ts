@@ -22,7 +22,7 @@
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
  *     fetch/rebase baseRef → coder_started → coderCommand → coder_done
- *     → gate_started → mirror publish → config handoff + gatekeeperCommand → pr_opened
+ *     → gate_started → optional gate lease → mirror publish → config handoff + gatekeeperCommand → pr_opened
  *     → activateCoder + activateReviewer; missing PRs emit needs_human
  *
  *   ┌─ CORE ─────────────────────────────────────────────────────────┐
@@ -162,6 +162,10 @@ export interface RunnerInput {
   activateReviewer: string;
   /** Full invocation prefix for ensuring the PR body visibly autocloses the source issue. */
   ensurePrAutoclose?: string;
+  /** Full invocation prefix for acquiring the shared no-mistakes gate lease. */
+  gateLeaseAcquire?: string;
+  /** Full invocation prefix for releasing the shared no-mistakes gate lease. */
+  gateLeaseRelease?: string;
 }
 
 //    POSIX-safe single-quoting. Paths, branch names, anything.
@@ -266,6 +270,23 @@ export function guardNoMistakesDaemonStart(gatekeeperCommand: string): string {
     `else no-mistakes daemon start && ${remainder}; fi`;
 }
 
+function buildGateLeaseScript(input: Pick<RunnerInput, "gateLeaseAcquire" | "gateLeaseRelease">): string {
+  if (input.gateLeaseAcquire === undefined && input.gateLeaseRelease === undefined) return "";
+  if (input.gateLeaseAcquire === undefined || input.gateLeaseRelease === undefined) {
+    throw new Error("gate lease acquire and release commands must be configured together");
+  }
+  return `${input.gateLeaseAcquire} --head-sha "$gatekeeper_start_sha" || gate_lease_code=$?
+if [ "$gate_lease_code" -eq 75 ]; then exit 0; fi
+if [ "$gate_lease_code" -eq 76 ]; then exit 0; fi
+if [ "$gate_lease_code" -ne 0 ]; then exit "$gate_lease_code"; fi
+gate_lease_release_cmd=${shellQuote(input.gateLeaseRelease)}
+gate_lease_release() {
+  sh -c "$gate_lease_release_cmd" >/dev/null 2>&1 || true
+}
+trap gate_lease_release EXIT
+`;
+}
+
 // -/ 2/3
 
 // -- 3/3 CORE · buildRunnerScript ← START HERE --
@@ -281,6 +302,8 @@ export function buildRunnerScript(input: RunnerInput): string {
     activateCoder,
     activateReviewer,
     ensurePrAutoclose = ":",
+    gateLeaseAcquire,
+    gateLeaseRelease,
   } = input;
   const gatekeeperRunCommand = gatekeeperMirrorIntent === undefined
     ? gatekeeperCommand
@@ -336,7 +359,8 @@ fi
 
 ${emit} gate_started
 gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
-${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"
+gate_lease_code=0
+${buildGateLeaseScript({ gateLeaseAcquire, gateLeaseRelease })}${emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"
 
 gatekeeper_code=0
 (

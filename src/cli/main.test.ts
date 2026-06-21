@@ -20,6 +20,7 @@
  *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ emit                  Event append to journal                  │
+ *   │ gate-lease            Hidden shared no-mistakes lease command  │
  *   │ reconcile             Frozen journal repair command            │
  *   │ resume                Recovery routing without fresh run setup  │
  *   │ status                Table format + liveness/deep output      │
@@ -172,6 +173,7 @@ describe("command surface", () => {
         "ensure-pr-autoclose",
         "events",
         "forensics",
+        "gate-lease",
         "gate-restart",
         "intent",
         "reviewer-tick",

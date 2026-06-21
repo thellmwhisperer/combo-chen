@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~810 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~840 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -11,7 +11,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   ensureGatekeeperWindow -> startGatekeeperWindow; resume/director -> generated gate script -> mirror push with intent -> config handoff + gatekeeper run; syncNoMistakesMirror -> fetch -> compare -> guarded push
+ *   ensureGatekeeperWindow -> startGatekeeperWindow; resume/director -> generated gate script -> gate lease -> mirror push with intent -> config handoff + gatekeeper run; syncNoMistakesMirror -> fetch -> compare -> guarded push
  *
  *   PUBLIC API
  *   ----------
@@ -24,7 +24,7 @@
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
+ *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, gateLeaseScript, renderGatekeeperCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -367,6 +367,27 @@ function gateAlreadyRunningGuardScript(input: {
     "fi",
   ];
 }
+
+function gateLeaseScript(input: {
+  acquire?: string;
+  release?: string;
+}): string[] {
+  if (input.acquire === undefined && input.release === undefined) return [];
+  if (input.acquire === undefined || input.release === undefined) {
+    throw new Error("gate lease acquire and release commands must be configured together");
+  }
+  return [
+    `${input.acquire} --head-sha "$gatekeeper_start_sha" || gate_lease_code=$?`,
+    'if [ "$gate_lease_code" -eq 75 ]; then exit 0; fi',
+    'if [ "$gate_lease_code" -eq 76 ]; then exit 0; fi',
+    'if [ "$gate_lease_code" -ne 0 ]; then exit "$gate_lease_code"; fi',
+    `gate_lease_release_cmd=${shellQuote(input.release)}`,
+    "gate_lease_release() {",
+    '  sh -c "$gate_lease_release_cmd" >/dev/null 2>&1 || true',
+    "}",
+    "trap gate_lease_release EXIT",
+  ];
+}
 // -/ 3/5
 
 // -- 4/5 CORE · Initial and post-address gate scripts --
@@ -380,6 +401,8 @@ function buildInitialGateRetryScript(input: {
   activateCoder: string;
   activateReviewer: string;
   ensurePrAutoclose?: string;
+  gateLeaseAcquire?: string;
+  gateLeaseRelease?: string;
 }): string {
   const shortSha = input.headSha.slice(0, 12);
   const gatekeeperLog = join(input.runDir, `gatekeeper-initial-${shortSha}.log`);
@@ -393,6 +416,8 @@ function buildInitialGateRetryScript(input: {
     `cd ${shellQuote(input.combo.worktree)}`,
     `${input.emit} gate_started`,
     "gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    "gate_lease_code=0",
+    gateLeaseScript({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease }),
     `${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"`,
     "gatekeeper_code=0",
     "(",
@@ -475,6 +500,8 @@ export function startInitialGateRetry(input: {
       emit: `${cli} emit -n ${shellQuote(combo.id)}`,
       activateCoder: `${cli} activate-coder -n ${shellQuote(combo.id)}`,
       activateReviewer: `${cli} activate-reviewer -n ${shellQuote(combo.id)}`,
+      gateLeaseAcquire: `${cli} gate-lease acquire -n ${shellQuote(combo.id)}`,
+      gateLeaseRelease: `${cli} gate-lease release -n ${shellQuote(combo.id)}`,
       ...(isGitHubIssueWorkItem(combo)
         ? { ensurePrAutoclose: `${cli} ensure-pr-autoclose -n ${shellQuote(combo.id)} --pr-url` }
         : {}),
@@ -502,6 +529,8 @@ export function buildPostAddressGateScript(input: {
   prUrl: string;
   emit: string;
   ensurePrAutoclose?: string;
+  gateLeaseAcquire?: string;
+  gateLeaseRelease?: string;
 }): string {
   const shortSha = input.headSha.slice(0, 12);
   const gatekeeperLog = join(input.runDir, `gatekeeper-post-${shortSha}.log`);
@@ -517,6 +546,8 @@ export function buildPostAddressGateScript(input: {
     `cd ${shellQuote(input.combo.worktree)}`,
     `${input.emit} gate_started`,
     "gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)",
+    "gate_lease_code=0",
+    gateLeaseScript({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease }),
     `${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"`,
     `rm -f "$status_file"`,
     "(",
@@ -597,6 +628,8 @@ function startPostAddressGate(input: {
       headSha: input.headSha,
       prUrl: input.prUrl,
       emit: `${input.cli} emit -n ${shellQuote(input.combo.id)}`,
+      gateLeaseAcquire: `${input.cli} gate-lease acquire -n ${shellQuote(input.combo.id)}`,
+      gateLeaseRelease: `${input.cli} gate-lease release -n ${shellQuote(input.combo.id)}`,
       ...(isGitHubIssueWorkItem(input.combo)
         ? { ensurePrAutoclose: `${input.cli} ensure-pr-autoclose -n ${shellQuote(input.combo.id)} --pr-url` }
         : {}),
