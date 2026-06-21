@@ -19,6 +19,7 @@
  *   │ attach                Session resolution and journal pane      │
  *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
+ *   │ director-prompt       Manual director prompt endpoint           │
  *   │ emit                  Event append to journal                  │
  *   │ gate-lease            Hidden shared no-mistakes lease command  │
  *   │ reconcile             Frozen journal repair command            │
@@ -168,6 +169,7 @@ describe("command surface", () => {
         "activate-reviewer",
         "attach",
         "closure",
+        "director-prompt",
         "director-tick",
         "director-watch",
         "emit",
@@ -188,6 +190,71 @@ describe("command surface", () => {
         "stop",
       ].sort(),
     );
+  });
+
+  it("sends a director prompt command through tmux and journals it", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    const record = {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    };
+    writeCombo(dir, record);
+    writeRuntimeLedger(
+      dir,
+      buildRuntimeLedger({
+        combo: record,
+        runDir: dir,
+        cli: "combo-chen",
+        roleWindows: { director: "director" },
+      }),
+    );
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: "coder\ndirector\n", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, [
+      "director-prompt",
+      "-n",
+      "o-r-7",
+      "--reason",
+      "ambiguous_signal",
+      "Inspect",
+      "the",
+      "gate",
+      "signal",
+    ]);
+
+    expect(calls).toContainEqual([
+      "tmux",
+      "paste-buffer",
+      "-d",
+      "-b",
+      "combo-chen-nudge-combo-chen-o-r-7-director",
+      "-t",
+      "combo-chen-o-r-7:director",
+    ]);
+    expect(readEvents(dir).at(-1)).toMatchObject({
+      event: "director_prompted",
+      reason: "ambiguous_signal",
+      target: "combo-chen-o-r-7:director",
+      prompt_preview: expect.stringContaining("Inspect the gate signal"),
+    });
+    expect(out).toEqual([
+      "director-prompt: prompted combo-chen-o-r-7:director for o-r-7 (ambiguous_signal)",
+    ]);
   });
 
   it("prints the canonical issue PR intent with the verbatim autoclose requirement", async () => {

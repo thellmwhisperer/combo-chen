@@ -67,6 +67,7 @@ describe("event schema", () => {
         "pr_opened",
         "pr_autoclose_failed",
         "needs_human",
+        "director_prompted",
         "review_comment",
         "lgtm",
         "lgtm_stale",
@@ -95,6 +96,7 @@ describe("event schema", () => {
     expect(EVENT_TYPES.gate_validated.required).toEqual(["sha"]);
     expect(EVENT_TYPES.gate_stale.required).toEqual(["old_sha", "new_sha"]);
     expect(EVENT_TYPES.pr_autoclose_failed.required).toEqual(["exit_code", "url"]);
+    expect(EVENT_TYPES.director_prompted.required).toEqual(["reason", "target"]);
     expect(EVENT_TYPES.review_comment.required).toEqual(["author", "kind", "url"]);
     expect(EVENT_TYPES.lgtm.required).toEqual(["sha"]);
     expect(EVENT_TYPES.lgtm_stale.required).toEqual(["old_sha", "new_sha"]);

@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~160 lines, 10 exports, attach and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~160 lines, 11 exports, attach and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -13,7 +13,7 @@
  *
  *   PUBLIC API
  *   ----------
- *   CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps
+ *   CODER_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps
  *   KillComboSessionResult
  *   killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
  *
@@ -21,7 +21,7 @@
  *   ---------
  *   paneCount, tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
  * @deps ../core/state, ../infra/tmux
  */
 import { type ComboRecord, listCombos } from "../core/state.js";
@@ -37,6 +37,7 @@ import {
 
 // -- 1/3 HELPER · Window constants and kill helpers --
 export const CODER_WINDOW = "coder";
+export const DIRECTOR_WINDOW = "director";
 export const REVIEWER_WINDOW = "reviewer";
 export const REVIEWER_WATCH_WINDOW = "reviewer-watch";
 export const DIRECTOR_WATCH_WINDOW = "director-watch";

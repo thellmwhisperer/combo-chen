@@ -60,6 +60,7 @@ export const EVENT_TYPES = {
   pr_opened: { required: ["url"] },
   pr_autoclose_failed: { required: ["exit_code", "url"] },
   needs_human: { required: ["reason"] },
+  director_prompted: { required: ["reason", "target"] },
   review_comment: { required: ["author", "kind", "url"] },
   lgtm: { required: ["sha"] },
   lgtm_stale: { required: ["old_sha", "new_sha"] },
