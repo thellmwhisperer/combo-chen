@@ -1,16 +1,17 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~240 lines, 8 exports, parsers for deep recovery status.
+ *   ~245 lines, 9 exports, parsers for deep recovery status and gate lease visibility.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at deepComboStatus            <- CLI-facing downstream probe orchestration.
- *   2. parseNoMistakesAxiStatus            <- tolerant TOON-ish parser.
- *   3. deepGithubPrStatus                  <- PR/check/reviewer summary.
+ *   2. formatGateLeaseStatus               <- shared gate owner table cell.
+ *   3. parseNoMistakesAxiStatus            <- tolerant TOON-ish parser.
+ *   4. deepGithubPrStatus                  <- PR/check/reviewer summary.
  *
  *   MAIN FLOW
  *   ---------
- *   status --deep -> deepComboStatus -> no-mistakes/GitHub probes -> downstream phrase
+ *   status -> gate lease cell; status --deep -> deepComboStatus -> downstream phrase
  *
  *   PUBLIC API
  *   ----------
@@ -19,6 +20,7 @@
  *   AWAITING_REVIEW_GATE        Downstream phrase prefix for no-mistakes gates.
  *   CommandResult                 Process result shape for injected command runners.
  *   NoMistakesAxiStatus           Parsed subset of no-mistakes status output.
+ *   formatGateLeaseStatus         Compact shared gate lease owner display.
  *   parseNoMistakesAxiStatus      Extract branch, run state, active step, gate IDs, respond command.
  *   deepNoMistakesStatus          Run no-mistakes and return a concise downstream status string.
  *   deepComboStatus               Prefer live no-mistakes state, otherwise summarize GitHub PR readiness.
@@ -27,10 +29,11 @@
  *   ---------
  *   summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine
  *
- * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
- * @deps ../core/events, ../core/state, ./checks, ./github
+ * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
+ * @deps ../core/events, ../core/gate-lease, ../core/state, ./checks, ./github
  */
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
+import type { GateLeaseRecord } from "../core/gate-lease.js";
 import type { ComboRecord } from "../core/state.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import { latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
@@ -81,6 +84,11 @@ function cleanScalar(value: string): string {
 
 function firstLine(value: string): string {
   return value.trim().split(/\r?\n/)[0]?.trim() ?? "";
+}
+
+export function formatGateLeaseStatus(lease: GateLeaseRecord | undefined): string {
+  if (lease === undefined) return "—";
+  return `${lease.comboId}@${lease.branch}`;
 }
 // -/ 1/4
 
