@@ -161,7 +161,10 @@ empty-addressing paths and transitions the combo out of READY the same way.
 After the PR exists, `director-watch` is the single observer. It repeatedly
 runs `director-tick` to poll reviewer hard signals, route new review comments
 to the resumed coder, detect committed local HEAD changes, and run a
-post-address no-mistakes gate before anything is published again.
+post-address no-mistakes gate before anything is published again. When the
+reviewer tick observes a GitHub `MERGED` PR, it records the merge fact, reports
+`closure_pending`, and stops the post-PR loop; resource convergence belongs to
+`combo-chen closure -n <combo-id>`.
 
 If the source checkout has a repo-level `.no-mistakes.yaml`, combo-chen
 propagates it in two phases: first, it copies the file from the repo into the
@@ -234,6 +237,8 @@ ignored config or environment outside that file.
     alone by default.
     When `source` is `"closure"`, the event was synthesized by the explicit
     `combo-chen closure -n <combo-id>` convergence command. When `source` is
+    `"reviewer"`, the event was observed live by the reviewer/director loop and
+    is only a closure-pending signal. When `source` is
     `"reconcile"`, the event was synthesized from GitHub PR state during a
     frozen journal repair pass, not observed live by the director loop.
   - **Closed without merge:** The combo journals `needs_human` (fields:
@@ -344,7 +349,8 @@ ignored config or environment outside that file.
     reports an active or awaiting run for the combo branch, removes the local
     worktree and branch, kills the tmux session, and records `combo_closed`
     with `source: "closure"`. Existing `combo_closed` events are treated as
-    already converged.
+    already converged. Reviewer/director-watch only records the live merge fact
+    and reports the closure command to run; it does not run cleanup itself.
 -   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
     pass that compares every persisted
     combo journal against GitHub PR state. When `-n <combo-id>` is provided,

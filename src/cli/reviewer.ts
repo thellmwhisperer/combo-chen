@@ -1,5 +1,5 @@
 /**
- * @overview Reviewer CLI helpers. ~335 lines, 10 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~335 lines, 11 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
@@ -16,13 +16,14 @@
  *   ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer
  *   latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm
  *   canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
+ *   closurePendingReviewerEvent
  *
  *   INTERNALS
  *   ---------
  *   reviewerWorkPlan, hasCompleteWorkItemMetadata
  *
- * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent
- * @deps ../core/{events,gh-api,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./lifecycle, ./sessions, ./watchers, ./work-plan
+ * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent, closurePendingReviewerEvent
+ * @deps ../core/{events,gh-api,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./sessions, ./watchers, ./work-plan
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
@@ -32,7 +33,6 @@ import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { latestGitHubLgtmSha, parsePrView, type PrView } from "./github.js";
-import { teardownMergedCombo } from "./lifecycle.js";
 import {
   REVIEWER_WATCH_WINDOW,
   DIRECTOR_WATCH_WINDOW,
@@ -150,7 +150,7 @@ export async function tickReviewer(input: {
     return;
   }
 
-  const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedBy,baseRefName,mergeCommit"]);
+  const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergedAt,mergedBy,mergeCommit"]);
   if (pr.status !== 0) {
     deps.out(
       reviewerTransientFailure(
@@ -177,35 +177,17 @@ export async function tickReviewer(input: {
     const by = prView.mergedBy ?? "unknown";
     const mergeSha = prView.mergeSha;
     if (!mergeSha) {
-      throw new Error(`Cannot tear down ${combo.id}: merged PR did not report mergeCommit.oid`);
-    }
-    const baseRefName = prView.baseRefName;
-    if (!baseRefName) {
-      throw new Error(`Cannot tear down ${combo.id}: merged PR did not report baseRefName`);
+      throw new Error(`Cannot report merged ${combo.id}: merged PR did not report mergeCommit.oid`);
     }
     if (!hasMergedEvent(events, [mergeSha, headSha])) {
-      appendEvent(runDir, "merged", { sha: mergeSha, by });
-    }
-    const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-    try {
-      await teardownMergedCombo({
-        deps,
-        combo,
-        mergeSha,
-        baseRefName,
-        retries: config.limits.teardownGitRetries,
-        backoffSeconds: config.limits.teardownGitBackoffSeconds,
+      appendEvent(runDir, "merged", {
+        sha: mergeSha,
+        by,
+        ...(prView.mergedAt !== undefined ? { mergedAt: prView.mergedAt } : {}),
+        source: "reviewer",
       });
-    } catch (error) {
-      deps.out(
-        `reviewer: teardown pending for ${combo.id}: ` +
-          `${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
     }
-    appendEvent(runDir, "combo_closed", {});
-    deps.out(`reviewer: merged ${mergeSha} by ${by}`);
-    killComboSession(deps, combo);
+    deps.out(`reviewer: merged ${mergeSha} by ${by}; closure pending: combo-chen closure -n ${combo.id}`);
     return;
   }
 
@@ -328,6 +310,15 @@ export function terminalReviewerEvent(events: ComboEvent[]): ComboEvent | undefi
     if (event.event === "combo_closed") return event;
   }
   return undefined;
+}
+
+export function closurePendingReviewerEvent(events: ComboEvent[]): ComboEvent | undefined {
+  let pending: ComboEvent | undefined;
+  for (const event of events) {
+    if (event.event === "merged") pending = event;
+    if (event.event === "combo_closed") pending = undefined;
+  }
+  return pending;
 }
 
 export function hasMergedEvent(events: ComboEvent[], shas: string[]): boolean {
