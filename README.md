@@ -275,9 +275,10 @@ consume it automatically.
 
 - `status` shows actionable live combos by default. Add `--all` to include
   terminal historical rows, and `--deep` to compare the journal with downstream
-  GitHub and gatekeeper state. Before rendering, `status` quietly closes
-  closed-PR salvage cases. For merged PRs it records the merge fact, leaves
-  resources untouched, and keeps the row visible as `closure_pending` until
+  GitHub and gatekeeper state. Its table includes the active shared gate lease
+  owner when no-mistakes is reserved by a combo. Before rendering, `status`
+  quietly closes closed-PR salvage cases. For merged PRs it records the merge
+  fact, leaves resources untouched, and keeps the row visible as `closure_pending` until
   `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
   combo no longer has its tmux session, status journals `tmux_missing` so it is
   shown as needing human attention instead of looking supervised.

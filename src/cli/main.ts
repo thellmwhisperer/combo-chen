@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
+ *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
  *   ./args, ./closure, ./coder, ./director, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -46,6 +46,7 @@ import {
   type ComboEvent,
   type EventName,
 } from "../core/events.js";
+import { readGateLease } from "../core/gate-lease.js";
 import { buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import {
   comboHome,
@@ -116,7 +117,7 @@ import {
   ensureJournalPane,
   resolveAttachCombo,
 } from "./sessions.js";
-import { deepComboStatus, type CommandResult } from "./status.js";
+import { deepComboStatus, formatGateLeaseStatus, type CommandResult } from "./status.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan, WORK_PLAN_ARTIFACT } from "./work-plan.js";
 import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
 
@@ -535,17 +536,19 @@ export function createProgram(deps: Deps): Command {
         return;
       }
       const deep = options.deep === true;
+      const gateLease = readGateLease(home);
       deps.out(
         deep
-          ? "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                PR DOWNSTREAM"
-          : "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                PR",
+          ? "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                GATE-LEASE                   PR DOWNSTREAM"
+          : "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                GATE-LEASE                   PR",
       );
       for (const { combo, events, status, runtimePrUrl } of visibleRows) {
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const prUrl = status.pr ?? runtimePrUrl;
         const pr = prUrl ?? "—";
         const workItem = describeWorkItem(combo).label;
-        const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${workItem.padEnd(40)} ${pr}`;
+        const lease = formatGateLeaseStatus(gateLease);
+        const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${workItem.padEnd(40)} ${lease.padEnd(28)} ${pr}`;
         if (!deep) {
           deps.out(line);
           continue;

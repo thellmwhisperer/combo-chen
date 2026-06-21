@@ -35,7 +35,7 @@
  *   └────────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,runtime-ledger,state,work-plan},
+ * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan},
  *   ../infra/{config,config-snapshot,release-metadata}, ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";
@@ -47,6 +47,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
+import { acquireGateLease } from "../core/gate-lease.js";
 import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import { listCombos, runDirFor, writeCombo } from "../core/state.js";
 import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
@@ -3299,6 +3300,40 @@ describe("status", () => {
     expect(text).toContain("o-r-7");
     expect(text).toContain("STALLED");
     expect(text).toContain(prUrl);
+  });
+
+  it("prints active shared gate lease ownership", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    const worktree = "/repos/r/.worktrees/issue-7";
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "needs_human", { reason: "gate_decision" });
+    acquireGateLease({
+      home: h,
+      owner: {
+        comboId: "o-r-7",
+        branch: "combo/issue-7",
+        worktree,
+        runDir: dir,
+        headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    });
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("GATE-LEASE");
+    expect(text).toContain("o-r-7@combo/issue-7");
   });
 
   it("hides terminal historical combos by default and preserves them with --all", async () => {
