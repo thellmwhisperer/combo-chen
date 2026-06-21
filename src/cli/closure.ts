@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   combo id -> latest pr_opened -> gh pr view MERGED -> merged event -> no-mistakes idle -> teardown -> tmux kill -> combo_closed
+ *   combo id -> runtime ledger PR URL -> gh pr view MERGED -> merged event -> no-mistakes idle -> teardown -> tmux kill -> combo_closed
  *
  *   PUBLIC API
  *   ----------
@@ -21,15 +21,16 @@
  *   readPrViewForClosure, activeNoMistakesConflict, closureCompletion, report
  *
  * @exports ClosureDeps, closeMergedCombo
- * @deps ../core/{events,state}, ../infra/config-snapshot, ./github, ./lifecycle, ./reviewer, ./sessions, ./status
+ * @deps ../core/{events,runtime-ledger,state}, ../infra/config-snapshot, ./github, ./lifecycle, ./reviewer, ./sessions, ./status
  */
 import { appendEvent, readEvents } from "../core/events.js";
+import { readRuntimeLedger } from "../core/runtime-ledger.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { parsePrView, type GhResult, type PrView } from "./github.js";
 import { teardownMergedCombo, type TeardownMergedComboResult } from "./lifecycle.js";
-import { hasMergedEvent, latestOpenedPrUrl, terminalReviewerEvent } from "./reviewer.js";
+import { hasMergedEvent, terminalReviewerEvent } from "./reviewer.js";
 import { killComboSession, type KillComboSessionResult } from "./sessions.js";
 import { deepNoMistakesStatus, type CommandResult } from "./status.js";
 
@@ -62,7 +63,7 @@ export async function closeMergedCombo(input: {
     return;
   }
 
-  const prUrl = latestOpenedPrUrl(runDir);
+  const prUrl = readRuntimeLedger(runDir).prUrl;
   if (!prUrl) {
     input.deps.out(`closure: ${combo.id} refused: no pr_opened event`);
     return;

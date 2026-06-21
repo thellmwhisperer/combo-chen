@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for deterministic merged-combo closure. ~255 lines,
+ * @overview Unit tests for deterministic merged-combo closure. ~285 lines,
  *   command-level post-merge convergence.
  *
  *   READING GUIDE
@@ -17,10 +17,10 @@
  *
  *   INTERNALS
  *   ---------
- *   home, writeTestCombo, fakeDeps
+ *   home, writeTestCombo, fakeDeps, ledgerOnlyClosureCases
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./closure
+ * @deps vitest, node:{fs,os,path}, ../core/{events,runtime-ledger,state}, ./closure
  */
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,7 +28,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
-import { runDirFor, writeCombo } from "../core/state.js";
+import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
+import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { closeMergedCombo, type ClosureDeps } from "./closure.js";
 
 // -- 1/2 HELPER · Test harness --
@@ -36,21 +37,29 @@ function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-closure-"));
 }
 
-function writeTestCombo(h: string): { repoDir: string; runDir: string; worktree: string } {
+function writeTestCombo(
+  h: string,
+  options: { combo?: Partial<ComboRecord>; prEvent?: boolean } = {},
+): { combo: ComboRecord; repoDir: string; runDir: string; worktree: string } {
   const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-  const runDir = runDirFor(h, "o-r-7");
+  const comboId = options.combo?.id ?? "o-r-7";
+  const runDir = runDirFor(h, comboId);
   const worktree = join(repoDir, ".worktrees", "issue-7");
-  writeCombo(runDir, {
-    id: "o-r-7",
+  const combo: ComboRecord = {
+    id: comboId,
     issueUrl: "https://github.com/o/r/issues/7",
     repoDir,
     worktree,
     branch: "combo/issue-7",
-    tmuxSession: "combo-chen-o-r-7",
+    tmuxSession: `combo-chen-${comboId}`,
     createdAt: new Date().toISOString(),
-  });
-  appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-  return { repoDir, runDir, worktree };
+    ...options.combo,
+  };
+  writeCombo(runDir, combo);
+  if (options.prEvent !== false) {
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+  }
+  return { combo, repoDir, runDir, worktree: combo.worktree };
 }
 
 function fakeDeps(overrides: Partial<ClosureDeps> = {}): { deps: ClosureDeps; calls: string[][]; out: string[] } {
@@ -97,10 +106,61 @@ function fakeDeps(overrides: Partial<ClosureDeps> = {}): { deps: ClosureDeps; ca
     },
   };
 }
+
+const ledgerOnlyClosureCases: Array<[string, Partial<ComboRecord>]> = [
+  ["issue-backed", {}],
+  [
+    "plan-backed",
+    {
+      id: "plan-ledger-1234abcd",
+      issueUrl: "",
+      workItemSourceType: "local_file",
+      workItemSourceReference: "plans/ledger.md",
+      workItemTitle: "Ledger rollout",
+      branch: "combo/plan-ledger",
+      worktree: "/repo/r/.worktrees/plan-ledger",
+    },
+  ],
+];
 // -/ 1/2
 
 // -- 2/2 CORE · closeMergedCombo tests <- START HERE --
 describe("closeMergedCombo", () => {
+  it.each(ledgerOnlyClosureCases)(
+    "uses runtime-ledger PR URL for %s combo records without a pr_opened journal event",
+    async (_label, comboOverrides) => {
+      const h = home();
+      const { combo, runDir } = writeTestCombo(h, { combo: comboOverrides, prEvent: false });
+      writeRuntimeLedger(
+        runDir,
+        buildRuntimeLedger({
+          combo,
+          runDir,
+          cli: "combo-chen",
+          prUrl: "https://github.com/o/r/pull/70",
+          now: () => "2026-06-21T17:03:00.000Z",
+        }),
+      );
+      const { deps, calls, out } = fakeDeps();
+
+      await closeMergedCombo({ deps, home: h, comboId: combo.id });
+
+      expect(readEvents(runDir)).toMatchObject([
+        { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+        { event: "combo_closed", source: "closure" },
+      ]);
+      expect(calls).toContainEqual([
+        "gh",
+        "pr",
+        "view",
+        "https://github.com/o/r/pull/70",
+        "--json",
+        "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
+      ]);
+      expect(out).toEqual([`closure: ${combo.id} closed merged PR merge777 by maintainer; teardown complete`]);
+    },
+  );
+
   it("closes a merged combo and reports already-converged events on a second run", async () => {
     const h = home();
     const { repoDir, runDir, worktree } = writeTestCombo(h);
