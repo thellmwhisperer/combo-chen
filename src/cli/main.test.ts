@@ -1850,6 +1850,43 @@ describe("run", () => {
     });
   });
 
+  it("blocks an issue overture when the target repo origin cannot be confirmed", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
+          return { status: 2, stdout: "", stderr: "error: No such remote 'origin'\n" };
+        }
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /repo_matches_issue.*origin unavailable/,
+    );
+
+    expect(out).toContain("X repo_matches_issue: origin origin unavailable: error: No such remote 'origin'");
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "repo_matches_issue",
+      status: "failed",
+      resource: "origin",
+      detail: "origin unavailable: error: No such remote 'origin'",
+    });
+  });
+
   it("creates the record, the runner script, the tmux session, and the birth event", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

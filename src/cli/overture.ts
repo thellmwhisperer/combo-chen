@@ -171,7 +171,8 @@ function checkRepoMatchesIssue(deps: OvertureDeps, repoDir: string, issue: Issue
   if (issue === undefined) return ok("repo_matches_issue", repoDir, "not issue-backed");
   const remote = deps.git(["remote", "get-url", "origin"], repoDir);
   const remoteUrl = remote.stdout.trim();
-  if (remote.status !== 0 || remoteUrl === "") return ok("repo_matches_issue", `${issue.owner}/${issue.repo}`, "origin unavailable");
+  if (remote.status !== 0) return failed("repo_matches_issue", "origin", errorDetail("origin unavailable", remote));
+  if (remoteUrl === "") return ok("repo_matches_issue", `${issue.owner}/${issue.repo}`, "origin unavailable");
   const slug = remoteSlug(remoteUrl);
   if (slug?.toLowerCase() !== `${issue.owner}/${issue.repo}`.toLowerCase()) {
     return failed(
