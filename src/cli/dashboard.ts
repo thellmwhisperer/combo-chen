@@ -1,6 +1,6 @@
 /**
  * @overview Read-only dashboard rows and static HTML rendering for combo capsules.
- *   ~350 lines, 6 exports, no journal writes.
+ *   ~430 lines, 7 exports, no journal writes.
  *
  *   READING GUIDE
  *   -------------
@@ -10,24 +10,28 @@
  *
  *   MAIN FLOW
  *   ---------
- *   combo home -> listCombos/readEvents -> tmux/downstream probes -> rows -> HTML
+ *   combo home -> listCombos/readEvents/log tail -> tmux/downstream probes -> rows -> HTML
  *
  *   PUBLIC API
  *   ----------
  *   DashboardDeps       Read-only command adapters used by collection.
  *   DashboardTmuxFacts  Session/window facts for one combo.
  *   DashboardEventSummary Last journal event display shape.
+ *   DashboardLogSnippet Bounded local log tail shown in the browser artifact.
  *   DashboardRow        Browser-ready dashboard row shape.
  *   collectDashboardRows Read combo records, journals, tmux, and downstream facts.
  *   renderDashboardHtml Render rows as a standalone static HTML page.
  *
  *   INTERNALS
  *   ---------
- *   collectDashboardTmuxFacts, collectDashboardDownstreamStatus, eventSummary, htmlEscape
+ *   collectDashboardTmuxFacts, collectDashboardDownstreamStatus, collectDashboardLogs, eventSummary, htmlEscape
  *
- * @exports DashboardDeps, DashboardTmuxFacts, DashboardEventSummary, DashboardRow, collectDashboardRows, renderDashboardHtml
- * @deps ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ./status
+ * @exports DashboardDeps, DashboardTmuxFacts, DashboardEventSummary, DashboardLogSnippet, DashboardRow, collectDashboardRows, renderDashboardHtml
+ * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ./status
  */
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { deriveStatus, type Phase } from "../core/combo.js";
 import { latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import {
@@ -61,6 +65,12 @@ export interface DashboardEventSummary {
   t: string;
 }
 
+export interface DashboardLogSnippet {
+  file: string;
+  tail: string;
+  truncated: boolean;
+}
+
 export interface DashboardRow {
   comboId: string;
   workItem: WorkItemDescriptor;
@@ -71,18 +81,28 @@ export interface DashboardRow {
   lastEvent: DashboardEventSummary | undefined;
   tmux: DashboardTmuxFacts;
   parked: boolean;
+  logs: DashboardLogSnippet[];
 }
 
 interface DashboardRowFacts {
   combo: ComboRecord;
   events: ComboEvent[];
   tmux: DashboardTmuxFacts;
+  logs: DashboardLogSnippet[];
   downstreamStatus?: string;
 }
 
 interface RenderDashboardOptions {
   generatedAt?: string;
 }
+
+const DASHBOARD_LOG_TAIL_LINES = 12;
+const DASHBOARD_LOG_ORDER = new Map<string, number>([
+  ["rebase.log", 0],
+  ["coder.log", 1],
+  ["gatekeeper.log", 2],
+  ["autoclose.log", 3],
+]);
 // -/ 1/3
 
 // -- 2/3 CORE · collectDashboardRows <- START HERE --
@@ -94,6 +114,7 @@ export function collectDashboardRows(home: string, deps: DashboardDeps): Dashboa
       combo,
       events,
       tmux: collectDashboardTmuxFacts(combo, deps),
+      logs: collectDashboardLogs(runDir),
       downstreamStatus: collectDashboardDownstreamStatus(combo, runDir, events, deps),
     });
   });
@@ -111,6 +132,7 @@ function dashboardRowFromFacts(facts: DashboardRowFacts): DashboardRow {
     lastEvent: eventSummary(facts.events.at(-1)),
     tmux: facts.tmux,
     parked: isParked(facts.events),
+    logs: facts.logs,
   };
 }
 
@@ -185,6 +207,51 @@ function eventSummary(event: ComboEvent | undefined): DashboardEventSummary | un
 
 function isParked(events: ComboEvent[]): boolean {
   return events.at(-1)?.event === "parked";
+}
+
+function collectDashboardLogs(runDir: string): DashboardLogSnippet[] {
+  try {
+    return readdirSync(runDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && isSelectedDashboardLog(entry.name))
+      .map((entry) => entry.name)
+      .sort(compareDashboardLogNames)
+      .map((file) => readDashboardLogSnippet(runDir, file));
+  } catch {
+    return [];
+  }
+}
+
+function isSelectedDashboardLog(file: string): boolean {
+  return DASHBOARD_LOG_ORDER.has(file) || /^(?:gatekeeper|autoclose)-(?:initial|post)-[A-Za-z0-9]+\.log$/.test(file);
+}
+
+function compareDashboardLogNames(left: string, right: string): number {
+  const leftRank = dashboardLogRank(left);
+  const rightRank = dashboardLogRank(right);
+  return leftRank === rightRank ? left.localeCompare(right) : leftRank - rightRank;
+}
+
+function dashboardLogRank(file: string): number {
+  const staticRank = DASHBOARD_LOG_ORDER.get(file);
+  if (staticRank !== undefined) return staticRank;
+  if (file.startsWith("gatekeeper-initial-")) return 4;
+  if (file.startsWith("autoclose-initial-")) return 5;
+  if (file.startsWith("gatekeeper-post-")) return 6;
+  if (file.startsWith("autoclose-post-")) return 7;
+  return 8;
+}
+
+function readDashboardLogSnippet(runDir: string, file: string): DashboardLogSnippet {
+  try {
+    const content = readFileSync(join(runDir, file), "utf8").replaceAll("\r\n", "\n").trimEnd();
+    if (content.length === 0) return { file, tail: "(empty)", truncated: false };
+    const lines = content.split("\n");
+    const tail = lines.slice(-DASHBOARD_LOG_TAIL_LINES).join("\n");
+    return { file, tail, truncated: lines.length > DASHBOARD_LOG_TAIL_LINES };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { file, tail: `unreadable: ${firstLine(detail)}`, truncated: false };
+  }
 }
 // -/ 2/3
 
@@ -279,6 +346,17 @@ export function renderDashboardHtml(
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       font-size: 12px;
     }
+    details + details { margin-top: 8px; }
+    summary { cursor: pointer; }
+    pre {
+      max-width: 420px;
+      max-height: 180px;
+      margin: 6px 0 0;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
     .muted { color: var(--muted); }
     .phase { color: var(--accent); font-weight: 700; }
   </style>
@@ -301,10 +379,11 @@ export function renderDashboardHtml(
             <th>downstream</th>
             <th>last event</th>
             <th>tmux</th>
+            <th>logs</th>
           </tr>
         </thead>
         <tbody>
-${bodyRows || "          <tr><td colspan=\"8\" class=\"muted\">No combos found.</td></tr>"}
+${bodyRows || "          <tr><td colspan=\"9\" class=\"muted\">No combos found.</td></tr>"}
         </tbody>
       </table>
     </div>
@@ -336,7 +415,16 @@ function renderRow(row: DashboardRow): string {
             <td>${htmlEscape(downstream)}</td>
             <td>${lastEvent}</td>
             <td>${tmux}</td>
+            <td>${renderLogs(row.logs)}</td>
           </tr>`;
+}
+
+function renderLogs(logs: DashboardLogSnippet[]): string {
+  if (logs.length === 0) return `<span class="muted">none</span>`;
+  return logs.map((log) => {
+    const truncated = log.truncated ? ` <span class="muted">tail</span>` : "";
+    return `<details><summary><code>${htmlEscape(log.file)}</code>${truncated}</summary><pre>${htmlEscape(log.tail)}</pre></details>`;
+  }).join("");
 }
 
 function link(href: string, label: string): string {

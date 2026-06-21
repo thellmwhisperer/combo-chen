@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the read-only dashboard row model and HTML renderer.
- *   ~180 lines, fixture-driven active/parked/PR/stalled rows.
+ *   ~205 lines, fixture-driven active/parked/PR/stalled rows and log snippets.
  *
  *   READING GUIDE
  *   -------------
@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   temp combo home -> collectDashboardRows -> renderDashboardHtml
+ *   temp combo home + local logs -> collectDashboardRows -> renderDashboardHtml
  *
  *   PUBLIC API
  *   ----------
@@ -23,7 +23,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./dashboard
  */
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -108,6 +108,7 @@ describe("dashboard rows", () => {
     const active = combo({ id: "o-r-active", createdAt: "2026-06-21T10:00:00.000Z" });
     const activeDir = writeFixtureCombo(h, active);
     appendEvent(activeDir, "coder_started", {});
+    writeFileSync(join(activeDir, "coder.log"), "setup\nimplementation\nfinal coder line\n");
 
     const parked = combo({ id: "o-r-parked", createdAt: "2026-06-21T10:01:00.000Z" });
     const parkedDir = writeFixtureCombo(h, parked);
@@ -118,6 +119,8 @@ describe("dashboard rows", () => {
     const prDir = writeFixtureCombo(h, pr);
     appendEvent(prDir, "gate_started", {});
     appendEvent(prDir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+    writeFileSync(join(prDir, "gatekeeper.log"), "publish branch\nci running\n");
+    writeFileSync(join(prDir, "gatekeeper-post-abcdef123456.log"), "post-address gate green\n");
 
     const stalled = combo({ id: "o-r-stalled", createdAt: "2026-06-21T10:03:00.000Z" });
     const stalledDir = writeFixtureCombo(h, stalled);
@@ -134,6 +137,9 @@ describe("dashboard rows", () => {
       parked: false,
       lastEvent: { event: "coder_started" },
       tmux: { session: "combo-chen-o-r-active", exists: true, windows: ["coder", "gatekeeper"] },
+      logs: [
+        { file: "coder.log", tail: "setup\nimplementation\nfinal coder line", truncated: false },
+      ],
     });
     expect(rows[1]).toMatchObject({
       comboId: "o-r-parked",
@@ -147,6 +153,10 @@ describe("dashboard rows", () => {
       prUrl: "https://github.com/o/r/pull/9",
       downstreamStatus: "no-mistakes running ci",
       tmux: { exists: true, windows: ["coder", "gatekeeper", "reviewer"] },
+      logs: [
+        { file: "gatekeeper.log", tail: "publish branch\nci running", truncated: false },
+        { file: "gatekeeper-post-abcdef123456.log", tail: "post-address gate green", truncated: false },
+      ],
     });
     expect(rows[3]).toMatchObject({
       comboId: "o-r-stalled",
@@ -169,15 +179,22 @@ describe("dashboard rows", () => {
         downstreamStatus: "no-mistakes unavailable: <offline>",
         lastEvent: { event: "coder_started", t: "2026-06-21T10:00:00.000Z" },
         tmux: { session: "combo-chen-combo-1", exists: true, windows: ["coder"] },
+        logs: [
+          { file: "gatekeeper.log", tail: "publish <unsafe>\nci & green", truncated: false },
+        ],
       },
     ], { generatedAt: "2026-06-21T10:05:00.000Z" });
 
     expect(html).toContain("<!doctype html>");
     expect(html).toContain("<title>combo-chen dashboard</title>");
     expect(html).toContain("<th>combo</th>");
+    expect(html).toContain("<th>logs</th>");
     expect(html).toContain("Fix &lt;unsafe&gt;");
     expect(html).toContain("no-mistakes unavailable: &lt;offline&gt;");
     expect(html).toContain("combo-chen-combo-1");
+    expect(html).toContain("gatekeeper.log");
+    expect(html).toContain("publish &lt;unsafe&gt;");
+    expect(html).toContain("ci &amp; green");
   });
 });
 // -/ 2/2
