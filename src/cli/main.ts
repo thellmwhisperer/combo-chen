@@ -508,8 +508,10 @@ export function createProgram(deps: Deps): Command {
     .action(async (options: { deep?: boolean; all?: boolean }) => {
       const home = comboHome(deps.env);
       await reconcileCombos({ deps, home, apply: true, quiet: true, mergedTeardown: false });
+      const gateLease = readGateLease(home);
       const combos = listCombos(home);
       if (combos.length === 0) {
+        if (gateLease !== undefined) deps.out(`active gate lease: ${formatGateLeaseStatus(gateLease)}`);
         deps.out("no combos. start one: combo-chen run --issue <url> (or --plan <file>)");
         return;
       }
@@ -532,11 +534,11 @@ export function createProgram(deps: Deps): Command {
       });
       const visibleRows = options.all === true ? rows : rows.filter(({ status }) => status.phase !== "STOPPED");
       if (visibleRows.length === 0) {
+        if (gateLease !== undefined) deps.out(`active gate lease: ${formatGateLeaseStatus(gateLease)}`);
         deps.out("no actionable combos. show history: combo-chen status --all");
         return;
       }
       const deep = options.deep === true;
-      const gateLease = readGateLease(home);
       deps.out(
         deep
           ? "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                GATE-LEASE                   PR DOWNSTREAM"
