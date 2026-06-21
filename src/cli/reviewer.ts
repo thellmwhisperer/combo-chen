@@ -1,15 +1,15 @@
 /**
- * @overview Reviewer CLI helpers. ~340 lines, 11 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~350 lines, 11 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at activateReviewer      <- starts reviewer and director-watch windows.
- *   2. Then tickReviewer              <- one merge/close/LGTM/re-review poll.
+ *   2. Then tickReviewer              <- one merge/close/verdict/LGTM/re-review poll.
  *   3. Bottom helpers                 <- journal-derived PR/LGTM predicates.
  *
  *   MAIN FLOW
  *   ---------
- *   activateReviewer -> reviewer + director-watch windows; tickReviewer -> gh pr view -> journal events or re-review
+ *   activateReviewer -> reviewer + director-watch windows; tickReviewer -> gh pr view -> reviewer verdict/LGTM -> journal events or re-review
  *
  *   PUBLIC API
  *   ----------
@@ -33,7 +33,7 @@ import type { WorkPlan } from "../core/work-plan.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
-import { latestGitHubLgtmSha, parsePrView, type PrView } from "./github.js";
+import { latestGitHubLgtmSha, latestGitHubReviewerVerdict, parsePrView, type PrView } from "./github.js";
 import {
   REVIEWER_WATCH_WINDOW,
   DIRECTOR_WATCH_WINDOW,
@@ -214,6 +214,23 @@ export async function tickReviewer(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+  try {
+    const reviewerVerdict = latestGitHubReviewerVerdict(deps.gh, prUrl, headSha, ghApiCache, {
+      allowedAuthors: config.reviewerLogins,
+    });
+    if (reviewerVerdict?.code === 0 && !hasJournaledLgtm(events, headSha)) {
+      appendEvent(runDir, "lgtm", { sha: headSha });
+      events = readEvents(runDir);
+    }
+  } catch (error) {
+    deps.out(
+      reviewerTransientFailure(
+        `failed to read reviewer verdicts for ${combo.id}: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+    return;
+  }
+
   let githubPinnedSha: string | undefined;
   try {
     githubPinnedSha = latestGitHubLgtmSha(deps.gh, prUrl, ghApiCache, {

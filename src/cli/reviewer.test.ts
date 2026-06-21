@@ -1,11 +1,11 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~695 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~750 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at reviewer journal helpers <- pure LGTM/terminal predicates.
  *   2. Then activateReviewer             <- reviewer + director-watch tmux windows.
- *   3. Then tickReviewer                 <- PR state handling.
+ *   3. Then tickReviewer                 <- PR state, reviewer verdict, and LGTM handling.
  *
  *   MAIN FLOW
  *   ---------
@@ -690,6 +690,54 @@ describe("tickReviewer", () => {
 
     expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened"]);
     expect(out).toEqual(["reviewer: no pinned lgtm for o-r-7"]);
+  });
+
+  it("treats reviewer verdict code 0 as a current-head LGTM signal", async () => {
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    const headSha = "def4560def4560def4560def4560def4560def45";
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: () => ({ status: 0, stdout: "", stderr: "" }),
+        git: () => ({ status: 0, stdout: "", stderr: "" }),
+        gh: (args) => {
+          if (args[0] === "pr") {
+            return { status: 0, stdout: JSON.stringify({ headRefOid: headSha, state: "OPEN" }), stderr: "" };
+          }
+          if (args.join(" ").includes("issues/7/comments")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join("\n"),
+                  user: { login: "claude" },
+                  created_at: "2026-06-11T00:00:00Z",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          if (args.join(" ").includes("pulls/7/reviews")) {
+            return { status: 0, stdout: "[]", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
+    expect(out).toEqual([`reviewer: lgtm current at ${headSha}`]);
   });
 });
 // -/ 4/4
