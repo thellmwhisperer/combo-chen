@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.43](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.42...combo-chen-v0.0.43) (2026-06-21)
+
+
+### Features
+
+* **cli:** deterministic post-merge resource convergence via closure command ([#145](https://github.com/thellmwhisperer/combo-chen/issues/145)) ([ae11e75](https://github.com/thellmwhisperer/combo-chen/commit/ae11e7549516c9037f6ad1ef2a68b0dc01679b47))
+
 ## [0.0.42](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.41...combo-chen-v0.0.42) (2026-06-19)
 
 
