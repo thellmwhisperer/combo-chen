@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~5530 lines.
+ *   deps so tests run without a real terminal or network. ~5600 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -14,6 +14,7 @@
  *
  *   ┌─ TEST SECTIONS (by CLI command) ───────────────────────────────┐
  *   │ command surface       Verifies all commands are registered     │
+ *   │ overture              Launch runway checklist + artifact       │
  *   │ run                   Worktree + runner.sh + tmux session      │
  *   │ attach                Session resolution and journal pane      │
  *   │ activate-coder        Coder resume worker                      │
@@ -169,6 +170,7 @@ describe("command surface", () => {
         "intent",
         "reviewer-tick",
         "nudge-review-comments",
+        "overture",
         "park",
         "reconcile",
         "resume",
@@ -1805,6 +1807,38 @@ describe("reconcile", () => {
 
 // -- 3/4 CORE · run (combo launch flow) --
 describe("run", () => {
+  it("runs overture directly for a clean issue without creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain(`OK work_item_readable: ${ISSUE}`);
+    expect(out).toContain("OK branch_free: combo/issue-7");
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: { comboId: string; branch: string; worktree: string; tmuxSession: string };
+      checks: Array<{ id: string; status: string; resource: string }>;
+    };
+    expect(artifact.ok).toBe(true);
+    expect(artifact.resources).toMatchObject({
+      comboId: "o-r-7",
+      branch: "combo/issue-7",
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      tmuxSession: "combo-chen-o-r-7",
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "branch_free",
+      status: "ok",
+      resource: "combo/issue-7",
+    });
+  });
+
   it("creates the record, the runner script, the tmux session, and the birth event", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -2042,7 +2076,6 @@ describe("run", () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
-    mkdirSync(worktree, { recursive: true });
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
@@ -2169,26 +2202,19 @@ exit 0
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
-  it("rolls back run state, worktree, and branch when config snapshot write fails", async () => {
+  it("blocks an occupied run dir before creating a worktree", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const runDir = runDirFor(h, "o-r-7");
     mkdirSync(join(runDir, CONFIG_SNAPSHOT_FILE), { recursive: true });
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow();
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/run_dir_free/);
 
-    const worktreeAddIndex = calls.findIndex(
-      (call) => call[0] === "git" && call.includes("worktree") && call.includes("add"),
-    );
-    const worktreeRemoveIndex = calls.findIndex(
-      (call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"),
-    );
-    const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
-    expect(worktreeAddIndex).toBeGreaterThan(-1);
-    expect(worktreeRemoveIndex).toBeGreaterThan(worktreeAddIndex);
-    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
-    expect(existsSync(runDir)).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("-D"))).toBe(false);
+    expect(existsSync(runDir)).toBe(true);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
   });
 
@@ -5339,6 +5365,42 @@ describe("run ordering and safety", () => {
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
   });
 
+  it("prints overture and blocks an existing local branch before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--list") return { status: 0, stdout: "combo/issue-7\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /branch.*combo\/issue-7.*exists locally/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain("X branch_free: combo/issue-7 already exists locally");
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "branch_free",
+      resource: "combo/issue-7",
+      status: "failed",
+      detail: "already exists locally",
+    });
+  });
+
   it("refuses to launch from a non-main source checkout before creating the worktree", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -5400,7 +5462,8 @@ describe("run ordering and safety", () => {
 
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
-    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "overture.json"))).toBe(true);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
   it("rejects an unsafe reviewer command before creating a worktree or tmux session", async () => {
@@ -5418,7 +5481,8 @@ describe("run ordering and safety", () => {
 
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
-    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "overture.json"))).toBe(true);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
   it("journals combo_created before the tmux session starts", async () => {
