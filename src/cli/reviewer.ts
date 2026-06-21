@@ -23,7 +23,7 @@
  *   reviewerWorkPlan, hasCompleteWorkItemMetadata
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent, closurePendingReviewerEvent
- * @deps ../core/{events,gh-api,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./sessions, ./watchers, ./work-plan
+ * @deps ../core/{events,gh-api,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,tmux}, ../roles/reviewer, ./github, ./sessions, ./watchers, ./work-plan
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
