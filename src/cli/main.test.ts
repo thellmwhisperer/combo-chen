@@ -192,6 +192,16 @@ describe("command surface", () => {
     );
   });
 
+  it("describes status as the parallel capsule dashboard", () => {
+    const { deps } = fakeDeps();
+    const program = createProgram(deps);
+    const status = program.commands.find((command) => command.name() === "status");
+
+    expect(program.description()).toContain("parallel capsule");
+    expect(status?.description()).toContain("parallel capsule dashboard");
+    expect(status?.helpInformation()).toContain("Probe downstream no-mistakes/GitHub recovery state");
+  });
+
   it("sends a director prompt command through tmux and journals it", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
@@ -3321,6 +3331,7 @@ describe("status", () => {
     await exec(deps, ["status"]);
 
     const text = out.join("\n");
+    expect(text).toContain("CAPSULE");
     expect(text).toContain("o-r-7");
     expect(text).toContain("CODING");
     expect(text).toContain("gate_decision");
@@ -3571,7 +3582,7 @@ describe("status", () => {
     await exec(deps, ["status"]);
 
     const text = out.join("\n");
-    expect(text).toContain("COMBO");
+    expect(text).toContain("CAPSULE");
     expect(text).toContain("o-r-merged");
     expect(text).toContain("STALLED");
     expect(text).toContain("closure_pending");

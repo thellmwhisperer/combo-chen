@@ -283,7 +283,8 @@ consume it automatically.
 
 ### Recovery Commands
 
-- `status` shows actionable live combos by default. Add `--all` to include
+- `status` is the parallel capsule dashboard: it shows actionable live combos
+  by default. Add `--all` to include
   terminal historical rows, and `--deep` to compare the journal with downstream
   GitHub and gatekeeper state. Its table includes the active shared gate lease
   owner when no-mistakes is reserved by a combo. Before rendering, `status`
