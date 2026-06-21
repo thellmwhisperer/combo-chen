@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.45](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.44...combo-chen-v0.0.45) (2026-06-21)
+
+
+### Features
+
+* **director:** inspect worker panes in all combo phases ([#161](https://github.com/thellmwhisperer/combo-chen/issues/161)) ([d66b22e](https://github.com/thellmwhisperer/combo-chen/commit/d66b22ed2f47356b48a0a446004088e8a09197f2))
+
 ## [0.0.44](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.43...combo-chen-v0.0.44) (2026-06-21)
 
 
