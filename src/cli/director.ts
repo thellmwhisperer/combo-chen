@@ -3,7 +3,7 @@
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at tickDirector          <- one deterministic post-PR pass.
+ *   1. Start at tickDirector          <- one deterministic observer pass (pre- and post-PR).
  *   2. Then runInitialGateRetryIfNeeded <- pre-PR gate failure recovery.
  *   3. Then runReadyForMergeIfNeeded <- current-head READY agreement.
  *   4. READY pure helpers            <- head, gate, and review predicates.
@@ -23,8 +23,8 @@
  *
  *   INTERNALS
  *   ---------
- *   runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, retry-count helpers,
- *   required READY check helpers, review-comment helpers
+ *   runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
+ *   retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
