@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,gatekeeper},
+ *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,director,gatekeeper},
  *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -82,6 +82,7 @@ import {
   hasIssueAutocloseInPrBody,
 } from "../roles/gatekeeper.js";
 import { buildCoderInvocation, defaultWorkPlanPrompt, persistCoderThreadArtifact } from "../roles/coder.js";
+import { buildDirectorInvocation } from "../roles/director.js";
 import { parseEventFields } from "./args.js";
 import { closeMergedCombo } from "./closure.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
@@ -114,6 +115,7 @@ import {
 } from "./reviewer.js";
 import {
   CODER_WINDOW,
+  DIRECTOR_WINDOW,
   DIRECTOR_WATCH_WINDOW,
   ensureJournalPane,
   resolveAttachCombo,
@@ -240,6 +242,11 @@ export function createProgram(deps: Deps): Command {
         coderInput.prompt = defaultWorkPlanPrompt(workPlan, join(runDir, WORK_PLAN_ARTIFACT));
       }
       const coderCommand = buildCoderInvocation(coderInput);
+      const directorCommand = buildDirectorInvocation({
+        combo,
+        directorCommand: config.directorCommand,
+        workPlan,
+      });
       const prIntent = issueDetails === undefined
         ? buildWorkPlanPrIntent(workPlan)
         : buildIssuePrIntent({
@@ -268,10 +275,12 @@ export function createProgram(deps: Deps): Command {
             cli: cliInvocation(),
             roleWindows: {
               coder: CODER_WINDOW,
+              director: DIRECTOR_WINDOW,
               gatekeeper: GATEKEEPER_WINDOW,
               directorWatch: DIRECTOR_WATCH_WINDOW,
             },
             promptTargets: {
+              director: `${session}:${DIRECTOR_WINDOW}`,
               workPlan: join(runDir, WORK_PLAN_ARTIFACT),
             },
           }),
@@ -341,6 +350,13 @@ export function createProgram(deps: Deps): Command {
           timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
           retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
         });
+        const director = deps.tmux(newWindowArgs(session, DIRECTOR_WINDOW, directorCommand));
+        if (director.status !== 0) {
+          throw new Error(
+            `tmux failed to start director in "${session}": ` +
+              `${director.stderr.trim() || "unknown error"}`,
+          );
+        }
         const directorWatch = deps.tmux(
           newWindowArgs(
             session,

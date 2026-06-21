@@ -81,6 +81,15 @@ initial_gate_retry_backoff_seconds = 10
 # always-on and not configurable; it prevents parallel combos from colliding
 # on the single no-mistakes daemon.
 
+[director]
+# Promptable interactive director window, created at launch. It does not poll;
+# director-watch does deterministic polling and prompts this window only when
+# ambiguity, malformed signals, intent-touching choices, or uncoded recovery
+# need judgment.
+# Environment override: COMBO_CHEN_DIRECTOR_COMMAND.
+# {placeholders}: issue_url, worktree, repo, branch, prompt.
+command = "claude {prompt}"
+
 [ready]
 # Required READY checks are GitHub status contexts/check runs, not reviewer
 # approval. Each configured name must be present with exact SUCCESS; all other

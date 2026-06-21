@@ -169,6 +169,10 @@ agents = ["coderabbit"]
 
 [reviewer.claude]
 command = "claude {prompt}"
+
+[director]
+# Promptable interactive director window; director-watch owns polling.
+command = "claude {prompt}"
 ```
 
 Reviewer commands must submit reviews with a single inline

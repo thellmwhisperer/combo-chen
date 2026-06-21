@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~710 lines, 12 exports.
+ *   Repo wins on policy, user wins on local setup. ~720 lines, 13 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -15,7 +15,8 @@
  *     → readTomlIfExists(user) → readTomlIfExists(repo)
  *     → mergeRoles → pickNumber* → pickNonEmptyString
  *     → returns ComboConfig used by buildCoderInvocation,
- *       buildGatekeeperInvocation, buildReviewerInvocation
+ *       buildGatekeeperInvocation, buildReviewerInvocation,
+ *       buildDirectorInvocation
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────┐
  *   │ loadConfig                Cascade: defaults → user → repo → env   │
@@ -30,7 +31,7 @@
  *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -68,6 +69,8 @@ export interface ComboConfig {
   coderResumeCommand: string;
   /** Command template for the gatekeeper's blocking gate run. May contain {placeholders}: issue_url, issue_title, issue_body (issue-backed combos only), issue_pr_intent, branch (all combos). */
   gatekeeperCommand: string;
+  /** Command template for the promptable interactive director role, with {placeholders}. */
+  directorCommand: string;
   /** How long the gatekeeper tmux window waits for no-mistakes' active run. */
   gatekeeperAttachTimeoutSeconds: number;
   /** How often the gatekeeper tmux window polls for no-mistakes' active run. */
@@ -127,6 +130,7 @@ export const DEFAULT_CODER_COMMAND = [
 ].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
   "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent} --skip=ci";
+export const DEFAULT_DIRECTOR_COMMAND = "claude {prompt}";
 export const DEFAULT_PERMISSION_PROMPT_PATTERNS = [
   "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
   "^\\s*(?:Allow|Approve|Confirm)\\?\\s*\\[[yn]/[yn]\\]\\s*$",
@@ -165,6 +169,9 @@ const DEFAULTS = {
     attach_retry_interval_seconds: 10,
     initial_gate_retry_attempts: 2,
     initial_gate_retry_backoff_seconds: 10,
+  },
+  director: {
+    command: DEFAULT_DIRECTOR_COMMAND,
   },
   coder_responding: {
     window_name: "coder-responding",
@@ -411,6 +418,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     ...DEFAULTS.coder,
   };
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
+  let directorTable: TomlTable = { ...DEFAULTS.director };
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
   let externalCommentsTable: TomlTable = { ...DEFAULTS.external_comments };
   let readyTable: TomlTable = { ...DEFAULTS.ready };
@@ -445,6 +453,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       gatekeeperTable = {
         ...gatekeeperTable,
         ...asTable(layer.table[section], `[${section}] in ${layer.source}`),
+      };
+    }
+    if (layer.table["director"] !== undefined) {
+      directorTable = {
+        ...directorTable,
+        ...asTable(layer.table["director"], `[director] in ${layer.source}`),
       };
     }
     for (const section of ["thread_sitter", "coder_responding"]) {
@@ -563,6 +577,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
     runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
   }
+  if (env["COMBO_CHEN_DIRECTOR_COMMAND"] !== undefined) {
+    directorTable["command"] = env["COMBO_CHEN_DIRECTOR_COMMAND"];
+  }
 
   if (roles.reviewer.length === 0) {
     throw new ComboConfigError(
@@ -643,6 +660,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     gatekeeperCommand: pickNonEmptyString(
       gatekeeperTable["command"],
       "command template for [gatekeeper]",
+    ),
+    directorCommand: pickNonEmptyString(
+      directorTable["command"],
+      "command template for [director]",
     ),
     gatekeeperAttachTimeoutSeconds: pickNumber(
       gatekeeperTable,

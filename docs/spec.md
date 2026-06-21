@@ -310,8 +310,12 @@ ignored config or environment outside that file.
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo: windows for coder, gatekeeper, and any
-  interactive agent roles (reviewer, coder responding mode). The gatekeeper
+- One tmux session per combo: windows for coder, gatekeeper, director, and any
+  later interactive agent roles (reviewer, coder responding mode). The director
+  window is created at launch with a non-polling promptable-director contract;
+  `director-watch` owns deterministic polling and prompts the director only for
+  ambiguity, malformed signals, intent-touching choices, or uncoded recovery.
+  The gatekeeper
   window resolves the branch's no-mistakes run id from the local no-mistakes
   state, then follows `no-mistakes axi status --run <id>` instead of using
   global attach, so simultaneous combos cannot render each other's run. On
@@ -510,7 +514,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
 3. **v0 scope as proposed**:
    `run`/`attach`/`status`/`park`/`resume`/`stop`/`events`/`forensics`/`closure`/`reconcile`/`activate-reviewer`,
    coder (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental
-   re-review), director-owned tmux poll loop; manual director; treehouse, ACP,
+   re-review), director-owned tmux poll loop; promptable director window; treehouse, ACP,
    counterfactual log, preflight and multi-combo dashboard deferred to v1+.
 
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the

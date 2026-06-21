@@ -37,7 +37,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan},
- *   ../infra/{config,config-snapshot,release-metadata}, ../roles/coder, ./main
+ *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./main
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -2138,6 +2138,7 @@ describe("run", () => {
       tmuxSession: "combo-chen-o-r-7",
       roleWindows: {
         coder: "coder",
+        director: "director",
         gatekeeper: "gatekeeper",
         directorWatch: "director-watch",
       },
@@ -2154,6 +2155,7 @@ describe("run", () => {
         issueUrl: ISSUE,
       },
       promptTargets: {
+        director: "combo-chen-o-r-7:director",
         workPlan: join(runDir, "work-plan.md"),
       },
     });
@@ -2187,6 +2189,18 @@ describe("run", () => {
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
     expect(tmuxNewSession).toContain("coder");
     const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
+    const directorWindow = tmuxNewWindows.find((call) => call[call.indexOf("-n") + 1] === "director");
+    expect(directorWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "director",
+      expect.stringContaining("Combo director contract"),
+    ]);
+    expect(directorWindow?.at(-1)).toContain("Do not poll");
+    expect(directorWindow?.at(-1)).toContain("claude");
     const gatekeeperWindow = tmuxNewWindows.find((call) => call.includes("gatekeeper"));
     expect(gatekeeperWindow).toEqual([
       "tmux",

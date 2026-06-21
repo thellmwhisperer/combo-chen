@@ -107,6 +107,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.reviewNudgePrompt).toContain("Do not push");
     expect(config.reviewNudgePrompt).toContain("gatekeeper/no-mistakes");
     expect(config.reviewerAgent).toBe("claude");
+    expect(config.directorCommand).toBe("claude {prompt}");
     expect(config.limits.coderTimeoutMinutes).toBe(180);
   });
 
