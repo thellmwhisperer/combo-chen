@@ -17,6 +17,18 @@ schema must conform to it, not the other way around.
 
 Validation at launch (hard failures, the combo refuses to start):
 
+- `combo-chen overture` runs a deterministic launch runway before any agent tokens
+  are spent or tmux windows are created. `combo-chen run` consumes the same
+  overture logic internally. A failing check prints `X <check>: <resource> <detail>`
+  and exits before creating worktrees, branches, or tmux sessions.
+- Checks: work_item_readable, repo_exists, repo_matches_issue,
+  source_checkout_clean, base_ref_resolved, combo_id_valid, run_dir_free,
+  branch_free, worktree_free, tmux_session_free, config_parses,
+  coder_command_safe, reviewer_command_safe, no_mistakes_available,
+  no_mistakes_run_free, no_mistakes_config_predictable.
+- The result is written as a machine-readable `overture.json` artifact in the
+  combo run directory, recording all resources the run is allowed to create and
+  every check result.
 - `reviewer != coder` — no agent reviews its own changes.
 - every role resolves to an available agent (binary present, auth alive).
 - the source checkout is clean and on `[run].source_branch` (default `main`,
@@ -43,7 +55,13 @@ Validation at launch (hard failures, the combo refuses to start):
 ## 2. Phases and transitions
 
 ```text
-SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
+OVERTURE    deterministic launch runway: checks work-item readability, repo/issue
+  │           match, clean source checkout, base ref, branch/worktree/tmux
+  │           availability, run dir reuse, config parse, coder/reviewer command
+  │           safety, no-mistakes availability and run conflict. Blocked checks
+  │           print an X with the failing resource and exit before creating any
+  │           launch resources. Writes overture.json artifact on completion.
+  └─▶ SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
               └─▶ REVIEWING  director-watch observes reviewer and coder responding mode workers
@@ -284,7 +302,10 @@ ignored config or environment outside that file.
   includes a short (12-line) journal pane showing live events. After PR open,
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
-- The journal is an append-only JSONL spine per combo run. Each append acquires
+- The journal is an append-only JSONL spine per combo run. Each combo run
+  directory also contains `combo.json` (combo identity), `config.snapshot.json`
+  (frozen launch-time config), `overture.json` (pre-launch runway check results),
+  generated runner/gate scripts, and work-plan/role artifacts. Each append acquires
   a per-run directory lock (30 s staleness timeout) that serializes concurrent
   writers from the runner, director, emit command, and resume/reconcile paths.
   A stale lock from a dead process is removed before the next writer proceeds;

@@ -51,6 +51,8 @@ GitHub issue or work-plan file
     v
 combo-chen run (--issue <url> | --plan <file>)
     |
+    +--> overture checks (see combo-chen overture)
+    |
     +--> isolated worktree + branch
     |
     +--> coder agent writes local commits
@@ -242,6 +244,8 @@ verify and install.
 ## Commands
 
 ```bash
+combo-chen overture --issue <issue-url> [--repo <dir>] [--base <ref>]
+combo-chen overture --plan <file> [--repo <dir>] [--base <ref>]
 combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen run --plan <file> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen status [--deep] [--all]
@@ -253,6 +257,14 @@ combo-chen forensics --issues <numbers> [--format json]
 combo-chen reconcile [-n <combo-id>] [--apply]
 combo-chen stop -n <combo-id>
 ```
+
+`overture` checks the launch runway before spending agent tokens or creating
+tmux sessions. It runs the same deterministic checks that `run` executes
+internally: work item readability, repo/issue match, clean checkout, base ref,
+branch/worktree/tmux availability, no-mistakes status, and coder/reviewer
+command safety. A blocked check prints an `X` and exits before any launch
+resources are created. Run it standalone to verify readiness, or let `run`
+consume it automatically.
 
 ### Recovery Commands
 
@@ -283,6 +295,7 @@ By default, run state lives under:
 
 Important files:
 
+- `overture.json`: launch runway check results before worktree/tmux/branch creation.
 - `combo.json`: repo, worktree, branch, tmux identity, and work-item source metadata.
 - `journal.jsonl`: the source of truth.
 - `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
