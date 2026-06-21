@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.46](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.45...combo-chen-v0.0.46) (2026-06-21)
+
+
+### Features
+
+* **runtime-ledger:** Added the first launch-time runtime ledger slice for issue-backed and plan-backed combo runs. ([3f908f0](https://github.com/thellmwhisperer/combo-chen/commit/3f908f01a1d1a5b6d21c5f5d9b294478fbb2cbf2))
+* **runtime-ledger:** Added the next runtime-ledger slice: legacy fallback reading plus PR/reviewer resource updates wired into the CLI. ([b75b287](https://github.com/thellmwhisperer/combo-chen/commit/b75b28761b37ea6985feb4266c4da53ce0722260))
+
+
+### Bug Fixes
+
+* **closure:** Implemented the closure consumer slice for the runtime ledger by making closure honor ledger PR URLs while preserving legacy fallback behavior. ([639dab6](https://github.com/thellmwhisperer/combo-chen/commit/639dab6385d5426ddde3cb5eb84dc61f0b7fdd56))
+* **runtime-ledger:** hydrate missing pr urls ([00a8909](https://github.com/thellmwhisperer/combo-chen/commit/00a89098aa39ada59972d07f385cdc22e0a41a4e))
+* **runtime-ledger:** Status now consumes runtime-ledger PR URLs as the available dashboard-style reader, including deep GitHub readiness checks, with full validation green. ([8b2a1d0](https://github.com/thellmwhisperer/combo-chen/commit/8b2a1d09a38ef89825df6e3ea193bce00f866bbe))
+
 ## [0.0.45](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.44...combo-chen-v0.0.45) (2026-06-21)
 
 
