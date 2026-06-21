@@ -131,5 +131,6 @@ reboot-safe combo handoff, `status` (actionable by default, `--all` for
 history, `--deep` for downstream probes, auto-reconcile + tmux liveness),
 launch-time config snapshots for deterministic runtime behavior,
 a machine-readable runtime ledger for each combo capsule,
+shared gate lease serialization for parallel combos with stale recovery and heartbeat,
 and current-head READY agreement. Deferred: preflight, counterfactual
 automerge log, treehouse pools, ACP role driving, and multi-combo dashboarding.
