@@ -34,7 +34,7 @@
  *   └────────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state,work-plan},
+ * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,runtime-ledger,state,work-plan},
  *   ../infra/{config,config-snapshot,release-metadata}, ../roles/coder, ./main
  */
 import { spawnSync } from "node:child_process";
@@ -46,6 +46,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
+import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import { listCombos, runDirFor, writeCombo } from "../core/state.js";
 import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
@@ -3271,6 +3272,33 @@ describe("status", () => {
     expect(text).toContain(`local_file:${planPath}`);
   });
 
+  it("prints the PR URL from the runtime ledger when the journal lacks pr_opened", async () => {
+    const h = home();
+    const prUrl = "https://github.com/o/r/pull/7";
+    const dir = runDirFor(h, "o-r-7");
+    const combo = {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    };
+    writeCombo(dir, combo);
+    writeRuntimeLedger(dir, buildRuntimeLedger({ combo, runDir: dir, cli: "combo-chen", prUrl }));
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("o-r-7");
+    expect(text).toContain("STALLED");
+    expect(text).toContain(prUrl);
+  });
+
   it("hides terminal historical combos by default and preserves them with --all", async () => {
     const h = home();
     const liveDir = runDirFor(h, "o-r-live");
@@ -3701,6 +3729,56 @@ describe("status", () => {
     const text = out.join("\n");
     expect(text).toContain("STALLED");
     expect(text).toContain("gate_failed");
+    expect(text).toContain("PR ready for reviewer");
+  });
+
+  it("uses the runtime ledger PR URL for deep GitHub status when the journal lacks pr_opened", async () => {
+    const h = home();
+    const worktree = "/repos/r/.worktrees/issue-7";
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    const combo = {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    };
+    writeCombo(dir, combo);
+    writeRuntimeLedger(dir, buildRuntimeLedger({ combo, runDir: dir, cli: "combo-chen", prUrl }));
+    appendEvent(dir, "gate_started", {});
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: () => ({
+        status: 1,
+        stdout: "No active run.\n",
+        stderr: "",
+      }),
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: "OPEN",
+              statusCheckRollup: [{ name: "test", conclusion: "SUCCESS" }],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+    await exec(deps, ["status", "--deep"]);
+
+    const text = out.join("\n");
+    expect(text).toContain(prUrl);
     expect(text).toContain("PR ready for reviewer");
   });
 
