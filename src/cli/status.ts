@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~239 lines, 8 exports, parsers for deep recovery status.
+ *   ~240 lines, 8 exports, parsers for deep recovery status.
  *
  *   READING GUIDE
  *   -------------
@@ -58,6 +58,7 @@ export interface NoMistakesAxiStatus {
 
 type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
 interface DeepGithubStatusOptions {
+  prUrl?: string;
   requiredCheckNames?: string[];
   ambientCheckNames?: string[];
   reviewerLogins?: string[];
@@ -234,6 +235,6 @@ export function deepComboStatus(
   if (noMistakes !== undefined && !noMistakes.startsWith("no-mistakes unavailable:")) {
     return noMistakes;
   }
-  return deepGithubPrStatus(latestPrUrlFromEvents(events), gh, options) ?? noMistakes;
+  return deepGithubPrStatus(options.prUrl ?? latestPrUrlFromEvents(events), gh, options) ?? noMistakes;
 }
 // -/ 4/4
