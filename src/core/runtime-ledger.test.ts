@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for runtime ledger persistence. ~120 lines, fallback and update contracts.
+ * @overview Unit tests for runtime ledger persistence. ~180 lines, fallback and update contracts.
  *
  *   READING GUIDE
  *   -------------
@@ -22,7 +22,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ./events, ./runtime-ledger, ./state
  */
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -85,6 +85,57 @@ describe("readRuntimeLedger", () => {
     });
     expect(ledger.commands.resume).toContain("resume -n 'o-r-7'");
     expect(ledger.logs.coder).toBe(join(runDir, "coder.log"));
+  });
+
+  it.each([
+    ["issue-backed", combo()],
+    [
+      "plan-backed",
+      combo({
+        id: "plan-ledger-1234abcd",
+        issueUrl: "",
+        workItemSourceType: "local_file",
+        workItemSourceReference: "plans/ledger.md",
+        workItemTitle: "Ledger rollout",
+        branch: "combo/plan-ledger-1234abcd",
+        worktree: "/repo/r/.worktrees/plan-ledger-1234abcd",
+        tmuxSession: "combo-chen-plan-ledger-1234abcd",
+      }),
+    ],
+  ] as const)("hydrates a present %s ledger missing prUrl from the journal", (_label, record) => {
+    const runDir = tempRunDir();
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    writeRuntimeLedger(
+      runDir,
+      buildRuntimeLedger({
+        combo: record,
+        runDir,
+        cli: "combo-chen",
+      }),
+    );
+
+    const ledger = readRuntimeLedger(runDir);
+
+    expect(ledger).toMatchObject({
+      comboId: record.id,
+      prUrl: "https://github.com/o/r/pull/7",
+    });
+  });
+
+  it("falls back to combo.json plus journal facts when runtime-ledger.json is corrupt", () => {
+    const runDir = tempRunDir();
+    writeCombo(runDir, combo());
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    writeFileSync(join(runDir, RUNTIME_LEDGER_FILE), "{not json");
+
+    const ledger = readRuntimeLedger(runDir, { cli: "combo-chen" });
+
+    expect(ledger).toMatchObject({
+      comboId: "o-r-7",
+      repoDir: "/repo/r",
+      prUrl: "https://github.com/o/r/pull/7",
+    });
   });
 });
 // -/ 2/3
