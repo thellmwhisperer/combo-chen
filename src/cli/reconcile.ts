@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   list/select combo -> latest pr_opened -> gh pr view -> append terminal events -> cleanup
+ *   list/select combo -> runtime ledger PR URL -> gh pr view -> append terminal events -> cleanup
  *
  *   PUBLIC API
  *   ----------
@@ -22,7 +22,7 @@
  *   reconcileCombo, hasPrClosedNeedsHuman, readPrViewForReconcile, report
  *
  * @exports ReconcileDeps, reconcileCombos
- * @deps ../core/{events,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
+ * @deps ../core/{events,runtime-ledger,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
  */
 import { appendEvent, readEvents } from "../core/events.js";
 import { listCombos, readCombo, runDirFor, type ComboRecord } from "../core/state.js";

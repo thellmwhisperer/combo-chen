@@ -307,6 +307,7 @@ Important files:
 - `overture.json`: launch runway check results before worktree/tmux/branch creation.
 - `combo.json`: repo, worktree, branch, tmux identity, and work-item source metadata.
 - `journal.jsonl`: the source of truth.
+- `runtime-ledger.json`: machine-readable combo capsule resource ledger; written at launch, updated when PR/reviewer/director resources appear.
 - `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
 - `runner.sh`: generated initial runner.
 - `coder.log`: initial coder output.
@@ -349,6 +350,7 @@ runway, coder, gatekeeper, initial-gate
 retry with configurable attempts and backoff, reviewer, director watching,
 review-comment routing, post-address gates, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
+a machine-readable runtime ledger for each combo capsule,
 and current-head READY agreement. Work items can be GitHub issues (`--issue`) or
 local markdown work plans (`--plan`).
 

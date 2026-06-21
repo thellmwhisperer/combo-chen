@@ -314,7 +314,10 @@ ignored config or environment outside that file.
   one `director-watch` window runs the polling loop; reviewer and coder
   responding mode are worker windows, not independent babysitters.
 - The journal is an append-only JSONL spine per combo run. Each combo run
-  directory also contains `combo.json` (combo identity), `config.snapshot.json`
+  directory also contains `combo.json` (combo identity),
+  `runtime-ledger.json` (machine-readable capsule resources, written at launch
+  and updated when PR/reviewer/director resources appear),
+  `config.snapshot.json`
   (frozen launch-time config), `overture.json` (pre-launch runway check results),
   generated runner/gate scripts, and work-plan/role artifacts. Each append acquires
   a per-run directory lock (30 s staleness timeout) that serializes concurrent
@@ -365,8 +368,8 @@ ignored config or environment outside that file.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
 -   `combo-chen closure -n <combo-id>` is the canonical merged happy-path
-    resource convergence command. It reads the persisted combo record, latest
-    `pr_opened` event, and GitHub PR facts; it refuses teardown unless GitHub
+    resource convergence command. It reads the persisted combo record,
+    runtime ledger (for the PR URL), and GitHub PR facts; it refuses teardown unless GitHub
     reports `MERGED`; then it records any missing `merged` event with
     `source: "closure"`, refuses resource teardown while no-mistakes still
     reports an active or awaiting run for the combo branch, removes the local
