@@ -135,6 +135,7 @@ export function promptDirector(input: {
   comboId: string;
   reason: string;
   message: string;
+  sha?: string;
 }): void {
   const runDir = runDirFor(input.home, input.comboId);
   const combo = readCombo(runDir);
@@ -163,6 +164,7 @@ export function promptDirector(input: {
     phase: status.phase,
     prompt_sha: promptSha(prompt),
     prompt_preview: promptPreview(prompt),
+    ...(input.sha !== undefined ? { sha: input.sha } : {}),
   });
   input.deps.out(`director-prompt: prompted ${target.tmuxTarget} for ${combo.id} (${reason})`);
 }
