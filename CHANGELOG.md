@@ -534,6 +534,8 @@
 
 ### Features
 
+* **reviewer:** parse verdict codes for deterministic routing — machine-readable verdict block with codes 0 (LGTM), 1 (mechanical fix→coder), 2 (ambiguous→director prompt), and 3 (needs_human); current-head parsing with stale/malformed/duplicate rejection; verdict author filtering via `[reviewer].logins` ([#153](https://github.com/thellmwhisperer/combo-chen/issues/153))
+
 * **overture:** deterministic launch runway before `combo-chen run` — checks work-item readability, repo/issue match, clean checkout, base ref, branch/worktree/tmux availability, no-mistakes status, and coder/reviewer command safety; writes `overture.json` artifact and blocks before creating any launch resources when a check fails. Run standalone with `combo-chen overture --issue <url>` or `combo-chen overture --plan <file>` ([#144](https://github.com/thellmwhisperer/combo-chen/issues/144))
 
 * **work-plan:** accept generic plan-based work items (`--plan <file>`) in addition to GitHub issues ([#134](https://github.com/thellmwhisperer/combo-chen/issues/134)) — canonically normalizing markdown plans into a `WorkPlan` artifact, persisting `work-plan.md` per combo, injecting work-plan context into reviewer prompts and forensics reports, and skipping the GitHub autoclose guard for plan-backed PRs

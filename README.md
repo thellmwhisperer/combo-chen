@@ -40,7 +40,9 @@ combo-chen makes the process explicit.
    combos; a busy lease queues the gate with a `queued` status, and the lease releases on exit.
    If the initial gate fails before a PR opens, the director auto-retries it up to
    a configurable limit.
-5. A reviewer comments with a SHA-pinned verdict.
+5. A reviewer comments with a machine-readable verdict block (codes: 0=OK/LGTM,
+   1=mechanical fix→coder, 2=ambiguous→director, 3=needs human) and/or a
+   SHA-pinned LGTM verdict.
 6. Review comments are routed back to the coder in responding mode.
 7. New addressing commits go back through the gatekeeper before publication.
 8. The run becomes ready only when the current PR head has gate validation,
@@ -66,7 +68,7 @@ combo-chen run (--issue <url> | --plan <file>)
     |
     +--> PR opens
     |
-    +--> reviewer comments with "lgtm @ <head-sha>" or findings
+    +--> reviewer comments with machine-readable verdict codes (0-3) or "lgtm @ <head-sha>"
     |
     +--> coder responding mode addresses review comments
     |
@@ -157,7 +159,7 @@ merge = "human"
 [reviewer]
 # Optional free-form reviewer instructions.
 # prompt = "Apply my local review process."
-# GitHub authors allowed to satisfy "lgtm @ <sha>".
+# GitHub authors allowed to satisfy "lgtm @ <sha>" and verdict block routing.
 logins = ["claude"]
 
 [ready]
@@ -179,8 +181,8 @@ Reviewer commands must submit reviews with a single inline
 `gh pr review --comment --body "..."` command. They must not use heredocs, temp
 files, pipes, redirects, semicolons, or cleanup commands to publish a review.
 Only comments or reviews authored by `[reviewer].logins` can satisfy the
-SHA-pinned reviewer LGTM gate; by default this is the active reviewer agent
-name.
+SHA-pinned reviewer LGTM gate and have their machine-readable verdict blocks
+accepted for routing; by default this is the active reviewer agent name.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
 present with `SUCCESS`; these external checks are not reviewer approval.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
@@ -361,8 +363,10 @@ Active development.
 
 v0 implements the work-item-to-PR loop with deterministic overture launch
 runway, coder, gatekeeper, initial-gate
-retry with configurable attempts and backoff, reviewer, director watching, promptable director window,
-review-comment routing, post-address gates, park/resume, reconcile, forensics,
+retry with configurable attempts and backoff, reviewer with machine-readable
+verdict codes (0-3) and deterministic routing, director watching,
+review-comment routing, post-address gates, director prompt delivery for
+code-2 verdicts, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
 a machine-readable runtime ledger for each combo capsule,
 shared gate lease serialization for parallel combos with stale recovery and heartbeat,
