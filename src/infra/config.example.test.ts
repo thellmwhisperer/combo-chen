@@ -104,6 +104,7 @@ describe("combo-chen.example.toml", () => {
     expect(lowerDocs).toContain("reviewer auth failures");
     expect(lowerDocs).toContain("gate lease contention");
     expect(lowerDocs).toContain("post-merge closure");
+    expect(docs).toContain("parallel capsule dashboard");
     expect(docs).toContain("postmortem metadata");
   });
 

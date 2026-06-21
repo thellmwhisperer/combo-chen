@@ -180,7 +180,7 @@ function isParked(events: ComboEvent[]): boolean {
 export function createProgram(deps: Deps): Command {
   const program = new Command("combo-chen");
   program.exitOverride();
-  program.description("Conductor for autonomous work-item → PR pipelines.");
+  program.description("The parallel capsule director for autonomous work-item → PR pipelines.");
   program.version(formatReleaseMetadata(releaseMetadata), "-v, --version", "Print release build metadata");
 
   program
@@ -534,8 +534,8 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("status")
-    .description("Show combo status; marks merged combos closure-pending and auto-closes closed PR salvage cases")
-    .option("--deep", "Probe downstream no-mistakes state")
+    .description("Show the parallel capsule dashboard; marks merged combos closure-pending and auto-closes closed PR salvage cases")
+    .option("--deep", "Probe downstream no-mistakes/GitHub recovery state")
     .option("--all", "Include terminal historical combos", false)
     .action(async (options: { deep?: boolean; all?: boolean }) => {
       const home = comboHome(deps.env);
@@ -571,11 +571,8 @@ export function createProgram(deps: Deps): Command {
         return;
       }
       const deep = options.deep === true;
-      deps.out(
-        deep
-          ? "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                GATE-LEASE                   PR DOWNSTREAM"
-          : "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                GATE-LEASE                   PR",
-      );
+      const header = `${"CAPSULE".padEnd(30)} ${"PHASE".padEnd(9)} ${"NEEDS-HUMAN".padEnd(16)} ${"WORK ITEM".padEnd(40)} ${"GATE-LEASE".padEnd(28)} PR`;
+      deps.out(deep ? `${header} DOWNSTREAM` : header);
       for (const { combo, events, status, runtimePrUrl } of visibleRows) {
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
         const prUrl = status.pr ?? runtimePrUrl;

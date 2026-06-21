@@ -408,9 +408,10 @@ ignored config or environment outside that file.
   `[monitor].worker_stall_ticks` unchanged captures for the same worker
   journals `needs_human` with `worker_permission_prompt`, `worker_dead`, or
   `worker_stalled`.
-- Attention surface: tmux window titles + default `combo-chen status` always
-  answer "which combos need a human RIGHT NOW" (phase + needs_human flag) and
-  show the active shared gate lease owner in a `GATE-LEASE` column when present.
+- Attention surface: tmux window titles + the default parallel capsule
+  dashboard (`combo-chen status`) always answer "which combos need a human RIGHT
+  NOW" (phase + needs_human flag) and show the active shared gate lease owner in
+  a `GATE-LEASE` column when present.
   Before rendering, status quietly reconciles closed PRs into the human-salvage
   terminal state. For merged PRs it records the GitHub merge fact, then leaves
   resources untouched and keeps the row visible as `closure_pending` until
