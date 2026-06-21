@@ -335,7 +335,8 @@ through env, TOML, then fallback defaults.
 
 Active development.
 
-v0 implements the work-item-to-PR loop with coder, gatekeeper, initial-gate
+v0 implements the work-item-to-PR loop with deterministic overture launch
+runway, coder, gatekeeper, initial-gate
 retry with configurable attempts and backoff, reviewer, director watching,
 review-comment routing, post-address gates, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
