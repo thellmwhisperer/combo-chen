@@ -1,16 +1,16 @@
 /**
- * @overview Director CLI helpers. ~325 lines, 5 exports, initial-gate retry and post-PR orchestration.
+ * @overview Director CLI helpers. ~350 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at tickDirector          <- one deterministic post-PR pass.
+ *   1. Start at tickDirector          <- one deterministic observer pass (pre- and post-PR).
  *   2. Then runInitialGateRetryIfNeeded <- pre-PR gate failure recovery.
  *   3. Then runReadyForMergeIfNeeded <- current-head READY agreement.
  *   4. READY pure helpers            <- head, gate, and review predicates.
  *
  *   MAIN FLOW
  *   ---------
- *   runInitialGateRetryIfNeeded -> wait for PR -> inspectWorkerPanes -> tickReviewer -> nudgeReviewComments
+ *   runInitialGateRetryIfNeeded -> inspectWorkerPanes -> wait for PR -> tickReviewer -> nudgeReviewComments
  *     -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded
  *
  *   PUBLIC API
@@ -23,12 +23,13 @@
  *
  *   INTERNALS
  *   ---------
- *   runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, retry-count helpers,
- *   required READY check helpers, review-comment helpers
+ *   runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
+ *   retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
  */
+import { deriveStatus } from "../core/combo.js";
 import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
@@ -86,27 +87,25 @@ export async function tickDirector(input: {
     return;
   }
 
-  if (latestPrUrl(readEvents(runDir)) === undefined) {
-    deps.out(`director: tick complete for ${comboId}`);
-    return;
+  let events = readEvents(runDir);
+  const workerWindows = workerWindowsForEvents(events, config.coderRespondingWindowName);
+  if (workerWindows.length > 0) {
+    const workerInspection = inspectWorkerPanes({
+      deps,
+      combo,
+      runDir,
+      workerWindows,
+      stallTicks: config.workerStallTicks,
+      permissionPromptPatterns: config.workerPermissionPromptPatterns,
+    });
+    if (workerInspection.escalated) {
+      deps.out(`director: tick complete for ${comboId}`);
+      return;
+    }
+    events = readEvents(runDir);
   }
 
-  const workerWindows = [...new Set([
-    CODER_WINDOW,
-    REVIEWER_WINDOW,
-    GATEKEEPER_WINDOW,
-    config.coderRespondingWindowName,
-  ])];
-
-  const workerInspection = inspectWorkerPanes({
-    deps,
-    combo,
-    runDir,
-    workerWindows,
-    stallTicks: config.workerStallTicks,
-    permissionPromptPatterns: config.workerPermissionPromptPatterns,
-  });
-  if (workerInspection.escalated) {
+  if (latestPrUrl(events) === undefined) {
     deps.out(`director: tick complete for ${comboId}`);
     return;
   }
@@ -139,6 +138,26 @@ export async function tickDirector(input: {
 // -/ 2/3
 
 // -- 3/3 HELPER · Initial gate retry and READY agreement --
+function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
+  if (latestPrUrl(events) !== undefined) {
+    return [...new Set([
+      CODER_WINDOW,
+      REVIEWER_WINDOW,
+      GATEKEEPER_WINDOW,
+      coderRespondingWindowName,
+    ])];
+  }
+
+  switch (deriveStatus(events).phase) {
+    case "CODING":
+      return [CODER_WINDOW];
+    case "GATING":
+      return [GATEKEEPER_WINDOW];
+    default:
+      return [];
+  }
+}
+
 interface InitialGateRetryState {
   failures: number;
   retryNumber: number;
