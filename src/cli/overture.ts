@@ -1,5 +1,5 @@
 /**
- * @overview Deterministic launch runway for combo creation. ~370 lines,
+ * @overview Deterministic launch runway for combo creation. ~420 lines,
  *   8 exports, checks launch inputs/resources before worker windows start.
  *
  *   READING GUIDE
@@ -26,10 +26,11 @@
  *   INTERNALS
  *   ---------
  *   readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
- *   checkBaseRef, checkBranchFree, runDirReusable, writeOvertureArtifact
+ *   checkBaseRef, checkBranchFree, checkNoMistakesRunway, runDirReusable,
+ *   writeOvertureArtifact
  *
  * @exports OVERTURE_ARTIFACT, OvertureBlockedError, OvertureDeps, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
- * @deps node:{crypto,fs,path}, ../core/{state,work-plan}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./work-plan
+ * @deps node:{crypto,fs,path}, ../core/{state,work-plan}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./status, ./work-plan
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -57,6 +58,7 @@ import {
 import { hasSessionArgs, type TmuxResult } from "../infra/tmux.js";
 import { assertReviewerCommandSafe } from "../roles/reviewer.js";
 import { fetchIssueDetails, remoteSlug, type GhRunner, type IssueDetails } from "./github.js";
+import { parseNoMistakesAxiStatus } from "./status.js";
 import { WORK_PLAN_ARTIFACT } from "./work-plan.js";
 
 // -- 1/3 HELPER · Types and local work-plan reading --
@@ -68,6 +70,7 @@ export interface OvertureDeps {
   env: Record<string, string | undefined>;
   git: (args: string[], cwd: string) => CommandResult;
   gh: GhRunner;
+  noMistakes: (args: string[], cwd: string) => CommandResult;
   tmux: (args: string[]) => TmuxResult;
   issueExists?: (issueUrl: string) => boolean;
 }
@@ -93,6 +96,12 @@ export interface OvertureResources {
   sourceReference: string;
   sourceTitle: string;
   issueUrl?: string;
+  noMistakes?: {
+    branch?: string;
+    worktree?: string;
+    status?: string;
+    outcome?: string;
+  };
 }
 
 export interface OvertureResult {
@@ -232,6 +241,100 @@ function checkConfigFilePredictable(repoDir: string, worktree: string): Overture
   if (!existsSync(source)) return ok("no_mistakes_config_predictable", source, "no repo config");
   return ok("no_mistakes_config_predictable", `${source} -> ${join(worktree, ".no-mistakes.yaml")}`);
 }
+
+const ACTIVE_NO_MISTAKES_RUN_STATUSES = new Set(["active", "in_progress", "running", "waiting"]);
+
+function parseNoMistakesWorktree(raw: string): string | undefined {
+  for (const line of raw.split(/\r?\n/)) {
+    const worktree = /^\s{2}worktree:\s*(.+)\s*$/.exec(line);
+    if (worktree?.[1] !== undefined) return worktree[1].trim().replace(/^["']|["']$/g, "");
+  }
+  return undefined;
+}
+
+function noActiveRun(result: CommandResult): boolean {
+  return /no active run/i.test(result.stdout) || /no active run/i.test(result.stderr);
+}
+
+function noMistakesFacts(raw: string): OvertureResources["noMistakes"] | undefined {
+  const parsed = parseNoMistakesAxiStatus(raw);
+  const worktree = parseNoMistakesWorktree(raw);
+  const facts: OvertureResources["noMistakes"] = {
+    ...(parsed.branch !== undefined ? { branch: parsed.branch } : {}),
+    ...(worktree !== undefined ? { worktree } : {}),
+    ...(parsed.runStatus !== undefined ? { status: parsed.runStatus } : {}),
+    ...(parsed.outcome !== undefined ? { outcome: parsed.outcome } : {}),
+  };
+  return Object.keys(facts).length > 0 ? facts : undefined;
+}
+
+function checkNoMistakesRunway(
+  deps: OvertureDeps,
+  repoDir: string,
+  branch: string,
+  worktree: string,
+): { checks: OvertureCheck[]; facts?: OvertureResources["noMistakes"] } {
+  const available = deps.noMistakes(["status"], repoDir);
+  if (available.status !== 0) {
+    return {
+      checks: [
+        failed("no_mistakes_available", repoDir, errorDetail("no-mistakes status failed", available)),
+        failed("no_mistakes_run_free", branch, "no-mistakes availability could not be confirmed"),
+      ],
+    };
+  }
+
+  const status = deps.noMistakes(["axi", "status"], repoDir);
+  if (status.status !== 0) {
+    if (noActiveRun(status)) {
+      return {
+        checks: [
+          ok("no_mistakes_available", repoDir),
+          ok("no_mistakes_run_free", branch, "no active run"),
+        ],
+      };
+    }
+    return {
+      checks: [
+        ok("no_mistakes_available", repoDir),
+        failed("no_mistakes_run_free", branch, errorDetail("no-mistakes axi status failed", status)),
+      ],
+    };
+  }
+
+  const parsed = parseNoMistakesAxiStatus(status.stdout);
+  const facts = noMistakesFacts(status.stdout);
+  const active = (
+    (parsed.runStatus !== undefined && ACTIVE_NO_MISTAKES_RUN_STATUSES.has(parsed.runStatus)) ||
+    parsed.outcome === "awaiting_approval"
+  );
+  const activeStatus = parsed.runStatus ?? parsed.outcome ?? "active";
+  if (active && parsed.branch === branch) {
+    return {
+      checks: [
+        ok("no_mistakes_available", repoDir),
+        failed("no_mistakes_run_free", branch, `active no-mistakes run is ${activeStatus}`),
+      ],
+      ...(facts !== undefined ? { facts } : {}),
+    };
+  }
+  if (active && facts?.worktree === worktree) {
+    return {
+      checks: [
+        ok("no_mistakes_available", repoDir),
+        failed("no_mistakes_run_free", worktree, `active no-mistakes run is ${activeStatus}`),
+      ],
+      facts,
+    };
+  }
+  return {
+    checks: [
+      ok("no_mistakes_available", repoDir),
+      ok("no_mistakes_run_free", branch),
+    ],
+    ...(facts !== undefined ? { facts } : {}),
+  };
+}
 // -/ 2/3
 
 // -- 3/3 CORE · prepareOverture, renderOvertureChecklist, assertOverturePassed <- START HERE --
@@ -279,6 +382,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     tmuxSession: session,
     createdAt: input.now?.() ?? new Date().toISOString(),
   };
+  const noMistakes = checkNoMistakesRunway(input.deps, input.repoDir, branch, worktree);
   const resources: OvertureResources = {
     comboId: id,
     repo: input.repoDir,
@@ -291,6 +395,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     sourceReference: workPlan.source.reference,
     sourceTitle: workPlan.title,
     ...(input.issueUrl !== undefined ? { issueUrl: input.issueUrl } : {}),
+    ...(noMistakes.facts !== undefined ? { noMistakes: noMistakes.facts } : {}),
   };
   const checks: OvertureCheck[] = [
     ok("work_item_readable", input.issueUrl ?? input.planFile!),
@@ -319,6 +424,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
   } catch (error) {
     checks.push(failed("reviewer_command_safe", config.reviewerAgent, error instanceof Error ? error.message : String(error)));
   }
+  checks.push(...noMistakes.checks);
   checks.push(checkConfigFilePredictable(input.repoDir, worktree));
 
   const result: OvertureResult = {

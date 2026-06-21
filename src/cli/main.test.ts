@@ -101,6 +101,10 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
     },
     noMistakes: (args, cwd) => {
       calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+      if (args[0] === "status") return { status: 0, stdout: "daemon: running\n", stderr: "" };
+      if (args[0] === "axi" && args[1] === "status") {
+        return { status: 1, stdout: "No active run.\n", stderr: "" };
+      }
       return { status: 1, stdout: "", stderr: "no no-mistakes status" };
     },
     sleep: (ms) => {
@@ -1817,6 +1821,8 @@ describe("run", () => {
     expect(out).toContain("overture o-r-7");
     expect(out).toContain(`OK work_item_readable: ${ISSUE}`);
     expect(out).toContain("OK branch_free: combo/issue-7");
+    expect(out).toContain(`OK no_mistakes_available: ${repoDir}`);
+    expect(out).toContain("OK no_mistakes_run_free: combo/issue-7 no active run");
     expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
@@ -1836,6 +1842,11 @@ describe("run", () => {
       id: "branch_free",
       status: "ok",
       resource: "combo/issue-7",
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "no_mistakes_available",
+      status: "ok",
+      resource: repoDir,
     });
   });
 
@@ -5398,6 +5409,61 @@ describe("run ordering and safety", () => {
       resource: "combo/issue-7",
       status: "failed",
       detail: "already exists locally",
+    });
+  });
+
+  it("blocks an active no-mistakes run for the derived branch before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      noMistakes: (args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        expect(cwd).toBe(repoDir);
+        if (args[0] === "status") return { status: 0, stdout: "daemon: running\n", stderr: "" };
+        expect(args).toEqual(["axi", "status"]);
+        return {
+          status: 0,
+          stdout: [
+            "run:",
+            "  id: \"01KV-OLD\"",
+            "  branch: combo/issue-7",
+            "  status: running",
+            "  worktree: /repos/r/.worktrees/issue-7",
+            "  steps[1]{step,status,findings,duration_ms}:",
+            "    ci,running,0,0",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /no_mistakes_run_free.*combo\/issue-7/,
+    );
+
+    expect(out).toContain("X no_mistakes_run_free: combo/issue-7 active no-mistakes run is running");
+    expect(calls).toContainEqual(["no-mistakes", `cwd=${repoDir}`, "status"]);
+    expect(calls).toContainEqual(["no-mistakes", `cwd=${repoDir}`, "axi", "status"]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      resources: { noMistakes?: { branch?: string; status?: string; worktree?: string } };
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.resources.noMistakes).toMatchObject({
+      branch: "combo/issue-7",
+      status: "running",
+      worktree: "/repos/r/.worktrees/issue-7",
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "no_mistakes_run_free",
+      resource: "combo/issue-7",
+      status: "failed",
+      detail: "active no-mistakes run is running",
     });
   });
 
