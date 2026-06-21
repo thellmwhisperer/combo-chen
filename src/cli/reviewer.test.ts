@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~700 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~695 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------

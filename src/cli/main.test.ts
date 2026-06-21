@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~6000 lines.
+ *   deps so tests run without a real terminal or network. ~6100 lines.
  *
  *   READING GUIDE
  *   ─────────────
