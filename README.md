@@ -393,7 +393,8 @@ through env, TOML, then fallback defaults.
 
 Active development.
 
-v0 implements the work-item-to-PR loop with deterministic overture launch
+v0 implements the work-item-to-PR loop under the parallelize-first operating
+contract: deterministic overture launch
 runway, coder, gatekeeper, initial-gate
 retry with configurable attempts and backoff, reviewer with machine-readable
 verdict codes (0-3) and deterministic routing, director watching,
@@ -401,12 +402,13 @@ review-comment routing, post-address gates, director prompt delivery for
 code-2 verdicts, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
 a machine-readable runtime ledger for each combo capsule,
-shared gate lease serialization for parallel combos with stale recovery and heartbeat,
+shared gate lease serialization for parallel capsules with stale recovery and heartbeat,
+wave-based parallel scaling (start 2, then 3, then 4-6 with postmortem justification),
 and current-head READY agreement. Work items can be GitHub issues (`--issue`) or
 local markdown work plans (`--plan`).
 
-Deferred: preflight scoring, counterfactual automerge logs, worktree pools, ACP
-role driving, and multi-combo dashboards.
+Deferred: preflight scoring, counterfactual automerge logs, worktree pools, and ACP
+role driving.
 
 ## License
 
