@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.49](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.48...combo-chen-v0.0.49) (2026-06-21)
+
+
+### Features
+
+* **reviewer:** Established the reviewer verdict protocol foundation by requiring the prompt block and adding a strict current-head parser with regression coverage. ([737510b](https://github.com/thellmwhisperer/combo-chen/commit/737510bd69d57699f37d19cf9bd7a218e7fae2fd))
+* **reviewer:** Implemented reviewer verdict code 1 routing so current-head mechanical-fix verdicts nudge coder responding through the existing review-comment path. ([103e405](https://github.com/thellmwhisperer/combo-chen/commit/103e4054b7ca66ab231ca17cc583b5677733da3a))
+* **reviewer:** Implemented the next incremental routing slice: reviewer verdict code 3 now journals a human handoff and validation is green. ([be2305e](https://github.com/thellmwhisperer/combo-chen/commit/be2305ee2c99f36648aadab1128f32d823966883))
+
+
+### Bug Fixes
+
+* **reviewer:** create promptable director target ([e6fc6c7](https://github.com/thellmwhisperer/combo-chen/commit/e6fc6c7a2f5c12e442bf782e798fd9f2f2d35265))
+* **reviewer:** Implemented the final reviewer verdict code-2 routing slice and validated the full suite green. ([7faf85b](https://github.com/thellmwhisperer/combo-chen/commit/7faf85b3a102c2697c8a4073b0478d7c6f0040cd))
+* **reviewer:** Implemented the first routing slice: reviewer verdict code 0 now feeds the existing current-head LGTM journal path and validation is green. ([3edbc52](https://github.com/thellmwhisperer/combo-chen/commit/3edbc52ca71458f9c07dc3ef6a1ccca007cca35b))
+
 ## [0.0.48](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.47...combo-chen-v0.0.48) (2026-06-21)
 
 
