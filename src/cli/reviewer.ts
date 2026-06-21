@@ -1,5 +1,5 @@
 /**
- * @overview Reviewer CLI helpers. ~385 lines, 11 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~405 lines, 11 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
@@ -32,14 +32,17 @@ import { cleanOptional, runDirFor, readCombo, type ComboRecord } from "../core/s
 import type { WorkPlan } from "../core/work-plan.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { buildDirectorInvocation } from "../roles/director.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { nudgeReviewComments } from "./coder.js";
 import { promptDirector } from "./director-prompt.js";
 import { latestGitHubLgtmSha, latestGitHubReviewerVerdict, parsePrView, type PrView } from "./github.js";
 import {
   REVIEWER_WATCH_WINDOW,
+  DIRECTOR_WINDOW,
   DIRECTOR_WATCH_WINDOW,
   REVIEWER_WINDOW,
+  ensureWindowPresent,
   killComboSession,
   killWindowIfPresent,
 } from "./sessions.js";
@@ -79,6 +82,12 @@ export function activateReviewer(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+  ensureWindowPresent(
+    deps,
+    combo,
+    DIRECTOR_WINDOW,
+    buildDirectorInvocation({ combo, directorCommand: config.directorCommand }),
+  );
   const workPlan = reviewerWorkPlan(runDir, combo);
   const reviewerCommand = buildReviewerInvocation({
     combo,
@@ -130,6 +139,7 @@ export function activateReviewer(input: {
     cli,
     prUrl,
     roleWindows: {
+      director: DIRECTOR_WINDOW,
       reviewer: REVIEWER_WINDOW,
       directorWatch: DIRECTOR_WATCH_WINDOW,
     },

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~890 lines, 23 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~940 lines, 22 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -118,6 +118,7 @@ import {
   DIRECTOR_WINDOW,
   DIRECTOR_WATCH_WINDOW,
   ensureJournalPane,
+  ensureWindowPresent,
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, formatGateLeaseStatus, type CommandResult } from "./status.js";
@@ -346,6 +347,12 @@ export function createProgram(deps: Deps): Command {
       }
       try {
         ensureJournalPane(deps, combo, cliInvocation());
+        ensureWindowPresent(
+          deps,
+          combo,
+          DIRECTOR_WINDOW,
+          buildDirectorInvocation({ combo, directorCommand: config.directorCommand }),
+        );
         startGatekeeperWindow(deps, combo, {
           timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
           retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
@@ -720,6 +727,7 @@ export function createProgram(deps: Deps): Command {
           prUrl: payload["url"],
           roleWindows: {
             coder: CODER_WINDOW,
+            director: DIRECTOR_WINDOW,
             gatekeeper: GATEKEEPER_WINDOW,
             directorWatch: DIRECTOR_WATCH_WINDOW,
           },

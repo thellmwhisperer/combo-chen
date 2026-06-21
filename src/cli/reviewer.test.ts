@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~880 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~1030 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -146,19 +146,22 @@ describe("activateReviewer", () => {
       cli: "node /repo/dist/cli.mjs",
     });
 
-    expect(calls[0]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
-    expect(calls[1]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
-    expect(calls[2]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
-    expect(calls[3]?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "reviewer"]);
-    expect(calls[3]?.at(-1)).toContain("https://github.com/o/r/pull/7");
-    expect(calls[4]?.slice(0, 5)).toEqual([
+    const newWindows = calls.filter((call) => call[0] === "new-window");
+    const directorWindow = newWindows.find((call) => call[4] === "director");
+    expect(directorWindow?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "director"]);
+    expect(directorWindow?.at(-1)).toContain("Combo director for o-r-7");
+    const reviewerWindow = newWindows.find((call) => call[4] === "reviewer");
+    expect(reviewerWindow?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "reviewer"]);
+    expect(reviewerWindow?.at(-1)).toContain("https://github.com/o/r/pull/7");
+    const directorWatchWindow = newWindows.find((call) => call[4] === "director-watch");
+    expect(directorWatchWindow?.slice(0, 5)).toEqual([
       "new-window",
       "-t",
       "combo-chen-o-r-7",
       "-n",
       "director-watch",
     ]);
-    expect(calls[4]?.at(-1)).toContain(
+    expect(directorWatchWindow?.at(-1)).toContain(
       `COMBO_CHEN_HOME='${home}' node /repo/dist/cli.mjs director-tick -n 'o-r-7'`,
     );
     expect(out).toEqual([
@@ -171,6 +174,7 @@ describe("activateReviewer", () => {
     };
     expect(ledger.prUrl).toBe("https://github.com/o/r/pull/7");
     expect(ledger.roleWindows).toMatchObject({
+      director: "director",
       reviewer: "reviewer",
       directorWatch: "director-watch",
     });
@@ -229,12 +233,17 @@ describe("activateReviewer", () => {
       cli: "node /repo/dist/cli.mjs",
     });
 
-    expect(calls[3]?.at(-1)).toContain("claude-launch");
-    expect(calls[3]?.at(-1)).toContain("launch reviewer prompt");
-    expect(calls[3]?.at(-1)).not.toContain("claude-mutated");
-    expect(calls[3]?.at(-1)).not.toContain("mutated reviewer prompt");
-    expect(calls[4]?.at(-1)).toContain("sleep 5");
-    expect(calls[4]?.at(-1)).not.toContain("sleep 999");
+    const newWindows = calls.filter((call) => call[0] === "new-window");
+    const directorWindow = newWindows.find((call) => call[4] === "director");
+    const reviewerWindow = newWindows.find((call) => call[4] === "reviewer");
+    const directorWatchWindow = newWindows.find((call) => call[4] === "director-watch");
+    expect(directorWindow?.at(-1)).toContain("Combo director for o-r-7");
+    expect(reviewerWindow?.at(-1)).toContain("claude-launch");
+    expect(reviewerWindow?.at(-1)).toContain("launch reviewer prompt");
+    expect(reviewerWindow?.at(-1)).not.toContain("claude-mutated");
+    expect(reviewerWindow?.at(-1)).not.toContain("mutated reviewer prompt");
+    expect(directorWatchWindow?.at(-1)).toContain("sleep 5");
+    expect(directorWatchWindow?.at(-1)).not.toContain("sleep 999");
     expect(out).toEqual([
       "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
       "director-watch: polling combo hard signals every 5s",
@@ -896,6 +905,69 @@ describe("tickReviewer", () => {
     ]);
     expect(out).toEqual([
       "director-prompt: prompted combo-chen-o-r-7:director for o-r-7 (reviewer_verdict_code_2)",
+    ]);
+  });
+
+  it("journals reviewer verdict code 2 before best-effort director tmux delivery", async () => {
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    const headSha = "def4560def4560def4560def4560def4560def45";
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "coder\nreviewer\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: () => ({ status: 1, stdout: "", stderr: "git should not be called" }),
+        gh: (args) => {
+          if (args[0] === "pr") {
+            return { status: 0, stdout: JSON.stringify({ headRefOid: headSha, state: "OPEN" }), stderr: "" };
+          }
+          if (args.join(" ").includes("issues/7/comments")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 2"].join("\n"),
+                  user: { login: "claude" },
+                  created_at: "2026-06-11T00:00:00Z",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          if (args.join(" ").includes("pulls/7/reviews")) {
+            return { status: 0, stdout: "[]", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "director_prompted",
+        reason: "reviewer_verdict_code_2",
+        target: "combo-chen-o-r-7:director",
+        window: "director",
+        sha: headSha,
+      }),
+    );
+    expect(out).toEqual([
+      "reviewer: transient_failure: failed to prompt director for o-r-7: director prompt target \"combo-chen-o-r-7:director\" is not present",
     ]);
   });
 

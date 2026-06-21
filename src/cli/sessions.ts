@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~161 lines, 11 exports, attach and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~190 lines, 12 exports, attach and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -15,13 +15,13 @@
  *   ----------
  *   CODER_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps
  *   KillComboSessionResult
- *   killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
+ *   killComboSession, killWindowIfPresent, ensureWindowPresent, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
- *   paneCount, tmuxFailureText, isMissingSession
+ *   windowSet, paneCount, tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, resolveAttachCombo, ensureJournalPane
  * @deps ../core/state, ../infra/tmux
  */
 import { type ComboRecord, listCombos } from "../core/state.js";
@@ -31,6 +31,7 @@ import {
   killWindowArgs,
   listPanesArgs,
   listWindowsArgs,
+  newWindowArgs,
   splitWindowArgs,
   type TmuxResult,
 } from "../infra/tmux.js";
@@ -92,6 +93,35 @@ export function killWindowIfPresent(
         `${killed.stderr.trim() || "unknown error"}`,
     );
   }
+}
+
+function windowSet(stdout: string): Set<string> {
+  return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+}
+
+export function ensureWindowPresent(
+  deps: SessionDeps,
+  combo: ComboRecord,
+  windowName: string,
+  command: string,
+): boolean {
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  if (windowSet(listed.stdout).has(windowName)) return false;
+
+  const created = deps.tmux(newWindowArgs(combo.tmuxSession, windowName, command));
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to start "${windowName}" in "${combo.tmuxSession}": ` +
+        `${created.stderr.trim() || "unknown error"}`,
+    );
+  }
+  return true;
 }
 // -/ 1/3
 
