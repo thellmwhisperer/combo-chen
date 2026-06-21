@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1020 lines, initial-gate retry, READY, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1040 lines, initial-gate retry, READY, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
@@ -563,6 +563,23 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
       }),
     );
+  });
+
+  it("does not prompt the director on the deterministic READY happy path", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    const { deps, calls } = fakeDeps({ homeDir: h, record, prHeadSha: headSha });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    const events = readEvents(runDir);
+    const directorTarget = `${record.tmuxSession}:director`;
+    const directorBuffer = `combo-chen-nudge-${record.tmuxSession}-director`;
+    expect(events).toContainEqual(expect.objectContaining({ event: "ready_for_merge", sha: headSha }));
+    expect(events.some((entry) => entry.event === "director_prompted")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call.includes(directorTarget))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call.includes(directorBuffer))).toBe(false);
   });
 
   it("emits READY without an external clean comment when configured required checks pass", async () => {
