@@ -29,14 +29,14 @@
  * @exports DashboardDeps, DashboardTmuxFacts, DashboardEventSummary, DashboardLogSnippet, DashboardRow, collectDashboardRows, renderDashboardHtml
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ./status
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { deriveStatus, type Phase } from "../core/combo.js";
 import { latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import {
   describeWorkItem,
-  listCombos,
+  readCombo,
   runDirFor,
   type ComboRecord,
   type WorkItemDescriptor,
@@ -107,7 +107,7 @@ const DASHBOARD_LOG_ORDER = new Map<string, number>([
 
 // -- 2/3 CORE · collectDashboardRows <- START HERE --
 export function collectDashboardRows(home: string, deps: DashboardDeps): DashboardRow[] {
-  return listCombos(home).map((combo) => {
+  return listDashboardCombos(home).map((combo) => {
     const runDir = runDirFor(home, combo.id);
     const events = readEvents(runDir);
     return dashboardRowFromFacts({
@@ -120,13 +120,29 @@ export function collectDashboardRows(home: string, deps: DashboardDeps): Dashboa
   });
 }
 
+function listDashboardCombos(home: string): ComboRecord[] {
+  const runsDir = join(home, "runs");
+  if (!existsSync(runsDir)) return [];
+  const combos: ComboRecord[] = [];
+  for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = join(runsDir, entry.name);
+    try {
+      combos.push(readCombo(dir));
+    } catch {
+      // corrupt or missing combo record — skip it
+    }
+  }
+  return combos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 function dashboardRowFromFacts(facts: DashboardRowFacts): DashboardRow {
   const status = deriveStatus(facts.events);
   return {
     comboId: facts.combo.id,
     workItem: describeWorkItem(facts.combo),
     phase: status.phase,
-    needsHumanReason: status.needsHuman ? status.reason ?? "yes" : undefined,
+    needsHumanReason: status.needsHuman ? status.reason || "yes" : undefined,
     prUrl: status.pr ?? latestPrUrlFromEvents(facts.events),
     downstreamStatus: facts.downstreamStatus,
     lastEvent: eventSummary(facts.events.at(-1)),
