@@ -23,6 +23,7 @@
  *   │ reconcile             Frozen journal repair command            │
  *   │ resume                Recovery routing without fresh run setup  │
  *   │ status                Table format + liveness/deep output      │
+ *   │ dashboard             Read-only static HTML fleet artifact      │
  *   │ forensics             Read-only markdown/JSON reports          │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
@@ -165,6 +166,7 @@ describe("command surface", () => {
         "activate-reviewer",
         "attach",
         "closure",
+        "dashboard",
         "director-tick",
         "director-watch",
         "emit",
@@ -3756,6 +3758,48 @@ describe("status", () => {
     await exec(deps, ["status", "--deep"]);
 
     expect(out.join("\n")).toContain("PR ready for reviewer");
+  });
+});
+
+describe("dashboard", () => {
+  it("writes a read-only static HTML artifact without journaling missing tmux sessions", async () => {
+    const h = home();
+    const dashboardPath = join(h, "artifacts", "dashboard.html");
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      workItemTitle: "Issue title",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: "2026-06-21T10:00:00.000Z",
+    });
+    appendEvent(dir, "coder_started", {});
+    const before = readEvents(dir);
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "no such session" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      noMistakes: () => ({ status: 1, stdout: "No active run.\n", stderr: "" }),
+    });
+
+    await exec(deps, ["dashboard", "--out", dashboardPath]);
+
+    const html = readFileSync(dashboardPath, "utf8");
+    expect(html).toContain("<title>combo-chen dashboard</title>");
+    expect(html).toContain("o-r-7");
+    expect(html).toContain("Issue title");
+    expect(html).toContain("combo-chen-o-r-7: missing");
+    expect(html).toContain("no such session");
+    expect(html).toContain("no-mistakes unavailable: No active run.");
+    expect(readEvents(dir)).toEqual(before);
+    expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
+    expect(out).toEqual([`dashboard written: ${dashboardPath}`]);
   });
 });
 
