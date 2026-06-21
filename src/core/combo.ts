@@ -354,6 +354,9 @@ rm -f "$coder_status"
   printf '%s\\n' "$coder_code" > "$coder_status"
 ) < /dev/null 2>&1 | tee "$coder_log"
 code=$(cat "$coder_status" 2>/dev/null || printf '1')
+case "$code" in
+  ""|*[!0-9]*) code=1 ;;
+esac
 rm -f "$coder_status"
 
 if [ "$code" -eq 0 ]; then
