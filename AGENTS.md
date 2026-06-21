@@ -22,9 +22,11 @@ Hard rule: `reviewer != coder`.
 
 ## Implemented Loop
 
-1. `combo-chen run --issue <url>` or `combo-chen run --plan <file>` creates an
-   isolated worktree, writes `runner.sh`, starts tmux, and journals
-   `combo_created`.
+1. `combo-chen run --issue <url>` or `combo-chen run --plan <file>` runs overture
+   first: deterministic launch runway checks are recorded to `overture.json`
+   before any agent tokens are spent or tmux role windows are started. On
+   success it creates an isolated worktree, writes `runner.sh`, starts tmux,
+   and journals `combo_created`.
 2. Coder/gnhf runs in the worktree and commits locally.
 3. no-mistakes validates and publishes the initial PR. If the initial gate
    fails before the PR opens, the director auto-retries it up to configured
@@ -115,7 +117,8 @@ Source files carry Sherpa-style navigable headers:
 
 ## Status
 
-v0 implements the work-item-to-PR loop with coder/gnhf, no-mistakes initial and
+v0 implements the work-item-to-PR loop with deterministic overture launch runway,
+coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer re-review,
 coder responding mode, single `director-watch` observation, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),

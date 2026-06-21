@@ -45,6 +45,13 @@ Run PLAIN, single-purpose commands: one operation per Bash call, no `||`/`&&` ch
 
 ## Launch
 
+`combo-chen run` runs overture first: a deterministic launch runway that checks
+work-item readability, repo/issue match, clean checkout, base ref, and
+branch/worktree/tmux/no-mistakes availability before spending agent tokens or
+creating tmux windows. Run `combo-chen overture --issue <url> --repo <dir>` or
+`combo-chen overture --plan <file> --repo <dir>` to verify readiness without
+launching.
+
 ```
 combo-chen run --issue <issue-url> --repo <target-repo-dir>
 combo-chen run --plan <file> --repo <target-repo-dir> [--base <ref>]

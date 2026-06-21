@@ -483,6 +483,8 @@
 
 ### Features
 
+* **overture:** deterministic launch runway before `combo-chen run` — checks work-item readability, repo/issue match, clean checkout, base ref, branch/worktree/tmux availability, no-mistakes status, and coder/reviewer command safety; writes `overture.json` artifact and blocks before creating any launch resources when a check fails. Run standalone with `combo-chen overture --issue <url>` or `combo-chen overture --plan <file>` ([#144](https://github.com/thellmwhisperer/combo-chen/issues/144))
+
 * **work-plan:** accept generic plan-based work items (`--plan <file>`) in addition to GitHub issues ([#134](https://github.com/thellmwhisperer/combo-chen/issues/134)) — canonically normalizing markdown plans into a `WorkPlan` artifact, persisting `work-plan.md` per combo, injecting work-plan context into reviewer prompts and forensics reports, and skipping the GitHub autoclose guard for plan-backed PRs
 
 * **config:** per-run launch-time config snapshot (`config.snapshot.json`) prevents runtime drift when repo TOML changes during a long-running combo; all runtime commands (director-watch, gate, reviewer activation, park/resume, reconcile teardown, status --deep, forensics) now use the frozen snapshot ([#44](https://github.com/thellmwhisperer/combo-chen/issues/44))
