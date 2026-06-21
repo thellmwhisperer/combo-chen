@@ -360,6 +360,7 @@ retry with configurable attempts and backoff, reviewer, director watching,
 review-comment routing, post-address gates, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
 a machine-readable runtime ledger for each combo capsule,
+shared gate lease serialization for parallel combos with stale recovery and heartbeat,
 and current-head READY agreement. Work items can be GitHub issues (`--issue`) or
 local markdown work plans (`--plan`).
 
