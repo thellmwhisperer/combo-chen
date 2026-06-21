@@ -1,5 +1,5 @@
 /**
- * @overview Reviewer CLI helpers. ~350 lines, 11 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~370 lines, 11 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
@@ -221,6 +221,15 @@ export async function tickReviewer(input: {
     if (reviewerVerdict?.code === 0 && !hasJournaledLgtm(events, headSha)) {
       appendEvent(runDir, "lgtm", { sha: headSha });
       events = readEvents(runDir);
+    }
+    if (reviewerVerdict?.code === 3) {
+      appendEvent(runDir, "needs_human", {
+        reason: "reviewer_needs_human",
+        sha: headSha,
+        verdict_code: 3,
+      });
+      deps.out(`reviewer: needs_human from reviewer verdict code 3 at ${headSha}`);
+      return;
     }
   } catch (error) {
     deps.out(
