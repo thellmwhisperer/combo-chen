@@ -21,7 +21,8 @@
  *     → tmux executes it
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
- *     fetch/rebase baseRef → coder_started → coderCommand → coder_done
+ *     fetch/rebase baseRef → coder_started → coderCommand →
+ *       coder_done (success) | coder_failed + exit $code (failure, exit sanitized)
  *     → gate_started → optional gate lease → mirror publish → config handoff + gatekeeperCommand → pr_opened
  *     → activateCoder + activateReviewer; missing PRs emit needs_human
  *
