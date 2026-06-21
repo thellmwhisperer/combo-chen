@@ -2013,6 +2013,50 @@ describe("run", () => {
 
     const runDir = runDirFor(h, "o-r-7");
     expect(existsSync(join(runDir, "combo.json"))).toBe(true);
+    const ledger = JSON.parse(readFileSync(join(runDir, "runtime-ledger.json"), "utf8")) as {
+      schemaVersion: number;
+      comboId: string;
+      repoDir: string;
+      runDir: string;
+      roleWindows: Record<string, string>;
+      logs: Record<string, string>;
+      commands: Record<string, string>;
+      workItem: Record<string, string>;
+      prUrl?: string;
+    };
+    expect(ledger).toMatchObject({
+      schemaVersion: 1,
+      comboId: "o-r-7",
+      repoDir,
+      runDir,
+      branch: "combo/issue-7",
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      tmuxSession: "combo-chen-o-r-7",
+      roleWindows: {
+        coder: "coder",
+        gatekeeper: "gatekeeper",
+        directorWatch: "director-watch",
+      },
+      logs: {
+        coder: join(runDir, "coder.log"),
+        gatekeeper: join(runDir, "gatekeeper.log"),
+        autoclose: join(runDir, "autoclose.log"),
+        rebase: join(runDir, "rebase.log"),
+      },
+      workItem: {
+        sourceType: "github_issue",
+        sourceReference: ISSUE,
+        title: "Issue title",
+        issueUrl: ISSUE,
+      },
+      promptTargets: {
+        workPlan: join(runDir, "work-plan.md"),
+      },
+    });
+    expect(ledger.commands.resume).toContain("resume -n 'o-r-7'");
+    expect(ledger.commands.eventsFollow).toContain("events --follow -n 'o-r-7'");
+    expect(ledger.commands.attach).toContain("attach -n 'o-r-7'");
+    expect(ledger.prUrl).toBeUndefined();
     expect(existsSync(join(runDir, CONFIG_SNAPSHOT_FILE))).toBe(true);
     expect(readConfigSnapshot(runDir).roles).toMatchObject({
       coder: "codex",
@@ -2127,6 +2171,37 @@ describe("run", () => {
     expect(combo?.worktree).toBe(join(repoDir, ".worktrees", combo?.id ?? ""));
 
     const runDir = runDirFor(h, combo!.id);
+    const ledger = JSON.parse(readFileSync(join(runDir, "runtime-ledger.json"), "utf8")) as {
+      schemaVersion: number;
+      comboId: string;
+      workItem: Record<string, string>;
+      roleWindows: Record<string, string>;
+      commands: Record<string, string>;
+    };
+    expect(ledger).toMatchObject({
+      schemaVersion: 1,
+      comboId: combo!.id,
+      repoDir,
+      runDir,
+      branch: combo!.branch,
+      worktree: combo!.worktree,
+      tmuxSession: combo!.tmuxSession,
+      roleWindows: {
+        coder: "coder",
+        gatekeeper: "gatekeeper",
+        directorWatch: "director-watch",
+      },
+      workItem: {
+        sourceType: "local_file",
+        sourceReference: "launch-plan.md",
+        title: "Let plans launch combos",
+      },
+      promptTargets: {
+        workPlan: join(runDir, "work-plan.md"),
+      },
+    });
+    expect(ledger.commands.resume).toContain(`resume -n '${combo!.id}'`);
+
     const artifact = readFileSync(join(runDir, "work-plan.md"), "utf8");
     expect(artifact).toContain("# Let plans launch combos");
     expect(artifact).toContain("Source: local_file launch-plan.md");
