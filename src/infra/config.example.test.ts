@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~165 lines, testing that combo-chen.example.toml and public docs use
+ *   ~185 lines, testing that combo-chen.example.toml and public docs use
  *   only OSS-friendly role names, document the tracked no-mistakes and Codex
  *   resume policies, and keep the example config loadable by the config
  *   cascade.
@@ -86,6 +86,25 @@ describe("combo-chen.example.toml", () => {
     expect(docs).toContain("repo-level `.no-mistakes.yaml`");
     expect(docs).toContain("intentionally tracked");
     expect(docs).not.toMatch(/ignored local `\.no-mistakes\.yaml`|Do not stage or commit `\.no-mistakes\.yaml`/);
+  });
+
+  it("documents the parallelize-first operating protocol", () => {
+    const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
+    const spec = readFileSync(SPEC, "utf8");
+    const docs = normalizeDoc(`${readme}\n${spec}`);
+    const lowerDocs = docs.toLowerCase();
+
+    expect(readme).toContain("## Parallelize-First Operating Protocol");
+    expect(spec).toContain("## 8b. Parallelize-first operating contract");
+    expect(docs).toContain("Start with 2 live capsules, then 3, then 4 to 6");
+    expect(docs).toContain("each capsule keeps one branch, one worktree, one tmux session, and one runtime ledger");
+    expect(docs).toContain("the shared gate lease serializes no-mistakes publication");
+    expect(lowerDocs).toContain("parked combos");
+    expect(lowerDocs).toContain("pre-pr coder stalls");
+    expect(lowerDocs).toContain("reviewer auth failures");
+    expect(lowerDocs).toContain("gate lease contention");
+    expect(lowerDocs).toContain("post-merge closure");
+    expect(docs).toContain("postmortem metadata");
   });
 
   it("stays loadable by the config cascade", () => {
