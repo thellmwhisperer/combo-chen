@@ -3777,6 +3777,7 @@ describe("dashboard", () => {
       createdAt: "2026-06-21T10:00:00.000Z",
     });
     appendEvent(dir, "coder_started", {});
+    writeFileSync(join(dir, "coder.log"), "initial coder output\nfinal coder line\n");
     const before = readEvents(dir);
     const { deps, calls, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -3797,6 +3798,8 @@ describe("dashboard", () => {
     expect(html).toContain("combo-chen-o-r-7: missing");
     expect(html).toContain("no such session");
     expect(html).toContain("no-mistakes unavailable: No active run.");
+    expect(html).toContain("coder.log");
+    expect(html).toContain("final coder line");
     expect(readEvents(dir)).toEqual(before);
     expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
     expect(out).toEqual([`dashboard written: ${dashboardPath}`]);

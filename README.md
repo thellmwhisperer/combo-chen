@@ -283,9 +283,9 @@ consume it automatically.
   combo no longer has its tmux session, status journals `tmux_missing` so it is
   shown as needing human attention instead of looking supervised.
 - `dashboard` writes a read-only static HTML fleet view from persisted combo
-  records, journals, tmux liveness, PR/check state, and no-mistakes state. It
-  never appends journal events; missing tmux sessions and parked combos are
-  displayed as facts.
+  records, journals, tmux liveness, PR/check state, no-mistakes state, and
+  bounded tails from selected local run logs. It never appends journal events;
+  missing tmux sessions and parked combos are displayed as facts.
 - `combo-chen closure -n <combo-id>` is the canonical merged happy-path cleanup
   command. Reviewer/director-watch and status can record or report the merge
   fact, but they leave resource convergence to closure.
@@ -317,6 +317,7 @@ Important files:
 - `coder.log`: initial coder output.
 - `gatekeeper.log`: initial gatekeeper output.
 - `gatekeeper-post-<sha>.sh`: generated post-address gate.
+- `gatekeeper-post-<sha>.log`: post-address gate output.
 - `work-plan.md`: normalized work-plan artifact; the canonical source of work-item intent for reviewer, gatekeeper, and forensics.
 - `park-handoff.md`: local summary created by `park`.
 
@@ -358,7 +359,7 @@ behavior from repo TOML drift, and current-head READY agreement. Work items can
 be GitHub issues (`--issue`) or local markdown work plans (`--plan`).
 
 Deferred: preflight scoring, counterfactual automerge logs, worktree pools, ACP
-role driving, and richer dashboard log surfacing.
+role driving, and richer dashboard interactivity.
 
 ## License
 
