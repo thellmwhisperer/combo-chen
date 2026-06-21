@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~160 lines, 11 exports, attach and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~161 lines, 11 exports, attach and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------

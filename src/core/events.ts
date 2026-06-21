@@ -1,6 +1,6 @@
 /**
  * @overview Event journal: append-only JSONL spine per combo run.
- *   ~335 lines, 12 exports, 1 canonical schema, per-run append locking.
+ *   ~336 lines, 12 exports, 1 canonical schema, per-run append locking.
  *
  *   READING GUIDE
  *   ─────────────

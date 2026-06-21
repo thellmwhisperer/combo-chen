@@ -820,6 +820,85 @@ describe("tickReviewer", () => {
     expect(out).toEqual([`nudged ${verdictUrl}`]);
   });
 
+  it("routes reviewer verdict code 2 to the director prompt target", async () => {
+    const out: string[] = [];
+    const tmuxCalls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    const headSha = "def4560def4560def4560def4560def4560def45";
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          tmuxCalls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "coder\ndirector\nreviewer\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: () => ({ status: 1, stdout: "", stderr: "git should not be called" }),
+        gh: (args) => {
+          if (args[0] === "pr") {
+            return { status: 0, stdout: JSON.stringify({ headRefOid: headSha, state: "OPEN" }), stderr: "" };
+          }
+          if (args.join(" ").includes("issues/7/comments")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 2"].join("\n"),
+                  user: { login: "claude" },
+                  created_at: "2026-06-11T00:00:00Z",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          if (args.join(" ").includes("pulls/7/reviews")) {
+            return { status: 0, stdout: "[]", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "director_prompted",
+        reason: "reviewer_verdict_code_2",
+        target: "combo-chen-o-r-7:director",
+        window: "director",
+        phase: "REVIEWING",
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "review_comment")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "lgtm")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(tmuxCalls).toEqual([
+      ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
+      [
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-o-r-7-director",
+        expect.stringContaining("Reviewer verdict code 2"),
+      ],
+      ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-director", "-t", "combo-chen-o-r-7:director"],
+      ["send-keys", "-t", "combo-chen-o-r-7:director", "C-m"],
+    ]);
+    expect(out).toEqual([
+      "director-prompt: prompted combo-chen-o-r-7:director for o-r-7 (reviewer_verdict_code_2)",
+    ]);
+  });
+
   it("journals needs_human for reviewer verdict code 3", async () => {
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
