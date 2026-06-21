@@ -5747,17 +5747,46 @@ describe("run ordering and safety", () => {
     expect(journalAtSessionStart).toEqual(["combo_created"]);
   });
 
-  it("refuses a repo whose origin does not match the issue's owner/repo", async () => {
-    const { deps } = fakeDeps({
-      git: (args) =>
-        args[0] === "remote"
-          ? { status: 0, stdout: "git@github.com:someone/else.git\n", stderr: "" }
-          : { status: 0, stdout: "", stderr: "" },
+  it("prints overture and blocks a repo origin mismatch before creating launch resources", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const mismatchedOrigin = "git@github.com:someone/else.git";
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
+          return { status: 0, stdout: `${mismatchedOrigin}\n`, stderr: "" };
+        }
+        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
     });
 
-    await expect(
-      exec(deps, ["run", "--issue", ISSUE, "--repo", mkdtempSync(join(tmpdir(), "combo-chen-repo-"))]),
-    ).rejects.toThrow(/origin/i);
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /repo_matches_issue.*someone\/else/,
+    );
+
+    expect(out).toContain("overture o-r-7");
+    expect(out).toContain(
+      `X repo_matches_issue: ${mismatchedOrigin} origin mismatch; issue belongs to o/r`,
+    );
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "repo_matches_issue",
+      resource: mismatchedOrigin,
+      status: "failed",
+      detail: "origin mismatch; issue belongs to o/r",
+    });
   });
 
   it("refuses an origin that merely contains the issue's owner/repo as a prefix", async () => {
