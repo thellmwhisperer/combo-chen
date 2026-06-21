@@ -568,6 +568,7 @@
 * **ci:** GitHub Actions release workflow uploading `dist/release/*.tar.gz` and `dist/release/checksums.txt` for published and prereleased GitHub releases, with validation green ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
 * **docs:** Release artifact contract documented in README and spec for future update code, pinned with focused docs contract tests ([#70](https://github.com/thellmwhisperer/combo-chen/issues/70))
 * **gatekeeper:** shared no-mistakes gate lease serializes parallel combo gate runs with stale lease recovery (30-min heartbeat timeout), `same_branch_conflict` detection, `queued` gate_status journaling, `needs_human reason=gate_lease_conflict` escalation, and EXIT trap release; surfaced in `status` via the `GATE-LEASE` column ([#151](https://github.com/thellmwhisperer/combo-chen/issues/151))
+* **director:** promptable director window inside each combo capsule — created at launch with a non-polling contract, prompted by `director-watch` only for ambiguity, malformed signals, intent-touching choices, or uncoded recovery; `director-prompt` CLI command sends deterministic prompts via tmux paste-buffer and journals `director_prompted` events ([#152](https://github.com/thellmwhisperer/combo-chen/issues/152))
 
 ### Bug Fixes
 

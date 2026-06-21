@@ -132,5 +132,7 @@ history, `--deep` for downstream probes, auto-reconcile + tmux liveness),
 launch-time config snapshots for deterministic runtime behavior,
 a machine-readable runtime ledger for each combo capsule,
 shared gate lease serialization for parallel combos with stale recovery and heartbeat,
-and current-head READY agreement. Deferred: preflight, counterfactual
+promptable director window inside each combo capsule (non-polling contract, prompted by
+director-watch only for ambiguity or uncoded recovery), and current-head READY agreement.
+Deferred: preflight, counterfactual
 automerge log, treehouse pools, ACP role driving, and multi-combo dashboarding.
