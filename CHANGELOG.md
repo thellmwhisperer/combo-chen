@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.47](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.46...combo-chen-v0.0.47) (2026-06-21)
+
+
+### Features
+
+* **gate:** Added the first issue [#151](https://github.com/thellmwhisperer/combo-chen/issues/151) lease-foundation slice: a persisted shared gate lease contract with focused tests for free, busy, stale, and same-branch states. ([3bdaad3](https://github.com/thellmwhisperer/combo-chen/commit/3bdaad3ef56f43a83d3920fc4b10247a469c285a))
+* **gate:** Added the next [#151](https://github.com/thellmwhisperer/combo-chen/issues/151) visibility slice by showing the active shared gate lease owner in `combo-chen status`. ([58d22b6](https://github.com/thellmwhisperer/combo-chen/commit/58d22b68adfe0fc1736a523fe710500c7584a38e))
+
+
+### Bug Fixes
+
+* **gate:** Closed the last status visibility edge for issue [#151](https://github.com/thellmwhisperer/combo-chen/issues/151) by showing an active gate lease even when default status has no actionable combo rows. ([700eca7](https://github.com/thellmwhisperer/combo-chen/commit/700eca77e3b61c4c2f31400f291c528e69cf0728))
+* **gate:** Implemented the runtime gate-lease enforcement slice so generated no-mistakes gate scripts acquire a shared lease before running and report deterministic queued/conflict states when they cannot. ([ca6ae5e](https://github.com/thellmwhisperer/combo-chen/commit/ca6ae5eab5dece46beaa1e585064c586ed8f80c1))
+
 ## [0.0.46](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.45...combo-chen-v0.0.46) (2026-06-21)
 
 
