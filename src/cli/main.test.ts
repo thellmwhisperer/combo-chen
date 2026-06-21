@@ -3336,6 +3336,39 @@ describe("status", () => {
     expect(text).toContain("o-r-7@combo/issue-7");
   });
 
+  it("prints active shared gate lease ownership when no combos are actionable", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    const worktree = "/repos/r/.worktrees/issue-7";
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "combo_closed", {});
+    acquireGateLease({
+      home: h,
+      owner: {
+        comboId: "o-r-7",
+        branch: "combo/issue-7",
+        worktree,
+        runDir: dir,
+        headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    });
+
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+    await exec(deps, ["status"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("active gate lease: o-r-7@combo/issue-7");
+    expect(text).toContain("no actionable combos. show history: combo-chen status --all");
+  });
+
   it("hides terminal historical combos by default and preserves them with --all", async () => {
     const h = home();
     const liveDir = runDirFor(h, "o-r-live");
