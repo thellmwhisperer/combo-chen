@@ -122,7 +122,8 @@ Source files carry Sherpa-style navigable headers:
 
 ## Status
 
-v0 implements the work-item-to-PR loop with deterministic overture launch runway,
+v0 implements the work-item-to-PR loop under the parallelize-first operating
+contract: deterministic overture launch runway,
 coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer with
 machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
@@ -133,12 +134,14 @@ deferred to `closure`), deterministic `closure` for post-merge local resource
 convergence, director prompt delivery for code-2 verdicts, no-mistakes config propagation,
 read-only forensics reports, coder safety validation (pinned gnhf with
 `--max-iterations`, `--stop-when`, stdin closed), `park`/`resume` for
-reboot-safe combo handoff, `status` (actionable by default, `--all` for
-history, `--deep` for downstream probes, auto-reconcile + tmux liveness),
-launch-time config snapshots for deterministic runtime behavior,
+reboot-safe capsule handoff, the parallel capsule dashboard (`status`; actionable
+by default, `--all` for history, `--deep` for downstream probes, auto-reconcile
++ tmux liveness), launch-time config snapshots for deterministic runtime behavior,
 a machine-readable runtime ledger for each combo capsule,
-shared gate lease serialization for parallel combos with stale recovery and heartbeat,
+shared gate lease serialization for parallel capsules with stale recovery and heartbeat,
 promptable director window inside each combo capsule (non-polling contract, prompted by
-director-watch only for ambiguity or uncoded recovery), and current-head READY agreement.
-Deferred: preflight, counterfactual
-automerge log, treehouse pools, ACP role driving, and multi-combo dashboarding.
+director-watch only for ambiguity or uncoded recovery), wave-based parallel scaling
+(start 2 capsules, then 3, then 4-6 with postmortem justification),
+and current-head READY agreement.
+Deferred: preflight scoring, counterfactual
+automerge log, treehouse pools, and ACP role driving.
