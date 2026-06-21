@@ -46,7 +46,7 @@ import {
   type ComboEvent,
   type EventName,
 } from "../core/events.js";
-import { buildRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
+import { buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import {
   comboHome,
   describeWorkItem,
@@ -511,6 +511,7 @@ export function createProgram(deps: Deps): Command {
       }
       const rows = combos.map((combo) => {
         const runDir = runDirFor(home, combo.id);
+        const ledger = readRuntimeLedger(runDir, { cli: cliInvocation() });
         let events = readEvents(runDir);
         let status = deriveStatus(events);
         if (
@@ -523,7 +524,7 @@ export function createProgram(deps: Deps): Command {
           events = readEvents(runDir);
           status = deriveStatus(events);
         }
-        return { combo, events, status };
+        return { combo, events, status, runtimePrUrl: ledger.prUrl };
       });
       const visibleRows = options.all === true ? rows : rows.filter(({ status }) => status.phase !== "STOPPED");
       if (visibleRows.length === 0) {
@@ -536,9 +537,10 @@ export function createProgram(deps: Deps): Command {
           ? "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                PR DOWNSTREAM"
           : "COMBO                          PHASE     NEEDS-HUMAN      WORK ITEM                                PR",
       );
-      for (const { combo, events, status } of visibleRows) {
+      for (const { combo, events, status, runtimePrUrl } of visibleRows) {
         const needs = status.needsHuman ? (status.reason ?? "yes") : "—";
-        const pr = status.pr ?? "—";
+        const prUrl = status.pr ?? runtimePrUrl;
+        const pr = prUrl ?? "—";
         const workItem = describeWorkItem(combo).label;
         const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${workItem.padEnd(40)} ${pr}`;
         if (!deep) {
@@ -548,6 +550,7 @@ export function createProgram(deps: Deps): Command {
         const runDir = runDirFor(home, combo.id);
         const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
         const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
+          prUrl,
           requiredCheckNames: config.readyRequiredChecks,
           ambientCheckNames: config.externalCommentAgents,
           reviewerLogins: config.reviewerLogins,
