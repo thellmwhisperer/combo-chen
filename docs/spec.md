@@ -161,7 +161,10 @@ empty-addressing paths and transitions the combo out of READY the same way.
 After the PR exists, `director-watch` is the single observer. It repeatedly
 runs `director-tick` to poll reviewer hard signals, route new review comments
 to the resumed coder, detect committed local HEAD changes, and run a
-post-address no-mistakes gate before anything is published again.
+post-address no-mistakes gate before anything is published again. When the
+reviewer tick observes a GitHub `MERGED` PR, it records the merge fact, reports
+`closure_pending`, and stops the post-PR loop; resource convergence belongs to
+`combo-chen closure -n <combo-id>`.
 
 If the source checkout has a repo-level `.no-mistakes.yaml`, combo-chen
 propagates it in two phases: first, it copies the file from the repo into the
@@ -225,13 +228,19 @@ ignored config or environment outside that file.
 
 - Default: human merges. Always.
   - **Merged:** The combo journals `merged` (fields: `sha`=merge commit oid,
-    `by`, optional `mergedAt`=GitHub PR merge timestamp, optional `source`),
-    verifies the merge commit is in the base branch,
-    removes the local worktree and branch, then journals `combo_closed`
-    (fields: optional `source`). The remote branch is left alone by default.
-    When `source` is `"reconcile"`, the event was synthesized from GitHub PR
-    state during a frozen journal repair pass, not observed live by the
-    director loop.
+    `by`, optional `mergedAt`=GitHub PR merge timestamp, optional `source`).
+    A `merged` event records the GitHub fact but is not resource convergence;
+    until `combo_closed` appears, `status` reports the combo as
+    `closure_pending`. Closure verifies the merge commit is in the base
+    branch, removes the local worktree and branch, then journals
+    `combo_closed` (fields: optional `source`). The remote branch is left
+    alone by default.
+    When `source` is `"closure"`, the event was synthesized by the explicit
+    `combo-chen closure -n <combo-id>` convergence command. When `source` is
+    `"reviewer"`, the event was observed live by the reviewer/director loop and
+    is only a closure-pending signal. When `source` is
+    `"reconcile"`, the event was synthesized from GitHub PR state during a
+    frozen journal repair pass, not observed live by the director loop.
   - **Closed without merge:** The combo journals `needs_human` (fields:
     `reason`=`"pr_closed"`), then `combo_closed`. The reviewer stops the tmux
     session but does NOT remove the worktree or local branch, preserving
@@ -319,18 +328,31 @@ ignored config or environment outside that file.
   `worker_stalled`.
 - Attention surface: tmux window titles + default `combo-chen status` always
   answer "which combos need a human RIGHT NOW" (phase + needs_human flag).
-  Before rendering, status quietly reconciles non-terminal journals whose PR is
-  already merged or closed on GitHub. If a non-terminal combo has no tmux
-  session and is not parked, status journals `needs_human reason=tmux_missing`
-  so the row remains visible as stale. Parked combos are exempt from this check
-  because the missing session is expected. Terminal historical rows are hidden
-  unless the operator passes `status --all`.
+  Before rendering, status quietly reconciles closed PRs into the human-salvage
+  terminal state. For merged PRs it records the GitHub merge fact, then leaves
+  resources untouched and keeps the row visible as `closure_pending` until
+  `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
+  combo has no tmux session and is not parked, status journals `needs_human
+  reason=tmux_missing` so the row remains visible as stale. Parked combos are
+  exempt from this check because the missing session is expected. Terminal
+  historical rows are hidden unless the operator passes `status --all`.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
--   `combo-chen reconcile [-n <combo-id>] [--apply]` compares every persisted
+-   `combo-chen closure -n <combo-id>` is the canonical merged happy-path
+    resource convergence command. It reads the persisted combo record, latest
+    `pr_opened` event, and GitHub PR facts; it refuses teardown unless GitHub
+    reports `MERGED`; then it records any missing `merged` event with
+    `source: "closure"`, refuses resource teardown while no-mistakes still
+    reports an active or awaiting run for the combo branch, removes the local
+    worktree and branch, kills the tmux session, and records `combo_closed`
+    with `source: "closure"`. Existing `combo_closed` events are treated as
+    already converged. Reviewer/director-watch only records the live merge fact
+    and reports the closure command to run; it does not run cleanup itself.
+-   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
+    pass that compares every persisted
     combo journal against GitHub PR state. When `-n <combo-id>` is provided,
     only that single combo is reconciled. For merged PRs whose journal froze
     before the director could record `merged`/`combo_closed`, it appends the
@@ -343,7 +365,9 @@ ignored config or environment outside that file.
     count as success. For closed PRs, it appends `needs_human reason=pr_closed`
     plus `combo_closed` and stops tmux while preserving the local worktree and
     branch. Without `--apply` it reports what would change without mutating
-    state.
+    state. The `status` command uses reconcile in a status-only mode for merged
+    PRs: it can record the missing `merged` fact, but it does not run teardown
+    or append `combo_closed`.
 
 ## 8a. Release artifact contract
 
@@ -436,7 +460,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
    director user is Claude.
 2. **GitHub repo created now, private**; flips public when OSS-ready.
 3. **v0 scope as proposed**:
-   `run`/`attach`/`status`/`park`/`resume`/`stop`/`events`/`forensics`/`reconcile`/`activate-reviewer`,
+   `run`/`attach`/`status`/`park`/`resume`/`stop`/`events`/`forensics`/`closure`/`reconcile`/`activate-reviewer`,
    coder (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental
    re-review), director-owned tmux poll loop; manual director; treehouse, ACP,
    counterfactual log, preflight and multi-combo dashboard deferred to v1+.

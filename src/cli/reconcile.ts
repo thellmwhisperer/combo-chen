@@ -58,6 +58,7 @@ export async function reconcileCombos(input: {
   apply: boolean;
   quiet?: boolean;
   comboId?: string;
+  mergedTeardown?: boolean;
 }): Promise<void> {
   let changed = false;
   let reported = false;
@@ -70,6 +71,7 @@ export async function reconcileCombos(input: {
       deps: input.deps,
       apply: input.apply,
       quiet: input.quiet === true,
+      mergedTeardown: input.mergedTeardown !== false,
       combo,
       runDir: runDirFor(input.home, combo.id),
     });
@@ -88,10 +90,11 @@ async function reconcileCombo(input: {
   deps: ReconcileDeps;
   apply: boolean;
   quiet: boolean;
+  mergedTeardown: boolean;
   combo: ComboRecord;
   runDir: string;
 }): Promise<ReconcileOutcome> {
-  const { deps, apply, quiet, combo, runDir } = input;
+  const { deps, apply, quiet, mergedTeardown, combo, runDir } = input;
   const events = readEvents(runDir);
   if (terminalReviewerEvent(events)) {
     return { changed: false, reported: false };
@@ -153,6 +156,35 @@ async function reconcileCombo(input: {
 
   const hasMerged = hasMergedEvent(events, [mergeSha, prView.headSha]);
   const parked = events.at(-1)?.event === "parked";
+  if (!mergedTeardown) {
+    if (!apply) {
+      return report(
+        deps,
+        quiet,
+        hasMerged
+          ? `reconcile: ${combo.id} would report closure pending for ${mergeSha}`
+          : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and report closure pending`,
+      );
+    }
+
+    let changed = false;
+    if (!hasMerged) {
+      appendEvent(runDir, "merged", {
+        sha: mergeSha,
+        by,
+        ...(prView.mergedAt !== undefined ? { mergedAt: prView.mergedAt } : {}),
+        source: "reconcile",
+      });
+      changed = true;
+    }
+    const reported = report(
+      deps,
+      quiet,
+      `reconcile: ${combo.id} merged ${mergeSha} by ${by}; closure pending: combo-chen closure -n ${combo.id}`,
+    ).reported;
+    return { changed, reported };
+  }
+
   if (!apply) {
     return report(
       deps,

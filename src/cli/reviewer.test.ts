@@ -35,6 +35,7 @@ import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import {
   activateReviewer,
   canonicalLgtmShaForHead,
+  closurePendingReviewerEvent,
   hasJournaledLgtm,
   hasMergedEvent,
   latestOpenedPrUrl,
@@ -92,8 +93,18 @@ describe("cli reviewer journal helpers", () => {
     ] satisfies ComboEvent[];
 
     expect(terminalReviewerEvent(events)).toMatchObject({ event: "combo_closed" });
+    expect(closurePendingReviewerEvent(events)).toBeUndefined();
     expect(hasMergedEvent(events, ["squash789", "head456"])).toBe(true);
     expect(hasMergedEvent(events, ["squash789"])).toBe(false);
+  });
+
+  it("finds unclosed merged events as closure pending", () => {
+    const events = [
+      { t: "2026-06-11T00:00:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/7" },
+      { t: "2026-06-11T00:01:00.000Z", event: "merged", sha: "merge789", by: "maintainer" },
+    ] satisfies ComboEvent[];
+
+    expect(closurePendingReviewerEvent(events)).toMatchObject({ event: "merged", sha: "merge789" });
   });
 
   it("returns the latest opened PR URL from the journal", () => {
@@ -460,26 +471,15 @@ describe("activateReviewer", () => {
 
 // -- 4/4 CORE · tickReviewer tests --
 describe("tickReviewer", () => {
-  it("uses snapshot teardown retry limits when repo TOML changes before a merge tick", async () => {
+  it("reports a merged PR as closure pending without local teardown", async () => {
     const calls: string[][] = [];
-    const sleeps: number[] = [];
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(home, record.id);
-    let fetchAttempts = 0;
 
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      "[limits]\nteardown_git_retries = 1\nteardown_git_backoff_seconds = 3\n",
-    );
     writeCombo(runDir, record);
-    writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      "[limits]\nteardown_git_retries = 0\nteardown_git_backoff_seconds = 99\n",
-    );
 
     await tickReviewer({
       deps: {
@@ -491,12 +491,6 @@ describe("tickReviewer", () => {
         },
         git: (args, cwd) => {
           calls.push(["git", `cwd=${cwd}`, ...args]);
-          if (args[0] === "fetch") {
-            fetchAttempts += 1;
-            if (fetchAttempts === 1) {
-              return { status: 1, stdout: "", stderr: "transient fetch" };
-            }
-          }
           return { status: 0, stdout: "", stderr: "" };
         },
         gh: (args) => {
@@ -507,30 +501,82 @@ describe("tickReviewer", () => {
               headRefOid: "head456",
               state: "MERGED",
               mergedBy: { login: "maintainer" },
-              baseRefName: "main",
+              mergedAt: "2026-06-11T11:20:00.000Z",
               mergeCommit: { oid: "merge789" },
             }),
             stderr: "",
           };
         },
-        sleep: (ms) => {
-          sleeps.push(ms);
-          return Promise.resolve();
-        },
+        sleep: () => Promise.resolve(),
       },
       home,
       comboId: record.id,
     });
 
-    const fetchCalls = calls.filter((call) => call.slice(0, 4).join(" ") === `git cwd=${record.repoDir} fetch origin`);
-    expect(sleeps).toEqual([3000]);
-    expect(fetchCalls).toHaveLength(2);
-    expect(readEvents(runDir).slice(-2)).toMatchObject([
-      { event: "merged", sha: "merge789", by: "maintainer" },
-      { event: "combo_closed" },
+    expect(readEvents(runDir).slice(-1)).toMatchObject([
+      {
+        event: "merged",
+        sha: "merge789",
+        by: "maintainer",
+        mergedAt: "2026-06-11T11:20:00.000Z",
+        source: "reviewer",
+      },
     ]);
-    expect(out).toEqual(["reviewer: merged merge789 by maintainer"]);
-    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux")).toBe(false);
+    expect(calls.find((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "view"))
+      ?.toContain("headRefOid,state,mergedAt,mergedBy,mergeCommit");
+    expect(out).toEqual(["reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7"]);
+  });
+
+  it("treats a merged PR without merge commit metadata as a transient failure", async () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        gh: (args) => {
+          calls.push(["gh", ...args]);
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "head456",
+              state: "MERGED",
+              mergedBy: { login: "maintainer" },
+              mergedAt: "2026-06-11T11:20:00.000Z",
+            }),
+            stderr: "",
+          };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened"]);
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux")).toBe(false);
+    expect(out).toEqual([
+      "reviewer: transient_failure: merged PR data missing mergeCommit.oid for o-r-7; will retry on next tick",
+    ]);
   });
 
   it("journals a closed PR and stops the combo without local git cleanup", async () => {
