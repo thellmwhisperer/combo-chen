@@ -1,10 +1,10 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1040 lines, initial-gate retry, READY, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1090 lines, initial-gate retry, PR labels, READY, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at READY pure helpers    <- extracted current-head predicates.
- *   2. Then tickDirector tests        <- current-head READY and gate routing.
+ *   2. Then tickDirector tests        <- PR label sync, current-head READY, and gate routing.
  *   3. Test harness helpers           <- combo fixture and fake deps.
  *
  *   MAIN FLOW
@@ -92,6 +92,7 @@ function fakeDeps(input: {
   codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
   externalCommentLogin?: string;
   issueComments?: unknown[];
+  prLabels?: unknown[];
   prState?: string;
   mergeSha?: string;
   mergedBy?: string;
@@ -131,11 +132,21 @@ function fakeDeps(input: {
           status: 0,
           stdout: JSON.stringify(
             fields.includes("statusCheckRollup")
-              ? { ...base, statusCheckRollup: input.rollup ?? successfulRollup() }
-              : base,
+              ? {
+                  ...base,
+                  statusCheckRollup: input.rollup ?? successfulRollup(),
+                  ...(fields.includes("labels") ? { labels: input.prLabels ?? [] } : {}),
+                }
+              : {
+                  ...base,
+                  ...(fields.includes("labels") ? { labels: input.prLabels ?? [] } : {}),
+                },
           ),
           stderr: "",
         };
+      }
+      if (args[0] === "pr" && args[1] === "edit") {
+        return { status: 0, stdout: "", stderr: "" };
       }
       const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
       if (endpoint.endsWith("/issues/7/comments")) {
@@ -546,6 +557,53 @@ describe("tickDirector", () => {
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(reviewerCaptures).toBe(1);
+  });
+
+  it("syncs live combo PR labels from director-watch ticks", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      rollup: [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+      codeRabbitComments: [],
+      prLabels: [{ name: "documentation" }],
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "reviewing\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "edit",
+      "https://github.com/o/r/pull/7",
+      "--add-label",
+      "combo:working-reviewer",
+    ]);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "pr_labels_updated",
+        pr_url: "https://github.com/o/r/pull/7",
+        head_sha: headSha,
+        old_labels: ["documentation"],
+        new_labels: ["combo:working-reviewer"],
+        added_labels: ["combo:working-reviewer"],
+        removed_labels: [],
+        reason: "current",
+        source: "director-watch",
+      }),
+    );
   });
 
   it("emits READY when gate, reviewer, required checks, and normal checks all agree on the current head", async () => {
