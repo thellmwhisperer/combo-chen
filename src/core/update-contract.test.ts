@@ -1,13 +1,14 @@
 /**
  * @overview Unit tests for the read-only updater contract foundation.
- *   ~170 lines, no exports, pins release identity, asset selection, checksums, and candidate comparison.
+ *   ~210 lines, no exports, pins release identity, asset selection, checksums, install targets, and candidate comparison.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at normalizeReleaseVersion tests <- release tag/version contract.
  *   2. Then selectUpdateAsset tests            <- supported platform asset contract.
  *   3. Then parseUpdateChecksums tests         <- checksums.txt parsing and lookup.
- *   4. Then compareReleaseCandidate tests      <- current versus candidate state.
+ *   4. Then classifyInstallTarget tests        <- read-only local install classification.
+ *   5. Then compareReleaseCandidate tests      <- current versus candidate state.
  *
  *   MAIN FLOW
  *   ---------
@@ -27,6 +28,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyInstallTarget,
   compareReleaseCandidate,
   lookupUpdateChecksum,
   normalizeReleaseVersion,
@@ -180,6 +182,52 @@ describe("update contract release identity", () => {
         ].join("\n"),
       ),
     ).toThrow("duplicate checksum entry for combo-chen-v1.2.3-linux-x64.tar.gz");
+  });
+
+  it("classifies release archive install targets as auto-replaceable", () => {
+    expect(classifyInstallTarget({ path: "/opt/combo-chen-v1.2.3/bin/combo-chen" })).toEqual({
+      path: "/opt/combo-chen-v1.2.3/bin/combo-chen",
+      kind: "release_archive",
+      autoReplaceable: true,
+      reason: "release archive bin path is eligible for future archive replacement",
+    });
+
+    expect(
+      classifyInstallTarget({ path: "/opt/combo-chen-v1.2.3-beta.4/bin/combo-chen" }),
+    ).toMatchObject({
+      kind: "release_archive",
+      autoReplaceable: true,
+    });
+  });
+
+  it("classifies source checkout and dev shim install targets as non-auto-replaceable", () => {
+    expect(classifyInstallTarget({ path: "/work/combo-chen/src/cli/main.ts" })).toEqual({
+      path: "/work/combo-chen/src/cli/main.ts",
+      kind: "source_checkout",
+      autoReplaceable: false,
+      reason: "source checkout path must not be auto-replaced",
+    });
+
+    expect(classifyInstallTarget({ path: "/work/combo-chen/dist/cli.mjs" })).toMatchObject({
+      kind: "source_checkout",
+      autoReplaceable: false,
+    });
+
+    expect(classifyInstallTarget({ path: "/work/combo-chen/node_modules/.bin/combo-chen" })).toEqual({
+      path: "/work/combo-chen/node_modules/.bin/combo-chen",
+      kind: "dev_shim",
+      autoReplaceable: false,
+      reason: "package manager shim must not be auto-replaced",
+    });
+  });
+
+  it("keeps unknown install targets read-only and non-auto-replaceable", () => {
+    expect(classifyInstallTarget({ path: "/usr/local/bin/combo-chen" })).toEqual({
+      path: "/usr/local/bin/combo-chen",
+      kind: "unknown",
+      autoReplaceable: false,
+      reason: "unknown install target must not be auto-replaced",
+    });
   });
 
   it("compares current build metadata with a newer release candidate", () => {
