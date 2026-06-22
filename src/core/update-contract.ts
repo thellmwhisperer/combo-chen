@@ -273,10 +273,9 @@ export function lookupUpdateChecksum(input: UpdateChecksumLookupInput): UpdateCh
 export function classifyInstallTarget(
   input: InstallTargetClassificationInput,
 ): InstallTargetClassification {
-  const path = input.path.trim();
-  const normalizedPath = normalizeInstallTargetPath(path);
+  const path = normalizeInstallTargetPath(input.path.trim());
 
-  if (DEV_SHIM_PATTERN.test(normalizedPath)) {
+  if (DEV_SHIM_PATTERN.test(path)) {
     return {
       path,
       kind: "dev_shim",
@@ -285,7 +284,7 @@ export function classifyInstallTarget(
     };
   }
 
-  if (releaseArchiveVersionFromPath(normalizedPath) !== undefined) {
+  if (releaseArchiveVersionFromPath(path) !== undefined) {
     return {
       path,
       kind: "release_archive",
@@ -294,7 +293,7 @@ export function classifyInstallTarget(
     };
   }
 
-  if (isSourceCheckoutPath(normalizedPath)) {
+  if (isSourceCheckoutPath(path)) {
     return {
       path,
       kind: "source_checkout",
@@ -317,6 +316,9 @@ export function compareReleaseCandidate(input: {
 }): UpdateVersionComparison {
   const current = normalizeReleaseVersion(input.current.version);
   const candidate = normalizeReleaseVersion(input.candidate.tagName);
+  if (input.candidate.prerelease) {
+    candidate.channel = "prerelease";
+  }
   const order = compareNormalizedReleaseVersions(candidate, current);
 
   return {
