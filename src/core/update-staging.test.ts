@@ -311,6 +311,54 @@ describe("stageResolvedUpdate", () => {
     expect(calls.removes).toEqual([stagingDir]);
   });
 
+  it("rejects asset file names with path traversal before any I/O", async () => {
+    const stagingDir = "/staging/combo-chen-update-traversal";
+    const { deps, calls } = makeDeps({
+      downloads: new Map(),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: {
+          asset: {
+            fileName: "../etc/passwd",
+            downloadUrl: "https://example.test/releases/combo-chen.tar.gz",
+          },
+          checksums: { text: `${"1".repeat(64)}  ../etc/passwd\n` },
+        },
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure.code).toBe("checksums_invalid");
+    expect(failure.message).toContain("unsafe fileName");
+    expect(calls.downloads).toEqual([]);
+  });
+
+  it("rejects checksums file names with path traversal before any I/O", async () => {
+    const stagingDir = "/staging/combo-chen-update-checksums-traversal";
+    const { deps, calls } = makeDeps({
+      downloads: new Map(),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: {
+          asset: {
+            fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+            downloadUrl: "https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz",
+          },
+          checksums: { text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n`, fileName: "../../etc/passwd" },
+        },
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure.code).toBe("checksums_invalid");
+    expect(failure.message).toContain("unsafe fileName");
+    expect(calls.downloads).toEqual([]);
+  });
+
   it("cleans partial staging when extraction fails", async () => {
     const stagingDir = "/staging/combo-chen-update-extract-failed";
     const archiveBytes = Buffer.from("release archive bytes");

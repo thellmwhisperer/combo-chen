@@ -1,6 +1,6 @@
 /**
  * @overview U2 update download, checksum verification, and staging primitives.
- *   ~240 lines, 15 exports, orchestrates only injectable network/filesystem/extraction boundaries.
+ *   ~240 lines, 13 exports, orchestrates only injectable network/filesystem/extraction boundaries.
  *
  *   READING GUIDE
  *   -------------
