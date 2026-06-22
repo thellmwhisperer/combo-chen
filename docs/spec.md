@@ -500,6 +500,16 @@ package-manager dev shims are non-auto-replaceable; the U3 replacement primitive
 (`replaceInstallTargetFromStagedArtifact`) only considers release archive
 installs whose executable path is under `combo-chen-vX.Y.Z/bin/combo-chen`.
 
+### U1 release resolver and latest/beta check flow
+
+U1 (`src/core/update-resolver.ts`) consumes GitHub Releases metadata plus
+current build metadata and returns a read-only update decision.  Stable mode
+ignores GitHub prereleases, beta mode includes them, candidates are normalized
+through the U0 contract, current builds are compared with the selected
+candidate, and expected platform assets are selected through U0 asset naming.
+U1 does not download release bytes, verify checksums, extract archives, replace
+install targets, or inspect active combo sessions.
+
 ### U2 download, checksum verification, and staging
 
 U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
@@ -518,12 +528,12 @@ install targets, replace binaries, or detect active combo sessions.
 
 Completed updater slices:
 
+- U1: release resolver and latest/beta check flow. (Landed: `resolveLatestReleaseCandidate`, `resolveReadOnlyUpdatePlan`.)
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
 
 Remaining follow-up slices:
 
-- U1: release resolver and latest/beta check flow.
 - U4: active capsule guard.
 
 ## 8b. Parallelize-first operating contract

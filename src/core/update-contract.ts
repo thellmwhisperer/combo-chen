@@ -1,6 +1,6 @@
 /**
- * @overview Read-only updater contract primitives shared by U2/U3/U4 update slices.
- *   ~390 lines, 24 exports, pure release identity, asset/checksum/install selection, and comparison helpers.
+ * @overview Read-only updater contract primitives shared by U1/U2/U3/U4 update slices.
+ *   ~390 lines, 25 exports, pure release identity, asset/checksum/install selection, and comparison helpers.
  *
  *   READING GUIDE
  *   -------------

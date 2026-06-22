@@ -257,12 +257,20 @@ verify and install.
 
 ## U0 update contract bridge and updater slices
 
-U0, U2, and U3 together span the updater contract from release identity through
-verified staging and replacement eligibility.  U0 is the read-only vocabulary
-layer: it defines shared types and pure helpers for release tag/version
-normalization, current build versus candidate comparison, platform asset
-selection, sha256sum-compatible checksum lookup, obvious install target
-classification, active combo state, and the aggregate `ReadOnlyUpdatePlan`.
+U0, U1, U2, and U3 together span the updater contract from release identity
+through release resolution, verified staging, and replacement eligibility.  U0
+is the read-only vocabulary layer: it defines shared types and pure helpers for
+release tag/version normalization, current build versus candidate comparison,
+platform asset selection, sha256sum-compatible checksum lookup, obvious install
+target classification, active combo state, and the aggregate
+`ReadOnlyUpdatePlan`.
+
+U1 (`src/core/update-resolver.ts`) implements the release resolver and
+latest/beta check flow.  It consumes GitHub Releases metadata plus current build
+metadata, ignores prereleases in stable mode, includes prereleases in beta mode,
+normalizes candidates through the U0 contract, selects expected platform assets,
+and returns a read-only update decision without downloads, extraction,
+replacement, or live combo inspection.
 
 U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
 verification, and isolated extraction primitives.  It accepts a resolved update
@@ -283,17 +291,17 @@ checkouts and package-manager dev shims are non-auto-replaceable; only release
 archive paths shaped like `combo-chen-vX.Y.Z/bin/combo-chen` are eligible for
 replacement.
 
-These slices do not resolve releases, restart active combo capsules, or mutate
+U2 and U3 do not resolve releases, restart active combo capsules, or mutate
 active combo runtime state.
 
 Completed updater slices:
 
+- U1: release resolver and latest/beta check flow. (Landed: `resolveLatestReleaseCandidate`, `resolveReadOnlyUpdatePlan`.)
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
 
 Remaining follow-up slices:
 
-- U1: release resolver and latest/beta check flow.
 - U4: active capsule guard.
 
 ## Commands
