@@ -220,25 +220,26 @@ export function resolveReadOnlyUpdatePlan(
   input: ReadOnlyUpdatePlanInput,
 ): ReadOnlyUpdatePlanResolution {
   const releaseResolution = resolveLatestReleaseCandidate(input);
-  // Preserve current precedence: no eligible release is reported before parsing the local build version.
-  if (releaseResolution.status === "missing_release") {
-    return {
-      status: "missing_release",
-      mode: releaseResolution.mode,
-      readOnly: true,
-      current: input.current,
-      reason: releaseResolution.reason,
-    };
-  }
+  const mode = releaseResolution.mode;
 
   const currentVersionErrorReason = currentBuildVersionError(input.current.version);
   if (currentVersionErrorReason !== undefined) {
     return {
       status: "unversioned_current_build",
-      mode: releaseResolution.mode,
+      mode,
       readOnly: true,
       current: input.current,
       reason: currentVersionErrorReason,
+    };
+  }
+
+  if (releaseResolution.status === "missing_release") {
+    return {
+      status: "missing_release",
+      mode,
+      readOnly: true,
+      current: input.current,
+      reason: releaseResolution.reason,
     };
   }
 
@@ -353,14 +354,6 @@ function resolveReleaseAsset(input: {
       status: "unsupported_platform",
       asset,
       reason: asset.reason ?? `unsupported update asset target: ${input.target.platform}-${input.target.arch}`,
-    };
-  }
-
-  if (asset.fileName === undefined) {
-    return {
-      status: "missing_asset",
-      expectedAsset: asset,
-      reason: `release ${input.candidate.tagName} is missing an update asset filename`,
     };
   }
 
