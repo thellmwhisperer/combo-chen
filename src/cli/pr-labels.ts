@@ -33,6 +33,7 @@ import {
   requiredChecksSucceeded,
 } from "./checks.js";
 import type { GhRunner } from "./github.js";
+import { livePinnedLgtmSha } from "./reviewer.js";
 
 // -- 1/4 CORE - label catalogue + public types <- START HERE --
 export const COMBO_PR_LABELS = [
@@ -304,16 +305,6 @@ function hasStaleCurrentHeadSignal(events: ComboEvent[], headSha: string): boole
   );
 }
 
-function livePinnedLgtmSha(events: ComboEvent[]): string | undefined {
-  let sha: string | undefined;
-  for (const event of events) {
-    if (event.event === "lgtm") sha = stringField(event, "sha");
-    if (event.event === "lgtm_stale" && stringField(event, "old_sha") === sha) {
-      sha = undefined;
-    }
-  }
-  return sha;
-}
 
 function latestReadyForMergeSha(events: ComboEvent[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
