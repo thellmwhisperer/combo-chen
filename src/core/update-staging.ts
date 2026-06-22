@@ -100,7 +100,8 @@ export type UpdateStagingErrorCode =
   | "checksums_invalid"
   | "checksum_not_found"
   | "checksum_mismatch"
-  | "extraction_failed";
+  | "extraction_failed"
+  | "unsafe_file_name";
 
 export interface UpdateStagingCleanup {
   attempted: boolean;
@@ -179,19 +180,15 @@ export async function stageResolvedUpdate(input: {
         checksumsText,
         fileName: assetFileName,
         stagingDir: input.stagingDir,
-        deps: input.deps,
       });
     } catch (error) {
-      if (error instanceof UpdateStagingError) {
-        await failWithCleanup({
-          code: error.code,
-          message: error.message,
-          stagingDir: input.stagingDir,
-          deps: input.deps,
-          cause: error,
-        });
-      }
-      throw error;
+      return await failWithCleanup({
+        code: error instanceof UpdateStagingError ? error.code : "checksums_invalid",
+        message: error instanceof Error ? error.message : String(error),
+        stagingDir: input.stagingDir,
+        deps: input.deps,
+        cause: error,
+      });
     }
     const actualSha256 = sha256Hex(archiveBytes);
     if (actualSha256 !== expectedSha256) {
@@ -214,7 +211,7 @@ export async function stageResolvedUpdate(input: {
         assetFileName,
       });
     } catch (error) {
-      extracted = await failWithCleanup({
+      return await failWithCleanup({
         code: "extraction_failed",
         message: `failed to extract ${assetFileName}: ${errorMessage(error)}`,
         stagingDir: input.stagingDir,
@@ -272,7 +269,6 @@ function expectedChecksumForAsset(input: {
   checksumsText: string;
   fileName: string;
   stagingDir: string;
-  deps: UpdateStagingDeps;
 }): string {
   let entries: ReturnType<typeof parseUpdateChecksums>;
   try {
@@ -351,7 +347,7 @@ function errorMessage(error: unknown): string {
 function validateSafePathComponent(name: string): string {
   if (name.includes("..") || name.includes("/") || name.includes("\\")) {
     throw new UpdateStagingError(`unsafe fileName: ${name}`, {
-      code: "checksums_invalid",
+      code: "unsafe_file_name",
       cleanup: { attempted: false, path: "", removed: false },
     });
   }
