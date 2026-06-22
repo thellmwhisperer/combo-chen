@@ -292,6 +292,16 @@ describe("update contract release identity", () => {
       candidate: { tagName: "v1.2.4", prerelease: true },
     });
     expect(result.candidate.channel).toBe("prerelease");
+    expect(result.state).toBe("update_available");
+  });
+
+  it("treats same-core prerelease-flag candidates as older than stable current", () => {
+    expect(
+      compareReleaseCandidate({
+        current: { version: "1.2.3", commit: "abc1234", date: "2026-06-21T12:00:00.000Z" },
+        candidate: { tagName: "v1.2.3", prerelease: true },
+      }).state,
+    ).toBe("candidate_older");
   });
 
   it("reports equal or older candidates without claiming an update", () => {

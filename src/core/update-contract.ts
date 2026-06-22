@@ -365,9 +365,9 @@ function compareNormalizedReleaseVersions(
     left.patch - right.patch;
   if (coreOrder !== 0) return Math.sign(coreOrder);
 
-  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
-  if (left.prerelease.length === 0) return 1;
-  if (right.prerelease.length === 0) return -1;
+  if (left.channel === "stable" && right.channel === "stable") return 0;
+  if (left.channel === "stable") return 1;
+  if (right.channel === "stable") return -1;
 
   const limit = Math.max(left.prerelease.length, right.prerelease.length);
   for (let index = 0; index < limit; index += 1) {
