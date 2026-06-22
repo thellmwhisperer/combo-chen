@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for U2 update download/checksum/staging primitives.
- *   ~190 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
+ *   ~280 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
  *
  *   READING GUIDE
  *   -------------
@@ -238,6 +238,73 @@ describe("stageResolvedUpdate", () => {
 
     expect(failure).toMatchObject({
       code: "checksum_not_found",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(calls.extracts).toEqual([]);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+
+  it("fails unavailable checksums before extraction and cleans partial staging", async () => {
+    const stagingDir = "/staging/combo-chen-update-checksums-unavailable";
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", Buffer.from("archive")],
+      ]),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({}),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "checksums_unavailable",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(calls.extracts).toEqual([]);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+
+  it("fails malformed checksums before extraction and cleans partial staging", async () => {
+    const stagingDir = "/staging/combo-chen-update-checksums-invalid";
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", Buffer.from("archive")],
+      ]),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({ text: "not a checksum\n" }),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "checksums_invalid",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(calls.extracts).toEqual([]);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+
+  it("reports archive download failures and cleans partial staging", async () => {
+    const stagingDir = "/staging/combo-chen-update-download-failed";
+    const { deps, calls } = makeDeps({
+      downloads: new Map(),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({ text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n` }),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "download_failed",
       cleanup: { attempted: true, path: stagingDir, removed: true },
     });
     expect(calls.extracts).toEqual([]);
