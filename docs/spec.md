@@ -283,7 +283,11 @@ ignored config or environment outside that file.
   director journals `pr_conflict` (required fields `sha`, `pr_url`,
   `merge_state`, `action`) with `action=rebase_required`, which invalidates
   READY back to REVIEWING. `status --deep` surfaces the same state as
-  `PR conflict: rebase required`.
+  `PR conflict: rebase required`. The same event is the coder-recovery
+  baseline: director-watch nudges coder responding to rebase the local
+  worktree, and once the committed local HEAD differs from the conflicted SHA,
+  the normal post-address no-mistakes gate, reviewer, and current-head READY
+  path resume.
 - External agent comments are routed as review input for the coder. Configure
   their comment/noise filters with `[external_comments].agents`; clean or
   rate-limited external comments do not approve the PR and do not affect READY

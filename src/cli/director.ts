@@ -38,7 +38,7 @@ import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
-import { nudgeReviewComments } from "./coder.js";
+import { nudgePrConflict, nudgeReviewComments } from "./coder.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./director-watch-status.js";
 import {
@@ -538,6 +538,26 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
         source: "github",
       });
       deps.out(`director: pr_conflict ${headSha} ${blockingMergeState}; action rebase_required`);
+      try {
+        nudgePrConflict({
+          deps,
+          home: comboHome(deps.env),
+          comboId,
+          conflict: {
+            prUrl,
+            headSha,
+            mergeState: blockingMergeState,
+            ...(prView.mergeable !== undefined ? { mergeable: prView.mergeable } : {}),
+            ...(prView.baseRefName !== undefined ? { baseRef: prView.baseRefName } : {}),
+          },
+        });
+      } catch (error) {
+        deps.out(
+          `director: pr_conflict nudge failed for ${comboId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
     return;
   }

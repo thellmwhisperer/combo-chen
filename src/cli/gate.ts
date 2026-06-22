@@ -24,7 +24,8 @@
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
+ *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
+ *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -227,13 +228,21 @@ function hasAddressDone(events: ComboEvent[], headSha: string): boolean {
   return events.some((event) => event.event === "address_done" && event["head_sha"] === headSha);
 }
 
-function latestReviewCommentHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
+function latestCoderRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
     if (event.event === "review_comment") {
       return typeof event["head_sha"] === "string" && event["head_sha"] !== ""
         ? event["head_sha"]
         : undefined;
+    }
+    if (
+      event.event === "pr_conflict" &&
+      event["action"] === "rebase_required" &&
+      typeof event["sha"] === "string" &&
+      event["sha"] !== ""
+    ) {
+      return event["sha"];
     }
     if (event.event === "gate_validated" && event["sha"] === gateSha) return undefined;
     if (event.event === "gate_status" && event["state"] === "idle" && event["head_sha"] === gateSha) {
@@ -758,8 +767,8 @@ export function runPostAddressGateIfNeeded(input: {
     return;
   }
 
-  const reviewHeadSha = latestReviewCommentHeadShaAfterGate(events, lastPublishedSha);
-  if (reviewHeadSha === undefined || reviewHeadSha === headSha) {
+  const recoveryHeadSha = latestCoderRecoveryHeadShaAfterGate(events, lastPublishedSha);
+  if (recoveryHeadSha === undefined || recoveryHeadSha === headSha) {
     deps.out(`director: no coder HEAD change for ${combo.id}; waiting for coder to commit`);
     return;
   }
