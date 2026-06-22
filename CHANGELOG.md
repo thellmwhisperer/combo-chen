@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.52](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.51...combo-chen-v0.0.52) (2026-06-22)
+
+
+### Features
+
+* **update-contract:** Added the read-only checksum parsing and exact lookup slice for the update contract, with full validation green. ([520d735](https://github.com/thellmwhisperer/combo-chen/commit/520d735888e333bc062f70c365295c0c629b7bfb))
+* **update-contract:** Added the read-only install target classification slice for issue [#176](https://github.com/thellmwhisperer/combo-chen/issues/176) and validated it with the full repo gate. ([335d93e](https://github.com/thellmwhisperer/combo-chen/commit/335d93e7d03b5488292831b2e7747018d3799bd8))
+* **update:** Added the first read-only updater contract slice for release tag/version normalization and current-vs-candidate comparison. ([8adf166](https://github.com/thellmwhisperer/combo-chen/commit/8adf166358af704c903650a7a17700119bcfdc67))
+* **update:** Added the read-only platform asset-selection contract slice for issue [#176](https://github.com/thellmwhisperer/combo-chen/issues/176) and validated it with the full repo gate. ([0edbc13](https://github.com/thellmwhisperer/combo-chen/commit/0edbc13f5c60f4f9982977eb6cf5be99f693ce99))
+
+
+### Bug Fixes
+
+* **update:** compare github prerelease candidates ([b280382](https://github.com/thellmwhisperer/combo-chen/commit/b2803823e1373d9b008a8bc53817b810ee35e218))
+
 ## [0.0.51](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.50...combo-chen-v0.0.51) (2026-06-21)
 
 
