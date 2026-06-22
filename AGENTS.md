@@ -38,7 +38,9 @@ Hard rule: `reviewer != coder`.
    coder responding mode are worker windows. Reviewer verdict codes drive
    deterministic routing: code 0 feeds the LGTM journal path, code 1 nudges
    coder responding, code 2 prompts the director, and code 3 journals
-   `needs_human`.
+   `needs_human`. On each tick the director also updates the PR's GitHub
+   labels to project the live combo state (`combo:working-*`, `combo:lgtm`,
+   `combo:coderabbit-green`, `combo:ready`, `combo:stale`, `combo:conflict`).
 5. Review comments are routed to the resumed coder thread. Mechanical fixes are
    handled locally; intent-touching decisions emit `needs_human`.
 6. Local addressing commits trigger a generated-script post-address
@@ -142,6 +144,6 @@ branch-scoped gate leases for parallel capsules with stale recovery and heartbea
 promptable director window inside each combo capsule (non-polling contract, prompted by
 director-watch only for ambiguity or uncoded recovery), wave-based parallel scaling
 (start 2 capsules, then 3, then 4-6 with postmortem justification),
-and current-head READY agreement.
+current-head READY agreement, and live GitHub PR label projection with mutation journaling.
 Deferred: preflight scoring, counterfactual
 automerge log, treehouse pools, and ACP role driving.
