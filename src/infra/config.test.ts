@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~816 lines,
+ * @overview Unit tests for config loading and command rendering. ~890 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -48,7 +48,7 @@ describe("loadConfig", () => {
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.externalCommentAgents).toEqual(["coderabbit"]);
     expect(config.readyRequiredChecks).toEqual([]);
-    expect(config.codeRabbitCheckNames).toEqual([]);
+    expect(config.prLabelGreenCheckNames).toEqual([]);
     expect(config.roles.merge).toBe("human");
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
@@ -293,26 +293,48 @@ describe("loadConfig", () => {
     expect(config.externalCommentAgents).toEqual(["reviewdog", "copilot"]);
   });
 
-  it("loads CodeRabbit-equivalent check names from PR label config and env", () => {
+  it("loads green PR label check names from PR label config and env", () => {
     const repoDir = tempDir();
     writeToml(
       repoDir,
       "combo-chen.toml",
       [
         "[pr_labels]",
-        'code_rabbit_check_names = ["Rabbit Pro"]',
+        'green_check_names = ["Rabbit Pro"]',
       ].join("\n"),
     );
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
-    expect(repoConfig.codeRabbitCheckNames).toEqual(["Rabbit Pro"]);
+    expect(repoConfig.prLabelGreenCheckNames).toEqual(["Rabbit Pro"]);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "Rabbit Enterprise\nRabbit CI" },
+    });
+    expect(envConfig.prLabelGreenCheckNames).toEqual(["Rabbit Enterprise", "Rabbit CI"]);
+  });
+
+  it("keeps legacy provider-specific PR label check names as aliases", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[pr_labels]",
+        'code_rabbit_check_names = ["Rabbit Legacy"]',
+      ].join("\n"),
+    );
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+    expect(repoConfig.prLabelGreenCheckNames).toEqual(["Rabbit Legacy"]);
 
     const envConfig = loadConfig({
       repoDir,
       userConfigPath: join(tempDir(), "missing.toml"),
       env: { COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES: "Rabbit Enterprise\nRabbit CI" },
     });
-    expect(envConfig.codeRabbitCheckNames).toEqual(["Rabbit Enterprise", "Rabbit CI"]);
+    expect(envConfig.prLabelGreenCheckNames).toEqual(["Rabbit Enterprise", "Rabbit CI"]);
   });
 
   it("keeps configured external comment agents out of coder and active reviewer roles", () => {

@@ -183,7 +183,7 @@ function syncStatusDeepPrLabels(input: {
   events: ComboEvent[];
   requiredCheckNames: string[];
   ambientCheckNames: string[];
-  codeRabbitCheckNames: string[];
+  prLabelGreenCheckNames: string[];
 }): void {
   if (input.prUrl === undefined) return;
   try {
@@ -194,7 +194,7 @@ function syncStatusDeepPrLabels(input: {
       events: input.events,
       requiredCheckNames: input.requiredCheckNames,
       ambientCheckNames: input.ambientCheckNames,
-      codeRabbitCheckNames: input.codeRabbitCheckNames,
+      greenCheckNames: input.prLabelGreenCheckNames,
       source: "status-deep",
     });
   } catch {
@@ -626,7 +626,7 @@ export function createProgram(deps: Deps): Command {
           events,
           requiredCheckNames: config.readyRequiredChecks,
           ambientCheckNames: config.externalCommentAgents,
-          codeRabbitCheckNames: config.codeRabbitCheckNames,
+          prLabelGreenCheckNames: config.prLabelGreenCheckNames,
         });
         deps.out(`${line} ${downstream ?? "—"}`);
       }

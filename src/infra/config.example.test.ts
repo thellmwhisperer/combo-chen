@@ -119,7 +119,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.externalCommentAgents).toEqual(["coderabbit"]);
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
-    expect(config.codeRabbitCheckNames).toEqual(["CodeRabbit"]);
+    expect(config.prLabelGreenCheckNames).toEqual(["CodeRabbit"]);
     expect(config.reviewerLogins).toEqual(["claude"]);
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
     expect(config.coderRespondingWindowName).toBe("coder-responding");

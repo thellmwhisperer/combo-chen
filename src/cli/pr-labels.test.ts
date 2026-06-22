@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~383 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~395 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
@@ -108,7 +108,7 @@ describe("combo PR label projection", () => {
     ).toEqual(["combo:working-gate"]);
   });
 
-  it("projects current-head LGTM, CodeRabbit, and READY labels only when live signals agree", () => {
+  it("projects current-head LGTM, configured green check, and READY labels only when live signals agree", () => {
     expect(
       labels({
         events: [
@@ -127,12 +127,12 @@ describe("combo PR label projection", () => {
           ],
         },
         requiredCheckNames: ["ReviewDog"],
-        codeRabbitCheckNames: ["CodeRabbit"],
+        greenCheckNames: ["CodeRabbit"],
       }),
     ).toEqual(["combo:lgtm", "combo:coderabbit-green", "combo:ready"]);
   });
 
-  it("uses explicit configured check names for the CodeRabbit-equivalent label before the fallback", () => {
+  it("uses explicit configured green check names for the provider green label", () => {
     expect(
       labels({
         events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
@@ -144,9 +144,22 @@ describe("combo PR label projection", () => {
             checkRun("ReviewDog", "SUCCESS"),
           ],
         },
-        codeRabbitCheckNames: ["ReviewDog"],
+        greenCheckNames: ["ReviewDog"],
       }),
     ).toEqual(["combo:lgtm", "combo:coderabbit-green"]);
+  });
+
+  it("does not project the provider green label from an unconfigured check name", () => {
+    expect(
+      labels({
+        events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+        pr: {
+          state: "OPEN",
+          headSha: HEAD,
+          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+        },
+      }),
+    ).toEqual(["combo:lgtm"]);
   });
 
   it("plans removal of stale current-head signal labels after a PR head changes", () => {
@@ -162,7 +175,7 @@ describe("combo PR label projection", () => {
         headSha: HEAD,
         statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "SUCCESS")],
       },
-      codeRabbitCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["CodeRabbit"],
     });
 
     expect(projection.labels).toEqual(["combo:coderabbit-green", "combo:stale"]);
@@ -177,7 +190,7 @@ describe("combo PR label projection", () => {
     });
   });
 
-  it("removes CodeRabbit green when the live check is no longer SUCCESS", () => {
+  it("removes the provider green label when the configured live check is no longer SUCCESS", () => {
     const projection = projectComboPrLabels({
       events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
       pr: {
@@ -185,7 +198,7 @@ describe("combo PR label projection", () => {
         headSha: HEAD,
         statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "FAILURE")],
       },
-      codeRabbitCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["CodeRabbit"],
     });
 
     expect(projection.labels).toEqual(["combo:lgtm"]);
@@ -209,7 +222,7 @@ describe("combo PR label projection", () => {
         mergeStateStatus: "DIRTY",
         statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "SUCCESS")],
       },
-      codeRabbitCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["CodeRabbit"],
     });
 
     expect(projection.labels).toEqual(["combo:conflict"]);
@@ -252,7 +265,7 @@ describe("combo PR label projection", () => {
       runDir: dir,
       prUrl: PR_URL,
       events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
-      codeRabbitCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["CodeRabbit"],
       source: "test",
     });
 
@@ -323,7 +336,7 @@ describe("combo PR label projection", () => {
         runDir: dir,
         prUrl: PR_URL,
         events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
-        codeRabbitCheckNames: ["CodeRabbit"],
+        greenCheckNames: ["CodeRabbit"],
         source: "test",
       }),
     ).toThrow("add failed");
@@ -369,7 +382,7 @@ describe("combo PR label projection", () => {
       runDir: dir,
       prUrl: PR_URL,
       events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
-      codeRabbitCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["CodeRabbit"],
     });
 
     expect(result.changed).toBe(false);

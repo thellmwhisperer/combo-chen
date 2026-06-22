@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~730 lines, 14 exports.
+ *   Repo wins on policy, user wins on local setup. ~760 lines, 14 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -26,8 +26,8 @@
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
- *   │ pickNonEmptyString, pickStringArray, normalizeLimitAliases,     │
- *   │ DEFAULTS, PLACEHOLDER, gnhf safety predicates                    │
+ *   │ pickNonEmptyString, pickStringArray, normalize*Aliases,         │
+ *   │ DEFAULTS, PLACEHOLDER, gnhf safety predicates                   │
  *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
@@ -95,8 +95,8 @@ export interface ComboConfig {
   externalCommentAgents: string[];
   /** GitHub check names that must be present with SUCCESS before READY. */
   readyRequiredChecks: string[];
-  /** GitHub check names that satisfy the combo:coderabbit-green PR label. Empty means use the label fallback. */
-  codeRabbitCheckNames: string[];
+  /** GitHub check names that satisfy the green external-review PR label. */
+  prLabelGreenCheckNames: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
   /** Regex sources used to detect interactive permission prompts in worker panes. */
@@ -192,7 +192,7 @@ const DEFAULTS = {
     required_checks: [],
   },
   pr_labels: {
-    code_rabbit_check_names: [],
+    green_check_names: [],
   },
   monitor: {
     worker_stall_ticks: 3,
@@ -278,6 +278,13 @@ function normalizeLimitAliases(table: TomlTable): TomlTable {
     return table;
   }
   return { ...table, coder_timeout_minutes: table["rower_timeout_minutes"] };
+}
+
+function normalizePrLabelAliases(table: TomlTable): TomlTable {
+  if (table["green_check_names"] !== undefined || table["code_rabbit_check_names"] === undefined) {
+    return table;
+  }
+  return { ...table, green_check_names: table["code_rabbit_check_names"] };
 }
 
 function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number, where = "[limits]"): number {
@@ -515,7 +522,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     if (layer.table["pr_labels"] !== undefined) {
       prLabelsTable = {
         ...prLabelsTable,
-        ...asTable(layer.table["pr_labels"], `[pr_labels] in ${layer.source}`),
+        ...normalizePrLabelAliases(asTable(layer.table["pr_labels"], `[pr_labels] in ${layer.source}`)),
       };
     }
     if (layer.table["monitor"] !== undefined) {
@@ -580,10 +587,13 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "external_comments.agents",
     );
   }
-  if (env["COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES"] !== undefined) {
-    prLabelsTable["code_rabbit_check_names"] = parseEnvStringArray(
-      env["COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES"],
-      "pr_labels.code_rabbit_check_names",
+  const prLabelGreenCheckNames =
+    env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"] ??
+    env["COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES"];
+  if (prLabelGreenCheckNames !== undefined) {
+    prLabelsTable["green_check_names"] = parseEnvStringArray(
+      prLabelGreenCheckNames,
+      "pr_labels.green_check_names",
     );
   }
   if (env["COMBO_CHEN_REVIEWER_LOGINS"] !== undefined) {
@@ -636,8 +646,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const externalCommentAgents = [...new Set([...configuredAgents, ...legacyAmbient])];
   const readyRequiredChecks = [...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks"))];
-  const codeRabbitCheckNames = [
-    ...new Set(pickStringArray(prLabelsTable["code_rabbit_check_names"], "pr_labels.code_rabbit_check_names")),
+  const prLabelGreenCheckNamesResolved = [
+    ...new Set(pickStringArray(prLabelsTable["green_check_names"], "pr_labels.green_check_names")),
   ];
   const workerPermissionPromptPatterns = pickNonEmptyStringArray(
     monitorTable["permission_prompt_patterns"],
@@ -724,7 +734,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerLogins: [...new Set(reviewerLogins ?? [reviewerAgent])],
     externalCommentAgents: [...new Set(externalCommentAgents)],
     readyRequiredChecks,
-    codeRabbitCheckNames,
+    prLabelGreenCheckNames: prLabelGreenCheckNamesResolved,
     workerStallTicks: pickPositiveInteger(
       monitorTable,
       "worker_stall_ticks",

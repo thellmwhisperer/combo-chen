@@ -176,7 +176,7 @@ logins = ["claude"]
 required_checks = ["CodeRabbit"]
 
 [pr_labels]
-code_rabbit_check_names = ["CodeRabbit"]
+green_check_names = ["CodeRabbit"]
 
 [external_comments]
 # External comment/noise filters only; not approval and not READY checks.
@@ -198,9 +198,8 @@ SHA-pinned reviewer LGTM gate and have their machine-readable verdict blocks
 accepted for routing; by default this is the active reviewer agent name.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
 present with `SUCCESS`; these external checks are not reviewer approval.
-`[pr_labels].code_rabbit_check_names` names the check contexts/runs that satisfy
-the `combo:coderabbit-green` status label; omit it to use the built-in
-CodeRabbit fallback.
+`[pr_labels].green_check_names` names the check contexts/runs that satisfy the
+`combo:coderabbit-green` status label.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
 filtered for bookkeeping/noise and otherwise routed to coder responding mode.
 
