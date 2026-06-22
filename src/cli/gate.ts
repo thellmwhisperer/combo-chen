@@ -89,14 +89,17 @@ export function buildGatekeeperAttachCommand(
     throw new Error("gatekeeper attach retry interval must be > 0 seconds");
   }
   // The no-mistakes run id does not exist until the runner reaches gatekeeper.
-  // Without --run, attach follows the active run for this worktree.
+  // Resolve it through branch-aware axi status before attaching; bare attach is
+  // repo-global in no-mistakes and can follow a sibling combo run.
   const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
   return [
     `cd ${shellQuote(combo.worktree)}`,
     "attempt=0",
     "while :; do",
-    "  if no-mistakes axi status 2>/dev/null | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
-    "    exec no-mistakes attach",
+    "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
+    "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+    "  if [ -n \"$no_mistakes_run_id\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
+    "    exec no-mistakes attach --run \"$no_mistakes_run_id\"",
     "  fi",
     "  attempt=$((attempt + 1))",
     `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
@@ -360,10 +363,15 @@ function gateAlreadyRunningGuardScript(input: {
     "if [ \"$gatekeeper_code\" -ne 0 ]; then",
     "  status_probe_log=\"${gatekeeper_log}.status\"",
     `  if no-mistakes axi status > "$status_probe_log" 2>&1 && grep -F ${shellQuote(`branch: ${input.combo.branch}`)} "$status_probe_log" >/dev/null && grep -F ${shellQuote(`head: ${input.headSha.slice(0, 7)}`)} "$status_probe_log" >/dev/null && grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$' "$status_probe_log"; then`,
+    "    gatekeeper_run_id=$(sed -n 's/^[[:space:]]*id:[[:space:]]*//p' \"$status_probe_log\" | sed -n '1p')",
+    "    if [ -z \"$gatekeeper_run_id\" ]; then",
+    "      cat \"$status_probe_log\" >> \"$gatekeeper_log\" 2>/dev/null || true",
+    "      exit \"$gatekeeper_code\"",
+    "    fi",
     "    gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     `    ${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_head_sha"`,
     "    gate_lease_release || true",
-    "    exec no-mistakes attach",
+    "    exec no-mistakes attach --run \"$gatekeeper_run_id\"",
     "  fi",
     "  cat \"$status_probe_log\" >> \"$gatekeeper_log\" 2>/dev/null || true",
     "fi",
@@ -404,7 +412,13 @@ function buildInitialGateRetryScript(input: {
     "gatekeeper_code=0",
     "(",
     indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 2),
-    indentShellLines(buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand, { waitForConfigBeforeRun: true }), 2),
+    indentShellLines(
+      buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand, {
+        waitForConfigBeforeRun: true,
+        expectedBranch: input.combo.branch,
+      }),
+      2,
+    ),
     `) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?`,
     gateAlreadyRunningGuardScript(input),
     "if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' \"$gatekeeper_log\"; then",
@@ -536,7 +550,13 @@ export function buildPostAddressGateScript(input: {
     "  gatekeeper_code=0",
     "  (",
     indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 4),
-    indentShellLines(buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand, { waitForConfigBeforeRun: true }), 4),
+    indentShellLines(
+      buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand, {
+        waitForConfigBeforeRun: true,
+        expectedBranch: input.combo.branch,
+      }),
+      4,
+    ),
     "  ) || gatekeeper_code=$?",
     `  printf '%s\\n' "$gatekeeper_code" > "$status_file"`,
     `) 2>&1 | tee "$gatekeeper_log"`,

@@ -36,8 +36,8 @@ combo-chen makes the process explicit.
 2. It creates an isolated worktree and branch.
 3. A coder agent implements the work item and leaves local commits.
 4. A gatekeeper validates and publishes the branch to GitHub. Before each gate run,
-   the generated script acquires a shared gate lease to serialize work across parallel
-   combos; a busy lease queues the gate with a `queued` status, and the lease releases on exit.
+   the generated script acquires a branch-scoped gate lease so independent
+   branches can publish in parallel while same-branch ownership stays exclusive.
    If the initial gate fails before a PR opens, the director auto-retries it up to
    a configurable limit.
 5. A reviewer comments with a machine-readable verdict block (codes: 0=OK/LGTM,
@@ -335,8 +335,8 @@ consume it automatically.
 - `status` is the parallel capsule dashboard: it shows actionable live combos
   by default. Add `--all` to include
   terminal historical rows, and `--deep` to compare the journal with downstream
-  GitHub and gatekeeper state. Its table includes the active shared gate lease
-  owner when no-mistakes is reserved by a combo. Before rendering, `status`
+  GitHub and gatekeeper state. Its table includes active branch-scoped gate
+  lease owners when no-mistakes is reserved by combos. Before rendering, `status`
   quietly closes closed-PR salvage cases. For merged PRs it records the merge
   fact, leaves resources untouched, and keeps the row visible as `closure_pending` until
   `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
@@ -362,10 +362,11 @@ clean journal evidence and no unrecovered resource conflicts. A capsule is the
 unit of ownership: each capsule keeps one branch, one worktree, one tmux
 session, and one runtime ledger. Do not share branches across capsules.
 
-The shared gate lease serializes no-mistakes publication. Parallel coders and
-reviewers may run at the same time, but only the lease holder publishes through
-no-mistakes; other capsules journal `gate_status queued` or a human-facing lease
-conflict instead of starting a second publisher.
+Branch-scoped gate leases keep no-mistakes publication exclusive only per
+branch. Parallel coders, reviewers, and no-mistakes publishers may run at the
+same time when their capsules own different branches; a same-branch owner
+mismatch journals a human-facing lease conflict instead of starting a second
+publisher for that branch.
 
 Recovery playbook:
 
@@ -376,8 +377,8 @@ Recovery playbook:
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
   rerun reviewer activation or prompt the reviewer without changing the coder
   branch.
-- Gate lease contention: wait for the owner, inspect the lease owner in
-  `status`, or resolve stale/conflicting ownership before retrying the gate.
+- Gate lease contention: for same-branch conflicts, inspect the lease owner in
+  `status`, then resolve stale/conflicting ownership before retrying the gate.
 - Post-merge closure: run `combo-chen closure -n <combo-id>` after GitHub reports
   `MERGED`; status/reviewer may record the merge fact but do not remove local
   resources.
@@ -408,10 +409,10 @@ Important files:
 - `work-plan.md`: normalized work-plan artifact; the canonical source of work-item intent for reviewer, gatekeeper, and forensics.
 - `park-handoff.md`: local summary created by `park`.
 
-Shared cross-combo state lives at `~/.combo-chen/gate-lease.lock/lease.json` —
-the single global gate lease record that serializes no-mistakes gate runs across
-parallel combos. The directory uses a `.lock` suffix because `mkdir` is the
-atomicity primitive: only one combo can create it at a time.
+Shared cross-combo state lives under
+`~/.combo-chen/gate-leases.lock/<encoded-branch>/lease.json`. Each branch gets
+its own atomic lease directory, so different branches can gate concurrently
+while the same branch remains single-owner.
 
 Do not hand-edit `journal.jsonl`. Use `combo-chen emit` only when a real-world
 fact happened and the journal missed it.
@@ -451,7 +452,7 @@ review-comment routing, post-address gates, director prompt delivery for
 code-2 verdicts, park/resume, reconcile, forensics,
 launch-time config snapshots to protect runtime behavior from repo TOML drift,
 a machine-readable runtime ledger for each combo capsule,
-shared gate lease serialization for parallel capsules with stale recovery and heartbeat,
+branch-scoped gate leases for parallel capsules with stale recovery and heartbeat,
 wave-based parallel scaling (start 2, then 3, then 4-6 with postmortem justification),
 and current-head READY agreement. Work items can be GitHub issues (`--issue`) or
 local markdown work plans (`--plan`).

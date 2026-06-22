@@ -235,7 +235,7 @@ describe("buildRunnerScript", () => {
     expect(activateReviewer).toBeGreaterThan(activateCoder);
   });
 
-  it("can guard the gatekeeper run with a shared gate lease", () => {
+  it("can guard the gatekeeper run with a branch-scoped gate lease", () => {
     const leased = buildRunnerScript({
       combo,
       coderCommand: "true",
@@ -1079,6 +1079,7 @@ exit 0
     const bin = join(dir, "bin");
     const dataDir = join(dir, "no-mistakes-data");
     const runId = "01TESTCONFIGCOPY";
+    const otherRunId = "01WRONGBRANCH";
     const gatePath = join(dataDir, "repos", "dd1c02626404.git");
     const daemonWorktree = join(dataDir, "worktrees", "dd1c02626404", runId);
     mkdirSync(worktree, { recursive: true });
@@ -1129,8 +1130,16 @@ exit 1
       fakeNoMistakes,
       `#!/bin/sh
 printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
+if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  printf 'run:\\n'
+  printf '  id: %s\\n' "$NO_MISTAKES_RUN_ID"
+  printf '  branch: combo/issue-7\\n'
+  printf '  status: running\\n'
+  exit 0
+fi
 if [ "$1" = "axi" ]; then
   test -f "$NO_MISTAKES_RUN_DIR/.no-mistakes.yaml"
+  test ! -f "$NO_MISTAKES_OTHER_RUN_DIR/.no-mistakes.yaml"
   exit 0
 fi
 if [ "$1" = "status" ]; then
@@ -1138,7 +1147,8 @@ if [ "$1" = "status" ]; then
     printf '    repo:  /repo\\n'
     printf '    gate:  %s\\n' "$NO_MISTAKES_GATE"
     printf '\\n  Active run\\n'
-    printf '       id:  %s\\n' "$NO_MISTAKES_RUN_ID"
+    printf '       id:  %s\\n' "$NO_MISTAKES_OTHER_RUN_ID"
+    printf '   branch:  combo/other\\n'
   fi
 fi
 `,
@@ -1172,7 +1182,9 @@ fi
         GATEKEEPER_LOG: gatekeeperLog,
         NO_MISTAKES_GATE: gatePath,
         NO_MISTAKES_RUN_ID: runId,
+        NO_MISTAKES_OTHER_RUN_ID: otherRunId,
         NO_MISTAKES_RUN_DIR: daemonWorktree,
+        NO_MISTAKES_OTHER_RUN_DIR: join(dataDir, "worktrees", "dd1c02626404", otherRunId),
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       },

@@ -163,9 +163,9 @@ export interface RunnerInput {
   activateReviewer: string;
   /** Full invocation prefix for ensuring the PR body visibly autocloses the source issue. */
   ensurePrAutoclose?: string;
-  /** Full invocation prefix for acquiring the shared no-mistakes gate lease. */
+  /** Full invocation prefix for acquiring the branch-scoped no-mistakes gate lease. */
   gateLeaseAcquire?: string;
-  /** Full invocation prefix for releasing the shared no-mistakes gate lease. */
+  /** Full invocation prefix for releasing the branch-scoped no-mistakes gate lease. */
   gateLeaseRelease?: string;
 }
 
@@ -174,16 +174,27 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-function noMistakesDaemonConfigCopyScript(): string[] {
+function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
   return [
+    `no_mistakes_expected_branch=${expectedBranch === undefined ? "\"\"" : shellQuote(expectedBranch)}`,
+    "if [ -z \"$no_mistakes_expected_branch\" ]; then",
+    "  no_mistakes_expected_branch=$(git branch --show-current 2>/dev/null || true)",
+    "fi",
     "no_mistakes_config_copied=0",
     "no_mistakes_config_attempt=0",
     "no_mistakes_config_attempt_limit=${COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS:-120}",
     "while [ \"$no_mistakes_config_attempt\" -lt \"$no_mistakes_config_attempt_limit\" ]; do",
-    "  no_mistakes_status=$(no-mistakes status 2>/dev/null || true)",
-    "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
-    "  no_mistakes_gate_path=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*gate:[[:space:]]*//p' | sed -n '1p')",
-    "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$no_mistakes_gate_path\" ]; then",
+    "  no_mistakes_repo_status=$(no-mistakes status 2>/dev/null || true)",
+    "  no_mistakes_axi_status=$(no-mistakes axi status 2>/dev/null || true)",
+    "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+    "  no_mistakes_run_branch=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*branch:[[:space:]]*//p' | sed -n '1p')",
+    "  no_mistakes_run_status=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*status:[[:space:]]*//p' | sed -n '1p')",
+    "  no_mistakes_gate_path=$(printf '%s\\n' \"$no_mistakes_repo_status\" | sed -n 's/^[[:space:]]*gate:[[:space:]]*//p' | sed -n '1p')",
+    "  case \"$no_mistakes_run_status\" in",
+    "    active|in_progress|pending|running) no_mistakes_run_is_active=1 ;;",
+    "    *) no_mistakes_run_is_active=0 ;;",
+    "  esac",
+    "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$no_mistakes_gate_path\" ] && [ \"$no_mistakes_run_branch\" = \"$no_mistakes_expected_branch\" ] && [ \"$no_mistakes_run_is_active\" = \"1\" ]; then",
     "    no_mistakes_data_dir=$(dirname \"$(dirname \"$no_mistakes_gate_path\")\")",
     "    no_mistakes_repo_id=$(basename \"$no_mistakes_gate_path\" .git)",
     "    no_mistakes_run_dir=\"$no_mistakes_data_dir/worktrees/$no_mistakes_repo_id/$no_mistakes_run_id\"",
@@ -206,13 +217,13 @@ function noMistakesDaemonConfigCopyScript(): string[] {
 
 export function buildNoMistakesGatekeeperRunScript(
   gatekeeperCommand: string,
-  options: { waitForConfigBeforeRun?: boolean } = {},
+  options: { waitForConfigBeforeRun?: boolean; expectedBranch?: string } = {},
 ): string[] {
   return [
     "no_mistakes_config_copy_pid=",
     "if [ -f .no-mistakes.yaml ]; then",
     "  (",
-    ...noMistakesDaemonConfigCopyScript().map((line) => `    ${line}`),
+    ...noMistakesDaemonConfigCopyScript(options.expectedBranch).map((line) => `    ${line}`),
     "  ) &",
     "  no_mistakes_config_copy_pid=$!",
     "fi",
@@ -395,7 +406,7 @@ ${buildGateLeaseScript({ gateLeaseAcquire, gateLeaseRelease })}${emit} gate_stat
 gatekeeper_code=0
 (
 ${gatekeeperMirrorIntent === undefined ? ":" : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n")}
-${buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, { waitForConfigBeforeRun: gatekeeperMirrorIntent !== undefined }).map((line) => `  ${line}`).join("\n")}
+${buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, { waitForConfigBeforeRun: gatekeeperMirrorIntent !== undefined, expectedBranch: combo.branch }).map((line) => `  ${line}`).join("\n")}
 ) < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
 if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then

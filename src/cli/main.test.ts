@@ -21,7 +21,7 @@
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ director-prompt       Manual director prompt endpoint           │
  *   │ emit                  Event append to journal                  │
- *   │ gate-lease            Hidden shared no-mistakes lease command  │
+ *   │ gate-lease            Hidden branch-scoped no-mistakes lease   │
  *   │ reconcile             Frozen journal repair command            │
  *   │ resume                Recovery routing without fresh run setup  │
  *   │ status                Table format + liveness/deep output      │
@@ -2468,7 +2468,7 @@ if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
   if [ "$count" -lt 2 ]; then
     printf 'No active run.\\n'
   else
-    printf 'run:\\n  status: running\\n'
+    printf 'run:\\n  id: 01ATTACH\\n  status: running\\n'
   fi
   exit 0
 fi
@@ -2505,7 +2505,7 @@ exit 0
       "axi status",
       "sleep 10",
       "axi status",
-      "attach",
+      "attach --run 01ATTACH",
     ]);
   });
 
@@ -3393,7 +3393,7 @@ describe("status", () => {
     expect(text).toContain(prUrl);
   });
 
-  it("prints active shared gate lease ownership", async () => {
+  it("prints active branch-scoped gate lease ownership", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
     const worktree = "/repos/r/.worktrees/issue-7";
@@ -3427,7 +3427,7 @@ describe("status", () => {
     expect(text).toContain("o-r-7@combo/issue-7");
   });
 
-  it("prints active shared gate lease ownership when no combos are actionable", async () => {
+  it("prints all active branch-scoped gate leases when no combos are actionable", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
     const worktree = "/repos/r/.worktrees/issue-7";
@@ -3451,12 +3451,22 @@ describe("status", () => {
         headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
     });
+    acquireGateLease({
+      home: h,
+      owner: {
+        comboId: "o-r-8",
+        branch: "combo/issue-8",
+        worktree: "/repos/r/.worktrees/issue-8",
+        runDir: runDirFor(h, "o-r-8"),
+        headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+    });
 
     const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
     await exec(deps, ["status"]);
 
     const text = out.join("\n");
-    expect(text).toContain("active gate lease: o-r-7@combo/issue-7");
+    expect(text).toContain("active gate leases: o-r-7@combo/issue-7, o-r-8@combo/issue-8");
     expect(text).toContain("no actionable combos. show history: combo-chen status --all");
   });
 

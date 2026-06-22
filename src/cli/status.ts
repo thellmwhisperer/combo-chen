@@ -5,13 +5,13 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at deepComboStatus            <- CLI-facing downstream probe orchestration.
- *   2. formatGateLeaseStatus               <- shared gate owner table cell.
+ *   2. formatGateLeaseStatus               <- branch-scoped gate owner table cell.
  *   3. parseNoMistakesAxiStatus            <- tolerant TOON-ish parser.
  *   4. deepGithubPrStatus                  <- PR/check/reviewer summary.
  *
  *   MAIN FLOW
  *   ---------
- *   status -> gate lease cell; status --deep -> deepComboStatus -> downstream phrase
+ *   status -> gate lease cells; status --deep -> deepComboStatus -> downstream phrase
  *
  *   PUBLIC API
  *   ----------
@@ -20,7 +20,7 @@
  *   AWAITING_REVIEW_GATE        Downstream phrase prefix for no-mistakes gates.
  *   CommandResult                 Process result shape for injected command runners.
  *   NoMistakesAxiStatus           Parsed subset of no-mistakes status output.
- *   formatGateLeaseStatus         Compact shared gate lease owner display.
+ *   formatGateLeaseStatus         Compact branch-scoped gate lease owner display.
  *   parseNoMistakesAxiStatus      Extract branch, run state, active step, gate IDs, respond command.
  *   deepNoMistakesStatus          Run no-mistakes and return a concise downstream status string.
  *   deepComboStatus               Prefer live no-mistakes state, otherwise summarize GitHub PR readiness.
@@ -86,9 +86,11 @@ function firstLine(value: string): string {
   return value.trim().split(/\r?\n/)[0]?.trim() ?? "";
 }
 
-export function formatGateLeaseStatus(lease: GateLeaseRecord | undefined): string {
+export function formatGateLeaseStatus(lease: GateLeaseRecord | readonly GateLeaseRecord[] | undefined): string {
   if (lease === undefined) return "—";
-  return `${lease.comboId}@${lease.branch}`;
+  const leases = Array.isArray(lease) ? lease : [lease];
+  if (leases.length === 0) return "—";
+  return leases.map((record) => `${record.comboId}@${record.branch}`).join(", ");
 }
 // -/ 1/4
 

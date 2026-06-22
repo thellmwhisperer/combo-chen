@@ -151,11 +151,11 @@ and exits so the human/operator can restart or inspect the combo. On a
 successful tick the failure counter and backoff reset.
 
 `gate_started` marks the beginning of the gatekeeper lifecycle.  The
-`gate_status` event records the gatekeeper's ongoing lifecycle: `queued`
-(another combo owns the shared no-mistakes gate lease), `fix_inflight`
-(the shared lease was acquired and no-mistakes is running), `awaiting_approval`
+`gate_status` event records the gatekeeper's ongoing lifecycle: `fix_inflight`
+(the branch-scoped lease was acquired and no-mistakes is running), `awaiting_approval`
 (gate requires human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper
-completed successfully, awaiting PR detection).  On successful completion the gate emits
+completed successfully, awaiting PR detection). Older journals may also contain
+`queued` from the former repo-global lease path. On successful completion the gate emits
 `gate_validated` (required field `sha`) alongside the `idle` gate status,
 recording the PR `headRefOid` when a PR exists, otherwise the local worktree
 HEAD. Post-address gates run the PR autoclose
@@ -166,11 +166,12 @@ contract: when the director cannot launch the retry script, it journals
 `gate_started` (`source=director_retry`) immediately before `gate_failed`
 (`reason=retry_start_failed`).
 
-The hidden `gate-lease acquire` command returns exit code 75 when another
-combo currently owns the lease (the gate script journals `gate_status queued`
-and exits 0) and exit code 76 when the same branch is owned by a different
-combo (the script journals `needs_human reason=gate_lease_conflict` with the
-active owner's branch, worktree, and run directory).
+The hidden `gate-lease acquire` command scopes leases by branch. Different
+branches acquire independently. When the same branch is owned by a different
+combo, it returns exit code 76 and journals
+`needs_human reason=gate_lease_conflict` with the active owner's branch,
+worktree, and run directory. Exit code 75 is reserved for legacy repo-global
+contention and is treated as a queued no-op by generated scripts.
 
 When the worktree HEAD moves past the last validated or published SHA, the
 director journals `gate_stale` (fields `old_sha`, `new_sha`) to mark the old
@@ -381,11 +382,11 @@ ignored config or environment outside that file.
   the combo run directory. The tmux command stays short (`sh <script>`), while
   the script owns gate status events, log capture, PR autoclose repair, and
   current-head validation. Before running no-mistakes, the script acquires the
-  shared gate lease through the hidden `gate-lease` command, reports `queued`
-  with the active owner when busy, and releases an acquired lease via an EXIT
-  trap. The lease is persisted in `~/.combo-chen/gate-lease.lock/lease.json`;
-  the directory uses a `.lock` suffix because `mkdir` is the atomicity
-  primitive — only one writer can create it at a time. Each lease carries a
+  branch-scoped gate lease through the hidden `gate-lease` command and releases
+  an acquired lease via an EXIT trap. Leases are persisted under
+  `~/.combo-chen/gate-leases.lock/<encoded-branch>/lease.json`; each branch
+  directory uses `mkdir` as the atomicity primitive, so one writer can own a
+  branch while sibling branches gate concurrently. Each lease carries a
   `heartbeatAt` timestamp refreshed by the owning combo; a lease whose
   heartbeat is older than 30 minutes (`DEFAULT_GATE_LEASE_STALE_MS`) is
   considered stale. A new acquirer recovers a stale lease atomically by
@@ -411,8 +412,8 @@ ignored config or environment outside that file.
   `worker_stalled`.
 - Attention surface: tmux window titles + the default parallel capsule
   dashboard (`combo-chen status`) always answer "which combos need a human RIGHT
-  NOW" (phase + needs_human flag) and show the active shared gate lease owner in
-  a `GATE-LEASE` column when present.
+  NOW" (phase + needs_human flag) and show the active branch-scoped gate lease
+  owner in a `GATE-LEASE` column when present.
   Before rendering, status quietly reconciles closed PRs into the human-salvage
   terminal state. For merged PRs it records the GitHub merge fact, then leaves
   resources untouched and keeps the row visible as `closure_pending` until
@@ -550,12 +551,12 @@ many capsules, but role boundaries do not collapse: coders leave local commits,
 the gatekeeper publishes, reviewers comment, and humans own merges and
 intent-changing decisions.
 
-The shared resource rule is publication-first: the shared gate lease serializes
-no-mistakes publication. Parallel coder and reviewer work can continue while
-another capsule owns the lease. A busy lease journals `gate_status queued`; a
-same-branch owner mismatch journals `needs_human reason=gate_lease_conflict`.
-No capsule starts a second no-mistakes publisher while another capsule owns the
-lease.
+The shared resource rule is publication-first: branch-scoped gate leases keep
+no-mistakes publication single-owner per branch. Parallel coder, reviewer, and
+no-mistakes publisher work can continue while sibling capsules own different
+branches. A same-branch owner mismatch journals
+`needs_human reason=gate_lease_conflict`. No capsule starts a second
+no-mistakes publisher for a branch already owned by another capsule.
 
 Recovery playbook:
 
@@ -567,9 +568,9 @@ Recovery playbook:
 - Reviewer auth failures are configuration/auth problems. Restore the configured
   reviewer GitHub login and rerun reviewer activation or prompt the reviewer;
   do not mark the review current by hand.
-- Gate lease contention is resolved by waiting for the owner, inspecting the
-  `status` gate-lease column, or clearing stale/conflicting ownership through
-  the existing lease recovery path before retrying the gate.
+- Gate lease contention is same-branch contention. Resolve it by inspecting the
+  `status` gate-lease column or clearing stale/conflicting ownership through the
+  existing lease recovery path before retrying the gate.
 - Post-merge closure belongs to `combo-chen closure -n <combo-id>`. Watchers and
   status may record the merge fact, but local resource removal waits for the
   closure command.
