@@ -278,7 +278,7 @@ function syncDirectorPrLabels(input: {
     coderRespondingWindowName: string;
     readyRequiredChecks: string[];
     externalCommentAgents: string[];
-    prLabelGreenCheckNames: string[];
+    codeRabbitCheckNames: string[];
   };
 }): void {
   try {
@@ -290,7 +290,7 @@ function syncDirectorPrLabels(input: {
       activity: livePrLabelActivity(input.deps, input.combo, input.config.coderRespondingWindowName),
       requiredCheckNames: input.config.readyRequiredChecks,
       ambientCheckNames: input.config.externalCommentAgents,
-      greenCheckNames: input.config.prLabelGreenCheckNames,
+      codeRabbitCheckNames: input.config.codeRabbitCheckNames,
       source: "director-watch",
     });
   } catch (error) {
