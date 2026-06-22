@@ -132,6 +132,23 @@ describe("combo PR label projection", () => {
     ).toEqual(["combo:lgtm", "combo:coderabbit-green", "combo:ready"]);
   });
 
+  it("uses configured ambient check names for the CodeRabbit-equivalent label before the fallback", () => {
+    expect(
+      labels({
+        events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+        pr: {
+          state: "OPEN",
+          headSha: HEAD,
+          statusCheckRollup: [
+            checkRun("CodeRabbit", "FAILURE"),
+            checkRun("ReviewDog", "SUCCESS"),
+          ],
+        },
+        ambientCheckNames: ["ReviewDog"],
+      }),
+    ).toEqual(["combo:lgtm", "combo:coderabbit-green"]);
+  });
+
   it("plans removal of stale current-head signal labels after a PR head changes", () => {
     const projection = projectComboPrLabels({
       events: [
@@ -206,17 +223,26 @@ describe("combo PR label projection", () => {
 
   it("applies an idempotent fake-GitHub label diff and journals mutation metadata", () => {
     const calls: string[][] = [];
+    let liveLabels: Array<{ name: string }> = [{ name: "combo:ready" }, { name: "documentation" }];
     const gh = (args: string[]): GhResult => {
       calls.push(args);
       if (args[0] === "pr" && args[1] === "view") {
         return ghOk({
           headRefOid: HEAD,
           state: "OPEN",
-          labels: [{ name: "combo:ready" }, { name: "documentation" }],
+          labels: liveLabels,
           statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
         });
       }
-      if (args[0] === "pr" && args[1] === "edit") return ghOk();
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--remove-label") {
+        const removed = new Set(String(args[4]).split(","));
+        liveLabels = liveLabels.filter((label) => !removed.has(label.name));
+        return ghOk();
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--add-label") {
+        liveLabels = liveLabels.concat(String(args[4]).split(",").map((name) => ({ name })));
+        return ghOk();
+      }
       return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
     };
     const dir = runDir();
@@ -238,6 +264,74 @@ describe("combo PR label projection", () => {
     expect(calls).toEqual([
       ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
       ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:coderabbit-green"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+    ]);
+    expect(readEvents(dir)).toHaveLength(2);
+    expect(readEvents(dir)[0]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["combo:ready", "documentation"],
+      new_labels: ["documentation"],
+      added_labels: [],
+      removed_labels: ["combo:ready"],
+      reason: "current",
+      source: "test",
+    });
+    expect(readEvents(dir)[1]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["documentation"],
+      new_labels: ["documentation", "combo:lgtm", "combo:coderabbit-green"],
+      added_labels: ["combo:lgtm", "combo:coderabbit-green"],
+      removed_labels: [],
+      reason: "current",
+      source: "test",
+    });
+  });
+
+  it("journals a successful removal with refreshed labels before a later add failure", () => {
+    const calls: string[][] = [];
+    let liveLabels: Array<{ name: string }> = [{ name: "combo:ready" }, { name: "documentation" }];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: liveLabels,
+          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+        });
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--remove-label") {
+        liveLabels = [{ name: "documentation" }];
+        return ghOk();
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--add-label") {
+        return { status: 1, stdout: "", stderr: "add failed" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    expect(() =>
+      syncComboPrLabels({
+        gh,
+        runDir: dir,
+        prUrl: PR_URL,
+        events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+        codeRabbitCheckNames: ["CodeRabbit"],
+        source: "test",
+      }),
+    ).toThrow("add failed");
+
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
       ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:coderabbit-green"],
     ]);
     expect(readEvents(dir)).toHaveLength(1);
@@ -246,8 +340,8 @@ describe("combo PR label projection", () => {
       pr_url: PR_URL,
       head_sha: HEAD,
       old_labels: ["combo:ready", "documentation"],
-      new_labels: ["combo:lgtm", "combo:coderabbit-green"],
-      added_labels: ["combo:lgtm", "combo:coderabbit-green"],
+      new_labels: ["documentation"],
+      added_labels: [],
       removed_labels: ["combo:ready"],
       reason: "current",
       source: "test",
