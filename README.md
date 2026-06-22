@@ -47,7 +47,11 @@ combo-chen makes the process explicit.
 7. New addressing commits go back through the gatekeeper before publication.
 8. The run becomes ready only when the current PR head has gate validation,
    reviewer LGTM, configured required READY checks, and passing remaining checks.
-9. After the human merges the PR, `combo-chen closure -n <combo-id>` converges
+9. While the PR is open, GitHub labels reflect the live combo state
+   (`combo:working-coder`, `combo:working-reviewer`, `combo:working-gate`,
+   `combo:lgtm`, `combo:coderabbit-green`, `combo:ready`, `combo:stale`,
+   `combo:conflict`), leaving a visible path through the workflow timeline.
+10. After the human merges the PR, `combo-chen closure -n <combo-id>` converges
    local resources deterministically.
 
 The human still owns the merge.
@@ -74,6 +78,8 @@ combo-chen run (--issue <url> | --plan <file>)
     |
     +--> post-address gate republishes
     |
+    +--> live combo PR labels kept in sync on GitHub
+    |
     v
 ready_for_merge
     |
@@ -89,6 +95,10 @@ human merge -> combo-chen closure -n <combo-id>
   are separate roles. The reviewer cannot be the coder.
 - **Publish boundary.** Coders leave local commits. The gatekeeper is the normal
   publisher.
+- **Visible PR state.** GitHub labels track the live combo workflow
+  (`combo:working-coder` → `combo:working-gate` → `combo:working-reviewer`
+  → `combo:lgtm` → `combo:ready`), so an operator can read the timeline
+  without inspecting tmux scrollback or journal files.
 - **Recoverability.** `status --deep`, `resume`, `park`, `reconcile`, and
   `forensics` exist because long autonomous runs fail in boring ways.
 - **Configurable agents.** The default shape uses Codex/gnhf, no-mistakes, and a
@@ -399,7 +409,9 @@ Important files:
 
 - `overture.json`: launch runway check results before worktree/tmux/branch creation.
 - `combo.json`: repo, worktree, branch, tmux identity, and work-item source metadata.
-- `journal.jsonl`: the source of truth.
+- `journal.jsonl`: the source of truth. Includes `pr_labels_updated` events
+  that record every PR label mutation with metadata (PR URL, head SHA, old/new
+  labels, reason) for auditability.
 - `runtime-ledger.json`: machine-readable combo capsule resource ledger; written at launch, updated when PR/reviewer/director resources appear.
 - `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
 - `runner.sh`: generated initial runner.
@@ -454,7 +466,9 @@ launch-time config snapshots to protect runtime behavior from repo TOML drift,
 a machine-readable runtime ledger for each combo capsule,
 branch-scoped gate leases for parallel capsules with stale recovery and heartbeat,
 wave-based parallel scaling (start 2, then 3, then 4-6 with postmortem justification),
-and current-head READY agreement. Work items can be GitHub issues (`--issue`) or
+current-head READY agreement, and live GitHub PR label projection
+(combo:working-*, combo:lgtm, combo:coderabbit-green, combo:ready, combo:stale,
+combo:conflict) with mutation journaling. Work items can be GitHub issues (`--issue`) or
 local markdown work plans (`--plan`).
 
 Deferred: preflight scoring, counterfactual automerge logs, worktree pools, and ACP

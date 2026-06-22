@@ -66,7 +66,7 @@ OVERTURE    deterministic launch runway: checks work-item readability, repo/issu
   └─▶ SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
-              └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, and coder responding mode workers; code-2 verdicts prompt the director via `director_prompted`
+              └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, coder responding mode workers, and live PR label sync; code-2 verdicts prompt the director via `director_prompted`
                     └─▶ READY      gate_current ∧ reviewer_current ∧ required_checks_current_success ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
@@ -190,8 +190,9 @@ empty-addressing paths and transitions the combo out of READY the same way.
 After the PR exists, `director-watch` is the single observer. It repeatedly
 runs `director-tick` to poll reviewer hard signals (including machine-readable
 verdict codes from review comments), route new review comments to the resumed
-coder, detect committed local HEAD changes, and run a post-address no-mistakes
-gate before anything is published again. Verdict code 1 routes to coder
+coder, detect committed local HEAD changes, run a post-address no-mistakes
+gate before anything is published again, and sync live combo PR labels on
+GitHub (see §8d). Verdict code 1 routes to coder
 responding mode through the existing review-comment path; verdict code 2
 prompts the director via `director_prompted`; verdict code 3 journals
 `needs_human`. When the reviewer tick observes a GitHub `MERGED` PR, it
@@ -595,6 +596,53 @@ whether the wave-derived limit changed.
   AGENTS.md is the testing brain.
 - Anti-scope: combos are for issue-sized work. Typo-sized changes belong in
   direct sessions, not pipelines.
+
+## 8d. PR label projection
+
+While the PR is open, the director-watch loop and `status --deep` keep
+GitHub PR labels in sync with the live combo state. Labels are a UI/status
+projection only; the journal and GitHub checks remain the source of truth.
+
+### Label catalogue
+
+| Label | Condition |
+| --- | --- |
+| `combo:working-coder` | Coder responding mode is active, or a current-head review comment is pending address. |
+| `combo:working-reviewer` | Reviewer window is active and no higher-priority work is underway. |
+| `combo:working-gate` | Gatekeeper window is active or a `gate_started` journal entry is the latest gate event. |
+| `combo:lgtm` | A current-head SHA-pinned LGTM exists from a configured reviewer login. |
+| `combo:coderabbit-green` | CodeRabbit (or configured equivalent) check is SUCCESS for the current head. |
+| `combo:ready` | All current-head READY signals agree: gate, reviewer LGTM, required checks, and remaining CI. |
+| `combo:stale` | One or more current-head signals (LGTM, gate, READY) are pinned to an older SHA. Removed when signals realign. |
+| `combo:conflict` | GitHub reports the PR merge state as DIRTY or CONFLICTING. |
+| `combo:needs-human` | Reserved for future use; not actively applied in v0. |
+
+### Projection rules
+
+- Labels are applied only while the PR is open (GitHub state `OPEN`).
+- A single work-in-progress label is chosen with this precedence:
+  `combo:working-gate` > `combo:working-coder` > `combo:working-reviewer`.
+- Signal labels (`combo:lgtm`, `combo:coderabbit-green`, `combo:ready`) are
+  removed when the PR head changes and revalidated against the new head.
+- When GitHub reports a dirty/conflicting merge state, all signal labels are
+  removed and `combo:conflict` is applied instead.
+- Labels are derived from journal events plus live `gh pr view` facts; they
+  do not drive the state machine.
+- Label updates are idempotent: a no-op when live labels already match the
+  desired projection.
+
+### Mutation journaling
+
+Every label change journals a `pr_labels_updated` event with:
+- `pr_url`: the PR URL.
+- `head_sha`: the PR head SHA at projection time.
+- `old_labels` / `new_labels`: the label set before and after mutation.
+- `added_labels` / `removed_labels`: the diff.
+- `reason`: one of `pr_not_open`, `conflict`, `stale`, or `current`.
+- `source` (optional): `director-watch` or `status-deep`.
+
+Label mutation failures (network errors, missing `gh`) are best-effort and
+do not block the director tick or status dashboard.
 
 ## 9. Work plans
 
