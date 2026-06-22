@@ -4567,6 +4567,10 @@ describe("director-watch command", () => {
 
     expect(calls).toContainEqual(["sleep", "42000"]);
     expect(calls).not.toContainEqual(["sleep", "3000"]);
+    const statusLines = out.filter((line) => line.startsWith("director: watch "));
+    expect(statusLines).toHaveLength(2);
+    expect(statusLines.every((line) => line.includes("combo=o-r-7"))).toBe(true);
+    expect(statusLines.every((line) => line.includes("gh=not-polled next=42s"))).toBe(true);
     expect(out.filter((line) => line === "director: tick complete for o-r-7")).toHaveLength(2);
   });
 
