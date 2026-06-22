@@ -3808,7 +3808,10 @@ describe("status", () => {
 
     let liveLabels: Array<{ name: string }> = [];
     const { deps, calls } = fakeDeps({
-      env: { COMBO_CHEN_HOME: h },
+      env: {
+        COMBO_CHEN_HOME: h,
+        COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES: "Rabbit Pro",
+      },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
         if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
@@ -3836,7 +3839,13 @@ describe("status", () => {
               state: "OPEN",
               ...(fields.includes("labels") ? { labels: liveLabels } : {}),
               ...(fields.includes("statusCheckRollup")
-                ? { statusCheckRollup: [{ name: "test", conclusion: "SUCCESS" }] }
+                ? {
+                    statusCheckRollup: [
+                      { name: "test", conclusion: "SUCCESS" },
+                      { name: "CodeRabbit", conclusion: "FAILURE" },
+                      { name: "Rabbit Pro", conclusion: "SUCCESS" },
+                    ],
+                  }
                 : {}),
             }),
             stderr: "",
@@ -3854,15 +3863,22 @@ describe("status", () => {
 
     await exec(deps, ["status", "--deep"]);
 
-    expect(calls).toContainEqual(["gh", "pr", "edit", prUrl, "--add-label", "combo:working-gate"]);
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "edit",
+      prUrl,
+      "--add-label",
+      "combo:working-gate,combo:coderabbit-green",
+    ]);
     expect(readEvents(dir)).toContainEqual(
       expect.objectContaining({
         event: "pr_labels_updated",
         pr_url: prUrl,
         head_sha: headSha,
         old_labels: [],
-        new_labels: ["combo:working-gate"],
-        added_labels: ["combo:working-gate"],
+        new_labels: ["combo:working-gate", "combo:coderabbit-green"],
+        added_labels: ["combo:working-gate", "combo:coderabbit-green"],
         removed_labels: [],
         reason: "current",
         source: "status-deep",

@@ -331,8 +331,6 @@ function namedCheckSucceeded(rollup: unknown[] | undefined, names: string[]): bo
 function configuredCodeRabbitCheckNames(input: ComboPrLabelProjectionInput): string[] {
   const explicit = nonEmptyStrings(input.codeRabbitCheckNames);
   if (explicit.length > 0) return explicit;
-  const configuredAmbient = nonEmptyStrings(input.ambientCheckNames);
-  if (configuredAmbient.length > 0) return configuredAmbient;
   return DEFAULT_CODERABBIT_CHECK_NAMES;
 }
 
