@@ -1,35 +1,39 @@
 /**
- * @overview Coder-response CLI helpers. ~140 lines, 4 exports, two command bodies.
+ * @overview Coder-response CLI helpers. ~185 lines, 7 exports, review and conflict routing.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at activateCoder         <- starts resumed coder worker.
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
- *   3. Dependency interfaces          <- test seams for tmux/git/gh.
+ *   3. Then nudgePrConflict           <- routes base-advanced PR conflicts.
+ *   4. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
- *   activateCoder -> tmux worker; nudgeReviewComments -> latest PR -> mirror sync -> route comments
+ *   activateCoder -> tmux worker; nudgeReviewComments/nudgePrConflict -> coder responding prompt
  *
  *   PUBLIC API
  *   ----------
  *   ActivateCoderDeps          Dependencies for activateCoder.
  *   NudgeReviewCommentsDeps    Dependencies for nudgeReviewComments.
+ *   PrConflictNudge            PR conflict recovery prompt facts.
  *   activateCoder              Start coder responding mode.
  *   nudgeReviewComments        Route fresh review comments to the coder.
+ *   buildPrConflictNudgePrompt Render deterministic conflict-recovery prompt.
+ *   nudgePrConflict            Route a dirty/conflicting PR to coder responding.
  *
  *   INTERNALS
  *   ---------
- *   none
+ *   worktreeHeadSha
  *
- * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, activateCoder, nudgeReviewComments
+ * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate
  */
 import { readEvents } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildCoderRespondingResumeCommand,
   fetchReviewCommentSignals,
@@ -52,6 +56,14 @@ export interface NudgeReviewCommentsDeps {
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+}
+
+export interface PrConflictNudge {
+  prUrl: string;
+  headSha: string;
+  mergeState: string;
+  mergeable?: string;
+  baseRef?: string;
 }
 // -/ 1/3
 
@@ -138,5 +150,42 @@ export function nudgeReviewComments(input: {
       `review comment fetch failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+}
+
+export function buildPrConflictNudgePrompt(conflict: PrConflictNudge): string {
+  return [
+    "PR conflict recovery for coder responding mode:",
+    conflict.prUrl,
+    "",
+    `head: ${conflict.headSha}`,
+    `merge_state: ${conflict.mergeState}`,
+    ...(conflict.mergeable !== undefined ? [`mergeable: ${conflict.mergeable}`] : []),
+    ...(conflict.baseRef !== undefined ? [`base: ${conflict.baseRef}`] : []),
+    "",
+    "GitHub reports this READY PR is dirty or conflicting after the base advanced.",
+    "Rebase the combo worktree onto the current base, resolve mechanical conflicts with TDD, commit local changes, and stop.",
+    "If the conflict needs a product or intent decision, emit needs_human before changing code.",
+    "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
+  ].join("\n");
+}
+
+export function nudgePrConflict(input: {
+  deps: ActivateCoderDeps;
+  home: string;
+  comboId: string;
+  conflict: PrConflictNudge;
+}): void {
+  const { deps, home, comboId, conflict } = input;
+  const runDir = runDirFor(home, comboId);
+  const combo = readCombo(runDir);
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+  const prompt = buildPrConflictNudgePrompt(conflict);
+  for (const args of nudgeWindowArgs(combo.tmuxSession, config.coderRespondingWindowName, prompt)) {
+    const result = deps.tmux(args);
+    if (result.status !== 0) {
+      throw new Error(`tmux pr_conflict nudge failed: ${result.stderr.trim() || "unknown error"}`);
+    }
+  }
+  deps.out(`nudged pr_conflict ${conflict.prUrl}`);
 }
 // -/ 3/3
