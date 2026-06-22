@@ -55,6 +55,7 @@ export const EVENT_TYPES = {
   gate_status: { required: ["state"] },
   gate_validated: { required: ["sha"] },
   gate_stale: { required: ["old_sha", "new_sha"] },
+  pr_conflict: { required: ["sha", "pr_url", "merge_state", "action"] },
   rebase_failed: { required: ["base"] },
   rebase_conflict: { required: ["base"] },
   pr_opened: { required: ["url"] },

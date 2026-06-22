@@ -278,6 +278,12 @@ ignored config or environment outside that file.
   rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
+- If GitHub later reports an open READY PR as dirty or conflicting against the
+  current base (`mergeStateStatus=DIRTY` or `mergeable=CONFLICTING`), the
+  director journals `pr_conflict` (required fields `sha`, `pr_url`,
+  `merge_state`, `action`) with `action=rebase_required`, which invalidates
+  READY back to REVIEWING. `status --deep` surfaces the same state as
+  `PR conflict: rebase required`.
 - External agent comments are routed as review input for the coder. Configure
   their comment/noise filters with `[external_comments].agents`; clean or
   rate-limited external comments do not approve the PR and do not affect READY

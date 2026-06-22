@@ -64,6 +64,7 @@ describe("event schema", () => {
         "gate_status",
         "gate_validated",
         "gate_stale",
+        "pr_conflict",
         "pr_opened",
         "pr_labels_updated",
         "pr_autoclose_failed",
@@ -105,6 +106,12 @@ describe("event schema", () => {
       "added_labels",
       "removed_labels",
       "reason",
+    ]);
+    expect(EVENT_TYPES.pr_conflict.required).toEqual([
+      "sha",
+      "pr_url",
+      "merge_state",
+      "action",
     ]);
     expect(EVENT_TYPES.pr_autoclose_failed.required).toEqual(["exit_code", "url"]);
     expect(EVENT_TYPES.director_prompted.required).toEqual(["reason", "target"]);
@@ -252,6 +259,12 @@ describe("journal", () => {
       removed_labels: ["combo:lgtm"],
       reason: "current",
     });
+    appendEvent(dir, "pr_conflict", {
+      sha: "def456",
+      pr_url: "https://github.com/o/r/pull/7",
+      merge_state: "DIRTY",
+      action: "rebase_required",
+    });
     appendEvent(dir, "lgtm", { sha: "abc123" });
     appendEvent(dir, "lgtm_stale", { old_sha: "abc123", new_sha: "def456" });
     appendEvent(dir, "ready_for_merge", {
@@ -269,6 +282,7 @@ describe("journal", () => {
       "gate_validated",
       "gate_stale",
       "pr_labels_updated",
+      "pr_conflict",
       "lgtm",
       "lgtm_stale",
       "ready_for_merge",

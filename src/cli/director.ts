@@ -48,7 +48,7 @@ import {
   GATEKEEPER_WINDOW,
   startInitialGateRetry,
 } from "./gate.js";
-import { parsePrView } from "./github.js";
+import { blockingReadyMergeState, parsePrView } from "./github.js";
 import { syncComboPrLabels } from "./pr-labels.js";
 import { closurePendingReviewerEvent, livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
 import { CODER_WINDOW, REVIEWER_WINDOW } from "./sessions.js";
@@ -433,6 +433,17 @@ function hasReadyForMerge(events: ComboEvent[], headSha: string): boolean {
   return events.some((event) => event.event === "ready_for_merge" && event["sha"] === headSha);
 }
 
+function hasPrConflict(events: ComboEvent[], headSha: string, prUrl: string, mergeState: string): boolean {
+  return events.some(
+    (event) =>
+      event.event === "pr_conflict" &&
+      event["sha"] === headSha &&
+      event["pr_url"] === prUrl &&
+      event["merge_state"] === mergeState &&
+      event["action"] === "rebase_required",
+  );
+}
+
 function hasCurrentGateForHead(events: ComboEvent[], headSha: string): boolean {
   const status = latestGateStatus(events);
   if (
@@ -465,9 +476,13 @@ function latestGateFailureReason(events: ComboEvent[]): string | undefined {
 
 export function headStateAllowsReady(
   events: ComboEvent[],
-  prView: { headSha: string; state: string },
+  prView: { headSha: string; state: string; mergeStateStatus?: string; mergeable?: string },
 ): boolean {
-  return prView.state === "OPEN" && !hasReadyForMerge(events, prView.headSha);
+  return (
+    prView.state === "OPEN" &&
+    blockingReadyMergeState(prView) === undefined &&
+    !hasReadyForMerge(events, prView.headSha)
+  );
 }
 
 export function gateStateAllowsReady(events: ComboEvent[], headSha: string): boolean {
@@ -487,7 +502,13 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   if (prUrl === undefined) return;
   if (!canReconcileGateFromGithub(events) || livePinnedLgtmSha(events) === undefined) return;
 
-  const pr = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,statusCheckRollup"]);
+  const pr = deps.gh([
+    "pr",
+    "view",
+    prUrl,
+    "--json",
+    "headRefOid,state,baseRefName,mergeStateStatus,mergeable,statusCheckRollup",
+  ]);
   if (pr.status !== 0) {
     deps.out(`director: gh pr view failed for ${comboId} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
     return;
@@ -504,6 +525,22 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   }
 
   const headSha = prView.headSha;
+  const blockingMergeState = blockingReadyMergeState(prView);
+  if (prView.state === "OPEN" && blockingMergeState !== undefined) {
+    if (!hasPrConflict(events, headSha, prUrl, blockingMergeState)) {
+      appendEvent(runDir, "pr_conflict", {
+        sha: headSha,
+        pr_url: prUrl,
+        merge_state: blockingMergeState,
+        ...(prView.mergeable !== undefined ? { mergeable: prView.mergeable } : {}),
+        ...(prView.baseRefName !== undefined ? { base_ref: prView.baseRefName } : {}),
+        action: "rebase_required",
+        source: "github",
+      });
+      deps.out(`director: pr_conflict ${headSha} ${blockingMergeState}; action rebase_required`);
+    }
+    return;
+  }
   if (!headStateAllowsReady(events, prView)) return;
   if (!reviewStateAllowsReady(events, headSha)) return;
   if (!checkRollupSucceeded(prView.statusCheckRollup, { requiredCheckNames: config.readyRequiredChecks, ambientCheckNames: config.externalCommentAgents })) return;
