@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~289 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~383 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
