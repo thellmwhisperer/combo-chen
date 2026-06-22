@@ -60,6 +60,8 @@ function plan(checksums: { downloadUrl?: string; text?: string }) {
 function makeDeps(options: {
   downloads?: ReadonlyMap<string, Uint8Array | string>;
   extractError?: Error;
+  mkdirError?: Error;
+  writeFileError?: Error;
 }): { deps: UpdateStagingDeps; calls: MockCalls } {
   const calls: MockCalls = {
     downloads: [],
@@ -82,9 +84,11 @@ function makeDeps(options: {
       },
       async mkdir(path) {
         calls.dirs.push(path);
+        if (options.mkdirError !== undefined) throw options.mkdirError;
       },
       async writeFile(path, data) {
         calls.writes.set(path, Buffer.from(data));
+        if (options.writeFileError !== undefined) throw options.writeFileError;
       },
       async remove(path) {
         calls.removes.push(path);
@@ -292,6 +296,30 @@ describe("stageResolvedUpdate", () => {
 
     expect(failure).toMatchObject({
       code: "checksums_invalid",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(calls.extracts).toEqual([]);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+
+  it("reports mkdir failures with staging_failed code and cleans partial staging", async () => {
+    const stagingDir = "/staging/combo-chen-update-mkdir-failed";
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", Buffer.from("archive")],
+      ]),
+      mkdirError: new Error("EACCES: permission denied"),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({ text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n` }),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "staging_failed",
       cleanup: { attempted: true, path: stagingDir, removed: true },
     });
     expect(calls.extracts).toEqual([]);

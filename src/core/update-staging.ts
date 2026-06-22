@@ -102,6 +102,7 @@ export type UpdateStagingErrorCode =
   | "checksum_not_found"
   | "checksum_mismatch"
   | "extraction_failed"
+  | "staging_failed"
   | "unsafe_file_name";
 
 export interface UpdateStagingCleanup {
@@ -150,14 +151,26 @@ export async function stageResolvedUpdate(input: {
   try {
     await input.deps.mkdir(downloadsDir);
 
-    const archiveBytes = toBuffer(
-      await input.deps.download({
-        kind: "archive",
-        url: input.plan.asset.downloadUrl,
-        fileName: assetFileName,
-      }),
-    );
-    await input.deps.writeFile(archivePath, archiveBytes);
+    let archiveBytes: Buffer;
+    try {
+      archiveBytes = toBuffer(
+        await input.deps.download({
+          kind: "archive",
+          url: input.plan.asset.downloadUrl,
+          fileName: assetFileName,
+        }),
+      );
+      await input.deps.writeFile(archivePath, archiveBytes);
+    } catch (error) {
+      if (error instanceof UpdateStagingError) throw error;
+      return await failWithCleanup({
+        code: "download_failed",
+        message: `failed to download ${assetFileName}: ${errorMessage(error)}`,
+        stagingDir: input.stagingDir,
+        deps: input.deps,
+        cause: error,
+      });
+    }
 
     if (input.plan.checksums.text === undefined && input.plan.checksums.downloadUrl === undefined) {
       await failWithCleanup({
@@ -236,7 +249,7 @@ export async function stageResolvedUpdate(input: {
   } catch (error) {
     if (error instanceof UpdateStagingError) throw error;
     return await failWithCleanup({
-      code: "download_failed",
+      code: "staging_failed",
       message: `failed to stage ${assetFileName}: ${errorMessage(error)}`,
       stagingDir: input.stagingDir,
       deps: input.deps,
