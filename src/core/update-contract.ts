@@ -1,6 +1,6 @@
 /**
  * @overview Read-only updater contract primitives shared by future update slices.
- *   ~330 lines, 24 exports, pure release identity, asset/checksum/install selection, and comparison helpers.
+ *   ~390 lines, 24 exports, pure release identity, asset/checksum/install selection, and comparison helpers.
  *
  *   READING GUIDE
  *   -------------
@@ -59,10 +59,16 @@
 import { RELEASE_TARGETS, releaseAssetFileName } from "../infra/release-artifacts.js";
 
 // -- 1/3 HELPER · Update contract types --
+/** Release channel after tag parsing plus GitHub prerelease flag normalization. */
 export type UpdateReleaseChannel = "stable" | "prerelease";
+
+/** Version comparison result for a current build and one release candidate. */
 export type UpdateComparisonState = "update_available" | "current" | "candidate_older";
+
+/** Local install path category used to keep future replacement logic bounded. */
 export type InstallTargetKind = "release_archive" | "source_checkout" | "dev_shim" | "unknown";
 
+/** Parsed combo-chen release identity with comparable semver pieces. */
 export interface NormalizedReleaseVersion {
   input: string;
   tagName: string;
@@ -74,12 +80,14 @@ export interface NormalizedReleaseVersion {
   prerelease: string[];
 }
 
+/** Current CLI build facts exposed by release metadata. */
 export interface CurrentBuildMetadata {
   version: string;
   commit: string;
   date: string;
 }
 
+/** GitHub release candidate facts consumed by read-only update planning. */
 export interface ReleaseCandidate {
   tagName: string;
   prerelease: boolean;
@@ -87,22 +95,26 @@ export interface ReleaseCandidate {
   publishedAt?: string;
 }
 
+/** Read-only comparison of the installed build and candidate release. */
 export interface UpdateVersionComparison {
   state: UpdateComparisonState;
   current: NormalizedReleaseVersion;
   candidate: NormalizedReleaseVersion;
 }
 
+/** Platform and architecture pair used for release archive lookup. */
 export interface UpdateAssetTarget {
   platform: string;
   arch: string;
 }
 
+/** Pure asset selection input; tests may inject supported target fixtures. */
 export interface UpdateAssetSelectionInput extends UpdateAssetTarget {
   version: string;
   supportedTargets?: readonly UpdateAssetTarget[];
 }
 
+/** Result of choosing the expected archive for a platform and architecture. */
 export interface UpdateAssetSelection extends UpdateAssetTarget {
   version: string;
   supported: boolean;
@@ -110,17 +122,20 @@ export interface UpdateAssetSelection extends UpdateAssetTarget {
   reason?: string;
 }
 
+/** One parsed sha256sum-compatible checksums.txt entry. */
 export interface UpdateChecksumEntry {
   fileName: string;
   sha256: string;
   line: number;
 }
 
+/** Input for exact checksum lookup by release asset filename. */
 export interface UpdateChecksumLookupInput {
   checksums: readonly UpdateChecksumEntry[];
   fileName: string;
 }
 
+/** Exact checksum lookup result without downloading or hashing any asset. */
 export interface UpdateChecksumLookup {
   fileName: string;
   found: boolean;
@@ -128,16 +143,19 @@ export interface UpdateChecksumLookup {
   reason?: string;
 }
 
+/** Future checksum verification input after download/staging exists. */
 export interface ChecksumVerificationInput {
   fileName: string;
   expectedSha256: string;
   actualSha256?: string;
 }
 
+/** Local executable path to classify before any installer mutation is allowed. */
 export interface InstallTargetClassificationInput {
   path: string;
 }
 
+/** Read-only classification of whether a path can ever be auto-replaced. */
 export interface InstallTargetClassification {
   path: string;
   kind: InstallTargetKind;
@@ -145,11 +163,13 @@ export interface InstallTargetClassification {
   reason: string;
 }
 
+/** Active combo capsule facts reserved for the future U4 guard. */
 export interface ActiveComboState {
   active: boolean;
   comboIds: string[];
 }
 
+/** Aggregate read-only update plan shared by future resolver, staging, and guard slices. */
 export interface ReadOnlyUpdatePlan {
   current: CurrentBuildMetadata;
   candidate?: ReleaseCandidate;
@@ -169,6 +189,7 @@ const RELEASE_ARCHIVE_BIN_PATTERN = /(?:^|\/)(combo-chen-v[^/]+)\/bin\/combo-che
 // -/ 1/3
 
 // -- 2/3 CORE · normalizeReleaseVersion + asset/checksum/install selection + compareReleaseCandidate <- START HERE --
+/** Normalize a combo-chen release tag or version into canonical comparable fields. */
 export function normalizeReleaseVersion(input: string): NormalizedReleaseVersion {
   const trimmed = input.trim();
   const match = RELEASE_VERSION_PATTERN.exec(trimmed);
@@ -194,6 +215,7 @@ export function normalizeReleaseVersion(input: string): NormalizedReleaseVersion
   };
 }
 
+/** Select the expected release archive name for a supported platform target without I/O. */
 export function selectUpdateAsset(input: UpdateAssetSelectionInput): UpdateAssetSelection {
   const version = normalizeReleaseVersion(input.version);
   const supportedTargets = input.supportedTargets ?? RELEASE_TARGETS;
@@ -222,6 +244,7 @@ export function selectUpdateAsset(input: UpdateAssetSelectionInput): UpdateAsset
   };
 }
 
+/** Parse sha256sum-compatible checksums.txt content into deterministic entries. */
 export function parseUpdateChecksums(text: string): UpdateChecksumEntry[] {
   const entries: UpdateChecksumEntry[] = [];
   const seenFileNames = new Set<string>();
@@ -253,6 +276,7 @@ export function parseUpdateChecksums(text: string): UpdateChecksumEntry[] {
   return entries;
 }
 
+/** Look up an expected sha256 by exact release asset filename. */
 export function lookupUpdateChecksum(input: UpdateChecksumLookupInput): UpdateChecksumLookup {
   const match = input.checksums.find((checksum) => checksum.fileName === input.fileName);
   if (match === undefined) {
@@ -270,6 +294,7 @@ export function lookupUpdateChecksum(input: UpdateChecksumLookupInput): UpdateCh
   };
 }
 
+/** Classify a local combo-chen executable path without replacing or mutating it. */
 export function classifyInstallTarget(
   input: InstallTargetClassificationInput,
 ): InstallTargetClassification {
@@ -310,6 +335,7 @@ export function classifyInstallTarget(
   };
 }
 
+/** Compare current build metadata with a candidate GitHub release. */
 export function compareReleaseCandidate(input: {
   current: CurrentBuildMetadata;
   candidate: ReleaseCandidate;
