@@ -1,22 +1,25 @@
 /**
  * @overview Read-only updater contract primitives shared by future update slices.
- *   ~220 lines, 17 exports, pure release identity, asset selection, and comparison helpers.
+ *   ~270 lines, 21 exports, pure release identity, asset selection, checksums, and comparison helpers.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at normalizeReleaseVersion   <- release tag/version normalization.
  *   2. Then selectUpdateAsset             <- platform archive selection.
- *   3. Then compareReleaseCandidate       <- current build versus candidate state.
- *   4. Skim exported types                <- U1/U2/U3/U4 follow-up contracts.
+ *   3. Then parseUpdateChecksums          <- checksums.txt parser and lookup.
+ *   4. Then compareReleaseCandidate       <- current build versus candidate state.
+ *   5. Skim exported types                <- U1/U2/U3/U4 follow-up contracts.
  *
  *   MAIN FLOW
  *   ---------
- *   current build + release candidate -> normalized versions -> asset/comparison state
+ *   current build + release candidate -> normalized versions -> asset/checksum/comparison state
  *
  *   PUBLIC API
  *   ----------
  *   normalizeReleaseVersion       Normalize v-prefixed and plain release versions.
  *   selectUpdateAsset             Select the expected archive for a target platform.
+ *   parseUpdateChecksums          Parse sha256sum-compatible checksums.txt text.
+ *   lookupUpdateChecksum          Look up an expected checksum by exact asset filename.
  *   compareReleaseCandidate       Compare current build metadata to a candidate.
  *   UpdateReleaseChannel          Stable or prerelease channel name.
  *   NormalizedReleaseVersion      Parsed release identity.
@@ -26,6 +29,9 @@
  *   UpdateAssetTarget             Platform/architecture pair used for asset lookup.
  *   UpdateAssetSelectionInput     Input facts for pure archive selection.
  *   UpdateAssetSelection          Future platform asset selection result.
+ *   UpdateChecksumEntry           Parsed checksums.txt row.
+ *   UpdateChecksumLookupInput     Input facts for exact checksum lookup.
+ *   UpdateChecksumLookup          Exact checksum lookup result.
  *   ChecksumVerificationInput     Future checksum verification input.
  *   InstallTargetClassification   Future local install target facts.
  *   ActiveComboState              Future active capsule guard facts.
@@ -37,9 +43,10 @@
  *
  * @exports UpdateReleaseChannel, NormalizedReleaseVersion, CurrentBuildMetadata, ReleaseCandidate,
  *   UpdateComparisonState, UpdateVersionComparison, UpdateAssetTarget, UpdateAssetSelectionInput,
- *   UpdateAssetSelection, ChecksumVerificationInput, InstallTargetKind, InstallTargetClassification,
- *   ActiveComboState, ReadOnlyUpdatePlan, normalizeReleaseVersion, selectUpdateAsset,
- *   compareReleaseCandidate
+ *   UpdateAssetSelection, UpdateChecksumEntry, UpdateChecksumLookupInput, UpdateChecksumLookup,
+ *   ChecksumVerificationInput, InstallTargetKind, InstallTargetClassification, ActiveComboState,
+ *   ReadOnlyUpdatePlan, normalizeReleaseVersion, selectUpdateAsset, parseUpdateChecksums,
+ *   lookupUpdateChecksum, compareReleaseCandidate
  * @deps ../infra/release-artifacts
  */
 import { RELEASE_TARGETS, releaseAssetFileName } from "../infra/release-artifacts.js";
@@ -96,6 +103,24 @@ export interface UpdateAssetSelection extends UpdateAssetTarget {
   reason?: string;
 }
 
+export interface UpdateChecksumEntry {
+  fileName: string;
+  sha256: string;
+  line: number;
+}
+
+export interface UpdateChecksumLookupInput {
+  checksums: readonly UpdateChecksumEntry[];
+  fileName: string;
+}
+
+export interface UpdateChecksumLookup {
+  fileName: string;
+  found: boolean;
+  expectedSha256?: string;
+  reason?: string;
+}
+
 export interface ChecksumVerificationInput {
   fileName: string;
   expectedSha256: string;
@@ -127,9 +152,10 @@ export interface ReadOnlyUpdatePlan {
 
 const RELEASE_VERSION_PATTERN =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+const CHECKSUM_LINE_PATTERN = /^([0-9A-Fa-f]{64}) [ *](.+)$/;
 // -/ 1/3
 
-// -- 2/3 CORE · normalizeReleaseVersion + asset selection + compareReleaseCandidate <- START HERE --
+// -- 2/3 CORE · normalizeReleaseVersion + asset/checksum selection + compareReleaseCandidate <- START HERE --
 export function normalizeReleaseVersion(input: string): NormalizedReleaseVersion {
   const trimmed = input.trim();
   const match = RELEASE_VERSION_PATTERN.exec(trimmed);
@@ -180,6 +206,54 @@ export function selectUpdateAsset(input: UpdateAssetSelectionInput): UpdateAsset
     arch: target.arch,
     supported: true,
     fileName: releaseAssetFileName(version.version, target),
+  };
+}
+
+export function parseUpdateChecksums(text: string): UpdateChecksumEntry[] {
+  const entries: UpdateChecksumEntry[] = [];
+  const seenFileNames = new Set<string>();
+  const lines = text.split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const lineNumber = index + 1;
+    const line = lines[index]!.replace(/\r$/, "");
+    if (line.trim() === "") continue;
+
+    const match = CHECKSUM_LINE_PATTERN.exec(line);
+    if (match === null) {
+      throw new Error(`invalid checksums.txt line ${lineNumber}`);
+    }
+
+    const fileName = match[2]!;
+    if (seenFileNames.has(fileName)) {
+      throw new Error(`duplicate checksum entry for ${fileName}`);
+    }
+
+    seenFileNames.add(fileName);
+    entries.push({
+      line: lineNumber,
+      fileName,
+      sha256: match[1]!.toLowerCase(),
+    });
+  }
+
+  return entries;
+}
+
+export function lookupUpdateChecksum(input: UpdateChecksumLookupInput): UpdateChecksumLookup {
+  const match = input.checksums.find((checksum) => checksum.fileName === input.fileName);
+  if (match === undefined) {
+    return {
+      fileName: input.fileName,
+      found: false,
+      reason: `checksum not found for ${input.fileName}`,
+    };
+  }
+
+  return {
+    fileName: input.fileName,
+    found: true,
+    expectedSha256: match.sha256,
   };
 }
 
