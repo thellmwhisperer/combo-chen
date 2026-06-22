@@ -148,19 +148,26 @@ export async function stageResolvedUpdate(input: {
   const archivePath = join(downloadsDir, assetFileName);
   const checksumsPath = join(downloadsDir, checksumsFileName);
 
+  if (input.plan.checksums.text === undefined && input.plan.checksums.downloadUrl === undefined) {
+    await failWithCleanup({
+      code: "checksums_unavailable",
+      message: "checksums.txt text or downloadUrl is required",
+      stagingDir: input.stagingDir,
+      deps: input.deps,
+    });
+  }
+
   try {
     await input.deps.mkdir(downloadsDir);
 
     let archiveBytes: Buffer;
+    let archiveData: Uint8Array | string;
     try {
-      archiveBytes = toBuffer(
-        await input.deps.download({
-          kind: "archive",
-          url: input.plan.asset.downloadUrl,
-          fileName: assetFileName,
-        }),
-      );
-      await input.deps.writeFile(archivePath, archiveBytes);
+      archiveData = await input.deps.download({
+        kind: "archive",
+        url: input.plan.asset.downloadUrl,
+        fileName: assetFileName,
+      });
     } catch (error) {
       if (error instanceof UpdateStagingError) throw error;
       return await failWithCleanup({
@@ -171,13 +178,17 @@ export async function stageResolvedUpdate(input: {
         cause: error,
       });
     }
-
-    if (input.plan.checksums.text === undefined && input.plan.checksums.downloadUrl === undefined) {
-      await failWithCleanup({
-        code: "checksums_unavailable",
-        message: "checksums.txt text or downloadUrl is required",
+    archiveBytes = toBuffer(archiveData);
+    try {
+      await input.deps.writeFile(archivePath, archiveBytes);
+    } catch (error) {
+      if (error instanceof UpdateStagingError) throw error;
+      return await failWithCleanup({
+        code: "staging_failed",
+        message: `failed to write ${assetFileName}: ${errorMessage(error)}`,
         stagingDir: input.stagingDir,
         deps: input.deps,
+        cause: error,
       });
     }
 
@@ -266,14 +277,11 @@ async function resolveChecksumsText(input: {
   deps: UpdateStagingDeps;
 }): Promise<string> {
   if (input.checksums.text !== undefined) return input.checksums.text;
-  if (input.checksums.downloadUrl === undefined) {
-    throw new Error("checksums.txt text or downloadUrl is required");
-  }
 
   return toBuffer(
     await input.deps.download({
       kind: "checksums",
-      url: input.checksums.downloadUrl,
+      url: input.checksums.downloadUrl!,
       fileName: input.fileName,
     }),
   ).toString("utf8");
@@ -311,7 +319,7 @@ function expectedChecksumForAsset(input: {
     });
   }
 
-  return lookup.expectedSha256.toLowerCase();
+  return lookup.expectedSha256!;
 }
 
 async function failWithCleanup(input: {
