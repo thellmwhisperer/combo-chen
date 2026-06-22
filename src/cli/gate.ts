@@ -94,11 +94,13 @@ export function buildGatekeeperAttachCommand(
   const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
   return [
     `cd ${shellQuote(combo.worktree)}`,
+    `expected_branch=${shellQuote(combo.branch)}`,
+    "expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)",
     "attempt=0",
     "while :; do",
     "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
-    "  if [ -n \"$no_mistakes_run_id\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
+    "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
     "    exec no-mistakes attach --run \"$no_mistakes_run_id\"",
     "  fi",
     "  attempt=$((attempt + 1))",
@@ -106,7 +108,7 @@ export function buildGatekeeperAttachCommand(
     `    echo "gatekeeper-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
     "    exit 1",
     "  fi",
-    `  echo "gatekeeper-attach: waiting for gatekeeper (attempt $attempt/${maxAttempts})..." >&2`,
+    `  echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/${maxAttempts})..." >&2`,
     `  sleep ${options.retryIntervalSeconds}`,
     "done",
   ].join("\n");

@@ -2433,16 +2433,17 @@ describe("run", () => {
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
     const command = gatekeeperWindow?.at(-1) ?? "";
+    expect(command).toContain("expected_branch='combo/issue-7'");
+    expect(command).toContain("expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)");
     expect(command).toContain('if [ "$attempt" -gt 3 ]; then');
     expect(command).toContain('echo "gatekeeper-attach: timed out after 45 seconds" >&2');
-    expect(command).toContain('echo "gatekeeper-attach: waiting for gatekeeper (attempt $attempt/3)..." >&2');
+    expect(command).toContain('echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/3)..." >&2');
     expect(command).toContain("sleep 15");
   });
 
   it("waits for an active no-mistakes run before attaching when attach would exit cleanly", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const worktree = join(repoDir, ".worktrees", "issue-7");
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
@@ -2451,9 +2452,20 @@ describe("run", () => {
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
     const command = gatekeeperWindow?.at(-1) ?? "";
+    const head = "abc1234";
     const bin = mkdtempSync(join(tmpdir(), "combo-chen-bin-"));
     const noMistakesCalls = join(bin, "no-mistakes-calls");
     const statusAttempts = join(bin, "status-attempts");
+    writeFileSync(
+      join(bin, "git"),
+      `#!/bin/sh
+if [ "$1" = "rev-parse" ]; then
+  printf '${head}\\n'
+  exit 0
+fi
+exit 64
+`,
+    );
     writeFileSync(
       join(bin, "no-mistakes"),
       `#!/bin/sh
@@ -2468,7 +2480,7 @@ if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
   if [ "$count" -lt 2 ]; then
     printf 'No active run.\\n'
   else
-    printf 'run:\\n  id: 01ATTACH\\n  status: running\\n'
+    printf 'run:\\n  id: 01ATTACH\\n  branch: combo/issue-7\\n  head: ${head}\\n  status: running\\n'
   fi
   exit 0
 fi
@@ -2486,6 +2498,7 @@ printf 'sleep %s\\n' "$*" >> "$NO_MISTAKES_CALLS"
 exit 0
 `,
     );
+    chmodSync(join(bin, "git"), 0o755);
     chmodSync(join(bin, "no-mistakes"), 0o755);
     chmodSync(join(bin, "sleep"), 0o755);
 
