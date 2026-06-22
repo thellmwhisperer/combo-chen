@@ -596,7 +596,7 @@ describe("tickDirector", () => {
       ],
       codeRabbitComments: [],
       prLabels: [{ name: "documentation" }],
-      env: { COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES: "Rabbit Pro" },
+      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "Rabbit Pro" },
     });
     deps.tmux = (args) => {
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
