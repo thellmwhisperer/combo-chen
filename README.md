@@ -268,13 +268,13 @@ This slice does not download, extract, replace, restart, or mutate active combo
 capsules. It also does not introduce passive update notices or a live updater
 CLI. This means source checkouts and package-manager dev shims are
 non-auto-replaceable; only release archive paths shaped like
-`combo-chen-vX.Y.Z/bin/combo-chen` are eligible for a later replacement slice.
+`combo-chen-vX.Y.Z/bin/combo-chen` are eligible for replacement.
 
 Follow-up updater ownership:
 
 - U1: release resolver and latest/beta check flow.
 - U2: download, checksum verification, and staging.
-- U3: install target and atomic replacement.
+- U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
 - U4: active capsule guard.
 
 ## Commands
