@@ -9,7 +9,7 @@
  *   2. Then resolveReadOnlyUpdatePlan         <- read-only candidate/current comparison and asset planning.
  *   3. Then resolveReleaseAsset               <- U0 asset selection bridge.
  *   4. Then normalizeCandidate                <- U0 tag normalization bridge.
- *   5. Then compareNormalizedCandidates       <- semver ordering for mocked release data.
+ *   5. Then compareNormalizedReleaseVersions <- semver ordering for mocked release data (reused from update-contract).
  *
  *   MAIN FLOW
  *   ---------
@@ -37,8 +37,7 @@
  *
  *   INTERNALS
  *   ---------
- *   currentBuildVersionError, resolveReleaseAsset, normalizeCandidate, compareNormalizedCandidates,
- *   comparePrereleaseIdentifiers, isNumericIdentifier
+ *   currentBuildVersionError, resolveReleaseAsset, normalizeCandidate
  *
  * @exports UpdateReleaseResolverMode, GitHubReleaseAssetMetadata, GitHubReleaseMetadata,
  *   ResolvedUpdateReleaseCandidate, UpdateReleaseResolverInput, FoundUpdateReleaseResolution,
@@ -49,6 +48,7 @@
  * @deps ./update-contract
  */
 import {
+  compareNormalizedReleaseVersions,
   compareReleaseCandidate,
   normalizeReleaseVersion,
   selectUpdateAsset,
@@ -196,7 +196,7 @@ export function resolveLatestReleaseCandidate(
     const candidate = normalizeCandidate(release);
     if (
       latest === undefined ||
-      compareNormalizedCandidates(candidate.normalized, latest.normalized) > 0
+      compareNormalizedReleaseVersions(candidate.normalized, latest.normalized) > 0
     ) {
       latest = candidate;
     }
@@ -390,47 +390,4 @@ function normalizeCandidate(release: GitHubReleaseMetadata): ResolvedUpdateRelea
   };
 }
 
-function compareNormalizedCandidates(
-  left: NormalizedReleaseVersion,
-  right: NormalizedReleaseVersion,
-): number {
-  const coreOrder =
-    left.major - right.major ||
-    left.minor - right.minor ||
-    left.patch - right.patch;
-  if (coreOrder !== 0) return Math.sign(coreOrder);
-
-  if (left.channel === "stable" && right.channel === "stable") return 0;
-  if (left.channel === "stable") return 1;
-  if (right.channel === "stable") return -1;
-
-  const limit = Math.max(left.prerelease.length, right.prerelease.length);
-  for (let index = 0; index < limit; index += 1) {
-    const leftPart = left.prerelease[index];
-    const rightPart = right.prerelease[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-
-    const order = comparePrereleaseIdentifiers(leftPart, rightPart);
-    if (order !== 0) return order;
-  }
-  return 0;
-}
-
-function comparePrereleaseIdentifiers(left: string, right: string): number {
-  const leftNumeric = isNumericIdentifier(left);
-  const rightNumeric = isNumericIdentifier(right);
-
-  if (leftNumeric && rightNumeric) {
-    return Math.sign(Number.parseInt(left, 10) - Number.parseInt(right, 10));
-  }
-  if (leftNumeric) return -1;
-  if (rightNumeric) return 1;
-
-  return Math.sign(left.localeCompare(right, "en", { sensitivity: "variant" }));
-}
-
-function isNumericIdentifier(value: string): boolean {
-  return /^(0|[1-9]\d*)$/.test(value);
-}
 // -/ 4/4
