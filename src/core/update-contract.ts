@@ -1,18 +1,19 @@
 /**
  * @overview Read-only updater contract primitives shared by future update slices.
- *   ~270 lines, 21 exports, pure release identity, asset selection, checksums, and comparison helpers.
+ *   ~330 lines, 24 exports, pure release identity, asset/checksum/install selection, and comparison helpers.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at normalizeReleaseVersion   <- release tag/version normalization.
  *   2. Then selectUpdateAsset             <- platform archive selection.
  *   3. Then parseUpdateChecksums          <- checksums.txt parser and lookup.
- *   4. Then compareReleaseCandidate       <- current build versus candidate state.
- *   5. Skim exported types                <- U1/U2/U3/U4 follow-up contracts.
+ *   4. Then classifyInstallTarget         <- read-only local install classification.
+ *   5. Then compareReleaseCandidate       <- current build versus candidate state.
+ *   6. Skim exported types                <- U1/U2/U3/U4 follow-up contracts.
  *
  *   MAIN FLOW
  *   ---------
- *   current build + release candidate -> normalized versions -> asset/checksum/comparison state
+ *   current build + release candidate + local path -> normalized versions -> asset/checksum/install/comparison state
  *
  *   PUBLIC API
  *   ----------
@@ -20,8 +21,10 @@
  *   selectUpdateAsset             Select the expected archive for a target platform.
  *   parseUpdateChecksums          Parse sha256sum-compatible checksums.txt text.
  *   lookupUpdateChecksum          Look up an expected checksum by exact asset filename.
+ *   classifyInstallTarget         Classify a local executable path without mutating it.
  *   compareReleaseCandidate       Compare current build metadata to a candidate.
  *   UpdateReleaseChannel          Stable or prerelease channel name.
+ *   UpdateComparisonState         Candidate comparison state.
  *   NormalizedReleaseVersion      Parsed release identity.
  *   CurrentBuildMetadata          Current CLI build facts.
  *   ReleaseCandidate             Candidate GitHub release facts.
@@ -33,20 +36,24 @@
  *   UpdateChecksumLookupInput     Input facts for exact checksum lookup.
  *   UpdateChecksumLookup          Exact checksum lookup result.
  *   ChecksumVerificationInput     Future checksum verification input.
- *   InstallTargetClassification   Future local install target facts.
+ *   InstallTargetKind             Local install target class.
+ *   InstallTargetClassificationInput Input facts for local install classification.
+ *   InstallTargetClassification   Local install target facts.
  *   ActiveComboState              Future active capsule guard facts.
  *   ReadOnlyUpdatePlan            Future update plan aggregate.
  *
  *   INTERNALS
  *   ---------
- *   parsePrerelease, compareNormalizedReleaseVersions, comparePrereleaseIdentifiers, isNumericIdentifier
+ *   normalizeInstallTargetPath, releaseArchiveVersionFromPath, isSourceCheckoutPath, parsePrerelease,
+ *   compareNormalizedReleaseVersions, comparePrereleaseIdentifiers, isNumericIdentifier
  *
  * @exports UpdateReleaseChannel, NormalizedReleaseVersion, CurrentBuildMetadata, ReleaseCandidate,
  *   UpdateComparisonState, UpdateVersionComparison, UpdateAssetTarget, UpdateAssetSelectionInput,
  *   UpdateAssetSelection, UpdateChecksumEntry, UpdateChecksumLookupInput, UpdateChecksumLookup,
- *   ChecksumVerificationInput, InstallTargetKind, InstallTargetClassification, ActiveComboState,
- *   ReadOnlyUpdatePlan, normalizeReleaseVersion, selectUpdateAsset, parseUpdateChecksums,
- *   lookupUpdateChecksum, compareReleaseCandidate
+ *   ChecksumVerificationInput, InstallTargetKind, InstallTargetClassificationInput,
+ *   InstallTargetClassification, ActiveComboState, ReadOnlyUpdatePlan, normalizeReleaseVersion,
+ *   selectUpdateAsset, parseUpdateChecksums, lookupUpdateChecksum, classifyInstallTarget,
+ *   compareReleaseCandidate
  * @deps ../infra/release-artifacts
  */
 import { RELEASE_TARGETS, releaseAssetFileName } from "../infra/release-artifacts.js";
@@ -127,6 +134,10 @@ export interface ChecksumVerificationInput {
   actualSha256?: string;
 }
 
+export interface InstallTargetClassificationInput {
+  path: string;
+}
+
 export interface InstallTargetClassification {
   path: string;
   kind: InstallTargetKind;
@@ -153,9 +164,11 @@ export interface ReadOnlyUpdatePlan {
 const RELEASE_VERSION_PATTERN =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const CHECKSUM_LINE_PATTERN = /^([0-9A-Fa-f]{64}) [ *](.+)$/;
+const DEV_SHIM_PATTERN = /(?:^|\/)node_modules\/\.bin\/combo-chen(?:\.cmd)?$/;
+const RELEASE_ARCHIVE_BIN_PATTERN = /(?:^|\/)(combo-chen-v[^/]+)\/bin\/combo-chen$/;
 // -/ 1/3
 
-// -- 2/3 CORE · normalizeReleaseVersion + asset/checksum selection + compareReleaseCandidate <- START HERE --
+// -- 2/3 CORE · normalizeReleaseVersion + asset/checksum/install selection + compareReleaseCandidate <- START HERE --
 export function normalizeReleaseVersion(input: string): NormalizedReleaseVersion {
   const trimmed = input.trim();
   const match = RELEASE_VERSION_PATTERN.exec(trimmed);
@@ -257,6 +270,47 @@ export function lookupUpdateChecksum(input: UpdateChecksumLookupInput): UpdateCh
   };
 }
 
+export function classifyInstallTarget(
+  input: InstallTargetClassificationInput,
+): InstallTargetClassification {
+  const path = input.path.trim();
+  const normalizedPath = normalizeInstallTargetPath(path);
+
+  if (DEV_SHIM_PATTERN.test(normalizedPath)) {
+    return {
+      path,
+      kind: "dev_shim",
+      autoReplaceable: false,
+      reason: "package manager shim must not be auto-replaced",
+    };
+  }
+
+  if (releaseArchiveVersionFromPath(normalizedPath) !== undefined) {
+    return {
+      path,
+      kind: "release_archive",
+      autoReplaceable: true,
+      reason: "release archive bin path is eligible for future archive replacement",
+    };
+  }
+
+  if (isSourceCheckoutPath(normalizedPath)) {
+    return {
+      path,
+      kind: "source_checkout",
+      autoReplaceable: false,
+      reason: "source checkout path must not be auto-replaced",
+    };
+  }
+
+  return {
+    path,
+    kind: "unknown",
+    autoReplaceable: false,
+    reason: "unknown install target must not be auto-replaced",
+  };
+}
+
 export function compareReleaseCandidate(input: {
   current: CurrentBuildMetadata;
   candidate: ReleaseCandidate;
@@ -273,7 +327,27 @@ export function compareReleaseCandidate(input: {
 }
 // -/ 2/3
 
-// -- 3/3 HELPER · semver comparison helpers --
+// -- 3/3 HELPER · install path and semver comparison helpers --
+function normalizeInstallTargetPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/");
+}
+
+function releaseArchiveVersionFromPath(path: string): NormalizedReleaseVersion | undefined {
+  const match = RELEASE_ARCHIVE_BIN_PATTERN.exec(path);
+  if (match === null) return undefined;
+
+  try {
+    return normalizeReleaseVersion(match[1]!.slice("combo-chen-".length));
+  } catch {
+    return undefined;
+  }
+}
+
+function isSourceCheckoutPath(path: string): boolean {
+  if (path.includes("/node_modules/")) return false;
+  return /(?:^|\/)(?:src\/cli\/main\.ts|dist\/cli\.mjs)$/.test(path);
+}
+
 function parsePrerelease(value: string | undefined): string[] {
   if (value === undefined || value === "") return [];
   return value.split(".");
