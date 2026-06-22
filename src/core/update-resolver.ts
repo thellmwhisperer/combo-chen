@@ -1,6 +1,6 @@
 /**
  * @overview Read-only resolver for GitHub Releases update metadata.
- *   ~310 lines, 17 exports, selects the latest eligible release candidate, compares it with current build metadata,
+ *   ~350 lines, 17 exports, selects the latest eligible release candidate, compares it with current build metadata,
  *   and resolves the expected release asset when requested.
  *
  *   READING GUIDE
