@@ -39,7 +39,6 @@ export interface GateLeaseRecord extends GateLeaseOwner {
 
 export type GateLeaseAcquireResult =
   | { state: "acquired"; lease: GateLeaseRecord }
-  | { state: "busy"; lease: GateLeaseRecord }
   | { state: "recovered"; lease: GateLeaseRecord; staleLease: GateLeaseRecord }
   | { state: "same_branch_conflict"; lease: GateLeaseRecord };
 

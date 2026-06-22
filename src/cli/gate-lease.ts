@@ -13,10 +13,10 @@
  *
  *   PUBLIC API
  *   ----------
- *   GATE_LEASE_BUSY_EXIT_CODE, GATE_LEASE_CONFLICT_EXIT_CODE
+ *   GATE_LEASE_CONFLICT_EXIT_CODE
  *   GateLeaseActionResult, acquireGateLeaseForCombo, releaseGateLeaseForCombo
  *
- * @exports GATE_LEASE_BUSY_EXIT_CODE, GATE_LEASE_CONFLICT_EXIT_CODE, GateLeaseActionResult, acquireGateLeaseForCombo, releaseGateLeaseForCombo
+ * @exports GATE_LEASE_CONFLICT_EXIT_CODE, GateLeaseActionResult, acquireGateLeaseForCombo, releaseGateLeaseForCombo
  * @deps ../core/{events,gate-lease,state}
  */
 import { appendEvent } from "../core/events.js";
@@ -28,7 +28,6 @@ import {
 import { ComboStateError, readCombo, runDirFor } from "../core/state.js";
 
 // -- 1/2 HELPER · types and owner resolution --
-export const GATE_LEASE_BUSY_EXIT_CODE = 75;
 export const GATE_LEASE_CONFLICT_EXIT_CODE = 76;
 
 export interface GateLeaseActionResult {
@@ -78,16 +77,6 @@ export function acquireGateLeaseForCombo(input: {
 }): GateLeaseActionResult {
   const { owner, runDir } = ownerForCombo(input.home, input.comboId, input.headSha);
   const result = acquireGateLease({ home: input.home, owner });
-
-  if (result.state === "busy") {
-    appendEvent(runDir, "gate_status", {
-      state: "queued",
-      ...(input.headSha !== undefined && input.headSha !== "" ? { head_sha: input.headSha } : {}),
-      ...leaseOwnerPayload(result.lease),
-    });
-    input.out(`gate lease queued for ${owner.comboId}; active owner ${result.lease.comboId}`);
-    return { state: result.state, exitCode: GATE_LEASE_BUSY_EXIT_CODE };
-  }
 
   if (result.state === "same_branch_conflict") {
     appendEvent(runDir, "needs_human", {
