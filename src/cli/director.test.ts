@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1115 lines, initial-gate retry, PR labels, READY, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1125 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
@@ -675,17 +675,18 @@ describe("tickDirector", () => {
     expect(calls.some((call) => call[0] === "tmux" && call.includes(directorBuffer))).toBe(false);
   });
 
-  it("invalidates old READY and records a deterministic rebase action when GitHub reports PR conflicts", async () => {
+  it("invalidates old READY and routes a deterministic rebase action to coder responding", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" });
-    const { deps, out } = fakeDeps({
+    const { deps, calls, out } = fakeDeps({
       homeDir: h,
       record,
       prHeadSha: headSha,
       mergeStateStatus: "DIRTY",
       mergeable: "CONFLICTING",
+      codeRabbitComments: [],
     });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
@@ -703,6 +704,26 @@ describe("tickDirector", () => {
       source: "github",
     });
     expect(out).toContain(`director: pr_conflict ${headSha} DIRTY; action rebase_required`);
+    const conflictPrompts = calls.filter(
+      (call) =>
+        call[0] === "tmux" &&
+        call[1] === "set-buffer" &&
+        typeof call.at(-1) === "string" &&
+        call.at(-1)?.includes("PR conflict recovery for coder responding mode"),
+    );
+    expect(conflictPrompts).toHaveLength(1);
+    expect(conflictPrompts[0]?.at(-1)).toContain(`head: ${headSha}`);
+    expect(conflictPrompts[0]?.at(-1)).toContain("merge_state: DIRTY");
+    expect(conflictPrompts[0]?.at(-1)).toContain("Rebase the combo worktree");
+    expect(calls).toContainEqual([
+      "tmux",
+      "paste-buffer",
+      "-d",
+      "-b",
+      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
+      "-t",
+      "combo-chen-o-r-7:coder-responding",
+    ]);
   });
 
   it("emits READY without an external clean comment when configured required checks pass", async () => {
@@ -938,6 +959,46 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
   });
 
+  it("restores READY after a conflict only after new-head gate and reviewer agreement", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const newSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({
+      homeDir: h,
+      headSha: oldSha,
+    });
+    appendEvent(runDir, "ready_for_merge", { sha: oldSha, pr_url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "pr_conflict", {
+      sha: oldSha,
+      pr_url: "https://github.com/o/r/pull/7",
+      merge_state: "DIRTY",
+      action: "rebase_required",
+      source: "github",
+    });
+    appendEvent(runDir, "address_done", { head_sha: newSha });
+    appendEvent(runDir, "gate_stale", { old_sha: oldSha, new_sha: newSha });
+    appendEvent(runDir, "gate_validated", { sha: newSha });
+    appendEvent(runDir, "lgtm_stale", { old_sha: oldSha, new_sha: newSha });
+    appendEvent(runDir, "lgtm", { sha: newSha });
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: newSha,
+      worktreeHeadSha: newSha,
+      codeRabbitComments: [],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "ready_for_merge",
+        sha: newSha,
+        pr_url: "https://github.com/o/r/pull/7",
+      }),
+    );
+  });
+
   it("re-pins a local gate SHA to the pushed PR head when GitHub checks are green", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const localSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -1103,6 +1164,42 @@ describe("tickDirector", () => {
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
     expect(readFileSync(join(worktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
     expect(out).toContain(`no-mistakes: copied local config to ${worktree}/.no-mistakes.yaml`);
+  });
+
+  it("starts the post-conflict gate after coder rebases to a new committed HEAD", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const newSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha: oldSha });
+    appendEvent(runDir, "ready_for_merge", { sha: oldSha, pr_url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "pr_conflict", {
+      sha: oldSha,
+      pr_url: "https://github.com/o/r/pull/7",
+      merge_state: "DIRTY",
+      action: "rebase_required",
+      source: "github",
+    });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: oldSha,
+      worktreeHeadSha: newSha,
+      mergeStateStatus: "DIRTY",
+      codeRabbitComments: [],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "address_done", head_sha: newSha }));
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "gate_stale", old_sha: oldSha, new_sha: newSha }),
+    );
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    );
+    const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
+    expect(gatekeeperWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
   });
 
   it("does not start a post-address gate for LGTM/bookkeeping artifacts without a coder HEAD change", async () => {
