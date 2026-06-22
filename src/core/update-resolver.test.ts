@@ -1,11 +1,11 @@
 /**
  * @overview Unit tests for the read-only GitHub Releases update resolver.
- *   ~180 lines, no exports, pins latest stable/prerelease candidate selection and read-only plan comparison.
+ *   ~250 lines, no exports, pins latest stable/prerelease candidate selection and read-only plan comparison.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveLatestReleaseCandidate tests <- resolver mode contract.
- *   2. Then resolveReadOnlyUpdatePlan tests          <- current build comparison contract.
+ *   2. Then resolveReadOnlyUpdatePlan tests          <- current build comparison and asset contract.
  *
  *   MAIN FLOW
  *   ---------
@@ -31,12 +31,20 @@ import {
 } from "./update-resolver.js";
 
 // -- 1/1 CORE · GitHub Releases resolver contract <- START HERE --
-function release(tagName: string, prerelease = false): GitHubReleaseMetadata {
+function release(
+  tagName: string,
+  prerelease = false,
+  assets: string[] = [],
+): GitHubReleaseMetadata {
   return {
     tagName,
     prerelease,
     name: tagName,
     publishedAt: `2026-06-2${tagName.length % 10}T12:00:00.000Z`,
+    assets: assets.map((name) => ({
+      name,
+      browserDownloadUrl: `https://github.example/releases/${name}`,
+    })),
   };
 }
 
@@ -192,6 +200,91 @@ describe("update release resolver", () => {
       readOnly: true,
       current: { version: "1.3.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
       reason: "no stable GitHub release found",
+    });
+  });
+
+  it("selects the expected platform asset on update-available plans", () => {
+    const fileName = "combo-chen-v1.3.0-darwin-arm64.tar.gz";
+
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        assetTarget: { platform: "darwin", arch: "arm64" },
+        releases: [
+          release("v1.3.0", false, [fileName, "combo-chen-v1.3.0-linux-x64.tar.gz"]),
+          release("v1.1.9"),
+        ],
+      }),
+    ).toMatchObject({
+      status: "update_available",
+      asset: {
+        version: "1.3.0",
+        platform: "darwin",
+        arch: "arm64",
+        supported: true,
+        fileName,
+      },
+      releaseAsset: {
+        name: fileName,
+        browserDownloadUrl: `https://github.example/releases/${fileName}`,
+      },
+      plan: {
+        asset: {
+          version: "1.3.0",
+          platform: "darwin",
+          arch: "arm64",
+          supported: true,
+          fileName,
+        },
+      },
+    });
+  });
+
+  it("reports missing_asset when the selected release lacks the expected archive", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        assetTarget: { platform: "linux", arch: "x64" },
+        releases: [release("v1.3.0", false, ["combo-chen-v1.3.0-darwin-arm64.tar.gz"])],
+      }),
+    ).toMatchObject({
+      status: "missing_asset",
+      mode: "stable",
+      readOnly: true,
+      candidate: { tagName: "v1.3.0" },
+      comparison: { state: "update_available" },
+      expectedAsset: {
+        version: "1.3.0",
+        platform: "linux",
+        arch: "x64",
+        supported: true,
+        fileName: "combo-chen-v1.3.0-linux-x64.tar.gz",
+      },
+      reason: "release v1.3.0 is missing asset combo-chen-v1.3.0-linux-x64.tar.gz",
+    });
+  });
+
+  it("reports unsupported_platform when the U0 asset contract rejects the target", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        assetTarget: { platform: "win32", arch: "x64" },
+        releases: [release("v1.3.0")],
+      }),
+    ).toMatchObject({
+      status: "unsupported_platform",
+      mode: "stable",
+      readOnly: true,
+      candidate: { tagName: "v1.3.0" },
+      comparison: { state: "update_available" },
+      asset: {
+        version: "1.3.0",
+        platform: "win32",
+        arch: "x64",
+        supported: false,
+        reason: "unsupported update asset target: win32-x64",
+      },
+      reason: "unsupported update asset target: win32-x64",
     });
   });
 });
