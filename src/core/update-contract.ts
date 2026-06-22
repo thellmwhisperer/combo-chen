@@ -382,6 +382,7 @@ function parsePrerelease(value: string | undefined): string[] {
   return value.split(".");
 }
 
+/** Compare two normalized release versions with semver ordering for deterministic candidate selection. */
 export function compareNormalizedReleaseVersions(
   left: NormalizedReleaseVersion,
   right: NormalizedReleaseVersion,
