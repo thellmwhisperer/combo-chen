@@ -9,7 +9,7 @@
  *   2. Then resolveReadOnlyUpdatePlan         <- read-only candidate/current comparison and asset planning.
  *   3. Then resolveReleaseAsset               <- U0 asset selection bridge.
  *   4. Then normalizeCandidate                <- U0 tag normalization bridge.
- *   5. Then compareNormalizedReleaseVersions <- semver ordering for mocked release data (reused from update-contract).
+ *   5. Use compareNormalizedReleaseVersions import <- U0 semver ordering for mocked release data.
  *
  *   MAIN FLOW
  *   ---------
@@ -220,6 +220,7 @@ export function resolveReadOnlyUpdatePlan(
   input: ReadOnlyUpdatePlanInput,
 ): ReadOnlyUpdatePlanResolution {
   const releaseResolution = resolveLatestReleaseCandidate(input);
+  // Preserve current precedence: no eligible release is reported before parsing the local build version.
   if (releaseResolution.status === "missing_release") {
     return {
       status: "missing_release",
@@ -376,8 +377,11 @@ function resolveReleaseAsset(input: {
 }
 
 function normalizeCandidate(release: GitHubReleaseMetadata): ResolvedUpdateReleaseCandidate {
-  const normalized = normalizeReleaseVersion(release.tagName);
-  if (release.prerelease) normalized.channel = "prerelease";
+  const tagVersion = normalizeReleaseVersion(release.tagName);
+  const normalized: NormalizedReleaseVersion = {
+    ...tagVersion,
+    channel: release.prerelease ? "prerelease" : tagVersion.channel,
+  };
 
   return {
     tagName: release.tagName,
