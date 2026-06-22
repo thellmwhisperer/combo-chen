@@ -483,6 +483,30 @@ No network update or executable replacement behavior is part of this contract.
 The current system only defines, verifies, and publishes artifacts; future
 update code must verify `checksums.txt` before installing anything.
 
+### U0 update contract bridge
+
+U0 is the read-only update contract bridge between release production and later
+updater implementation work. It provides shared language and pure helper
+contracts for normalizing release tags and versions, comparing current build
+metadata with a release candidate, selecting the expected platform archive,
+parsing and looking up sha256sum-compatible `checksums.txt` entries,
+classifying obvious local install targets, recording active combo state, and
+assembling a `ReadOnlyUpdatePlan`.
+
+U0 does not download, extract, replace, restart, or mutate active combo
+capsules. It does not add passive update notices, archive staging, binary
+replacement, or live capsule restart behavior. This means source checkouts and
+package-manager dev shims are non-auto-replaceable; future replacement code may
+only consider release archive installs whose executable path is under
+`combo-chen-vX.Y.Z/bin/combo-chen`.
+
+Parallel follow-up slices own the remaining updater behavior:
+
+- U1: release resolver and latest/beta check flow.
+- U2: download, checksum verification, and staging.
+- U3: install target and atomic replacement.
+- U4: active capsule guard.
+
 ## 8b. Parallelize-first operating contract
 
 Parallel operation scales by waves, not by unbounded launch. Start with 2 live
