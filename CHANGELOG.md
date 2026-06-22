@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.56](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.55...combo-chen-v0.0.56) (2026-06-22)
+
+
+### Bug Fixes
+
+* scope gatekeeper attach by branch ([ae72c8f](https://github.com/thellmwhisperer/combo-chen/commit/ae72c8f81590db70bd412409382ea755aec5537c))
+* scope no-mistakes gates by branch ([321db26](https://github.com/thellmwhisperer/combo-chen/commit/321db262890a45b5c9d8b710c5d78a0a6f79e050))
+
 ## [0.0.55](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.54...combo-chen-v0.0.55) (2026-06-22)
 
 
