@@ -1,5 +1,5 @@
 /**
- * @overview Contract tests for the public release artifact documentation.
+ * @overview Contract tests for the public release and update documentation.
  *
  *   READING GUIDE
  *   -------------
@@ -8,7 +8,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   README/spec markdown -> canonical release contract strings -> future updater guidance
+ *   README/spec markdown -> canonical release/update strings -> future updater guidance
  *
  *   PUBLIC API
  *   ----------
@@ -49,6 +49,22 @@ describe("release docs", () => {
       expect(doc).toContain("pnpm release:assets");
       expect(doc).toContain("published and prereleased GitHub releases");
       expect(doc).toContain("No network update or executable replacement behavior");
+    }
+  });
+
+  it("documents the U0 update bridge and follow-up updater slice boundaries", () => {
+    const readme = normalizeDoc(readDoc("README.md"));
+    const spec = normalizeDoc(readDoc("docs/spec.md"));
+
+    for (const doc of [readme, spec]) {
+      expect(doc).toContain("U0 update contract bridge");
+      expect(doc).toContain("ReadOnlyUpdatePlan");
+      expect(doc).toContain("source checkouts and package-manager dev shims are non-auto-replaceable");
+      expect(doc).toContain("does not download, extract, replace, restart, or mutate active combo capsules");
+      expect(doc).toContain("U1: release resolver and latest/beta check flow");
+      expect(doc).toContain("U2: download, checksum verification, and staging");
+      expect(doc).toContain("U3: install target and atomic replacement");
+      expect(doc).toContain("U4: active capsule guard");
     }
   });
 });

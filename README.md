@@ -255,6 +255,28 @@ No network update or executable replacement behavior is introduced here. This
 contract only defines and produces the artifacts that a future updater will
 verify and install.
 
+## U0 update contract bridge
+
+The U0 update contract bridge is a read-only vocabulary layer for the updater
+work that follows the release artifact producer. It defines shared types and
+pure helpers for release tag/version normalization, current build versus
+candidate comparison, platform asset selection, sha256sum-compatible checksum
+lookup, obvious install target classification, active combo state, and the
+aggregate `ReadOnlyUpdatePlan`.
+
+This slice does not download, extract, replace, restart, or mutate active combo
+capsules. It also does not introduce passive update notices or a live updater
+CLI. This means source checkouts and package-manager dev shims are
+non-auto-replaceable; only release archive paths shaped like
+`combo-chen-vX.Y.Z/bin/combo-chen` are eligible for a later replacement slice.
+
+Follow-up updater ownership:
+
+- U1: release resolver and latest/beta check flow.
+- U2: download, checksum verification, and staging.
+- U3: install target and atomic replacement.
+- U4: active capsule guard.
+
 ## Commands
 
 ```bash
