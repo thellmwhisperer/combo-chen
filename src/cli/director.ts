@@ -1,17 +1,18 @@
 /**
- * @overview Director CLI helpers. ~400 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~460 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at tickDirector          <- one deterministic observer pass (pre- and post-PR).
- *   2. Then runInitialGateRetryIfNeeded <- pre-PR gate failure recovery.
- *   3. Then runReadyForMergeIfNeeded <- current-head READY agreement.
- *   4. READY pure helpers            <- head, gate, and review predicates.
+ *   2. Then syncDirectorPrLabels     <- best-effort GitHub PR label projection.
+ *   3. Then runInitialGateRetryIfNeeded <- pre-PR gate failure recovery.
+ *   4. Then runReadyForMergeIfNeeded <- current-head READY agreement.
+ *   5. READY pure helpers            <- head, gate, and review predicates.
  *
  *   MAIN FLOW
  *   ---------
  *   runInitialGateRetryIfNeeded -> inspectWorkerPanes -> wait for PR -> tickReviewer -> nudgeReviewComments
- *     -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded
+ *     -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded -> syncDirectorPrLabels
  *
  *   PUBLIC API
  *   ----------
@@ -23,17 +24,18 @@
  *
  *   INTERNALS
  *   ---------
- *   runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
+ *   syncDirectorPrLabels, runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
  *   retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./reviewer, ./coder, ./worker-monitor
+ * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
  */
 import { deriveStatus } from "../core/combo.js";
 import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
+import { listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgeReviewComments } from "./coder.js";
@@ -47,6 +49,7 @@ import {
   startInitialGateRetry,
 } from "./gate.js";
 import { parsePrView } from "./github.js";
+import { syncComboPrLabels } from "./pr-labels.js";
 import { closurePendingReviewerEvent, livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
 import { CODER_WINDOW, REVIEWER_WINDOW } from "./sessions.js";
 import { inspectWorkerPanes } from "./worker-monitor.js";
@@ -110,6 +113,11 @@ export async function tickDirector(input: {
     });
     workerSummaries = workerInspection.summaries;
     if (workerInspection.escalated) {
+      const statusEvents = readEvents(runDir);
+      const prUrl = latestPrUrl(statusEvents);
+      if (prUrl !== undefined) {
+        syncDirectorPrLabels({ deps, combo, runDir, events: statusEvents, prUrl, config });
+      }
       emitTickComplete({
         deps,
         comboId,
@@ -118,6 +126,7 @@ export async function tickDirector(input: {
         pollSeconds: config.limits.babysitPollSeconds,
         readyRequiredChecks: config.readyRequiredChecks,
         ambientCheckNames: config.externalCommentAgents,
+        events: statusEvents,
         workerSummaries,
       });
       return;
@@ -125,7 +134,8 @@ export async function tickDirector(input: {
     events = readEvents(runDir);
   }
 
-  if (latestPrUrl(events) === undefined) {
+  const openedPrUrl = latestPrUrl(events);
+  if (openedPrUrl === undefined) {
     emitTickComplete({
       deps,
       comboId,
@@ -143,6 +153,7 @@ export async function tickDirector(input: {
   await tickReviewer({ deps, home, comboId, ghApiCache });
   const postReviewEvents = readEvents(runDir);
   if (terminalReviewerEvent(postReviewEvents) || closurePendingReviewerEvent(postReviewEvents)) {
+    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
     emitTickComplete({
       deps,
       comboId,
@@ -159,7 +170,7 @@ export async function tickDirector(input: {
 
   nudgeReviewComments({ deps, home, comboId, ghApiCache });
 
-  const prUrl = latestPrUrl(readEvents(runDir));
+  const prUrl = latestPrUrl(readEvents(runDir)) ?? openedPrUrl;
   if (prUrl !== undefined) {
     try {
       runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
@@ -173,6 +184,15 @@ export async function tickDirector(input: {
   }
 
   runReadyForMergeIfNeeded(deps, comboId);
+  const finalEvents = readEvents(runDir);
+  syncDirectorPrLabels({
+    deps,
+    combo,
+    runDir,
+    events: finalEvents,
+    prUrl,
+    config,
+  });
   emitTickComplete({
     deps,
     comboId,
@@ -181,10 +201,10 @@ export async function tickDirector(input: {
     pollSeconds: config.limits.babysitPollSeconds,
     readyRequiredChecks: config.readyRequiredChecks,
     ambientCheckNames: config.externalCommentAgents,
+    events: finalEvents,
     workerSummaries,
   });
 }
-// -/ 2/3
 
 // -- 3/3 HELPER · Initial gate retry and READY agreement --
 function emitTickComplete(input: {
@@ -246,6 +266,55 @@ function directorWatchPrSnapshot(
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function syncDirectorPrLabels(input: {
+  deps: DirectorDeps;
+  combo: ReturnType<typeof readCombo>;
+  runDir: string;
+  events: ComboEvent[];
+  prUrl: string;
+  config: {
+    coderRespondingWindowName: string;
+    readyRequiredChecks: string[];
+    externalCommentAgents: string[];
+    prLabelGreenCheckNames: string[];
+  };
+}): void {
+  try {
+    syncComboPrLabels({
+      gh: input.deps.gh,
+      runDir: input.runDir,
+      prUrl: input.prUrl,
+      events: input.events,
+      activity: livePrLabelActivity(input.deps, input.combo, input.config.coderRespondingWindowName),
+      requiredCheckNames: input.config.readyRequiredChecks,
+      ambientCheckNames: input.config.externalCommentAgents,
+      greenCheckNames: input.config.prLabelGreenCheckNames,
+      source: "director-watch",
+    });
+  } catch (error) {
+    input.deps.out(
+      `director: PR label sync failed for ${input.combo.id}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function livePrLabelActivity(
+  deps: Pick<DirectorDeps, "tmux">,
+  combo: ReturnType<typeof readCombo>,
+  coderRespondingWindowName: string,
+): { coderRespondingActive?: boolean; reviewerActive?: boolean; gateActive?: boolean } {
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) return {};
+  const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  return {
+    coderRespondingActive: windows.has(coderRespondingWindowName),
+    reviewerActive: windows.has(REVIEWER_WINDOW),
+    gateActive: windows.has(GATEKEEPER_WINDOW),
+  };
 }
 
 function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
