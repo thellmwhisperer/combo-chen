@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.53](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.52...combo-chen-v0.0.53) (2026-06-22)
+
+
+### Features
+
+* **update:** Implemented and verified the local staged-artifact install replacement primitive for issue [#179](https://github.com/thellmwhisperer/combo-chen/issues/179). ([b35f83a](https://github.com/thellmwhisperer/combo-chen/commit/b35f83a2e5ee9a903a38f928818364595677fd1a))
+
 ## [0.0.52](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.51...combo-chen-v0.0.52) (2026-06-22)
 
 
