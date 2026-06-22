@@ -1,6 +1,6 @@
 /**
  * @overview U2 update download, checksum verification, and staging primitives.
- *   ~240 lines, 13 exports, orchestrates only injectable network/filesystem/extraction boundaries.
+ *   ~356 lines, 13 exports, orchestrates only injectable network/filesystem/extraction boundaries.
  *
  *   READING GUIDE
  *   -------------
@@ -22,7 +22,8 @@
  *
  *   INTERNALS
  *   ---------
- *   resolveChecksumsText, failWithCleanup, cleanupPartial, sha256Hex, toBuffer, errorMessage.
+ *   resolveChecksumsText, expectedChecksumForAsset, failWithCleanup, cleanupPartial, sha256Hex, toBuffer,
+ *   errorMessage, validateSafePathComponent.
  *
  * @exports UpdateDownloadKind, UpdateDownloadRequest, UpdateExtractionInput, UpdateExtractionResult,
  *   UpdateStagingDeps, ResolvedUpdateAsset, ResolvedUpdateChecksums, ResolvedUpdateStagingPlan,
