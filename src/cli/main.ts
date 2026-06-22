@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,director,gatekeeper},
- *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./pr-labels, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
