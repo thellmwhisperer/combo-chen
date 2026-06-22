@@ -496,15 +496,15 @@ assembling a `ReadOnlyUpdatePlan`.
 U0 does not download, extract, replace, restart, or mutate active combo
 capsules. It does not add passive update notices, archive staging, binary
 replacement, or live capsule restart behavior. This means source checkouts and
-package-manager dev shims are non-auto-replaceable; future replacement code may
-only consider release archive installs whose executable path is under
-`combo-chen-vX.Y.Z/bin/combo-chen`.
+package-manager dev shims are non-auto-replaceable; the U3 replacement primitive
+(`replaceInstallTargetFromStagedArtifact`) only considers release archive
+installs whose executable path is under `combo-chen-vX.Y.Z/bin/combo-chen`.
 
 Parallel follow-up slices own the remaining updater behavior:
 
 - U1: release resolver and latest/beta check flow.
 - U2: download, checksum verification, and staging.
-- U3: install target and atomic replacement.
+- U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
 - U4: active capsule guard.
 
 ## 8b. Parallelize-first operating contract
