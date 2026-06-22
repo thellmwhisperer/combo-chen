@@ -346,6 +346,13 @@ function errorMessage(error: unknown): string {
 }
 
 function validateSafePathComponent(name: string): string {
+  if (name === "" || name === ".") {
+    throw new UpdateStagingError(`unsafe fileName: ${name}`, {
+      code: "unsafe_file_name",
+      cleanup: { attempted: false, path: "", removed: false },
+    });
+  }
+
   if (name.includes("..") || name.includes("/") || name.includes("\\")) {
     throw new UpdateStagingError(`unsafe fileName: ${name}`, {
       code: "unsafe_file_name",
