@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director-watch operator status formatting. ~95 lines,
+ * @overview Unit tests for director-watch operator status formatting. ~125 lines,
  *   phase age, PR facts, worker counters, readiness, and closure actions.
  *
  *   READING GUIDE
@@ -117,6 +117,36 @@ describe("buildDirectorWatchStatusLine", () => {
     expect(line).toContain("reviewer=missing");
     expect(line).toContain("ready=[pr:yes gate:no reviewer:no checks:no ci:yes]");
     expect(line).toContain('action="needs human: gate_failed"');
+  });
+
+  it("keeps degraded PR state unknown instead of routing to terminal waiting", () => {
+    const now = new Date("2026-06-22T12:00:00.000Z");
+    const line = buildDirectorWatchStatusLine({
+      comboId: "o-r-7",
+      cli: "node dist/cli.mjs",
+      now,
+      pollSeconds: 30,
+      events: [
+        event("combo_created", "2026-06-22T11:00:00.000Z", {
+          issue_url: "https://github.com/o/r/issues/7",
+        }),
+        event("pr_opened", "2026-06-22T11:50:00.000Z", {
+          url: "https://github.com/o/r/pull/7",
+        }),
+      ],
+      pr: {
+        state: "unknown",
+        polledAt: now,
+        error: "API rate limit exceeded",
+      },
+      workerSummaries: [],
+    });
+
+    expect(line).toContain("pr=unknown");
+    expect(line).toContain("gh=0s ago error:API rate limit exceeded next=30s");
+    expect(line).toContain("ready=[pr:unknown gate:unknown reviewer:unknown checks:unknown ci:unknown]");
+    expect(line).toContain('action="waiting for GitHub PR state"');
+    expect(line).not.toContain("waiting for terminal journal");
   });
 });
 // -/ 1/1
