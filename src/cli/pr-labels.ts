@@ -15,15 +15,16 @@
  *
  *   PUBLIC API
  *   ----------
- *   COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection
+ *   COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection,
+ *   ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult
  *   projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
  *
  *   INTERNALS
  *   ---------
  *   orderedLabels, current work label, stale/conflict/current-head predicates, GH label parsing
  *
- * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
- * @deps ../core/events, ./checks, ./github
+ * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
+ * @deps ../core/events, ./checks, ./github, ./reviewer
  */
 import { appendEvent, type ComboEvent } from "../core/events.js";
 import {
