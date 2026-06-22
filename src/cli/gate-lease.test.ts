@@ -23,7 +23,7 @@ import { acquireGateLease, readGateLease, releaseGateLease } from "../core/gate-
 import { ComboStateError, runDirFor, writeCombo } from "../core/state.js";
 import {
   acquireGateLeaseForCombo,
-  GATE_LEASE_BUSY_EXIT_CODE,
+  GATE_LEASE_CONFLICT_EXIT_CODE,
   releaseGateLeaseForCombo,
 } from "./gate-lease.js";
 
@@ -66,7 +66,7 @@ describe("gate lease CLI actions", () => {
     });
 
     expect(result.state).toBe("same_branch_conflict");
-    expect(result.exitCode).not.toBe(GATE_LEASE_BUSY_EXIT_CODE);
+    expect(result.exitCode).toBe(GATE_LEASE_CONFLICT_EXIT_CODE);
     expect(readGateLease(h)?.comboId).toBe("o-r-7");
     expect(readEvents(conflictRunDir)).toEqual([
       expect.objectContaining({
