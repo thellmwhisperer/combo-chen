@@ -500,11 +500,30 @@ package-manager dev shims are non-auto-replaceable; the U3 replacement primitive
 (`replaceInstallTargetFromStagedArtifact`) only considers release archive
 installs whose executable path is under `combo-chen-vX.Y.Z/bin/combo-chen`.
 
-Parallel follow-up slices own the remaining updater behavior:
+### U2 download, checksum verification, and staging
 
-- U1: release resolver and latest/beta check flow.
+U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
+verification, and isolated extraction for a resolved update plan.  The
+`stageResolvedUpdate` primitive downloads the selected archive asset and
+`checksums.txt`, verifies the digest before extraction, extracts into an
+isolated staging directory, and returns a `StagedUpdateArtifact` descriptor
+with archive paths, checksums, and extracted executable metadata for the
+future replacement slice.  All network and filesystem operations are injected
+behind `UpdateStagingDeps` so tests can run with mock downloads, filesystem
+calls, and extraction.  Checksum mismatches, missing entries, unavailable
+checksums, malformed `checksums.txt`, archive download failures, and extraction
+failures are reported deterministically through `UpdateStagingError` with
+cleanup status.  U2 does not resolve releases, compare versions, classify
+install targets, replace binaries, or detect active combo sessions.
+
+Completed updater slices:
+
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
+
+Remaining follow-up slices:
+
+- U1: release resolver and latest/beta check flow.
 - U4: active capsule guard.
 
 ## 8b. Parallelize-first operating contract

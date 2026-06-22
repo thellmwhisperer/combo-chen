@@ -255,26 +255,45 @@ No network update or executable replacement behavior is introduced here. This
 contract only defines and produces the artifacts that a future updater will
 verify and install.
 
-## U0 update contract bridge
+## U0 update contract bridge and updater slices
 
-The U0 update contract bridge is a read-only vocabulary layer for the updater
-work that follows the release artifact producer. It defines shared types and
-pure helpers for release tag/version normalization, current build versus
-candidate comparison, platform asset selection, sha256sum-compatible checksum
-lookup, obvious install target classification, active combo state, and the
-aggregate `ReadOnlyUpdatePlan`.
+U0, U2, and U3 together span the updater contract from release identity through
+verified staging and replacement eligibility.  U0 is the read-only vocabulary
+layer: it defines shared types and pure helpers for release tag/version
+normalization, current build versus candidate comparison, platform asset
+selection, sha256sum-compatible checksum lookup, obvious install target
+classification, active combo state, and the aggregate `ReadOnlyUpdatePlan`.
 
-This slice does not download, extract, replace, restart, or mutate active combo
-capsules. It also does not introduce passive update notices or a live updater
-CLI. This means source checkouts and package-manager dev shims are
-non-auto-replaceable; only release archive paths shaped like
-`combo-chen-vX.Y.Z/bin/combo-chen` are eligible for replacement.
+U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
+verification, and isolated extraction primitives.  It accepts a resolved update
+plan or fixture, downloads the archive and `checksums.txt`, verifies the digest
+before extraction, extracts into an isolated staging directory, and returns a
+`StagedUpdateArtifact` descriptor with enough metadata for the future
+replacement slice.  All network and filesystem operations are injected through
+`UpdateStagingDeps` so tests run without real I/O.  Checksum mismatches, missing
+entries, unavailable checksums, and extraction failures are reported
+deterministically with cleanup status.
 
-Follow-up updater ownership:
+U0 itself does not download, extract, replace, restart, or mutate active combo
+capsules.
 
-- U1: release resolver and latest/beta check flow.
+U3 (`replaceInstallTargetFromStagedArtifact`) implements install target and
+atomic replacement for staged release archive installs.  This means source
+checkouts and package-manager dev shims are non-auto-replaceable; only release
+archive paths shaped like `combo-chen-vX.Y.Z/bin/combo-chen` are eligible for
+replacement.
+
+These slices do not resolve releases, restart active combo capsules, or mutate
+active combo runtime state.
+
+Completed updater slices:
+
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
+
+Remaining follow-up slices:
+
+- U1: release resolver and latest/beta check flow.
 - U4: active capsule guard.
 
 ## Commands
