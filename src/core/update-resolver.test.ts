@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the read-only GitHub Releases update resolver.
- *   ~250 lines, no exports, pins latest stable/prerelease candidate selection and read-only plan comparison.
+ *   ~283 lines, no exports, pins latest stable/prerelease candidate selection and read-only plan comparison.
  *
  *   READING GUIDE
  *   -------------
