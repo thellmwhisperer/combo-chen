@@ -154,6 +154,15 @@ export async function stageResolvedUpdate(input: {
     );
     await input.deps.writeFile(archivePath, archiveBytes);
 
+    if (input.plan.checksums.text === undefined && input.plan.checksums.downloadUrl === undefined) {
+      await failWithCleanup({
+        code: "checksums_unavailable",
+        message: "checksums.txt text or downloadUrl is required",
+        stagingDir: input.stagingDir,
+        deps: input.deps,
+      });
+    }
+
     const checksumsText = await resolveChecksumsText({
       checksums: input.plan.checksums,
       fileName: checksumsFileName,
