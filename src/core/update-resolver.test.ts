@@ -102,6 +102,28 @@ describe("update release resolver", () => {
     });
   });
 
+  it("uses GitHub prerelease metadata for stable-looking tags in beta mode", () => {
+    expect(
+      resolveLatestReleaseCandidate({
+        mode: "beta",
+        releases: [release("v2.0.0", true), release("v1.9.0")],
+      }),
+    ).toMatchObject({
+      status: "found",
+      mode: "beta",
+      candidate: {
+        tagName: "v2.0.0",
+        prerelease: true,
+        normalized: {
+          tagName: "v2.0.0",
+          version: "2.0.0",
+          channel: "prerelease",
+          prerelease: [],
+        },
+      },
+    });
+  });
+
   it("reports missing_release when no release is eligible for the selected mode", () => {
     expect(
       resolveLatestReleaseCandidate({
