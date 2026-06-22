@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the event journal subsystem. ~375 lines, testing
+ * @overview Unit tests for the event journal subsystem. ~400 lines, testing
  *   event schema validation, JSONL append/read, PR-open idempotence, append locking, legacy alias
  *   mapping, torn-line tolerance, and the async follow/followEvents stream.
  *
@@ -65,6 +65,7 @@ describe("event schema", () => {
         "gate_validated",
         "gate_stale",
         "pr_opened",
+        "pr_labels_updated",
         "pr_autoclose_failed",
         "needs_human",
         "director_prompted",
@@ -96,6 +97,15 @@ describe("event schema", () => {
     expect(EVENT_TYPES.gate_status.required).toEqual(["state"]);
     expect(EVENT_TYPES.gate_validated.required).toEqual(["sha"]);
     expect(EVENT_TYPES.gate_stale.required).toEqual(["old_sha", "new_sha"]);
+    expect(EVENT_TYPES.pr_labels_updated.required).toEqual([
+      "pr_url",
+      "head_sha",
+      "old_labels",
+      "new_labels",
+      "added_labels",
+      "removed_labels",
+      "reason",
+    ]);
     expect(EVENT_TYPES.pr_autoclose_failed.required).toEqual(["exit_code", "url"]);
     expect(EVENT_TYPES.director_prompted.required).toEqual(["reason", "target"]);
     expect(EVENT_TYPES.review_comment.required).toEqual(["author", "kind", "url"]);
@@ -233,6 +243,15 @@ describe("journal", () => {
     appendEvent(dir, "address_noop", { head_sha: "abc123" });
     appendEvent(dir, "gate_validated", { sha: "abc123", source: "no-mistakes" });
     appendEvent(dir, "gate_stale", { old_sha: "abc123", new_sha: "def456" });
+    appendEvent(dir, "pr_labels_updated", {
+      pr_url: "https://github.com/o/r/pull/7",
+      head_sha: "def456",
+      old_labels: ["combo:lgtm"],
+      new_labels: ["combo:ready"],
+      added_labels: ["combo:ready"],
+      removed_labels: ["combo:lgtm"],
+      reason: "current",
+    });
     appendEvent(dir, "lgtm", { sha: "abc123" });
     appendEvent(dir, "lgtm_stale", { old_sha: "abc123", new_sha: "def456" });
     appendEvent(dir, "ready_for_merge", {
@@ -249,6 +268,7 @@ describe("journal", () => {
       "address_noop",
       "gate_validated",
       "gate_stale",
+      "pr_labels_updated",
       "lgtm",
       "lgtm_stale",
       "ready_for_merge",
