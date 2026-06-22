@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.55](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.54...combo-chen-v0.0.55) (2026-06-22)
+
+
+### Features
+
+* **update:** Added the first read-only GitHub Releases resolver slice for issue [#181](https://github.com/thellmwhisperer/combo-chen/issues/181), covering stable and beta latest-release selection with tests. ([d976b37](https://github.com/thellmwhisperer/combo-chen/commit/d976b37ddda274249a3dc8aab79ed4e75f0342c0))
+* **update:** Implemented the next read-only update-plan slice that compares the selected release against current build metadata and returns distinct plan states/errors. ([3e0c480](https://github.com/thellmwhisperer/combo-chen/commit/3e0c4804e4fe6582519da9db09b19ebad2d5e4de))
+
+
+### Bug Fixes
+
+* **update:** Added the read-only asset-planning slice for issue [#181](https://github.com/thellmwhisperer/combo-chen/issues/181) and validated the full suite green. ([d831b96](https://github.com/thellmwhisperer/combo-chen/commit/d831b965a21132df741ce0c0eb2cf220f6cdb1c3))
+* **update:** preserve normalized release values ([acc0cad](https://github.com/thellmwhisperer/combo-chen/commit/acc0cadca22c854962e23f1e9672c7c431d39cae))
+
 ## [0.0.54](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.53...combo-chen-v0.0.54) (2026-06-22)
 
 
