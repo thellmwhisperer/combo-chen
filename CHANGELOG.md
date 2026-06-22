@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.57](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.56...combo-chen-v0.0.57) (2026-06-22)
+
+
+### Features
+
+* **director-watch:** Implemented the director-watch operator status line and validated the issue acceptance criteria with the full suite green. ([1f024d4](https://github.com/thellmwhisperer/combo-chen/commit/1f024d40002dfe1baafc57619d12f0da4f9e7f9c))
+
+
+### Bug Fixes
+
+* **director-watch:** preserve unknown PR state ([5864e52](https://github.com/thellmwhisperer/combo-chen/commit/5864e5297fdd4fe67835a6b0ccfe3b91434373a5))
+
 ## [0.0.56](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.55...combo-chen-v0.0.56) (2026-06-22)
 
 
