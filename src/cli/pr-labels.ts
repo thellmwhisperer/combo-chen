@@ -1,38 +1,40 @@
 /**
  * @overview Combo PR label projection helpers.
- *   ~220 lines, pure desired-label and diff logic for GitHub PR labels.
+ *   ~414 lines, deterministic desired-label, diff, and GitHub mutation helpers.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at projectComboPrLabels     <- journal + live PR facts to labels.
  *   2. Then diffComboPrLabels            <- idempotent GitHub label add/remove plan.
- *   3. Bottom helpers                    <- current-head, stale, and check predicates.
+ *   3. Then syncComboPrLabels            <- fetch live labels, mutate GitHub, journal metadata.
+ *   4. Bottom helpers                    <- current-head, stale, checks, and parsing.
  *
  *   MAIN FLOW
  *   ---------
- *   journal events + gh pr view/check facts -> combo:* labels -> add/remove diff
+ *   journal events + gh pr view/check facts -> combo:* labels -> add/remove diff -> optional gh edit + journal
  *
  *   PUBLIC API
  *   ----------
  *   COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection
- *   projectComboPrLabels, diffComboPrLabels, isComboPrLabel
+ *   projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
  *
  *   INTERNALS
  *   ---------
- *   orderedLabels, current work label, stale/conflict/current-head predicates
+ *   orderedLabels, current work label, stale/conflict/current-head predicates, GH label parsing
  *
- * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, projectComboPrLabels, diffComboPrLabels, isComboPrLabel
- * @deps ../core/events, ./checks
+ * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
+ * @deps ../core/events, ./checks, ./github
  */
-import type { ComboEvent } from "../core/events.js";
+import { appendEvent, type ComboEvent } from "../core/events.js";
 import {
   checkNameMatchesAny,
   checkRollupSucceeded,
   checkSignalIsSuccess,
   requiredChecksSucceeded,
 } from "./checks.js";
+import type { GhRunner } from "./github.js";
 
-// -- 1/3 CORE - label catalogue + public types <- START HERE --
+// -- 1/4 CORE - label catalogue + public types <- START HERE --
 export const COMBO_PR_LABELS = [
   "combo:working-coder",
   "combo:working-reviewer",
@@ -77,15 +79,37 @@ export interface ComboPrLabelDiff {
   remove: ComboPrLabel[];
 }
 
+export interface SyncComboPrLabelsInput {
+  gh: GhRunner;
+  runDir: string;
+  prUrl: string;
+  events: ComboEvent[];
+  activity?: ComboPrLabelProjectionInput["activity"];
+  requiredCheckNames?: string[];
+  ambientCheckNames?: string[];
+  codeRabbitCheckNames?: string[];
+  source?: string;
+}
+
+export interface SyncComboPrLabelsResult {
+  prUrl: string;
+  oldLabels: string[];
+  newLabels: ComboPrLabel[];
+  projection: ComboPrLabelProjection;
+  diff: ComboPrLabelDiff;
+  changed: boolean;
+}
+
 const COMBO_PR_LABEL_SET = new Set<string>(COMBO_PR_LABELS);
 const DEFAULT_CODERABBIT_CHECK_NAMES = ["CodeRabbit"];
+const PR_LABEL_VIEW_FIELDS = "headRefOid,state,mergeStateStatus,statusCheckRollup,labels";
 
 export function isComboPrLabel(label: string): label is ComboPrLabel {
   return COMBO_PR_LABEL_SET.has(label);
 }
-// -/ 1/3
+// -/ 1/4
 
-// -- 2/3 CORE - projection + diff --
+// -- 2/4 CORE - projection + diff --
 export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboPrLabelProjection {
   const labels = new Set<ComboPrLabel>();
   const headSha = input.pr.headSha;
@@ -137,9 +161,68 @@ function orderedLabels(labels: Iterable<ComboPrLabel>): ComboPrLabel[] {
   const set = new Set(labels);
   return COMBO_PR_LABELS.filter((label) => set.has(label));
 }
-// -/ 2/3
+// -/ 2/4
 
-// -- 3/3 HELPER - current-head and check predicates --
+// -- 3/4 CORE - GitHub mutation + journal metadata --
+export function syncComboPrLabels(input: SyncComboPrLabelsInput): SyncComboPrLabelsResult {
+  const current = fetchComboPrLabelView(input.gh, input.prUrl);
+  const projection = projectComboPrLabels({
+    events: input.events,
+    pr: current.pr,
+    activity: input.activity,
+    requiredCheckNames: input.requiredCheckNames,
+    ambientCheckNames: input.ambientCheckNames,
+    codeRabbitCheckNames: input.codeRabbitCheckNames,
+  });
+  const diff = diffComboPrLabels(current.labels, projection.labels);
+
+  if (diff.remove.length > 0) {
+    editPrLabels(input.gh, input.prUrl, "--remove-label", diff.remove);
+  }
+  if (diff.add.length > 0) {
+    editPrLabels(input.gh, input.prUrl, "--add-label", diff.add);
+  }
+
+  const changed = diff.add.length > 0 || diff.remove.length > 0;
+  if (changed) {
+    appendEvent(input.runDir, "pr_labels_updated", {
+      pr_url: input.prUrl,
+      head_sha: projection.headSha,
+      old_labels: current.labels,
+      new_labels: projection.labels,
+      added_labels: diff.add,
+      removed_labels: diff.remove,
+      reason: projection.reason,
+      ...(input.source !== undefined ? { source: input.source } : {}),
+    });
+  }
+
+  return {
+    prUrl: input.prUrl,
+    oldLabels: current.labels,
+    newLabels: projection.labels,
+    projection,
+    diff,
+    changed,
+  };
+}
+
+function editPrLabels(
+  gh: GhRunner,
+  prUrl: string,
+  flag: "--add-label" | "--remove-label",
+  labels: ComboPrLabel[],
+): void {
+  if (labels.length === 0) return;
+  const result = gh(["pr", "edit", prUrl, flag, labels.join(",")]);
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || "gh pr edit failed";
+    throw new Error(`PR label update failed for ${prUrl}: ${detail}`);
+  }
+}
+// -/ 3/4
+
+// -- 4/4 HELPER - current-head, check predicates, and GH parsing --
 function currentWorkLabel(
   events: ComboEvent[],
   headSha: string,
@@ -262,4 +345,70 @@ function stringField(event: ComboEvent, field: string): string | undefined {
   const value = event[field];
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
-// -/ 3/3
+
+function fetchComboPrLabelView(
+  gh: GhRunner,
+  prUrl: string,
+): { pr: ComboPrLabelProjectionInput["pr"]; labels: string[] } {
+  const result = gh(["pr", "view", prUrl, "--json", PR_LABEL_VIEW_FIELDS]);
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || "gh pr view failed";
+    throw new Error(`PR labels not reachable for ${prUrl}: ${detail}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(result.stdout) as unknown;
+  } catch (error) {
+    throw new Error(
+      `PR labels not readable for ${prUrl}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error(`PR labels not readable for ${prUrl}: gh pr view returned invalid JSON`);
+  }
+
+  const record = parsed as Record<string, unknown>;
+  const headRefOid = record["headRefOid"];
+  if (typeof headRefOid !== "string" || headRefOid.trim() === "") {
+    throw new Error(`PR labels not readable for ${prUrl}: missing headRefOid`);
+  }
+  const state = record["state"];
+  const mergeStateStatus = record["mergeStateStatus"];
+  const statusCheckRollup = record["statusCheckRollup"];
+  return {
+    pr: {
+      headSha: headRefOid,
+      state: typeof state === "string" && state.trim() !== "" ? state : "OPEN",
+      ...(typeof mergeStateStatus === "string" && mergeStateStatus.trim() !== ""
+        ? { mergeStateStatus }
+        : {}),
+      ...(Array.isArray(statusCheckRollup) ? { statusCheckRollup } : {}),
+    },
+    labels: labelNames(record["labels"]),
+  };
+}
+
+function labelNames(labels: unknown): string[] {
+  if (!Array.isArray(labels)) return [];
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const label of labels) {
+    const name = labelName(label);
+    if (name === undefined || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+function labelName(label: unknown): string | undefined {
+  if (typeof label === "string") {
+    const trimmed = label.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof label !== "object" || label === null) return undefined;
+  const name = (label as { name?: unknown }).name;
+  return typeof name === "string" && name.trim() !== "" ? name : undefined;
+}
+// -/ 4/4

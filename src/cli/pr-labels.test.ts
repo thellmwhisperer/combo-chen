@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~175 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~289 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
@@ -23,10 +23,14 @@
  * @exports none
  * @deps vitest, ../core/events, ./pr-labels
  */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { ComboEvent } from "../core/events.js";
-import { diffComboPrLabels, projectComboPrLabels } from "./pr-labels.js";
+import { readEvents, type ComboEvent } from "../core/events.js";
+import type { GhResult } from "./github.js";
+import { diffComboPrLabels, projectComboPrLabels, syncComboPrLabels } from "./pr-labels.js";
 
 // -- 1/1 CORE - label projection tests <- START HERE --
 const OLD_HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -43,6 +47,14 @@ function checkRun(name: string, conclusion: string): unknown {
 
 function labels(input: Parameters<typeof projectComboPrLabels>[0]): string[] {
   return projectComboPrLabels(input).labels;
+}
+
+function runDir(): string {
+  return mkdtempSync(join(tmpdir(), "combo-chen-pr-labels-"));
+}
+
+function ghOk(stdout: unknown = ""): GhResult {
+  return { status: 0, stdout: typeof stdout === "string" ? stdout : JSON.stringify(stdout), stderr: "" };
 }
 
 describe("combo PR label projection", () => {
@@ -190,6 +202,88 @@ describe("combo PR label projection", () => {
       add: ["combo:conflict"],
       remove: ["combo:lgtm", "combo:coderabbit-green", "combo:ready"],
     });
+  });
+
+  it("applies an idempotent fake-GitHub label diff and journals mutation metadata", () => {
+    const calls: string[][] = [];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: [{ name: "combo:ready" }, { name: "documentation" }],
+          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+        });
+      }
+      if (args[0] === "pr" && args[1] === "edit") return ghOk();
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    const result = syncComboPrLabels({
+      gh,
+      runDir: dir,
+      prUrl: PR_URL,
+      events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+      codeRabbitCheckNames: ["CodeRabbit"],
+      source: "test",
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.diff).toEqual({
+      add: ["combo:lgtm", "combo:coderabbit-green"],
+      remove: ["combo:ready"],
+    });
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:coderabbit-green"],
+    ]);
+    expect(readEvents(dir)).toHaveLength(1);
+    expect(readEvents(dir)[0]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["combo:ready", "documentation"],
+      new_labels: ["combo:lgtm", "combo:coderabbit-green"],
+      added_labels: ["combo:lgtm", "combo:coderabbit-green"],
+      removed_labels: ["combo:ready"],
+      reason: "current",
+      source: "test",
+    });
+  });
+
+  it("skips GitHub mutations and journal writes when live labels already match", () => {
+    const calls: string[][] = [];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: [{ name: "combo:lgtm" }, { name: "combo:coderabbit-green" }],
+          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+        });
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    const result = syncComboPrLabels({
+      gh,
+      runDir: dir,
+      prUrl: PR_URL,
+      events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+      codeRabbitCheckNames: ["CodeRabbit"],
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.diff).toEqual({ add: [], remove: [] });
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+    ]);
+    expect(readEvents(dir)).toEqual([]);
   });
 });
 // -/ 1/1
