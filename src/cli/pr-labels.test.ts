@@ -132,7 +132,7 @@ describe("combo PR label projection", () => {
     ).toEqual(["combo:lgtm", "combo:coderabbit-green", "combo:ready"]);
   });
 
-  it("uses configured ambient check names for the CodeRabbit-equivalent label before the fallback", () => {
+  it("uses explicit configured check names for the CodeRabbit-equivalent label before the fallback", () => {
     expect(
       labels({
         events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
@@ -144,7 +144,7 @@ describe("combo PR label projection", () => {
             checkRun("ReviewDog", "SUCCESS"),
           ],
         },
-        ambientCheckNames: ["ReviewDog"],
+        codeRabbitCheckNames: ["ReviewDog"],
       }),
     ).toEqual(["combo:lgtm", "combo:coderabbit-green"]);
   });

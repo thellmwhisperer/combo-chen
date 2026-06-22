@@ -95,6 +95,8 @@ export interface ComboConfig {
   externalCommentAgents: string[];
   /** GitHub check names that must be present with SUCCESS before READY. */
   readyRequiredChecks: string[];
+  /** GitHub check names that satisfy the combo:coderabbit-green PR label. Empty means use the label fallback. */
+  codeRabbitCheckNames: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
   /** Regex sources used to detect interactive permission prompts in worker panes. */
@@ -188,6 +190,9 @@ const DEFAULTS = {
   },
   ready: {
     required_checks: [],
+  },
+  pr_labels: {
+    code_rabbit_check_names: [],
   },
   monitor: {
     worker_stall_ticks: 3,
@@ -422,6 +427,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
   let externalCommentsTable: TomlTable = { ...DEFAULTS.external_comments };
   let readyTable: TomlTable = { ...DEFAULTS.ready };
+  let prLabelsTable: TomlTable = { ...DEFAULTS.pr_labels };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerPrompt = DEFAULT_REVIEWER_PROMPT;
   let reviewerLogins: string[] | undefined;
@@ -506,6 +512,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         ...asTable(layer.table["external_comments"], `[external_comments] in ${layer.source}`),
       };
     }
+    if (layer.table["pr_labels"] !== undefined) {
+      prLabelsTable = {
+        ...prLabelsTable,
+        ...asTable(layer.table["pr_labels"], `[pr_labels] in ${layer.source}`),
+      };
+    }
     if (layer.table["monitor"] !== undefined) {
       monitorTable = {
         ...monitorTable,
@@ -568,6 +580,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "external_comments.agents",
     );
   }
+  if (env["COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES"] !== undefined) {
+    prLabelsTable["code_rabbit_check_names"] = parseEnvStringArray(
+      env["COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES"],
+      "pr_labels.code_rabbit_check_names",
+    );
+  }
   if (env["COMBO_CHEN_REVIEWER_LOGINS"] !== undefined) {
     reviewerLogins = parseEnvStringArray(
       env["COMBO_CHEN_REVIEWER_LOGINS"],
@@ -618,6 +636,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const externalCommentAgents = [...new Set([...configuredAgents, ...legacyAmbient])];
   const readyRequiredChecks = [...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks"))];
+  const codeRabbitCheckNames = [
+    ...new Set(pickStringArray(prLabelsTable["code_rabbit_check_names"], "pr_labels.code_rabbit_check_names")),
+  ];
   const workerPermissionPromptPatterns = pickNonEmptyStringArray(
     monitorTable["permission_prompt_patterns"],
     "monitor.permission_prompt_patterns",
@@ -703,6 +724,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerLogins: [...new Set(reviewerLogins ?? [reviewerAgent])],
     externalCommentAgents: [...new Set(externalCommentAgents)],
     readyRequiredChecks,
+    codeRabbitCheckNames,
     workerStallTicks: pickPositiveInteger(
       monitorTable,
       "worker_stall_ticks",

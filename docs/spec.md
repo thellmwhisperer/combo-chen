@@ -611,7 +611,7 @@ projection only; the journal and GitHub checks remain the source of truth.
 | `combo:working-reviewer` | Reviewer window is active and no higher-priority work is underway. |
 | `combo:working-gate` | Gatekeeper window is active or a `gate_started` journal entry is the latest gate event. |
 | `combo:lgtm` | A current-head SHA-pinned LGTM exists from a configured reviewer login. |
-| `combo:coderabbit-green` | CodeRabbit (or configured equivalent) check is SUCCESS for the current head. |
+| `combo:coderabbit-green` | A `[pr_labels].code_rabbit_check_names` check is SUCCESS for the current head, or the built-in CodeRabbit fallback is SUCCESS when no check names are configured. |
 | `combo:ready` | All current-head READY signals agree: gate, reviewer LGTM, required checks, and remaining CI. |
 | `combo:stale` | One or more current-head signals (LGTM, gate, READY) are pinned to an older SHA. Removed when signals realign. |
 | `combo:conflict` | GitHub reports the PR merge state as DIRTY or CONFLICTING. |

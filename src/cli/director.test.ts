@@ -589,9 +589,14 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: headSha,
-      rollup: [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "FAILURE" },
+        { __typename: "CheckRun", name: "Rabbit Pro", status: "COMPLETED", conclusion: "SUCCESS" },
+      ],
       codeRabbitComments: [],
       prLabels: [{ name: "documentation" }],
+      env: { COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES: "Rabbit Pro" },
     });
     deps.tmux = (args) => {
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
@@ -608,7 +613,7 @@ describe("tickDirector", () => {
       "edit",
       "https://github.com/o/r/pull/7",
       "--add-label",
-      "combo:working-reviewer",
+      "combo:working-reviewer,combo:coderabbit-green",
     ]);
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
@@ -616,8 +621,8 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
         head_sha: headSha,
         old_labels: ["documentation"],
-        new_labels: ["documentation", "combo:working-reviewer"],
-        added_labels: ["combo:working-reviewer"],
+        new_labels: ["documentation", "combo:working-reviewer", "combo:coderabbit-green"],
+        added_labels: ["combo:working-reviewer", "combo:coderabbit-green"],
         removed_labels: [],
         reason: "current",
         source: "director-watch",

@@ -101,6 +101,12 @@ command = "claude {prompt}"
 # Environment override: COMBO_CHEN_READY_REQUIRED_CHECKS.
 required_checks = ["CodeRabbit"]
 
+[pr_labels]
+# Check names that satisfy the combo:coderabbit-green PR label. Leave unset to
+# fall back to the built-in CodeRabbit check name.
+# Environment override: COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES.
+code_rabbit_check_names = ["CodeRabbit"]
+
 [coder_responding]
 window_name = "coder-responding"
 # {placeholders}: author, kind, url.
