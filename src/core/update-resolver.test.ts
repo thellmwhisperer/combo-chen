@@ -1,14 +1,15 @@
 /**
  * @overview Unit tests for the read-only GitHub Releases update resolver.
- *   ~100 lines, no exports, pins latest stable/prerelease candidate selection.
+ *   ~180 lines, no exports, pins latest stable/prerelease candidate selection and read-only plan comparison.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveLatestReleaseCandidate tests <- resolver mode contract.
+ *   2. Then resolveReadOnlyUpdatePlan tests          <- current build comparison contract.
  *
  *   MAIN FLOW
  *   ---------
- *   mocked GitHub Releases metadata -> resolver mode filter -> normalized latest candidate
+ *   mocked GitHub Releases metadata + current build -> normalized latest candidate -> read-only plan
  *
  *   PUBLIC API
  *   ----------
@@ -23,7 +24,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { resolveLatestReleaseCandidate, type GitHubReleaseMetadata } from "./update-resolver.js";
+import {
+  resolveLatestReleaseCandidate,
+  resolveReadOnlyUpdatePlan,
+  type GitHubReleaseMetadata,
+} from "./update-resolver.js";
 
 // -- 1/1 CORE · GitHub Releases resolver contract <- START HERE --
 function release(tagName: string, prerelease = false): GitHubReleaseMetadata {
@@ -97,6 +102,95 @@ describe("update release resolver", () => {
     ).toEqual({
       status: "missing_release",
       mode: "stable",
+      reason: "no stable GitHub release found",
+    });
+  });
+
+  it("returns an update_available read-only plan when the candidate is newer", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        releases: [release("v1.3.0"), release("v1.1.9")],
+      }),
+    ).toMatchObject({
+      status: "update_available",
+      mode: "stable",
+      readOnly: true,
+      candidate: { tagName: "v1.3.0" },
+      comparison: {
+        state: "update_available",
+        current: { version: "1.2.0" },
+        candidate: { version: "1.3.0" },
+      },
+      plan: {
+        readOnly: true,
+        current: { version: "1.2.0", commit: "abc1234" },
+        candidate: { tagName: "v1.3.0" },
+        comparison: { state: "update_available" },
+      },
+    });
+  });
+
+  it("returns current when the selected release matches the current build", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "1.3.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        releases: [release("v1.3.0"), release("v1.2.9")],
+      }),
+    ).toMatchObject({
+      status: "current",
+      readOnly: true,
+      comparison: {
+        state: "current",
+        current: { version: "1.3.0" },
+        candidate: { version: "1.3.0" },
+      },
+    });
+  });
+
+  it("returns candidate_older when the latest eligible release is older than the current build", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "1.4.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        releases: [release("v1.3.0"), release("v1.2.9")],
+      }),
+    ).toMatchObject({
+      status: "candidate_older",
+      readOnly: true,
+      comparison: {
+        state: "candidate_older",
+        current: { version: "1.4.0" },
+        candidate: { version: "1.3.0" },
+      },
+    });
+  });
+
+  it("distinguishes dev or unversioned current builds from missing releases", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "dev", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        releases: [release("v1.3.0")],
+      }),
+    ).toEqual({
+      status: "unversioned_current_build",
+      mode: "stable",
+      readOnly: true,
+      current: { version: "dev", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+      reason: "current build version is not a combo-chen release version: dev",
+    });
+  });
+
+  it("carries missing_release through the read-only plan boundary", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "1.3.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        releases: [release("v2.0.0-beta.1", true)],
+      }),
+    ).toEqual({
+      status: "missing_release",
+      mode: "stable",
+      readOnly: true,
+      current: { version: "1.3.0", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
       reason: "no stable GitHub release found",
     });
   });

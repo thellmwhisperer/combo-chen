@@ -1,20 +1,22 @@
 /**
  * @overview Read-only resolver for GitHub Releases update metadata.
- *   ~170 lines, 9 exports, selects the latest eligible release candidate without I/O.
+ *   ~250 lines, 15 exports, selects the latest eligible release candidate and compares it with current build metadata.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveLatestReleaseCandidate <- resolver mode and candidate selection.
- *   2. Then normalizeCandidate                <- U0 tag normalization bridge.
- *   3. Then compareNormalizedCandidates       <- semver ordering for mocked release data.
+ *   2. Then resolveReadOnlyUpdatePlan         <- read-only candidate/current comparison.
+ *   3. Then normalizeCandidate                <- U0 tag normalization bridge.
+ *   4. Then compareNormalizedCandidates       <- semver ordering for mocked release data.
  *
  *   MAIN FLOW
  *   ---------
- *   GitHub Releases metadata -> mode/draft filter -> U0-normalized candidates -> latest candidate or missing_release
+ *   GitHub Releases metadata + current build -> latest candidate -> comparison-backed read-only plan
  *
  *   PUBLIC API
  *   ----------
  *   resolveLatestReleaseCandidate  Select the latest eligible release candidate.
+ *   resolveReadOnlyUpdatePlan      Compose a read-only update decision.
  *   UpdateReleaseResolverMode      Stable-only or beta-inclusive resolver mode.
  *   GitHubReleaseAssetMetadata     Minimal GitHub release asset facts.
  *   GitHubReleaseMetadata          Minimal GitHub release facts.
@@ -23,21 +25,36 @@
  *   FoundUpdateReleaseResolution   Successful resolver result.
  *   MissingUpdateReleaseResolution Missing-release resolver result.
  *   UpdateReleaseResolution        Resolver result union.
+ *   ReadOnlyUpdatePlanInput        Plan input facts.
+ *   ComparedReadOnlyUpdatePlan     Successful compared plan result.
+ *   MissingReleaseReadOnlyUpdatePlan Missing-release plan result.
+ *   UnversionedCurrentBuildReadOnlyUpdatePlan Dev/unversioned current build result.
+ *   ReadOnlyUpdatePlanResolution   Read-only plan result union.
  *
  *   INTERNALS
  *   ---------
- *   normalizeCandidate, compareNormalizedCandidates, comparePrereleaseIdentifiers, isNumericIdentifier
+ *   currentBuildVersionError, normalizeCandidate, compareNormalizedCandidates, comparePrereleaseIdentifiers, isNumericIdentifier
  *
- * @exports UpdateReleaseResolverMode, GitHubReleaseAssetMetadata, GitHubReleaseMetadata, ResolvedUpdateReleaseCandidate, UpdateReleaseResolverInput, FoundUpdateReleaseResolution, MissingUpdateReleaseResolution, UpdateReleaseResolution, resolveLatestReleaseCandidate
+ * @exports UpdateReleaseResolverMode, GitHubReleaseAssetMetadata, GitHubReleaseMetadata,
+ *   ResolvedUpdateReleaseCandidate, UpdateReleaseResolverInput, FoundUpdateReleaseResolution,
+ *   MissingUpdateReleaseResolution, UpdateReleaseResolution, ReadOnlyUpdatePlanInput,
+ *   ComparedReadOnlyUpdatePlan, MissingReleaseReadOnlyUpdatePlan,
+ *   UnversionedCurrentBuildReadOnlyUpdatePlan, ReadOnlyUpdatePlanResolution,
+ *   resolveLatestReleaseCandidate, resolveReadOnlyUpdatePlan
  * @deps ./update-contract
  */
 import {
+  compareReleaseCandidate,
   normalizeReleaseVersion,
+  type CurrentBuildMetadata,
   type NormalizedReleaseVersion,
+  type ReadOnlyUpdatePlan,
   type ReleaseCandidate,
+  type UpdateComparisonState,
+  type UpdateVersionComparison,
 } from "./update-contract.js";
 
-// -- 1/3 HELPER · Resolver metadata types --
+// -- 1/4 HELPER · Resolver metadata types --
 /** Resolver mode: stable-only by default, or beta-inclusive for prereleases. */
 export type UpdateReleaseResolverMode = "stable" | "beta";
 
@@ -85,9 +102,48 @@ export interface MissingUpdateReleaseResolution {
 }
 
 export type UpdateReleaseResolution = FoundUpdateReleaseResolution | MissingUpdateReleaseResolution;
-// -/ 1/3
 
-// -- 2/3 CORE · resolveLatestReleaseCandidate <- START HERE --
+/** Input facts for a read-only update decision. */
+export interface ReadOnlyUpdatePlanInput extends UpdateReleaseResolverInput {
+  current: CurrentBuildMetadata;
+}
+
+/** Successful read-only update plan with current/candidate comparison. */
+export interface ComparedReadOnlyUpdatePlan {
+  status: UpdateComparisonState;
+  mode: UpdateReleaseResolverMode;
+  readOnly: true;
+  current: CurrentBuildMetadata;
+  candidate: ResolvedUpdateReleaseCandidate;
+  comparison: UpdateVersionComparison;
+  plan: ReadOnlyUpdatePlan;
+}
+
+/** Missing-release result at the read-only update plan boundary. */
+export interface MissingReleaseReadOnlyUpdatePlan {
+  status: "missing_release";
+  mode: UpdateReleaseResolverMode;
+  readOnly: true;
+  current: CurrentBuildMetadata;
+  reason: string;
+}
+
+/** Dev or otherwise unversioned current build result. */
+export interface UnversionedCurrentBuildReadOnlyUpdatePlan {
+  status: "unversioned_current_build";
+  mode: UpdateReleaseResolverMode;
+  readOnly: true;
+  current: CurrentBuildMetadata;
+  reason: string;
+}
+
+export type ReadOnlyUpdatePlanResolution =
+  | ComparedReadOnlyUpdatePlan
+  | MissingReleaseReadOnlyUpdatePlan
+  | UnversionedCurrentBuildReadOnlyUpdatePlan;
+// -/ 1/4
+
+// -- 2/4 CORE · resolveLatestReleaseCandidate <- START HERE --
 /** Select the latest eligible GitHub release without downloads or live state inspection. */
 export function resolveLatestReleaseCandidate(
   input: UpdateReleaseResolverInput,
@@ -118,9 +174,68 @@ export function resolveLatestReleaseCandidate(
 
   return { status: "found", mode, candidate: latest };
 }
-// -/ 2/3
+// -/ 2/4
 
-// -- 3/3 HELPER · Normalization and semver ordering --
+// -- 3/4 CORE · resolveReadOnlyUpdatePlan --
+/** Compose a read-only update decision from GitHub release metadata and current build facts. */
+export function resolveReadOnlyUpdatePlan(
+  input: ReadOnlyUpdatePlanInput,
+): ReadOnlyUpdatePlanResolution {
+  const releaseResolution = resolveLatestReleaseCandidate(input);
+  if (releaseResolution.status === "missing_release") {
+    return {
+      status: "missing_release",
+      mode: releaseResolution.mode,
+      readOnly: true,
+      current: input.current,
+      reason: releaseResolution.reason,
+    };
+  }
+
+  const currentVersionErrorReason = currentBuildVersionError(input.current.version);
+  if (currentVersionErrorReason !== undefined) {
+    return {
+      status: "unversioned_current_build",
+      mode: releaseResolution.mode,
+      readOnly: true,
+      current: input.current,
+      reason: currentVersionErrorReason,
+    };
+  }
+
+  const comparison = compareReleaseCandidate({
+    current: input.current,
+    candidate: releaseResolution.candidate,
+  });
+  const plan: ReadOnlyUpdatePlan = {
+    readOnly: true,
+    current: input.current,
+    candidate: releaseResolution.candidate,
+    comparison,
+  };
+
+  return {
+    status: comparison.state,
+    mode: releaseResolution.mode,
+    readOnly: true,
+    current: input.current,
+    candidate: releaseResolution.candidate,
+    comparison,
+    plan,
+  };
+}
+// -/ 3/4
+
+// -- 4/4 HELPER · Normalization and semver ordering --
+function currentBuildVersionError(version: string): string | undefined {
+  try {
+    normalizeReleaseVersion(version);
+    return undefined;
+  } catch {
+    return `current build version is not a combo-chen release version: ${version}`;
+  }
+}
+
 function normalizeCandidate(release: GitHubReleaseMetadata): ResolvedUpdateReleaseCandidate {
   const normalized = normalizeReleaseVersion(release.tagName);
   if (release.prerelease) normalized.channel = "prerelease";
@@ -179,4 +294,4 @@ function comparePrereleaseIdentifiers(left: string, right: string): number {
 function isNumericIdentifier(value: string): boolean {
   return /^(0|[1-9]\d*)$/.test(value);
 }
-// -/ 3/3
+// -/ 4/4
