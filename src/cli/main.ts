@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~940 lines, 23 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~990 lines, 23 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -107,6 +107,7 @@ import {
   renderOvertureChecklist,
 } from "./overture.js";
 import { parkCombo } from "./park.js";
+import { syncComboPrLabels } from "./pr-labels.js";
 import { reconcileCombos } from "./reconcile.js";
 import { resumeCombo } from "./resume.js";
 import {
@@ -173,6 +174,30 @@ function cliInvocation(): string {
 
 function isParked(events: ComboEvent[]): boolean {
   return events.at(-1)?.event === "parked";
+}
+
+function syncStatusDeepPrLabels(input: {
+  deps: Pick<Deps, "gh">;
+  runDir: string;
+  prUrl: string | undefined;
+  events: ComboEvent[];
+  requiredCheckNames: string[];
+  ambientCheckNames: string[];
+}): void {
+  if (input.prUrl === undefined) return;
+  try {
+    syncComboPrLabels({
+      gh: input.deps.gh,
+      runDir: input.runDir,
+      prUrl: input.prUrl,
+      events: input.events,
+      requiredCheckNames: input.requiredCheckNames,
+      ambientCheckNames: input.ambientCheckNames,
+      source: "status-deep",
+    });
+  } catch {
+    // status is a dashboard; GitHub label projection must not block it.
+  }
 }
 // -/ 1/4
 
@@ -591,6 +616,14 @@ export function createProgram(deps: Deps): Command {
           requiredCheckNames: config.readyRequiredChecks,
           ambientCheckNames: config.externalCommentAgents,
           reviewerLogins: config.reviewerLogins,
+        });
+        syncStatusDeepPrLabels({
+          deps,
+          runDir,
+          prUrl,
+          events,
+          requiredCheckNames: config.readyRequiredChecks,
+          ambientCheckNames: config.externalCommentAgents,
         });
         deps.out(`${line} ${downstream ?? "—"}`);
       }
