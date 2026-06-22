@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~350 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~400 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -38,6 +38,7 @@ import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgeReviewComments } from "./coder.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
+import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./director-watch-status.js";
 import {
   latestGateStatus,
   latestPublishedGateSha,
@@ -83,11 +84,20 @@ export async function tickDirector(input: {
     backoffSeconds: config.gatekeeperInitialGateRetryBackoffSeconds,
   });
   if (initialGateActioned) {
-    deps.out(`director: tick complete for ${comboId}`);
+    emitTickComplete({
+      deps,
+      comboId,
+      cli,
+      runDir,
+      pollSeconds: config.limits.babysitPollSeconds,
+      readyRequiredChecks: config.readyRequiredChecks,
+      ambientCheckNames: config.externalCommentAgents,
+    });
     return;
   }
 
   let events = readEvents(runDir);
+  let workerSummaries: string[] = [];
   const workerWindows = workerWindowsForEvents(events, config.coderRespondingWindowName);
   if (workerWindows.length > 0) {
     const workerInspection = inspectWorkerPanes({
@@ -98,22 +108,52 @@ export async function tickDirector(input: {
       stallTicks: config.workerStallTicks,
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
     });
+    workerSummaries = workerInspection.summaries;
     if (workerInspection.escalated) {
-      deps.out(`director: tick complete for ${comboId}`);
+      emitTickComplete({
+        deps,
+        comboId,
+        cli,
+        runDir,
+        pollSeconds: config.limits.babysitPollSeconds,
+        readyRequiredChecks: config.readyRequiredChecks,
+        ambientCheckNames: config.externalCommentAgents,
+        workerSummaries,
+      });
       return;
     }
     events = readEvents(runDir);
   }
 
   if (latestPrUrl(events) === undefined) {
-    deps.out(`director: tick complete for ${comboId}`);
+    emitTickComplete({
+      deps,
+      comboId,
+      cli,
+      runDir,
+      pollSeconds: config.limits.babysitPollSeconds,
+      readyRequiredChecks: config.readyRequiredChecks,
+      ambientCheckNames: config.externalCommentAgents,
+      events,
+      workerSummaries,
+    });
     return;
   }
 
   await tickReviewer({ deps, home, comboId, ghApiCache });
   const postReviewEvents = readEvents(runDir);
   if (terminalReviewerEvent(postReviewEvents) || closurePendingReviewerEvent(postReviewEvents)) {
-    deps.out(`director: tick complete for ${comboId}`);
+    emitTickComplete({
+      deps,
+      comboId,
+      cli,
+      runDir,
+      pollSeconds: config.limits.babysitPollSeconds,
+      readyRequiredChecks: config.readyRequiredChecks,
+      ambientCheckNames: config.externalCommentAgents,
+      events: postReviewEvents,
+      workerSummaries,
+    });
     return;
   }
 
@@ -133,11 +173,81 @@ export async function tickDirector(input: {
   }
 
   runReadyForMergeIfNeeded(deps, comboId);
-  deps.out(`director: tick complete for ${comboId}`);
+  emitTickComplete({
+    deps,
+    comboId,
+    cli,
+    runDir,
+    pollSeconds: config.limits.babysitPollSeconds,
+    readyRequiredChecks: config.readyRequiredChecks,
+    ambientCheckNames: config.externalCommentAgents,
+    workerSummaries,
+  });
 }
 // -/ 2/3
 
 // -- 3/3 HELPER · Initial gate retry and READY agreement --
+function emitTickComplete(input: {
+  deps: DirectorDeps;
+  comboId: string;
+  cli: string;
+  runDir: string;
+  pollSeconds: number;
+  readyRequiredChecks: string[];
+  ambientCheckNames: string[];
+  events?: ComboEvent[];
+  workerSummaries?: string[];
+}): void {
+  const events = input.events ?? readEvents(input.runDir);
+  const now = new Date();
+  const prUrl = latestPrUrl(events);
+  const pr = prUrl === undefined ? undefined : directorWatchPrSnapshot(input.deps, prUrl, now);
+  input.deps.out(
+    buildDirectorWatchStatusLine({
+      comboId: input.comboId,
+      cli: input.cli,
+      events,
+      now,
+      pollSeconds: input.pollSeconds,
+      pr,
+      workerSummaries: input.workerSummaries,
+      readyRequiredChecks: input.readyRequiredChecks,
+      ambientCheckNames: input.ambientCheckNames,
+    }),
+  );
+  input.deps.out(`director: tick complete for ${input.comboId}`);
+}
+
+function directorWatchPrSnapshot(
+  deps: DirectorDeps,
+  prUrl: string,
+  polledAt: Date,
+): DirectorWatchPrSnapshot {
+  const result = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,statusCheckRollup"]);
+  if (result.status !== 0) {
+    return {
+      state: "unknown",
+      polledAt,
+      error: result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`,
+    };
+  }
+  try {
+    const pr = parsePrView(result.stdout);
+    return {
+      state: pr.state,
+      headSha: pr.headSha,
+      statusCheckRollup: pr.statusCheckRollup,
+      polledAt,
+    };
+  } catch (error) {
+    return {
+      state: "unknown",
+      polledAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
   if (latestPrUrl(events) !== undefined) {
     return [...new Set([
