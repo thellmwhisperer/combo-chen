@@ -46,7 +46,7 @@ import {
   type ComboEvent,
   type EventName,
 } from "../core/events.js";
-import { readGateLease } from "../core/gate-lease.js";
+import { readGateLeases } from "../core/gate-lease.js";
 import { buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import {
   comboHome,
@@ -540,10 +540,10 @@ export function createProgram(deps: Deps): Command {
     .action(async (options: { deep?: boolean; all?: boolean }) => {
       const home = comboHome(deps.env);
       await reconcileCombos({ deps, home, apply: true, quiet: true, mergedTeardown: false });
-      const gateLease = readGateLease(home);
+      const gateLeases = readGateLeases(home);
       const combos = listCombos(home);
       if (combos.length === 0) {
-        if (gateLease !== undefined) deps.out(`active gate lease: ${formatGateLeaseStatus(gateLease)}`);
+        if (gateLeases.length > 0) deps.out(`active gate leases: ${formatGateLeaseStatus(gateLeases)}`);
         deps.out("no combos. start one: combo-chen run --issue <url> (or --plan <file>)");
         return;
       }
@@ -566,7 +566,7 @@ export function createProgram(deps: Deps): Command {
       });
       const visibleRows = options.all === true ? rows : rows.filter(({ status }) => status.phase !== "STOPPED");
       if (visibleRows.length === 0) {
-        if (gateLease !== undefined) deps.out(`active gate lease: ${formatGateLeaseStatus(gateLease)}`);
+        if (gateLeases.length > 0) deps.out(`active gate leases: ${formatGateLeaseStatus(gateLeases)}`);
         deps.out("no actionable combos. show history: combo-chen status --all");
         return;
       }
@@ -578,7 +578,7 @@ export function createProgram(deps: Deps): Command {
         const prUrl = status.pr ?? runtimePrUrl;
         const pr = prUrl ?? "—";
         const workItem = describeWorkItem(combo).label;
-        const lease = formatGateLeaseStatus(gateLease);
+        const lease = formatGateLeaseStatus(gateLeases.find((record) => record.branch === combo.branch));
         const line = `${combo.id.padEnd(30)} ${status.phase.padEnd(9)} ${needs.padEnd(16)} ${workItem.padEnd(40)} ${lease.padEnd(28)} ${pr}`;
         if (!deep) {
           deps.out(line);
@@ -766,7 +766,7 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("gate-lease", { hidden: true })
-    .description("Acquire or release the shared no-mistakes gate lease for generated scripts")
+    .description("Acquire or release the branch-scoped no-mistakes gate lease for generated scripts")
     .argument("<action>", "acquire or release")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .option("--head-sha <sha>", "Current gate head SHA for acquire")

@@ -1,6 +1,6 @@
 /**
- * @overview Unit tests for the shared no-mistakes gate lease contract.
- *   Covers free, busy, stale, same-branch, and release lease states.
+ * @overview Unit tests for the branch-scoped no-mistakes gate lease contract.
+ *   Covers free, parallel-branch, stale, same-branch, and release lease states.
  *
  *   READING GUIDE
  *   -------------
@@ -8,7 +8,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   combo gate owner -> acquireGateLease -> persisted lease or queued/conflict state
+ *   combo gate owner -> acquireGateLease -> branch-scoped persisted lease or conflict state
  *
  * @exports none
  * @deps vitest, node:{fs,os,path}, ./gate-lease
@@ -23,6 +23,7 @@ import {
   heartbeatGateLease,
   releaseGateLease,
   readGateLease,
+  readGateLeases,
   type GateLeaseOwner,
 } from "./gate-lease.js";
 
@@ -65,7 +66,7 @@ describe("gate lease", () => {
     expect(readGateLease(dir)).toEqual(result.lease);
   });
 
-  it("reports a busy lease for a different active branch without replacing it", () => {
+  it("allows a different active branch to acquire its own lease", () => {
     const dir = home();
     const first = acquireGateLease({
       home: dir,
@@ -86,8 +87,12 @@ describe("gate lease", () => {
       staleAfterMs: STALE_AFTER_MS,
     });
 
-    expect(second.state).toBe("busy");
-    expect(second.lease).toEqual(first.lease);
+    expect(second.state).toBe("acquired");
+    expect(second.lease).toMatchObject({
+      comboId: "o-r-8",
+      branch: "combo/issue-8",
+    });
+    expect(readGateLeases(dir).map((lease) => lease.comboId).sort()).toEqual(["o-r-7", "o-r-8"]);
     expect(readGateLease(dir)).toEqual(first.lease);
   });
 
@@ -105,7 +110,6 @@ describe("gate lease", () => {
       home: dir,
       owner: owner({
         comboId: "o-r-8",
-        branch: "combo/issue-8",
         worktree: "/repo/.worktrees/issue-8",
         runDir: "/home/.combo-chen/runs/o-r-8",
         headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -122,13 +126,13 @@ describe("gate lease", () => {
     });
     expect(result.lease).toMatchObject({
       comboId: "o-r-8",
-      branch: "combo/issue-8",
+      branch: "combo/issue-7",
       acquiredAt: NOW.toISOString(),
     });
     expect(readGateLease(dir)).toEqual(result.lease);
   });
 
-  it("reports a same-branch conflict separately from a queued busy lease", () => {
+  it("reports a same-branch conflict without replacing the owner", () => {
     const dir = home();
     const first = acquireGateLease({
       home: dir,
@@ -178,6 +182,33 @@ describe("gate lease", () => {
     expect(releaseGateLease({ home: dir, owner: currentOwner })).toEqual({ state: "released" });
     expect(readGateLease(dir)).toBeUndefined();
     expect(releaseGateLease({ home: dir, owner: currentOwner })).toEqual({ state: "missing" });
+  });
+
+  it("releases only one branch lease while other branch leases remain active", () => {
+    const dir = home();
+    const firstOwner = owner();
+    const secondOwner = owner({
+      comboId: "o-r-8",
+      branch: "combo/issue-8",
+      worktree: "/repo/.worktrees/issue-8",
+    });
+    acquireGateLease({
+      home: dir,
+      owner: firstOwner,
+      now: NOW,
+      staleAfterMs: STALE_AFTER_MS,
+    });
+    acquireGateLease({
+      home: dir,
+      owner: secondOwner,
+      now: new Date(NOW.getTime() + 60_000),
+      staleAfterMs: STALE_AFTER_MS,
+    });
+
+    expect(releaseGateLease({ home: dir, owner: firstOwner })).toEqual({ state: "released" });
+
+    expect(readGateLeases(dir).map((lease) => lease.comboId)).toEqual(["o-r-8"]);
+    expect(readGateLease(dir)?.comboId).toBe("o-r-8");
   });
 
   it("updates heartbeatAt for the owning combo", () => {
@@ -253,13 +284,12 @@ describe("gate lease", () => {
       home: dir,
       owner: owner({
         comboId: "o-r-8",
-        branch: "combo/issue-8",
       }),
       now: atStaleWindow,
       staleAfterMs: STALE_AFTER_MS,
     });
 
-    expect(result.state).toBe("busy");
+    expect(result.state).toBe("same_branch_conflict");
   });
 });
 // -/ 1/1

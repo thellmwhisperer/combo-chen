@@ -98,7 +98,7 @@ describe("combo-chen.example.toml", () => {
     expect(spec).toContain("## 8b. Parallelize-first operating contract");
     expect(docs).toContain("Start with 2 live capsules, then 3, then 4 to 6");
     expect(docs).toContain("each capsule keeps one branch, one worktree, one tmux session, and one runtime ledger");
-    expect(docs).toContain("the shared gate lease serializes no-mistakes publication");
+    expect(docs).toContain("branch-scoped gate leases keep no-mistakes publication single-owner per branch");
     expect(lowerDocs).toContain("parked combos");
     expect(lowerDocs).toContain("pre-pr coder stalls");
     expect(lowerDocs).toContain("reviewer auth failures");

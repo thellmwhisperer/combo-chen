@@ -12,7 +12,7 @@
     "dev": "tsdown --watch",
     "release:assets": "pnpm build && node dist/release-assets.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude='.worktrees/**' --exclude='.tmp/**'",
     "test:watch": "vitest"
   },
   "dependencies": {

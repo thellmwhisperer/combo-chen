@@ -98,8 +98,10 @@ describe("gatekeeper attach window helpers", () => {
         "cd '/tmp/o'\\''hara worktree'",
         "attempt=0",
         "while :; do",
-        "  if no-mistakes axi status 2>/dev/null | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
-        "    exec no-mistakes attach",
+        "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
+        "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+        "  if [ -n \"$no_mistakes_run_id\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*running[[:space:]]*$'; then",
+        "    exec no-mistakes attach --run \"$no_mistakes_run_id\"",
         "  fi",
         "  attempt=$((attempt + 1))",
         '  if [ "$attempt" -gt 3 ]; then',
@@ -333,7 +335,8 @@ describe("buildPostAddressGateScript", () => {
     expect(script).toContain('git push -o "$mirror_intent" no-mistakes "HEAD:$mirror_ref"');
     expect(script).not.toContain("git push no-mistakes HEAD");
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
-    expect(script).toContain("exec no-mistakes attach");
+    expect(script).toContain('gatekeeper_run_id=$(sed -n');
+    expect(script).toContain('exec no-mistakes attach --run "$gatekeeper_run_id"');
     expect(script).toContain("branch: combo/issue-7");
     expect(script).toContain("gatekeeper_failure_reason=gate_failed");
     expect(script).toContain("gatekeeper_failure_reason=daemon_dead");

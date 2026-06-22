@@ -1,5 +1,5 @@
 /**
- * @overview CLI-facing shared no-mistakes gate lease actions.
+ * @overview CLI-facing branch-scoped no-mistakes gate lease actions.
  *   Turns persisted lease states into shell-friendly exit codes and journal facts.
  *
  *   READING GUIDE
