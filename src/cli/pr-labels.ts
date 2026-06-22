@@ -1,6 +1,6 @@
 /**
  * @overview Combo PR label projection helpers.
- *   ~444 lines, deterministic desired-label, diff, and GitHub mutation helpers.
+ *   ~440 lines, deterministic desired-label, diff, and GitHub mutation helpers.
  *
  *   READING GUIDE
  *   -------------
@@ -66,7 +66,7 @@ export interface ComboPrLabelProjectionInput {
   };
   requiredCheckNames?: string[];
   ambientCheckNames?: string[];
-  codeRabbitCheckNames?: string[];
+  greenCheckNames?: string[];
 }
 
 export interface ComboPrLabelProjection {
@@ -89,7 +89,7 @@ export interface SyncComboPrLabelsInput {
   activity?: ComboPrLabelProjectionInput["activity"];
   requiredCheckNames?: string[];
   ambientCheckNames?: string[];
-  codeRabbitCheckNames?: string[];
+  greenCheckNames?: string[];
   source?: string;
 }
 
@@ -103,7 +103,6 @@ export interface SyncComboPrLabelsResult {
 }
 
 const COMBO_PR_LABEL_SET = new Set<string>(COMBO_PR_LABELS);
-const DEFAULT_CODERABBIT_CHECK_NAMES = ["CodeRabbit"];
 const PR_LABEL_VIEW_FIELDS = "headRefOid,state,mergeStateStatus,statusCheckRollup,labels";
 
 export function isComboPrLabel(label: string): label is ComboPrLabel {
@@ -131,15 +130,15 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
   }
 
   const lgtmCurrent = shaMatchesHead(livePinnedLgtmSha(input.events), headSha);
-  const codeRabbitGreen = namedCheckSucceeded(
+  const greenCheckSucceeded = namedCheckSucceeded(
     input.pr.statusCheckRollup,
-    configuredCodeRabbitCheckNames(input),
+    configuredGreenCheckNames(input),
   );
   const readyCurrent = currentReadyAgreement(input, lgtmCurrent);
   const stale = hasStaleCurrentHeadSignal(input.events, headSha);
 
   if (lgtmCurrent) labels.add("combo:lgtm");
-  if (codeRabbitGreen) labels.add("combo:coderabbit-green");
+  if (greenCheckSucceeded) labels.add("combo:coderabbit-green");
   if (readyCurrent) labels.add("combo:ready");
   if (stale && !readyCurrent) labels.add("combo:stale");
 
@@ -174,7 +173,7 @@ export function syncComboPrLabels(input: SyncComboPrLabelsInput): SyncComboPrLab
     activity: input.activity,
     requiredCheckNames: input.requiredCheckNames,
     ambientCheckNames: input.ambientCheckNames,
-    codeRabbitCheckNames: input.codeRabbitCheckNames,
+    greenCheckNames: input.greenCheckNames,
   });
   const diff = diffComboPrLabels(current.labels, projection.labels);
   let liveLabels = current.labels;
@@ -328,10 +327,8 @@ function namedCheckSucceeded(rollup: unknown[] | undefined, names: string[]): bo
   return rollup.some((item) => checkNameMatchesAny(item, names) && checkSignalIsSuccess(item));
 }
 
-function configuredCodeRabbitCheckNames(input: ComboPrLabelProjectionInput): string[] {
-  const explicit = nonEmptyStrings(input.codeRabbitCheckNames);
-  if (explicit.length > 0) return explicit;
-  return DEFAULT_CODERABBIT_CHECK_NAMES;
+function configuredGreenCheckNames(input: ComboPrLabelProjectionInput): string[] {
+  return nonEmptyStrings(input.greenCheckNames);
 }
 
 function nonEmptyStrings(values: string[] | undefined): string[] {

@@ -3810,7 +3810,7 @@ describe("status", () => {
     const { deps, calls } = fakeDeps({
       env: {
         COMBO_CHEN_HOME: h,
-        COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES: "Rabbit Pro",
+        COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "Rabbit Pro",
       },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
