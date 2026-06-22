@@ -355,8 +355,12 @@ ignored config or environment outside that file.
   `gate_started` the emit handler recreates the gatekeeper window so the live
   role window is visible when no-mistakes becomes active. The coder window
   streams live coder stdout/stderr and includes a short (12-line) journal pane showing live events. After PR open,
-  one `director-watch` window runs the polling loop; reviewer and coder
-  responding mode are worker windows, not independent babysitters.
+  one `director-watch` window runs the polling loop and renders a
+  per-tick operator status line (combo id, phase age, PR state/head,
+  last journal event age, GitHub poll timing, worker counters, gate
+  and reviewer pins, READY checklist, and the current pending action);
+  reviewer and coder responding mode are worker windows, not independent
+  babysitters.
 - The journal is an append-only JSONL spine per combo run. Each combo run
   directory also contains `combo.json` (combo identity),
   `runtime-ledger.json` (machine-readable capsule resources, written at launch
