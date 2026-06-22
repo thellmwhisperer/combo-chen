@@ -136,10 +136,13 @@ export async function stageResolvedUpdate(input: {
   stagingDir: string;
   deps: UpdateStagingDeps;
 }): Promise<StagedUpdateArtifact> {
+  const assetFileName = validateSafePathComponent(input.plan.asset.fileName);
+  const checksumsFileName = validateSafePathComponent(
+    input.plan.checksums.fileName ?? RELEASE_CHECKSUMS_FILE,
+  );
   const downloadsDir = join(input.stagingDir, "downloads");
   const extractedDir = join(input.stagingDir, "extracted");
-  const archivePath = join(downloadsDir, input.plan.asset.fileName);
-  const checksumsFileName = input.plan.checksums.fileName ?? RELEASE_CHECKSUMS_FILE;
+  const archivePath = join(downloadsDir, assetFileName);
   const checksumsPath = join(downloadsDir, checksumsFileName);
 
   try {
@@ -149,7 +152,7 @@ export async function stageResolvedUpdate(input: {
       await input.deps.download({
         kind: "archive",
         url: input.plan.asset.downloadUrl,
-        fileName: input.plan.asset.fileName,
+        fileName: assetFileName,
       }),
     );
     await input.deps.writeFile(archivePath, archiveBytes);
@@ -174,7 +177,7 @@ export async function stageResolvedUpdate(input: {
     try {
       expectedSha256 = expectedChecksumForAsset({
         checksumsText,
-        fileName: input.plan.asset.fileName,
+        fileName: assetFileName,
         stagingDir: input.stagingDir,
         deps: input.deps,
       });
@@ -195,7 +198,7 @@ export async function stageResolvedUpdate(input: {
       await failWithCleanup({
         code: "checksum_mismatch",
         message:
-          `checksum mismatch for ${input.plan.asset.fileName}: ` +
+          `checksum mismatch for ${assetFileName}: ` +
           `expected ${expectedSha256} but downloaded ${actualSha256}`,
         stagingDir: input.stagingDir,
         deps: input.deps,
@@ -208,12 +211,12 @@ export async function stageResolvedUpdate(input: {
       extracted = await input.deps.extractArchive({
         archivePath,
         destinationDir: extractedDir,
-        assetFileName: input.plan.asset.fileName,
+        assetFileName,
       });
     } catch (error) {
       extracted = await failWithCleanup({
         code: "extraction_failed",
-        message: `failed to extract ${input.plan.asset.fileName}: ${errorMessage(error)}`,
+        message: `failed to extract ${assetFileName}: ${errorMessage(error)}`,
         stagingDir: input.stagingDir,
         deps: input.deps,
         cause: error,
@@ -221,7 +224,7 @@ export async function stageResolvedUpdate(input: {
     }
 
     return {
-      assetFileName: input.plan.asset.fileName,
+      assetFileName,
       archivePath,
       checksumsPath,
       expectedSha256,
@@ -236,7 +239,7 @@ export async function stageResolvedUpdate(input: {
     if (error instanceof UpdateStagingError) throw error;
     return await failWithCleanup({
       code: "download_failed",
-      message: `failed to stage ${input.plan.asset.fileName}: ${errorMessage(error)}`,
+      message: `failed to stage ${assetFileName}: ${errorMessage(error)}`,
       stagingDir: input.stagingDir,
       deps: input.deps,
       cause: error,
@@ -343,5 +346,15 @@ function toBuffer(data: Uint8Array | string): Buffer {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function validateSafePathComponent(name: string): string {
+  if (name.includes("..") || name.includes("/") || name.includes("\\")) {
+    throw new UpdateStagingError(`unsafe fileName: ${name}`, {
+      code: "checksums_invalid",
+      cleanup: { attempted: false, path: "", removed: false },
+    });
+  }
+  return name;
 }
 // -/ 3/3
