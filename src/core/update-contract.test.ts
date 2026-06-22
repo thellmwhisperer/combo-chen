@@ -1,16 +1,17 @@
 /**
  * @overview Unit tests for the read-only updater contract foundation.
- *   ~130 lines, no exports, pins release identity, asset selection, and candidate comparison.
+ *   ~170 lines, no exports, pins release identity, asset selection, checksums, and candidate comparison.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at normalizeReleaseVersion tests <- release tag/version contract.
  *   2. Then selectUpdateAsset tests            <- supported platform asset contract.
- *   3. Then compareReleaseCandidate tests      <- current versus candidate state.
+ *   3. Then parseUpdateChecksums tests         <- checksums.txt parsing and lookup.
+ *   4. Then compareReleaseCandidate tests      <- current versus candidate state.
  *
  *   MAIN FLOW
  *   ---------
- *   release tag or version -> normalized release version -> asset/comparison result
+ *   release tag or version -> normalized release version -> asset/checksum/comparison result
  *
  *   PUBLIC API
  *   ----------
@@ -27,7 +28,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   compareReleaseCandidate,
+  lookupUpdateChecksum,
   normalizeReleaseVersion,
+  parseUpdateChecksums,
   selectUpdateAsset,
 } from "./update-contract.js";
 
@@ -108,6 +111,75 @@ describe("update contract release identity", () => {
       reason: "unsupported update asset target: linux-ia32",
     });
     expect(unsupportedArch).not.toHaveProperty("fileName");
+  });
+
+  it("parses sha256sum-compatible checksums.txt entries", () => {
+    const linuxDigest = "B".repeat(64);
+    const darwinDigest = "a".repeat(64);
+    const checksumsText = [
+      `${linuxDigest}  combo-chen-v1.2.3-linux-x64.tar.gz`,
+      `${darwinDigest} *combo-chen-v1.2.3-darwin-arm64.tar.gz`,
+      "",
+    ].join("\n");
+
+    expect(parseUpdateChecksums(checksumsText)).toEqual([
+      {
+        line: 1,
+        fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+        sha256: linuxDigest.toLowerCase(),
+      },
+      {
+        line: 2,
+        fileName: "combo-chen-v1.2.3-darwin-arm64.tar.gz",
+        sha256: darwinDigest,
+      },
+    ]);
+  });
+
+  it("looks up expected checksums by exact asset filename", () => {
+    const entries = parseUpdateChecksums(
+      [
+        `${"1".repeat(64)}  combo-chen-v1.2.3-darwin-arm64.tar.gz`,
+        `${"2".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz`,
+      ].join("\n"),
+    );
+
+    expect(
+      lookupUpdateChecksum({
+        checksums: entries,
+        fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+      }),
+    ).toEqual({
+      fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+      found: true,
+      expectedSha256: "2".repeat(64),
+    });
+
+    expect(
+      lookupUpdateChecksum({
+        checksums: entries,
+        fileName: "combo-chen-v1.2.3-linux-arm64.tar.gz",
+      }),
+    ).toEqual({
+      fileName: "combo-chen-v1.2.3-linux-arm64.tar.gz",
+      found: false,
+      reason: "checksum not found for combo-chen-v1.2.3-linux-arm64.tar.gz",
+    });
+  });
+
+  it("rejects malformed or duplicate checksum entries", () => {
+    expect(() => parseUpdateChecksums("not-a-checksum  asset.tar.gz\n")).toThrow(
+      "invalid checksums.txt line 1",
+    );
+
+    expect(() =>
+      parseUpdateChecksums(
+        [
+          `${"a".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz`,
+          `${"b".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz`,
+        ].join("\n"),
+      ),
+    ).toThrow("duplicate checksum entry for combo-chen-v1.2.3-linux-x64.tar.gz");
   });
 
   it("compares current build metadata with a newer release candidate", () => {
