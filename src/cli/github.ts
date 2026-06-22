@@ -1,5 +1,5 @@
 /**
- * @overview GitHub CLI parsing helpers. ~540 lines, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~565 lines, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
@@ -16,7 +16,7 @@
  *   ----------
  *   GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts
  *   remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict
- *   PrView, parsePrView, fetchForensicsGithubFacts
+ *   PrView, blockingReadyMergeState, parsePrView, fetchForensicsGithubFacts
  *
  *   INTERNALS
  *   ---------
@@ -24,7 +24,7 @@
  *   reviewerCandidateLines, lgtmPinFromBody, reviewerVerdictFromBody, pinsFromItems,
  *   reviewerVerdictsFromItems, rollupSignal, parseIssueView
  *
- * @exports GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict, PrView, parsePrView, fetchForensicsGithubFacts
+ * @exports GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict, PrView, blockingReadyMergeState, parsePrView, fetchForensicsGithubFacts
  * @deps ../core/gh-api, ../core/pr-url, ./checks
  */
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
@@ -314,8 +314,27 @@ export interface PrView {
   mergedBy?: string;
   baseRefName?: string;
   mergeStateStatus?: string;
+  mergeable?: string;
   mergeSha?: string;
   statusCheckRollup?: unknown[];
+}
+
+const READY_BLOCKING_MERGE_STATES = new Set(["DIRTY", "CONFLICTING"]);
+
+function upperNonEmpty(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === "" ? undefined : value.trim().toUpperCase();
+}
+
+export function blockingReadyMergeState(prView: Pick<PrView, "mergeStateStatus" | "mergeable">): string | undefined {
+  const mergeStateStatus = upperNonEmpty(prView.mergeStateStatus);
+  if (mergeStateStatus !== undefined && READY_BLOCKING_MERGE_STATES.has(mergeStateStatus)) {
+    return mergeStateStatus;
+  }
+  const mergeable = upperNonEmpty(prView.mergeable);
+  if (mergeable !== undefined && READY_BLOCKING_MERGE_STATES.has(mergeable)) {
+    return mergeable;
+  }
+  return undefined;
 }
 
 export function parsePrView(stdout: string): PrView {
@@ -337,6 +356,7 @@ export function parsePrView(stdout: string): PrView {
     const mergedBy = (parsed as { mergedBy?: unknown }).mergedBy;
     const baseRefName = (parsed as { baseRefName?: unknown }).baseRefName;
     const mergeStateStatus = (parsed as { mergeStateStatus?: unknown }).mergeStateStatus;
+    const mergeable = (parsed as { mergeable?: unknown }).mergeable;
     const mergeCommit = (parsed as { mergeCommit?: unknown }).mergeCommit;
     const statusCheckRollup = (parsed as { statusCheckRollup?: unknown }).statusCheckRollup;
     const view: PrView = {
@@ -354,6 +374,9 @@ export function parsePrView(stdout: string): PrView {
     }
     if (typeof mergeStateStatus === "string" && mergeStateStatus.length > 0) {
       view.mergeStateStatus = mergeStateStatus;
+    }
+    if (typeof mergeable === "string" && mergeable.length > 0) {
+      view.mergeable = mergeable;
     }
     if (
       typeof mergeCommit === "object" &&

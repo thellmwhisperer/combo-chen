@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1340 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1560 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -75,6 +75,12 @@ describe("deriveStatus", () => {
       ev("lgtm_stale", { old_sha: "def456", new_sha: "fedcba" }),
       ev("gate_stale", { old_sha: "def456", new_sha: "fedcba" }),
       ev("address_done", { head_sha: "fedcba" }),
+      ev("pr_conflict", {
+        sha: "def456",
+        pr_url: "https://github.com/o/r/pull/9",
+        merge_state: "DIRTY",
+        action: "rebase_required",
+      }),
     ]) {
       const status = deriveStatus([
         ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),

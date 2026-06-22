@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~245 lines, 9 exports, parsers for deep recovery status and gate lease visibility.
+ *   ~255 lines, 10 exports, parsers for deep recovery status and gate lease visibility.
  *
  *   READING GUIDE
  *   -------------
@@ -16,6 +16,7 @@
  *   PUBLIC API
  *   ----------
  *   PR_READY_FOR_REVIEWER       Downstream phrase for review-ready PRs.
+ *   PR_CONFLICT_REBASE_REQUIRED Downstream phrase for conflict recovery.
  *   NO_MISTAKES_RUNNING         Downstream phrase prefix for active no-mistakes.
  *   AWAITING_REVIEW_GATE        Downstream phrase prefix for no-mistakes gates.
  *   CommandResult                 Process result shape for injected command runners.
@@ -29,7 +30,7 @@
  *   ---------
  *   summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine
  *
- * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
+ * @exports PR_READY_FOR_REVIEWER, PR_CONFLICT_REBASE_REQUIRED, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
  * @deps ../core/events, ../core/gate-lease, ../core/state, ./checks, ./gate, ./github
  */
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
@@ -37,9 +38,10 @@ import type { GateLeaseRecord } from "../core/gate-lease.js";
 import type { ComboRecord } from "../core/state.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import { shaMatchesHead } from "./gate.js";
-import { latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
+import { blockingReadyMergeState, latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
 
 export const PR_READY_FOR_REVIEWER = "PR ready for reviewer";
+export const PR_CONFLICT_REBASE_REQUIRED = "PR conflict: rebase required";
 export const NO_MISTAKES_RUNNING = "no-mistakes running";
 export const AWAITING_REVIEW_GATE = "awaiting review gate";
 
@@ -194,7 +196,7 @@ export function deepNoMistakesStatus(combo: Pick<ComboRecord, "branch" | "worktr
 function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: DeepGithubStatusOptions = {}): string | undefined {
   if (prUrl === undefined) return undefined;
 
-  const result = gh(["pr", "view", prUrl, "--json", "headRefOid,state,statusCheckRollup"]);
+  const result = gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergeStateStatus,mergeable,statusCheckRollup"]);
   if (result.status !== 0) {
     const detail = firstLine(result.stderr) || firstLine(result.stdout) || `exit ${result.status}`;
     return `GitHub unavailable: ${detail}`;
@@ -208,8 +210,14 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
     return `GitHub unavailable: ${firstLine(detail)}`;
   }
 
+  if (pr.state !== "OPEN") {
+    return undefined;
+  }
+
+  const blockingMergeState = blockingReadyMergeState(pr);
+  if (blockingMergeState !== undefined) return `${PR_CONFLICT_REBASE_REQUIRED} (${blockingMergeState})`;
+
   if (
-    pr.state !== "OPEN" ||
     !checkRollupSucceeded(pr.statusCheckRollup, { requiredCheckNames: options.requiredCheckNames, ambientCheckNames: options.ambientCheckNames }) ||
     !requiredChecksSucceeded(pr.statusCheckRollup, options.requiredCheckNames ?? [])
   ) {
