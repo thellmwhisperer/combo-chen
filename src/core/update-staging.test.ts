@@ -330,7 +330,7 @@ describe("stageResolvedUpdate", () => {
       }),
     );
 
-    expect(failure.code).toBe("checksums_invalid");
+    expect(failure.code).toBe("unsafe_file_name");
     expect(failure.message).toContain("unsafe fileName");
     expect(calls.downloads).toEqual([]);
   });
@@ -354,7 +354,7 @@ describe("stageResolvedUpdate", () => {
       }),
     );
 
-    expect(failure.code).toBe("checksums_invalid");
+    expect(failure.code).toBe("unsafe_file_name");
     expect(failure.message).toContain("unsafe fileName");
     expect(calls.downloads).toEqual([]);
   });
