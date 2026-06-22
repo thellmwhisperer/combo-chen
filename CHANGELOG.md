@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.54](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.53...combo-chen-v0.0.54) (2026-06-22)
+
+
+### Features
+
+* **update:** Implemented the U71-B U2 staging primitive with mocked download/checksum/extraction coverage and a green validation suite. ([efcb573](https://github.com/thellmwhisperer/combo-chen/commit/efcb573a4de97993c3e14da7761fb3d1df9defbf))
+
+
+### Bug Fixes
+
+* **update:** reject empty staging filenames ([526772e](https://github.com/thellmwhisperer/combo-chen/commit/526772e742764d0a8dcc81fe2692b16f7224399e))
+* **update:** report unavailable checksums ([4cfb4e2](https://github.com/thellmwhisperer/combo-chen/commit/4cfb4e24e5ccad6251e857afbd1576147d7a2153))
+
 ## [0.0.53](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.52...combo-chen-v0.0.53) (2026-06-22)
 
 
