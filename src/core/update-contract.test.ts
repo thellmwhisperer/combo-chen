@@ -256,6 +256,44 @@ describe("update contract release identity", () => {
     });
   });
 
+  it("compares prerelease candidates using numeric and string identifier rules", () => {
+    expect(
+      compareReleaseCandidate({
+        current: { version: "1.2.3-beta.2", commit: "abc1234", date: "2026-06-21T12:00:00.000Z" },
+        candidate: { tagName: "v1.2.3-beta.10", prerelease: true },
+      }),
+    ).toMatchObject({
+      state: "update_available",
+      current: { version: "1.2.3-beta.2" },
+      candidate: { version: "1.2.3-beta.10" },
+    });
+
+    expect(
+      compareReleaseCandidate({
+        current: { version: "1.2.3-beta.10", commit: "abc1234", date: "2026-06-21T12:00:00.000Z" },
+        candidate: { tagName: "v1.2.3-beta.2", prerelease: true },
+      }).state,
+    ).toBe("candidate_older");
+
+    expect(
+      compareReleaseCandidate({
+        current: { version: "1.2.3-alpha", commit: "abc1234", date: "2026-06-21T12:00:00.000Z" },
+        candidate: { tagName: "v1.2.3-beta", prerelease: true },
+      }),
+    ).toMatchObject({
+      state: "update_available",
+      candidate: { version: "1.2.3-beta" },
+    });
+  });
+
+  it("reports channel as prerelease when GitHub prerelease flag is set on a stable-looking tag", () => {
+    const result = compareReleaseCandidate({
+      current: { version: "1.2.3", commit: "abc1234", date: "2026-06-21T12:00:00.000Z" },
+      candidate: { tagName: "v1.2.4", prerelease: true },
+    });
+    expect(result.candidate.channel).toBe("prerelease");
+  });
+
   it("reports equal or older candidates without claiming an update", () => {
     expect(
       compareReleaseCandidate({
@@ -270,6 +308,25 @@ describe("update contract release identity", () => {
         candidate: { tagName: "v1.2.2", prerelease: false },
       }).state,
     ).toBe("candidate_older");
+  });
+
+  it("throws on invalid release version input", () => {
+    expect(() => normalizeReleaseVersion("not-a-version")).toThrow("invalid combo-chen release version");
+    expect(() => normalizeReleaseVersion("")).toThrow("invalid combo-chen release version");
+    expect(() => normalizeReleaseVersion("v1.2")).toThrow("invalid combo-chen release version");
+  });
+
+  it("parses empty checksums text without errors", () => {
+    expect(parseUpdateChecksums("")).toEqual([]);
+  });
+
+  it("parses checksums with CRLF line endings", () => {
+    const digest = "a".repeat(64);
+    const checksumsText = `${digest}  combo-chen-v1.2.3-darwin-arm64.tar.gz\r\n${digest} *combo-chen-v1.2.3-linux-x64.tar.gz\r\n`;
+    expect(parseUpdateChecksums(checksumsText)).toEqual([
+      { line: 1, fileName: "combo-chen-v1.2.3-darwin-arm64.tar.gz", sha256: digest },
+      { line: 2, fileName: "combo-chen-v1.2.3-linux-x64.tar.gz", sha256: digest },
+    ]);
   });
 });
 // -/ 1/1
