@@ -210,6 +210,21 @@ describe("update release resolver", () => {
     });
   });
 
+  it("reports unversioned_current_build before missing_release when both apply", () => {
+    expect(
+      resolveReadOnlyUpdatePlan({
+        current: { version: "dev", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+        releases: [release("v2.0.0-beta.1", true)],
+      }),
+    ).toEqual({
+      status: "unversioned_current_build",
+      mode: "stable",
+      readOnly: true,
+      current: { version: "dev", commit: "abc1234", date: "2026-06-22T12:00:00.000Z" },
+      reason: "current build version is not a combo-chen release version: dev",
+    });
+  });
+
   it("carries missing_release through the read-only plan boundary", () => {
     expect(
       resolveReadOnlyUpdatePlan({
