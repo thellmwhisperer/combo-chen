@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~6100 lines.
+ *   deps so tests run without a real terminal or network. ~6400 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -3786,6 +3786,82 @@ describe("status", () => {
     expect(text).toContain("STALLED");
     expect(text).toContain("gate_failed");
     expect(text).toContain("no-mistakes running ci");
+  });
+
+  it("syncs combo PR labels from status --deep with fake GitHub state", async () => {
+    const h = home();
+    const worktree = "/repos/r/.worktrees/issue-7";
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    appendEvent(dir, "gate_started", {});
+
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      noMistakes: () => ({
+        status: 0,
+        stdout: [
+          "run:",
+          "  branch: combo/issue-7",
+          "  status: running",
+          "  steps[1]{step,status,findings,duration_ms}:",
+          "    ci,running,0,0",
+        ].join("\n"),
+        stderr: "",
+      }),
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view") {
+          const fields = args.at(-1) ?? "";
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: "OPEN",
+              ...(fields.includes("labels") ? { labels: [] } : {}),
+              ...(fields.includes("statusCheckRollup")
+                ? { statusCheckRollup: [{ name: "test", conclusion: "SUCCESS" }] }
+                : {}),
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "pr" && args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status", "--deep"]);
+
+    expect(calls).toContainEqual(["gh", "pr", "edit", prUrl, "--add-label", "combo:working-gate"]);
+    expect(readEvents(dir)).toContainEqual(
+      expect.objectContaining({
+        event: "pr_labels_updated",
+        pr_url: prUrl,
+        head_sha: headSha,
+        old_labels: [],
+        new_labels: ["combo:working-gate"],
+        added_labels: ["combo:working-gate"],
+        removed_labels: [],
+        reason: "current",
+        source: "status-deep",
+      }),
+    );
   });
 
   it("prints awaiting no-mistakes gate finding ids and respond command in deep mode", async () => {
