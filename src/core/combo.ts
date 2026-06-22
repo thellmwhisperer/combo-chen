@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~395 lines, 9 exports, 1 critical function.
+ *   ~445 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -94,6 +94,7 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
       case "address_noop":
       case "gate_stale":
       case "lgtm_stale":
+      case "pr_conflict":
         if (phase === "READY") {
           phase = "REVIEWING";
           needsHuman = false;

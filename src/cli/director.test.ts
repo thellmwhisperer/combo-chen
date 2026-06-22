@@ -94,6 +94,8 @@ function fakeDeps(input: {
   issueComments?: unknown[];
   prLabels?: unknown[];
   prState?: string;
+  mergeStateStatus?: string;
+  mergeable?: string;
   mergeSha?: string;
   mergedBy?: string;
   mergedAt?: string;
@@ -125,6 +127,8 @@ function fakeDeps(input: {
         const base = {
           headRefOid: input.prHeadSha,
           state: input.prState ?? "OPEN",
+          ...(input.mergeStateStatus !== undefined ? { mergeStateStatus: input.mergeStateStatus } : {}),
+          ...(input.mergeable !== undefined ? { mergeable: input.mergeable } : {}),
           ...(input.mergeSha !== undefined ? { mergeCommit: { oid: input.mergeSha } } : {}),
           ...(input.mergedBy !== undefined ? { mergedBy: { login: input.mergedBy } } : {}),
           ...(input.mergedAt !== undefined ? { mergedAt: input.mergedAt } : {}),
@@ -261,6 +265,13 @@ describe("READY pure state helpers", () => {
         headSha,
       ),
     ).toBe(false);
+  });
+
+  it("rejects dirty or conflicting PR mergeability for READY", () => {
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    expect(headStateAllowsReady([], { headSha, state: "OPEN", mergeStateStatus: "DIRTY" })).toBe(false);
+    expect(headStateAllowsReady([], { headSha, state: "OPEN", mergeable: "CONFLICTING" })).toBe(false);
   });
 });
 
@@ -662,6 +673,36 @@ describe("tickDirector", () => {
     expect(events.some((entry) => entry.event === "director_prompted")).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call.includes(directorTarget))).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call.includes(directorBuffer))).toBe(false);
+  });
+
+  it("invalidates old READY and records a deterministic rebase action when GitHub reports PR conflicts", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" });
+    const { deps, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      mergeStateStatus: "DIRTY",
+      mergeable: "CONFLICTING",
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    const conflictEvents = readEvents(runDir).filter((event) => event.event === "pr_conflict");
+    expect(conflictEvents).toHaveLength(1);
+    expect(conflictEvents[0]).toMatchObject({
+      event: "pr_conflict",
+      sha: headSha,
+      pr_url: "https://github.com/o/r/pull/7",
+      merge_state: "DIRTY",
+      mergeable: "CONFLICTING",
+      action: "rebase_required",
+      source: "github",
+    });
+    expect(out).toContain(`director: pr_conflict ${headSha} DIRTY; action rebase_required`);
   });
 
   it("emits READY without an external clean comment when configured required checks pass", async () => {
