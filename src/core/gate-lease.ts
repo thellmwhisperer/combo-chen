@@ -1,25 +1,26 @@
 /**
  * @overview Shared no-mistakes gate lease persistence.
- *   Models one global gate owner so parallel combos can serialize gate work.
+ *   Models one gate owner per branch so parallel combos do not serialize across
+ *   independent no-mistakes runs.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at acquireGateLease <- atomic acquisition and stale recovery.
- *   2. Then readGateLease        <- status/dashboard-facing visibility.
+ *   1. Start at acquireGateLease  <- atomic branch acquisition and stale recovery.
+ *   2. Then readGateLeases        <- status/dashboard-facing visibility.
  *
  *   MAIN FLOW
  *   ---------
- *   combo gate owner -> acquireGateLease -> gate-lease.lock/lease.json
+ *   combo gate owner -> acquireGateLease -> gate-leases.lock/<branch>/lease.json
  *
  *   PUBLIC API
  *   ----------
  *   GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult
- *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease, releaseGateLease
+ *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease
  *
- * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, GateLeaseHeartbeatResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, acquireGateLease, releaseGateLease, heartbeatGateLease
+ * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, GateLeaseHeartbeatResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease, heartbeatGateLease
  * @deps node:{fs,path}
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // -- 1/2 HELPER · types and paths --
@@ -49,15 +50,25 @@ export type GateLeaseReleaseResult =
 
 export const DEFAULT_GATE_LEASE_STALE_MS = 30 * 60 * 1000;
 
-const GATE_LEASE_DIR = "gate-lease.lock";
+const GATE_LEASE_DIR = "gate-leases.lock";
+const LEGACY_GATE_LEASE_DIR = "gate-lease.lock";
 const GATE_LEASE_RECORD = "lease.json";
 
-export function gateLeaseDir(home: string): string {
-  return join(home, GATE_LEASE_DIR);
+export function gateLeaseDir(home: string, branch?: string): string {
+  if (branch === undefined) return join(home, GATE_LEASE_DIR);
+  return join(home, GATE_LEASE_DIR, encodeURIComponent(branch));
 }
 
-function gateLeaseRecordPath(home: string): string {
-  return join(gateLeaseDir(home), GATE_LEASE_RECORD);
+function legacyGateLeaseDir(home: string): string {
+  return join(home, LEGACY_GATE_LEASE_DIR);
+}
+
+function gateLeaseRecordPath(home: string, branch: string): string {
+  return join(gateLeaseDir(home, branch), GATE_LEASE_RECORD);
+}
+
+function legacyGateLeaseRecordPath(home: string): string {
+  return join(legacyGateLeaseDir(home), GATE_LEASE_RECORD);
 }
 
 function leaseRecord(owner: GateLeaseOwner, now: Date): GateLeaseRecord {
@@ -74,11 +85,70 @@ function leaseRecord(owner: GateLeaseOwner, now: Date): GateLeaseRecord {
 }
 // -/ 1/2
 
-// -- 2/2 CORE · read and acquire gate leases <- START HERE --
-export function readGateLease(home: string): GateLeaseRecord | undefined {
-  const path = gateLeaseRecordPath(home);
+// -- 2/2 CORE · read and acquire branch leases <- START HERE --
+interface GateLeaseEntry {
+  lease: GateLeaseRecord;
+  dir: string;
+  path: string;
+}
+
+function readGateLeaseEntry(path: string, dir: string): GateLeaseEntry | undefined {
   if (!existsSync(path)) return undefined;
-  return JSON.parse(readFileSync(path, "utf8")) as GateLeaseRecord;
+  return {
+    lease: JSON.parse(readFileSync(path, "utf8")) as GateLeaseRecord,
+    dir,
+    path,
+  };
+}
+
+function readGateLeaseEntries(home: string): GateLeaseEntry[] {
+  const entries: GateLeaseEntry[] = [];
+  const root = gateLeaseDir(home);
+  if (existsSync(root)) {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = join(root, entry.name);
+      const lease = readGateLeaseEntry(join(dir, GATE_LEASE_RECORD), dir);
+      if (lease !== undefined) entries.push(lease);
+    }
+  }
+
+  const legacy = readGateLeaseEntry(legacyGateLeaseRecordPath(home), legacyGateLeaseDir(home));
+  if (
+    legacy !== undefined &&
+    !entries.some(
+      (entry) =>
+        entry.lease.comboId === legacy.lease.comboId ||
+        entry.lease.branch === legacy.lease.branch,
+    )
+  ) {
+    entries.push(legacy);
+  }
+
+  return entries.sort((a, b) => {
+    const acquired = Date.parse(a.lease.acquiredAt) - Date.parse(b.lease.acquiredAt);
+    if (acquired !== 0) return acquired;
+    return a.lease.comboId.localeCompare(b.lease.comboId);
+  });
+}
+
+function readGateLeaseEntryForBranch(home: string, branch: string): GateLeaseEntry | undefined {
+  const current = readGateLeaseEntry(gateLeaseRecordPath(home, branch), gateLeaseDir(home, branch));
+  if (current !== undefined) return current;
+  const legacy = readGateLeaseEntry(legacyGateLeaseRecordPath(home), legacyGateLeaseDir(home));
+  return legacy?.lease.branch === branch ? legacy : undefined;
+}
+
+function readGateLeaseEntryForCombo(home: string, comboId: string): GateLeaseEntry | undefined {
+  return readGateLeaseEntries(home).find((entry) => entry.lease.comboId === comboId);
+}
+
+export function readGateLeases(home: string): GateLeaseRecord[] {
+  return readGateLeaseEntries(home).map((entry) => entry.lease);
+}
+
+export function readGateLease(home: string): GateLeaseRecord | undefined {
+  return readGateLeases(home)[0];
 }
 
 export function acquireGateLease(options: {
@@ -89,36 +159,49 @@ export function acquireGateLease(options: {
 }): GateLeaseAcquireResult {
   const now = options.now ?? new Date();
   const staleAfterMs = options.staleAfterMs ?? DEFAULT_GATE_LEASE_STALE_MS;
-  const leaseDir = gateLeaseDir(options.home);
+  const leaseDir = gateLeaseDir(options.home, options.owner.branch);
+  const leasePath = gateLeaseRecordPath(options.home, options.owner.branch);
 
   while (true) {
     mkdirSync(options.home, { recursive: true });
+    mkdirSync(gateLeaseDir(options.home), { recursive: true });
+
+    const legacyCurrent = readGateLeaseEntryForBranch(options.home, options.owner.branch);
+    if (legacyCurrent !== undefined && legacyCurrent.dir === legacyGateLeaseDir(options.home)) {
+      if (isStaleLease(legacyCurrent.lease, now, staleAfterMs)) {
+        rmSync(legacyCurrent.dir, { recursive: true, force: true });
+      } else if (legacyCurrent.lease.comboId === options.owner.comboId) {
+        return { state: "acquired", lease: legacyCurrent.lease };
+      } else {
+        return { state: "same_branch_conflict", lease: legacyCurrent.lease };
+      }
+    }
+
     try {
       mkdirSync(leaseDir);
       const lease = leaseRecord(options.owner, now);
-      writeFileSync(gateLeaseRecordPath(options.home), `${JSON.stringify(lease, null, 2)}\n`);
+      writeFileSync(leasePath, `${JSON.stringify(lease, null, 2)}\n`);
       return { state: "acquired", lease };
     } catch (error) {
       if (!isErrnoException(error) || error.code !== "EEXIST") throw error;
-      const current = readGateLease(options.home);
+      const current = readGateLeaseEntryForBranch(options.home, options.owner.branch);
       if (current === undefined) throw error;
 
-      if (isStaleLease(current, now, staleAfterMs)) {
-        rmSync(leaseDir, { recursive: true, force: true });
+      if (isStaleLease(current.lease, now, staleAfterMs)) {
+        rmSync(current.dir, { recursive: true, force: true });
         const recovered = leaseRecord(options.owner, now);
         try {
           mkdirSync(leaseDir);
-          writeFileSync(gateLeaseRecordPath(options.home), `${JSON.stringify(recovered, null, 2)}\n`);
-          return { state: "recovered", lease: recovered, staleLease: current };
+          writeFileSync(leasePath, `${JSON.stringify(recovered, null, 2)}\n`);
+          return { state: "recovered", lease: recovered, staleLease: current.lease };
         } catch (retryError) {
           if (isErrnoException(retryError) && retryError.code === "EEXIST") continue;
           throw retryError;
         }
       }
 
-      if (current.comboId === options.owner.comboId) return { state: "acquired", lease: current };
-      if (current.branch === options.owner.branch) return { state: "same_branch_conflict", lease: current };
-      return { state: "busy", lease: current };
+      if (current.lease.comboId === options.owner.comboId) return { state: "acquired", lease: current.lease };
+      return { state: "same_branch_conflict", lease: current.lease };
     }
   }
 }
@@ -127,11 +210,18 @@ export function releaseGateLease(options: {
   home: string;
   owner: Pick<GateLeaseOwner, "comboId">;
 }): GateLeaseReleaseResult {
-  const current = readGateLease(options.home);
-  if (current === undefined) return { state: "missing" };
-  if (current.comboId !== options.owner.comboId) return { state: "not_owner", lease: current };
-  rmSync(gateLeaseDir(options.home), { recursive: true, force: true });
-  return { state: "released" };
+  const current = readGateLeaseEntryForCombo(options.home, options.owner.comboId);
+  if (current !== undefined) {
+    rmSync(current.dir, { recursive: true, force: true });
+    return { state: "released" };
+  }
+  const active = readGateLease(options.home);
+  if (active !== undefined) return { state: "not_owner", lease: active };
+  return { state: "missing" };
+}
+
+function writeGateLeaseEntry(entry: GateLeaseEntry, lease: GateLeaseRecord): void {
+  writeFileSync(entry.path, `${JSON.stringify(lease, null, 2)}\n`);
 }
 
 export type GateLeaseHeartbeatResult =
@@ -144,14 +234,17 @@ export function heartbeatGateLease(options: {
   owner: Pick<GateLeaseOwner, "comboId">;
   now?: Date;
 }): GateLeaseHeartbeatResult {
-  const current = readGateLease(options.home);
-  if (current === undefined) return { state: "missing" };
-  if (current.comboId !== options.owner.comboId) return { state: "not_owner", lease: current };
+  const current = readGateLeaseEntryForCombo(options.home, options.owner.comboId);
+  if (current === undefined) {
+    const active = readGateLease(options.home);
+    if (active !== undefined) return { state: "not_owner", lease: active };
+    return { state: "missing" };
+  }
   const updated: GateLeaseRecord = {
-    ...current,
+    ...current.lease,
     heartbeatAt: (options.now ?? new Date()).toISOString(),
   };
-  writeFileSync(gateLeaseRecordPath(options.home), `${JSON.stringify(updated, null, 2)}\n`);
+  writeGateLeaseEntry(current, updated);
   return { state: "ok" };
 }
 

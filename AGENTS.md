@@ -138,7 +138,7 @@ reboot-safe capsule handoff, the parallel capsule dashboard (`status`; actionabl
 by default, `--all` for history, `--deep` for downstream probes, auto-reconcile
 + tmux liveness), launch-time config snapshots for deterministic runtime behavior,
 a machine-readable runtime ledger for each combo capsule,
-shared gate lease serialization for parallel capsules with stale recovery and heartbeat,
+branch-scoped gate leases for parallel capsules with stale recovery and heartbeat,
 promptable director window inside each combo capsule (non-polling contract, prompted by
 director-watch only for ambiguity or uncoded recovery), wave-based parallel scaling
 (start 2 capsules, then 3, then 4-6 with postmortem justification),
