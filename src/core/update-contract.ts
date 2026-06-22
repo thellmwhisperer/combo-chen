@@ -1,5 +1,5 @@
 /**
- * @overview Read-only updater contract primitives shared by future update slices.
+ * @overview Read-only updater contract primitives shared by U2/U3/U4 update slices.
  *   ~390 lines, 24 exports, pure release identity, asset/checksum/install selection, and comparison helpers.
  *
  *   READING GUIDE
@@ -9,7 +9,7 @@
  *   3. Then parseUpdateChecksums          <- checksums.txt parser and lookup.
  *   4. Then classifyInstallTarget         <- read-only local install classification.
  *   5. Then compareReleaseCandidate       <- current build versus candidate state.
- *   6. Skim exported types                <- U1/U2/U3/U4 follow-up contracts.
+ *   6. Skim exported types                <- U1/U2/U3/U4 shared contracts.
  *
  *   MAIN FLOW
  *   ---------
@@ -169,7 +169,7 @@ export interface ActiveComboState {
   comboIds: string[];
 }
 
-/** Aggregate read-only update plan shared by future resolver, staging, and guard slices. */
+/** Aggregate read-only update plan shared by U2, U3, and future resolver/guard slices. */
 export interface ReadOnlyUpdatePlan {
   current: CurrentBuildMetadata;
   candidate?: ReleaseCandidate;
