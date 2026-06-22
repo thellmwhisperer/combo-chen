@@ -149,7 +149,7 @@ export async function stageResolvedUpdate(input: {
   const checksumsPath = join(downloadsDir, checksumsFileName);
 
   if (input.plan.checksums.text === undefined && input.plan.checksums.downloadUrl === undefined) {
-    await failWithCleanup({
+    return await failWithCleanup({
       code: "checksums_unavailable",
       message: "checksums.txt text or downloadUrl is required",
       stagingDir: input.stagingDir,
@@ -217,7 +217,7 @@ export async function stageResolvedUpdate(input: {
     }
     const actualSha256 = sha256Hex(archiveBytes);
     if (actualSha256 !== expectedSha256) {
-      await failWithCleanup({
+      return await failWithCleanup({
         code: "checksum_mismatch",
         message:
           `checksum mismatch for ${assetFileName}: ` +

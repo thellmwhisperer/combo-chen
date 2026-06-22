@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for U2 update download/checksum/staging primitives.
- *   ~470 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
+ *   ~520 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
  *
  *   READING GUIDE
  *   -------------
@@ -322,6 +322,31 @@ describe("stageResolvedUpdate", () => {
       code: "staging_failed",
       cleanup: { attempted: true, path: stagingDir, removed: true },
     });
+    expect(calls.extracts).toEqual([]);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+
+  it("reports archive write failures with staging_failed code and cleans partial staging", async () => {
+    const stagingDir = "/staging/combo-chen-update-write-failed";
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", Buffer.from("archive")],
+      ]),
+      writeFileError: new Error("ENOSPC: no space left on device"),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({ text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n` }),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "staging_failed",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(failure.message).toContain("failed to write");
     expect(calls.extracts).toEqual([]);
     expect(calls.removes).toEqual([stagingDir]);
   });
