@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for U2 update download/checksum/staging primitives.
- *   ~280 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
+ *   ~470 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
  *
  *   READING GUIDE
  *   -------------
@@ -112,6 +112,14 @@ async function captureFailure(run: () => Promise<unknown>): Promise<UpdateStagin
     return error as UpdateStagingError;
   }
   throw new Error("expected stageResolvedUpdate to fail");
+}
+
+function expectNoStagingIo(calls: MockCalls): void {
+  expect(calls.downloads).toEqual([]);
+  expect(calls.dirs).toEqual([]);
+  expect(calls.writes.size).toBe(0);
+  expect(calls.removes).toEqual([]);
+  expect(calls.extracts).toEqual([]);
 }
 // -/ 1/2
 
@@ -332,7 +340,7 @@ describe("stageResolvedUpdate", () => {
 
     expect(failure.code).toBe("unsafe_file_name");
     expect(failure.message).toContain("unsafe fileName");
-    expect(calls.downloads).toEqual([]);
+    expectNoStagingIo(calls);
   });
 
   it("rejects checksums file names with path traversal before any I/O", async () => {
@@ -356,7 +364,79 @@ describe("stageResolvedUpdate", () => {
 
     expect(failure.code).toBe("unsafe_file_name");
     expect(failure.message).toContain("unsafe fileName");
-    expect(calls.downloads).toEqual([]);
+    expectNoStagingIo(calls);
+  });
+
+  it("rejects empty asset file names before any I/O", async () => {
+    const stagingDir = "/staging/combo-chen-update-empty-asset";
+    const { deps, calls } = makeDeps({
+      downloads: new Map(),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: {
+          asset: {
+            fileName: "",
+            downloadUrl: "https://example.test/releases/combo-chen.tar.gz",
+          },
+          checksums: { text: `${"1".repeat(64)}  combo-chen.tar.gz\n` },
+        },
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure.code).toBe("unsafe_file_name");
+    expect(failure.message).toContain("unsafe fileName");
+    expectNoStagingIo(calls);
+  });
+
+  it("rejects empty checksums file names before any I/O", async () => {
+    const stagingDir = "/staging/combo-chen-update-empty-checksums";
+    const { deps, calls } = makeDeps({
+      downloads: new Map(),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: {
+          asset: {
+            fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+            downloadUrl: "https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz",
+          },
+          checksums: { text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n`, fileName: "" },
+        },
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure.code).toBe("unsafe_file_name");
+    expect(failure.message).toContain("unsafe fileName");
+    expectNoStagingIo(calls);
+  });
+
+  it("rejects single-dot asset file names before any I/O", async () => {
+    const stagingDir = "/staging/combo-chen-update-dot-asset";
+    const { deps, calls } = makeDeps({
+      downloads: new Map(),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: {
+          asset: {
+            fileName: ".",
+            downloadUrl: "https://example.test/releases/combo-chen.tar.gz",
+          },
+          checksums: { text: `${"1".repeat(64)}  combo-chen.tar.gz\n` },
+        },
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure.code).toBe("unsafe_file_name");
+    expect(failure.message).toContain("unsafe fileName");
+    expectNoStagingIo(calls);
   });
 
   it("cleans partial staging when extraction fails", async () => {
