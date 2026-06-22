@@ -3806,6 +3806,7 @@ describe("status", () => {
     appendEvent(dir, "pr_opened", { url: prUrl });
     appendEvent(dir, "gate_started", {});
 
+    let liveLabels: Array<{ name: string }> = [];
     const { deps, calls } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
@@ -3833,7 +3834,7 @@ describe("status", () => {
             stdout: JSON.stringify({
               headRefOid: headSha,
               state: "OPEN",
-              ...(fields.includes("labels") ? { labels: [] } : {}),
+              ...(fields.includes("labels") ? { labels: liveLabels } : {}),
               ...(fields.includes("statusCheckRollup")
                 ? { statusCheckRollup: [{ name: "test", conclusion: "SUCCESS" }] }
                 : {}),
@@ -3841,7 +3842,12 @@ describe("status", () => {
             stderr: "",
           };
         }
-        if (args[0] === "pr" && args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "pr" && args[1] === "edit") {
+          if (args[3] === "--add-label") {
+            liveLabels = liveLabels.concat(String(args[4] ?? "").split(",").map((name) => ({ name })));
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        }
         return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
       },
     });

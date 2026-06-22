@@ -95,7 +95,7 @@ export interface SyncComboPrLabelsInput {
 export interface SyncComboPrLabelsResult {
   prUrl: string;
   oldLabels: string[];
-  newLabels: ComboPrLabel[];
+  newLabels: string[];
   projection: ComboPrLabelProjection;
   diff: ComboPrLabelDiff;
   changed: boolean;
@@ -132,7 +132,7 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
   const lgtmCurrent = shaMatchesHead(livePinnedLgtmSha(input.events), headSha);
   const codeRabbitGreen = namedCheckSucceeded(
     input.pr.statusCheckRollup,
-    input.codeRabbitCheckNames ?? DEFAULT_CODERABBIT_CHECK_NAMES,
+    configuredCodeRabbitCheckNames(input),
   );
   const readyCurrent = currentReadyAgreement(input, lgtmCurrent);
   const stale = hasStaleCurrentHeadSignal(input.events, headSha);
@@ -176,32 +176,38 @@ export function syncComboPrLabels(input: SyncComboPrLabelsInput): SyncComboPrLab
     codeRabbitCheckNames: input.codeRabbitCheckNames,
   });
   const diff = diffComboPrLabels(current.labels, projection.labels);
+  let liveLabels = current.labels;
 
   if (diff.remove.length > 0) {
     editPrLabels(input.gh, input.prUrl, "--remove-label", diff.remove);
+    const updated = fetchComboPrLabelView(input.gh, input.prUrl);
+    appendPrLabelsUpdated(input, projection, {
+      oldLabels: liveLabels,
+      newLabels: updated.labels,
+      addedLabels: [],
+      removedLabels: diff.remove,
+    });
+    liveLabels = updated.labels;
   }
-  if (diff.add.length > 0) {
-    editPrLabels(input.gh, input.prUrl, "--add-label", diff.add);
+  const addLabels = diffComboPrLabels(liveLabels, projection.labels).add;
+  if (addLabels.length > 0) {
+    editPrLabels(input.gh, input.prUrl, "--add-label", addLabels);
+    const updated = fetchComboPrLabelView(input.gh, input.prUrl);
+    appendPrLabelsUpdated(input, projection, {
+      oldLabels: liveLabels,
+      newLabels: updated.labels,
+      addedLabels: addLabels,
+      removedLabels: [],
+    });
+    liveLabels = updated.labels;
   }
 
   const changed = diff.add.length > 0 || diff.remove.length > 0;
-  if (changed) {
-    appendEvent(input.runDir, "pr_labels_updated", {
-      pr_url: input.prUrl,
-      head_sha: projection.headSha,
-      old_labels: current.labels,
-      new_labels: projection.labels,
-      added_labels: diff.add,
-      removed_labels: diff.remove,
-      reason: projection.reason,
-      ...(input.source !== undefined ? { source: input.source } : {}),
-    });
-  }
 
   return {
     prUrl: input.prUrl,
     oldLabels: current.labels,
-    newLabels: projection.labels,
+    newLabels: liveLabels,
     projection,
     diff,
     changed,
@@ -220,6 +226,28 @@ function editPrLabels(
     const detail = result.stderr.trim() || result.stdout.trim() || "gh pr edit failed";
     throw new Error(`PR label update failed for ${prUrl}: ${detail}`);
   }
+}
+
+function appendPrLabelsUpdated(
+  input: SyncComboPrLabelsInput,
+  projection: ComboPrLabelProjection,
+  change: {
+    oldLabels: string[];
+    newLabels: string[];
+    addedLabels: ComboPrLabel[];
+    removedLabels: ComboPrLabel[];
+  },
+): void {
+  appendEvent(input.runDir, "pr_labels_updated", {
+    pr_url: input.prUrl,
+    head_sha: projection.headSha,
+    old_labels: change.oldLabels,
+    new_labels: change.newLabels,
+    added_labels: change.addedLabels,
+    removed_labels: change.removedLabels,
+    reason: projection.reason,
+    ...(input.source !== undefined ? { source: input.source } : {}),
+  });
 }
 // -/ 3/4
 
@@ -297,6 +325,18 @@ function currentReadyAgreement(input: ComboPrLabelProjectionInput, lgtmCurrent: 
 function namedCheckSucceeded(rollup: unknown[] | undefined, names: string[]): boolean {
   if (rollup === undefined) return false;
   return rollup.some((item) => checkNameMatchesAny(item, names) && checkSignalIsSuccess(item));
+}
+
+function configuredCodeRabbitCheckNames(input: ComboPrLabelProjectionInput): string[] {
+  const explicit = nonEmptyStrings(input.codeRabbitCheckNames);
+  if (explicit.length > 0) return explicit;
+  const configuredAmbient = nonEmptyStrings(input.ambientCheckNames);
+  if (configuredAmbient.length > 0) return configuredAmbient;
+  return DEFAULT_CODERABBIT_CHECK_NAMES;
+}
+
+function nonEmptyStrings(values: string[] | undefined): string[] {
+  return values?.map((value) => value.trim()).filter((value) => value.length > 0) ?? [];
 }
 
 function hasStaleCurrentHeadSignal(events: ComboEvent[], headSha: string): boolean {
