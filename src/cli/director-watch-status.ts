@@ -1,5 +1,5 @@
 /**
- * @overview Director-watch operator status line formatter. ~245 lines,
+ * @overview Director-watch operator status line formatter. ~260 lines,
  *   pure timeline/checklist rendering for tmux panes.
  *
  *   READING GUIDE
@@ -144,13 +144,14 @@ function formatReviewerStatus(events: ComboEvent[]): string {
 }
 
 function readinessFacts(input: DirectorWatchStatusLineInput): ReadinessFacts {
+  const prState = input.pr?.state.toUpperCase();
   const headSha = input.pr?.headSha;
   const rollup = input.pr?.statusCheckRollup;
   const requiredCheckNames = input.readyRequiredChecks ?? [];
   const ambientCheckNames = input.ambientCheckNames ?? [];
 
   return {
-    pr: input.pr === undefined ? "unknown" : input.pr.state === "OPEN" ? "yes" : "no",
+    pr: prReadyState(prState),
     gate: headSha === undefined ? "unknown" : gateReady(input.events, headSha) ? "yes" : "no",
     reviewer: headSha === undefined ? "unknown" : livePinnedLgtmSha(input.events) === headSha ? "yes" : "no",
     checks: rollup === undefined ? "unknown" : requiredChecksSucceeded(rollup, requiredCheckNames) ? "yes" : "no",
@@ -200,8 +201,12 @@ function pendingAction(
     if (status.phase === "GATING") return "waiting for initial gate PR";
     return "waiting for PR";
   }
-  if (input.pr !== undefined && input.pr.state !== "OPEN") {
-    return `PR ${input.pr.state.toLowerCase()}; waiting for terminal journal`;
+  if (input.pr !== undefined) {
+    const prState = input.pr.state.toUpperCase();
+    if (terminalPrState(prState)) {
+      return `PR ${prState.toLowerCase()}; waiting for terminal journal`;
+    }
+    if (prState !== "OPEN") return "waiting for GitHub PR state";
   }
   if (readiness.gate !== "yes") return "waiting for current-head gate";
   if (readiness.reviewer !== "yes") return "waiting for reviewer LGTM";
@@ -220,6 +225,16 @@ function shaMatches(candidate: string | undefined, headSha: string): boolean {
   const pin = candidate.trim().toLowerCase();
   const head = headSha.trim().toLowerCase();
   return pin.length >= 7 && (pin === head || head.startsWith(pin));
+}
+
+function terminalPrState(state: string): boolean {
+  return state === "MERGED" || state === "CLOSED";
+}
+
+function prReadyState(state: string | undefined): ReadinessFacts["pr"] {
+  if (state === undefined) return "unknown";
+  if (state === "OPEN") return "yes";
+  return terminalPrState(state) ? "no" : "unknown";
 }
 
 function compact(value: string): string {
