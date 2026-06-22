@@ -1,0 +1,274 @@
+/**
+ * @overview Unit tests for U2 update download/checksum/staging primitives.
+ *   ~190 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at describe("stageResolvedUpdate") <- U2 staging contract.
+ *   2. Test helpers keep network/filesystem/extraction behind injectable deps.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   resolved update plan -> mocked downloads -> checksum verification -> isolated extraction -> staged descriptor
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   sha256Hex, plan, makeDeps, captureFailure.
+ *
+ * @exports none
+ * @deps node:{crypto,path}, vitest, ./update-staging
+ */
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+import {
+  UpdateStagingError,
+  type UpdateDownloadRequest,
+  type UpdateExtractionInput,
+  type UpdateStagingDeps,
+  stageResolvedUpdate,
+} from "./update-staging.js";
+
+interface MockCalls {
+  downloads: UpdateDownloadRequest[];
+  dirs: string[];
+  writes: Map<string, Buffer>;
+  removes: string[];
+  extracts: UpdateExtractionInput[];
+}
+
+// -- 1/2 HELPER · mock staging dependencies --
+function sha256Hex(data: Uint8Array | string): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+function plan(checksums: { downloadUrl?: string; text?: string }) {
+  return {
+    asset: {
+      fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+      downloadUrl: "https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz",
+    },
+    checksums,
+  };
+}
+
+function makeDeps(options: {
+  downloads?: ReadonlyMap<string, Uint8Array | string>;
+  extractError?: Error;
+}): { deps: UpdateStagingDeps; calls: MockCalls } {
+  const calls: MockCalls = {
+    downloads: [],
+    dirs: [],
+    writes: new Map(),
+    removes: [],
+    extracts: [],
+  };
+
+  return {
+    calls,
+    deps: {
+      async download(request) {
+        calls.downloads.push(request);
+        const value = options.downloads?.get(request.url);
+        if (value === undefined) {
+          throw new Error(`unexpected download: ${request.url}`);
+        }
+        return value;
+      },
+      async mkdir(path) {
+        calls.dirs.push(path);
+      },
+      async writeFile(path, data) {
+        calls.writes.set(path, Buffer.from(data));
+      },
+      async remove(path) {
+        calls.removes.push(path);
+      },
+      async extractArchive(input) {
+        calls.extracts.push(input);
+        if (options.extractError !== undefined) throw options.extractError;
+        const rootDir = join(input.destinationDir, "combo-chen-v1.2.3");
+        const executablePath = join(rootDir, "bin", "combo-chen");
+        return {
+          rootDir,
+          executablePath,
+          files: [executablePath],
+        };
+      },
+    },
+  };
+}
+
+async function captureFailure(run: () => Promise<unknown>): Promise<UpdateStagingError> {
+  try {
+    await run();
+  } catch (error) {
+    expect(error).toBeInstanceOf(UpdateStagingError);
+    return error as UpdateStagingError;
+  }
+  throw new Error("expected stageResolvedUpdate to fail");
+}
+// -/ 1/2
+
+// -- 2/2 CORE · resolved update staging contract <- START HERE --
+describe("stageResolvedUpdate", () => {
+  it("downloads the selected archive and checksums before returning a staged descriptor", async () => {
+    const stagingDir = "/staging/combo-chen-update-1";
+    const archiveBytes = Buffer.from("release archive bytes");
+    const expectedSha256 = sha256Hex(archiveBytes);
+    const checksumsText = `${expectedSha256}  combo-chen-v1.2.3-linux-x64.tar.gz\n`;
+    const { deps, calls } = makeDeps({
+      downloads: new Map<string, Uint8Array | string>([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", archiveBytes],
+        ["https://example.test/releases/checksums.txt", checksumsText],
+      ]),
+    });
+
+    const staged = await stageResolvedUpdate({
+      plan: plan({ downloadUrl: "https://example.test/releases/checksums.txt" }),
+      stagingDir,
+      deps,
+    });
+
+    const archivePath = join(stagingDir, "downloads", "combo-chen-v1.2.3-linux-x64.tar.gz");
+    const checksumsPath = join(stagingDir, "downloads", "checksums.txt");
+    const extractedDir = join(stagingDir, "extracted");
+    expect(calls.downloads).toEqual([
+      {
+        kind: "archive",
+        url: "https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz",
+        fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+      },
+      {
+        kind: "checksums",
+        url: "https://example.test/releases/checksums.txt",
+        fileName: "checksums.txt",
+      },
+    ]);
+    expect(calls.dirs).toEqual([join(stagingDir, "downloads"), extractedDir]);
+    expect(calls.writes.get(archivePath)?.equals(archiveBytes)).toBe(true);
+    expect(calls.writes.get(checksumsPath)?.toString("utf8")).toBe(checksumsText);
+    expect(calls.extracts).toEqual([
+      {
+        archivePath,
+        destinationDir: extractedDir,
+        assetFileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+      },
+    ]);
+    expect(staged).toEqual({
+      assetFileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+      archivePath,
+      checksumsPath,
+      expectedSha256,
+      actualSha256: expectedSha256,
+      stagingDir,
+      extractedDir,
+      rootDir: join(extractedDir, "combo-chen-v1.2.3"),
+      executablePath: join(extractedDir, "combo-chen-v1.2.3", "bin", "combo-chen"),
+      files: [join(extractedDir, "combo-chen-v1.2.3", "bin", "combo-chen")],
+    });
+  });
+
+  it("accepts received checksums.txt text without downloading it again", async () => {
+    const archiveBytes = Buffer.from("release archive bytes");
+    const checksumsText = `${sha256Hex(archiveBytes)}  combo-chen-v1.2.3-linux-x64.tar.gz\n`;
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", archiveBytes],
+      ]),
+    });
+
+    await stageResolvedUpdate({
+      plan: plan({ text: checksumsText }),
+      stagingDir: "/staging/combo-chen-update-2",
+      deps,
+    });
+
+    expect(calls.downloads).toEqual([
+      {
+        kind: "archive",
+        url: "https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz",
+        fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
+      },
+    ]);
+  });
+
+  it("fails checksum mismatches before extraction and cleans partial staging", async () => {
+    const stagingDir = "/staging/combo-chen-update-mismatch";
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", Buffer.from("archive")],
+      ]),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({ text: `${"0".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n` }),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "checksum_mismatch",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(calls.extracts).toEqual([]);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+
+  it("fails missing checksum entries before extraction and cleans partial staging", async () => {
+    const stagingDir = "/staging/combo-chen-update-missing";
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", Buffer.from("archive")],
+      ]),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({ text: `${"1".repeat(64)}  combo-chen-v1.2.3-darwin-arm64.tar.gz\n` }),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "checksum_not_found",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(calls.extracts).toEqual([]);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+
+  it("cleans partial staging when extraction fails", async () => {
+    const stagingDir = "/staging/combo-chen-update-extract-failed";
+    const archiveBytes = Buffer.from("release archive bytes");
+    const { deps, calls } = makeDeps({
+      downloads: new Map([
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", archiveBytes],
+      ]),
+      extractError: new Error("tar failed"),
+    });
+    const failure = await captureFailure(() =>
+      stageResolvedUpdate({
+        plan: plan({
+          text: `${sha256Hex(archiveBytes)}  combo-chen-v1.2.3-linux-x64.tar.gz\n`,
+        }),
+        stagingDir,
+        deps,
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "extraction_failed",
+      cleanup: { attempted: true, path: stagingDir, removed: true },
+    });
+    expect(calls.extracts).toHaveLength(1);
+    expect(calls.removes).toEqual([stagingDir]);
+  });
+});
+// -/ 2/2
