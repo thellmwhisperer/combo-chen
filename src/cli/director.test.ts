@@ -103,6 +103,7 @@ function fakeDeps(input: {
 }): { deps: DirectorDeps; calls: string[][]; out: string[] } {
   const calls: string[][] = [];
   const out: string[] = [];
+  let livePrLabels = [...(input.prLabels ?? [])];
   const deps: DirectorDeps = {
     env: { COMBO_CHEN_HOME: input.homeDir, ...input.env },
     out: (line) => out.push(line),
@@ -135,17 +136,27 @@ function fakeDeps(input: {
               ? {
                   ...base,
                   statusCheckRollup: input.rollup ?? successfulRollup(),
-                  ...(fields.includes("labels") ? { labels: input.prLabels ?? [] } : {}),
+                  ...(fields.includes("labels") ? { labels: livePrLabels } : {}),
                 }
               : {
                   ...base,
-                  ...(fields.includes("labels") ? { labels: input.prLabels ?? [] } : {}),
+                  ...(fields.includes("labels") ? { labels: livePrLabels } : {}),
                 },
           ),
           stderr: "",
         };
       }
       if (args[0] === "pr" && args[1] === "edit") {
+        if (args[3] === "--remove-label") {
+          const removed = new Set(String(args[4] ?? "").split(","));
+          livePrLabels = livePrLabels.filter((label) => {
+            const name = testLabelName(label);
+            return name === undefined || !removed.has(name);
+          });
+        }
+        if (args[3] === "--add-label") {
+          livePrLabels = livePrLabels.concat(String(args[4] ?? "").split(",").map((name) => ({ name })));
+        }
         return { status: 0, stdout: "", stderr: "" };
       }
       const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
@@ -198,6 +209,14 @@ function fakeDeps(input: {
     sleep: input.sleep ?? (() => Promise.resolve()),
   };
   return { deps, calls, out };
+}
+
+function testLabelName(label: unknown): string | undefined {
+  if (typeof label === "string") return label;
+  if (typeof label === "object" && label !== null && typeof (label as { name?: unknown }).name === "string") {
+    return (label as { name: string }).name;
+  }
+  return undefined;
 }
 // -/ 1/2
 
@@ -597,7 +616,7 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
         head_sha: headSha,
         old_labels: ["documentation"],
-        new_labels: ["combo:working-reviewer"],
+        new_labels: ["documentation", "combo:working-reviewer"],
         added_labels: ["combo:working-reviewer"],
         removed_labels: [],
         reason: "current",
