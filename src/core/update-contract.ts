@@ -23,6 +23,7 @@
  *   lookupUpdateChecksum          Look up an expected checksum by exact asset filename.
  *   classifyInstallTarget         Classify a local executable path without mutating it.
  *   compareReleaseCandidate       Compare current build metadata to a candidate.
+ *   compareNormalizedReleaseVersions Compare two normalized combo-chen release versions.
  *   UpdateReleaseChannel          Stable or prerelease channel name.
  *   UpdateComparisonState         Candidate comparison state.
  *   NormalizedReleaseVersion      Parsed release identity.
@@ -45,7 +46,7 @@
  *   INTERNALS
  *   ---------
  *   normalizeInstallTargetPath, releaseArchiveVersionFromPath, isSourceCheckoutPath, parsePrerelease,
- *   compareNormalizedReleaseVersions, comparePrereleaseIdentifiers, isNumericIdentifier
+ *   comparePrereleaseIdentifiers, isNumericIdentifier
  *
  * @exports UpdateReleaseChannel, NormalizedReleaseVersion, CurrentBuildMetadata, ReleaseCandidate,
  *   UpdateComparisonState, UpdateVersionComparison, UpdateAssetTarget, UpdateAssetSelectionInput,
@@ -53,7 +54,7 @@
  *   ChecksumVerificationInput, InstallTargetKind, InstallTargetClassificationInput,
  *   InstallTargetClassification, ActiveComboState, ReadOnlyUpdatePlan, normalizeReleaseVersion,
  *   selectUpdateAsset, parseUpdateChecksums, lookupUpdateChecksum, classifyInstallTarget,
- *   compareReleaseCandidate
+ *   compareReleaseCandidate, compareNormalizedReleaseVersions
  * @deps ../infra/release-artifacts
  */
 import { RELEASE_TARGETS, releaseAssetFileName } from "../infra/release-artifacts.js";
@@ -381,7 +382,7 @@ function parsePrerelease(value: string | undefined): string[] {
   return value.split(".");
 }
 
-function compareNormalizedReleaseVersions(
+export function compareNormalizedReleaseVersions(
   left: NormalizedReleaseVersion,
   right: NormalizedReleaseVersion,
 ): number {
