@@ -1,15 +1,16 @@
 /**
  * @overview Unit tests for the read-only updater contract foundation.
- *   ~90 lines, no exports, pins release identity and candidate comparison.
+ *   ~130 lines, no exports, pins release identity, asset selection, and candidate comparison.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at normalizeReleaseVersion tests <- release tag/version contract.
- *   2. Then compareReleaseCandidate tests      <- current versus candidate state.
+ *   2. Then selectUpdateAsset tests            <- supported platform asset contract.
+ *   3. Then compareReleaseCandidate tests      <- current versus candidate state.
  *
  *   MAIN FLOW
  *   ---------
- *   release tag or version -> normalized release version -> comparison result
+ *   release tag or version -> normalized release version -> asset/comparison result
  *
  *   PUBLIC API
  *   ----------
@@ -24,7 +25,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { compareReleaseCandidate, normalizeReleaseVersion } from "./update-contract.js";
+import {
+  compareReleaseCandidate,
+  normalizeReleaseVersion,
+  selectUpdateAsset,
+} from "./update-contract.js";
 
 // -- 1/1 CORE · updater release identity contract <- START HERE --
 describe("update contract release identity", () => {
@@ -58,6 +63,51 @@ describe("update contract release identity", () => {
       patch: 0,
       prerelease: ["beta", "3"],
     });
+  });
+
+  it("selects the expected platform asset for supported targets", () => {
+    expect(
+      selectUpdateAsset({ version: "v1.2.3", platform: "darwin", arch: "arm64" }),
+    ).toEqual({
+      version: "1.2.3",
+      platform: "darwin",
+      arch: "arm64",
+      supported: true,
+      fileName: "combo-chen-v1.2.3-darwin-arm64.tar.gz",
+    });
+
+    expect(
+      selectUpdateAsset({ version: "1.2.3-beta.4", platform: "linux", arch: "x64" }),
+    ).toEqual({
+      version: "1.2.3-beta.4",
+      platform: "linux",
+      arch: "x64",
+      supported: true,
+      fileName: "combo-chen-v1.2.3-beta.4-linux-x64.tar.gz",
+    });
+  });
+
+  it("reports unsupported platform assets without inventing a filename", () => {
+    expect(
+      selectUpdateAsset({ version: "v1.2.3", platform: "win32", arch: "x64" }),
+    ).toEqual({
+      version: "1.2.3",
+      platform: "win32",
+      arch: "x64",
+      supported: false,
+      reason: "unsupported update asset target: win32-x64",
+    });
+
+    const unsupportedArch = selectUpdateAsset({
+      version: "v1.2.3",
+      platform: "linux",
+      arch: "ia32",
+    });
+    expect(unsupportedArch).toMatchObject({
+      supported: false,
+      reason: "unsupported update asset target: linux-ia32",
+    });
+    expect(unsupportedArch).not.toHaveProperty("fileName");
   });
 
   it("compares current build metadata with a newer release candidate", () => {
