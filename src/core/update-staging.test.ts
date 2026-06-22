@@ -328,15 +328,16 @@ describe("stageResolvedUpdate", () => {
 
   it("reports archive write failures with staging_failed code and cleans partial staging", async () => {
     const stagingDir = "/staging/combo-chen-update-write-failed";
+    const archiveBytes = Buffer.from("archive");
     const { deps, calls } = makeDeps({
       downloads: new Map([
-        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", Buffer.from("archive")],
+        ["https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz", archiveBytes],
       ]),
       writeFileError: new Error("ENOSPC: no space left on device"),
     });
     const failure = await captureFailure(() =>
       stageResolvedUpdate({
-        plan: plan({ text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n` }),
+        plan: plan({ text: `${sha256Hex(archiveBytes)}  combo-chen-v1.2.3-linux-x64.tar.gz\n` }),
         stagingDir,
         deps,
       }),

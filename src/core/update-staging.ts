@@ -179,25 +179,12 @@ export async function stageResolvedUpdate(input: {
       });
     }
     archiveBytes = toBuffer(archiveData);
-    try {
-      await input.deps.writeFile(archivePath, archiveBytes);
-    } catch (error) {
-      if (error instanceof UpdateStagingError) throw error;
-      return await failWithCleanup({
-        code: "staging_failed",
-        message: `failed to write ${assetFileName}: ${errorMessage(error)}`,
-        stagingDir: input.stagingDir,
-        deps: input.deps,
-        cause: error,
-      });
-    }
 
     const checksumsText = await resolveChecksumsText({
       checksums: input.plan.checksums,
       fileName: checksumsFileName,
       deps: input.deps,
     });
-    await input.deps.writeFile(checksumsPath, checksumsText);
 
     let expectedSha256: string;
     try {
@@ -226,6 +213,20 @@ export async function stageResolvedUpdate(input: {
         deps: input.deps,
       });
     }
+
+    try {
+      await input.deps.writeFile(archivePath, archiveBytes);
+    } catch (error) {
+      if (error instanceof UpdateStagingError) throw error;
+      return await failWithCleanup({
+        code: "staging_failed",
+        message: `failed to write ${assetFileName}: ${errorMessage(error)}`,
+        stagingDir: input.stagingDir,
+        deps: input.deps,
+        cause: error,
+      });
+    }
+    await input.deps.writeFile(checksumsPath, checksumsText);
 
     await input.deps.mkdir(extractedDir);
     let extracted: UpdateExtractionResult;
