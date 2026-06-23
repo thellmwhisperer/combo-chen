@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~6500 lines.
+ *   deps so tests run without a real terminal or network. ~6600 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -309,6 +309,74 @@ describe("command surface", () => {
       `verified ${assetName} (${archiveSha})`,
       "installed combo-chen 1.2.1 to /opt/combo-chen-v1.2.0/bin/combo-chen",
     ]);
+  });
+
+  it("rejects source checkout update targets before staging begins", async () => {
+    const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
+    const downloads: unknown[] = [];
+    const replacements: unknown[] = [];
+    const { deps, calls, out } = fakeDeps({
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "api" && args[1] === "repos/thellmwhisperer/combo-chen/releases?per_page=100") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                tag_name: "v1.2.1",
+                prerelease: false,
+                draft: false,
+                assets: [
+                  {
+                    name: assetName,
+                    browser_download_url: `https://downloads.example/${assetName}`,
+                  },
+                  {
+                    name: "checksums.txt",
+                    browser_download_url: "https://downloads.example/checksums.txt",
+                  },
+                ],
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+      },
+      update: {
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-23T09:00:00.000Z" },
+        installTargetPath: "/repos/combo-chen/src/cli/main.ts",
+        platform: "linux",
+        arch: "x64",
+        makeStagingDir: () => "/updates/should-not-stage",
+        async download(request) {
+          downloads.push(request);
+          throw new Error("download should not run for unsupported install targets");
+        },
+        async mkdir() {
+          throw new Error("mkdir should not run for unsupported install targets");
+        },
+        async writeFile() {
+          throw new Error("writeFile should not run for unsupported install targets");
+        },
+        async remove() {},
+        async extractArchive() {
+          throw new Error("extractArchive should not run for unsupported install targets");
+        },
+        replaceInstallTarget(input) {
+          replacements.push(input);
+          throw new Error("replacement should not run for unsupported install targets");
+        },
+      },
+    });
+
+    await expect(exec(deps, ["update", "--yes"])).rejects.toThrow(
+      "source checkout path must not be auto-replaced: /repos/combo-chen/src/cli/main.ts",
+    );
+
+    expect(downloads).toEqual([]);
+    expect(replacements).toEqual([]);
+    expect(out).toEqual([]);
   });
 
   it("describes status as the parallel capsule dashboard", () => {
