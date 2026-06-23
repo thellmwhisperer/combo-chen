@@ -8,7 +8,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   README/spec markdown -> canonical release/update strings -> future updater guidance
+ *   README/spec markdown -> canonical release/update command strings
  *
  *   PUBLIC API
  *   ----------
@@ -36,7 +36,7 @@ function normalizeDoc(body: string): string {
 
 // -- 2/2 CORE · release docs <- START HERE --
 describe("release docs", () => {
-  it("documents the release artifact contract for future update code", () => {
+  it("documents the release artifact contract consumed by the updater", () => {
     const readme = readDoc("README.md");
     const spec = readDoc("docs/spec.md");
 
@@ -48,23 +48,28 @@ describe("release docs", () => {
       expect(doc).toContain("combo-chen --version");
       expect(doc).toContain("pnpm release:assets");
       expect(doc).toContain("published and prereleased GitHub releases");
-      expect(doc).toContain("No network update or executable replacement behavior");
+      expect(doc).toContain("release asset contract feeds the active `combo-chen update` command");
     }
   });
 
-  it("documents the U0 update bridge and follow-up updater slice boundaries", () => {
+  it("documents the active update command and live-session handoff", () => {
     const readme = normalizeDoc(readDoc("README.md"));
     const spec = normalizeDoc(readDoc("docs/spec.md"));
 
     for (const doc of [readme, spec]) {
+      expect(doc).toContain("combo-chen update --yes");
+      expect(doc).toContain("combo-chen update --beta --yes");
+      expect(doc).toContain("downloads the selected archive and checksums.txt");
+      expect(doc).toContain("verifies the checksum before extraction");
+      expect(doc).toContain("reports failures before replacement");
+      expect(doc).toContain("live combo/session integration is owned by #72");
       expect(doc).toContain("U0 update contract bridge");
       expect(doc).toContain("ReadOnlyUpdatePlan");
       expect(doc).toContain("source checkouts and package-manager dev shims are non-auto-replaceable");
-      expect(doc).toContain("does not download, extract, replace, restart, or mutate active combo capsules");
       expect(doc).toContain("U1: release resolver and latest/beta check flow");
       expect(doc).toContain("U2: download, checksum verification, and staging");
       expect(doc).toContain("U3: install target and atomic replacement");
-      expect(doc).toContain("U4: active capsule guard");
+      expect(doc).toContain("U4: live combo/session integration owned by #72");
     }
   });
 });
