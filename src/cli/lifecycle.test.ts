@@ -113,5 +113,85 @@ describe("teardownMergedCombo", () => {
       [record.repoDir, "branch", "-D", record.branch],
     ]);
   });
+
+  it("treats Treehouse 'not managed by treehouse' as already-removed worktree", async () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    await teardownMergedCombo({
+      deps: {
+        git: (args, cwd) => {
+          calls.push([cwd, ...args]);
+          if (args[0] === "branch") {
+            return { status: 1, stdout: "", stderr: `error: branch '${record.branch}' not found.` };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        treehouse: (args, cwd) => {
+          calls.push([cwd, "treehouse", ...args]);
+          return {
+            status: 1,
+            stdout: "",
+            stderr: `worktree ${record.worktree} is not managed by treehouse`,
+          };
+        },
+        sleep: async (ms) => {
+          calls.push(["sleep", String(ms)]);
+        },
+      },
+      combo: record,
+      mergeSha: "merge123",
+      baseRefName: "main",
+      retries: 2,
+      backoffSeconds: 1,
+    });
+
+    expect(calls).toEqual([
+      [record.repoDir, "fetch", "origin", "main"],
+      [record.repoDir, "merge-base", "--is-ancestor", "merge123", "origin/main"],
+      [record.repoDir, "treehouse", "return", "--force", record.worktree],
+      [record.repoDir, "branch", "-D", record.branch],
+    ]);
+  });
+
+  it("treats Treehouse 'is being destroyed' as already-removed worktree", async () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    await teardownMergedCombo({
+      deps: {
+        git: (args, cwd) => {
+          calls.push([cwd, ...args]);
+          if (args[0] === "branch") {
+            return { status: 1, stdout: "", stderr: `error: branch '${record.branch}' not found.` };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        treehouse: (args, cwd) => {
+          calls.push([cwd, "treehouse", ...args]);
+          return {
+            status: 1,
+            stdout: "",
+            stderr: `worktree ${record.worktree} is being destroyed`,
+          };
+        },
+        sleep: async (ms) => {
+          calls.push(["sleep", String(ms)]);
+        },
+      },
+      combo: record,
+      mergeSha: "merge123",
+      baseRefName: "main",
+      retries: 2,
+      backoffSeconds: 1,
+    });
+
+    expect(calls).toEqual([
+      [record.repoDir, "fetch", "origin", "main"],
+      [record.repoDir, "merge-base", "--is-ancestor", "merge123", "origin/main"],
+      [record.repoDir, "treehouse", "return", "--force", record.worktree],
+      [record.repoDir, "branch", "-D", record.branch],
+    ]);
+  });
 });
 // -/ 2/2
