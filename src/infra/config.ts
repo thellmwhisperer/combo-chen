@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~760 lines, 14 exports.
+ *   Repo wins on policy, user wins on local setup. ~750 lines, 14 exports.
  *
  *   READING GUIDE
  *   ─────────────
