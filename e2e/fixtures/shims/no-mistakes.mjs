@@ -21,6 +21,11 @@ function branch() {
   return (result.stdout || "main").trim() || "main";
 }
 
+function head() {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" });
+  return (result.stdout || "").trim();
+}
+
 function runId() {
   return process.env.E2E_NO_MISTAKES_QUOTE_RUN_ID === "1" ? "\"e2e-run\"" : "e2e-run";
 }
@@ -60,7 +65,7 @@ if (args[0] === "axi" && args[1] === "status") {
   const state = load();
   if (state.active) {
     ensureRunDir();
-    process.stdout.write(`id: ${runId()}\nbranch: ${branch()}\nstatus: active\n`);
+    process.stdout.write(`id: ${runId()}\nbranch: ${state.branch || branch()}\nhead: ${state.head || head()}\nstatus: active\n`);
     process.exit(0);
   }
   process.stdout.write("No active run.\n");
@@ -71,6 +76,8 @@ if (args[0] === "axi" && args[1] === "run") {
   if (process.env.E2E_NO_MISTAKES_ACTIVATE_ON_AXI_RUN === "1") {
     const state = load();
     state.active = true;
+    state.branch = branch();
+    state.head = head();
     save(state);
     ensureRunDir();
   }

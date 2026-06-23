@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~890 lines, log-derived regressions.
+ *   and process shims for external services. ~900 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -297,6 +297,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
       gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-resume",
+      noMistakesRunDelayMs: 1200,
       quoteNoMistakesRunId: true,
     });
     let passed = false;
@@ -338,6 +339,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
       gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-resume",
+      noMistakesRunDelayMs: 1200,
       quoteNoMistakesRunId: true,
     });
     let passed = false;

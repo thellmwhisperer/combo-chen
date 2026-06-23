@@ -3339,6 +3339,7 @@ exit 0
       encoding: "utf8",
       env: {
         ...process.env,
+        COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
         NO_MISTAKES_CALLS: noMistakesCalls,
         NO_MISTAKES_STATUS_ATTEMPTS: statusAttempts,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
@@ -7443,6 +7444,39 @@ describe("run ordering and safety", () => {
     expect(branchDelete).toContain("combo/issue-7");
     expect(treehouseReturnIndex).toBeLessThan(branchDeleteIndex);
 
+    expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
+  });
+
+  it("rejects and rolls back a dirty Treehouse lease before creating the combo branch", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "branch" && args[1] === "--show-current") {
+          return { status: 0, stdout: "main\n", stderr: "" };
+        }
+        if (args[0] === "status" && args[1] === "--porcelain" && cwd.includes(".worktrees/issue-7")) {
+          return { status: 0, stdout: "?? residue\n", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /treehouse lease returned dirty worktree/,
+    );
+
+    expect(calls).toContainEqual([
+      "treehouse",
+      `cwd=${repoDir}`,
+      "return",
+      "--force",
+      join(repoDir, ".worktrees", "issue-7"),
+    ]);
+    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
+    expect(calls.some((c) => c[0] === "git" && c.includes("switch"))).toBe(false);
     expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
   });
 

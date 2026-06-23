@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~445 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~485 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
@@ -306,7 +306,7 @@ describe("combo PR label projection", () => {
     });
   });
 
-  it("provisions missing combo labels and retries a failed add mutation once", () => {
+  it("provisions missing combo labels and retries bounded add mutations", () => {
     const calls: string[][] = [];
     let addAttempts = 0;
     let liveLabels: Array<{ name: string }> = [{ name: "documentation" }];
@@ -324,6 +324,9 @@ describe("combo PR label projection", () => {
         addAttempts += 1;
         if (addAttempts === 1) {
           return { status: 1, stdout: "", stderr: "'combo:lgtm' not found" };
+        }
+        if (addAttempts === 2) {
+          return { status: 1, stdout: "", stderr: "'combo:external-review-green' not found" };
         }
         liveLabels = liveLabels.concat(String(args[4]).split(",").map((name) => ({ name })));
         return ghOk();
@@ -345,7 +348,7 @@ describe("combo PR label projection", () => {
     });
 
     expect(result.changed).toBe(true);
-    expect(addAttempts).toBe(2);
+    expect(addAttempts).toBe(3);
     expect(calls).toEqual([
       ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
       ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
@@ -361,6 +364,7 @@ describe("combo PR label projection", () => {
         "--repo",
         "o/r",
       ],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
       [
         "label",
         "create",
