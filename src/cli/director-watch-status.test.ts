@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director-watch operator status formatting. ~125 lines,
+ * @overview Unit tests for director-watch operator status formatting. ~145 lines,
  *   phase age, PR facts, worker counters, readiness, and closure actions.
  *
  *   READING GUIDE
@@ -117,6 +117,34 @@ describe("buildDirectorWatchStatusLine", () => {
     expect(line).toContain("reviewer=missing");
     expect(line).toContain("ready=[pr:yes gate:no reviewer:no checks:no ci:yes]");
     expect(line).toContain('action="needs human: gate_failed"');
+  });
+
+  it("treats prefix-pinned reviewer LGTM as current for readiness", () => {
+    const now = new Date("2026-06-22T12:00:00.000Z");
+    const line = buildDirectorWatchStatusLine({
+      comboId: "o-r-7",
+      cli: "node dist/cli.mjs",
+      now,
+      pollSeconds: 30,
+      readyRequiredChecks: ["ExternalReview"],
+      events: [
+        event("pr_opened", "2026-06-22T11:50:00.000Z", {
+          url: "https://github.com/o/r/pull/7",
+        }),
+        event("gate_validated", "2026-06-22T11:55:00.000Z", { sha: HEAD }),
+        event("lgtm", "2026-06-22T11:56:00.000Z", { sha: HEAD.slice(0, 7) }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: successfulRollup(),
+        polledAt: now,
+      },
+      workerSummaries: [],
+    });
+
+    expect(line).toContain("reviewer=lgtm@bbbbbbb");
+    expect(line).toContain("ready=[pr:yes gate:yes reviewer:yes checks:yes ci:yes]");
   });
 
   it("keeps degraded PR state unknown instead of routing to terminal waiting", () => {
