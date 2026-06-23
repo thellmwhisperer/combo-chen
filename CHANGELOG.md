@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.0.58](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.57...combo-chen-v0.0.58) (2026-06-23)
+
+
+### Features
+
+* **pr-labels:** Added the idempotent GitHub PR label updater slice with mutation journaling and green validation. ([f53db6a](https://github.com/thellmwhisperer/combo-chen/commit/f53db6a3b7c8b069b5d936cb6ba238f060ab8acd))
+* **pr-labels:** Built the first issue [#188](https://github.com/thellmwhisperer/combo-chen/issues/188) slice: a pure, tested combo PR label projection/diff contract for current-head GitHub label state. ([7648674](https://github.com/thellmwhisperer/combo-chen/commit/764867411b550faa9f25df81da939b11e6d2078f))
+* **pr-labels:** Wired the existing combo PR label updater into director-watch so live reviewer activity now updates GitHub PR labels and journals the change. ([db2e029](https://github.com/thellmwhisperer/combo-chen/commit/db2e029822a72e277760c494c5ed324b60216fe9))
+
+
+### Bug Fixes
+
+* **pr-labels:** address external review nits ([7808d14](https://github.com/thellmwhisperer/combo-chen/commit/7808d14b302bdd760f7394d5ec36e5bded1b8073))
+* **pr-labels:** configure coderabbit checks ([105c371](https://github.com/thellmwhisperer/combo-chen/commit/105c371f6bb37ee0ff087e680c637858c0d0f959))
+* **pr-labels:** generalize external review signals ([c0d1532](https://github.com/thellmwhisperer/combo-chen/commit/c0d15321abc0c6fbdb6119f357b08ab486311352))
+* **pr-labels:** generalize green check config ([5450e30](https://github.com/thellmwhisperer/combo-chen/commit/5450e3026fec815f9477f47b8196fab135be4e75))
+* **pr-labels:** journal partial label sync ([39c342d](https://github.com/thellmwhisperer/combo-chen/commit/39c342d5c9494c8c2dfb388d5b917d84cb338e56))
+* **review:** address external review readiness nits ([551554f](https://github.com/thellmwhisperer/combo-chen/commit/551554f4a65e3474829419f3e1578368bdaa61b8))
+* **status:** Wired `status --deep` into the existing idempotent combo PR label updater and verified the full suite is green. ([18c0863](https://github.com/thellmwhisperer/combo-chen/commit/18c0863c1b4ae4c9fa59c506f0ec211d5ef947e9))
+
 ## [0.0.57](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.56...combo-chen-v0.0.57) (2026-06-22)
 
 
