@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~290 lines, 4 exports, wires release resolution, verified staging, and installer replacement.
+ *   ~310 lines, 4 exports, wires release resolution, verified staging, and installer replacement.
  *
  *   READING GUIDE
  *   -------------
@@ -32,6 +32,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  classifyInstallTarget,
+  type CurrentBuildMetadata,
+} from "../core/update-contract.js";
+import {
   replaceInstallTargetFromStagedArtifact,
   type InstallReplacementInput,
   type InstallReplacementResult,
@@ -49,7 +53,6 @@ import {
 } from "../core/update-staging.js";
 import { RELEASE_CHECKSUMS_FILE } from "../infra/release-artifacts.js";
 import { releaseMetadata } from "../infra/release-metadata.js";
-import type { CurrentBuildMetadata } from "../core/update-contract.js";
 
 // -- 1/3 HELPER · command dependency contract --
 const UPDATE_REPOSITORY_API_PATH = "repos/thellmwhisperer/combo-chen/releases?per_page=100";
@@ -155,6 +158,8 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
   if (checksumsAsset?.browserDownloadUrl === undefined) {
     throw new Error(`release ${plan.candidate.tagName} is missing ${RELEASE_CHECKSUMS_FILE}`);
   }
+
+  assertAutoReplaceableInstallTarget(options.deps.installTargetPath);
 
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
@@ -288,6 +293,13 @@ function optionalString(value: Record<string, unknown>, names: string[]): string
 
 function commandError(result: { stdout: string; stderr: string }): string {
   return result.stderr.trim() || result.stdout.trim() || "unknown error";
+}
+
+function assertAutoReplaceableInstallTarget(path: string): void {
+  const installTarget = classifyInstallTarget({ path });
+  if (!installTarget.autoReplaceable || installTarget.kind !== "release_archive") {
+    throw new Error(`${installTarget.reason}: ${installTarget.path}`);
+  }
 }
 
 function errorMessage(error: unknown): string {
