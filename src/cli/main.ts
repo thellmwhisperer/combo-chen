@@ -232,6 +232,15 @@ function acquireTreehouseWorktree(input: {
     worktreeProvider: "treehouse",
     treehouseLeaseHolder: input.combo.id,
   };
+  const worktreeState = input.deps.git(["status", "--porcelain"], worktree);
+  if (worktreeState.status !== 0) {
+    rollbackTreehouseLaunch(input.deps, combo);
+    throw new Error(`treehouse lease worktree state check failed for ${worktree}: ${commandFailureText(worktreeState)}`);
+  }
+  if (worktreeState.stdout.trim() !== "") {
+    rollbackTreehouseLaunch(input.deps, combo);
+    throw new Error(`treehouse lease returned dirty worktree at ${worktree}: ${worktreeState.stdout.trim()}`);
+  }
   const switched = input.deps.git(["switch", "-c", combo.branch, input.baseRef], worktree);
   if (switched.status !== 0) {
     rollbackTreehouseLaunch(input.deps, combo);
@@ -337,7 +346,12 @@ export function createProgram(deps: Deps): Command {
 
       let { combo } = overture;
       const { config, issue, issueDetails, runDir, workPlan } = overture;
-      combo = acquireTreehouseWorktree({ deps, combo, baseRef: options.base });
+      try {
+        combo = acquireTreehouseWorktree({ deps, combo, baseRef: options.base });
+      } catch (error) {
+        rmSync(runDir, { recursive: true, force: true });
+        throw error;
+      }
       const id = combo.id;
       const home = comboHome(deps.env);
       const session = combo.tmuxSession;
