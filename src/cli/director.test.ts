@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1090 lines, initial-gate retry, PR labels, READY, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1115 lines, initial-gate retry, PR labels, READY, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
