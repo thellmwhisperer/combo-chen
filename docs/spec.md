@@ -515,8 +515,8 @@ running capsules, or apply passive update notices.
 
 ### U0 update contract bridge
 
-U0 is the read-only update contract bridge between release production and later
-updater implementation work. It provides shared language and pure helper
+U0 is the read-only update contract bridge between release production and the
+updater implementation. It provides shared language and pure helper
 contracts for normalizing release tags and versions, comparing current build
 metadata with a release candidate, selecting the expected platform archive,
 parsing and looking up sha256sum-compatible `checksums.txt` entries,
