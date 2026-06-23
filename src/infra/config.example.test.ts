@@ -118,6 +118,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.externalCommentAgents).toEqual(["external-reviewer"]);
+    expect(config.externalReviewCommands).toEqual(["@external-reviewer review"]);
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
     expect(config.prLabelGreenCheckNames).toEqual(["CodeRabbit"]);
     expect(config.reviewerLogins).toEqual(["claude"]);

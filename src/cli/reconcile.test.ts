@@ -55,6 +55,10 @@ function fakeDeps(overrides: Partial<ReconcileDeps> = {}): { deps: ReconcileDeps
         calls.push(["git", `cwd=${cwd}`, ...args]);
         return { status: 0, stdout: "", stderr: "" };
       },
+      treehouse: (args, cwd) => {
+        calls.push(["treehouse", `cwd=${cwd}`, ...args]);
+        return { status: 0, stdout: "", stderr: "" };
+      },
       gh: (args) => {
         calls.push(["gh", ...args]);
         return {
@@ -132,10 +136,9 @@ describe("reconcileCombos", () => {
     ]);
     expect(calls.some((call) => call.includes("https://github.com/o/r/pull/8"))).toBe(false);
     expect(calls).toContainEqual([
-      "git",
+      "treehouse",
       `cwd=${targetRepo}`,
-      "worktree",
-      "remove",
+      "return",
       "--force",
       join(targetRepo, ".worktrees", "issue-7"),
     ]);
@@ -288,10 +291,9 @@ describe("reconcileCombos", () => {
     ]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "fetch", "origin", "main"]);
     expect(calls).toContainEqual([
-      "git",
+      "treehouse",
       `cwd=${repoDir}`,
-      "worktree",
-      "remove",
+      "return",
       "--force",
       join(repoDir, ".worktrees", "issue-7"),
     ]);
@@ -345,11 +347,14 @@ describe("reconcileCombos", () => {
         stderr: "",
       }),
       git: (args, cwd) => {
-        if (cwd === oldRepo && args[0] === "worktree") {
-          return { status: 128, stdout: "", stderr: `fatal: '${join(oldRepo, ".worktrees", "issue-7")}' is not a working tree` };
-        }
         if (cwd === oldRepo && args[0] === "branch") {
           return { status: 1, stdout: "", stderr: "error: branch 'combo/issue-7' not found." };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      treehouse: (args, cwd) => {
+        if (cwd === oldRepo && args[0] === "return") {
+          return { status: 128, stdout: "", stderr: `fatal: '${join(oldRepo, ".worktrees", "issue-7")}' is not a working tree` };
         }
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -457,9 +462,9 @@ describe("reconcileCombos", () => {
 
     // tmux kill-session still runs (parked session may already be dead – best-effort)
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
-    // worktree is NOT removed
+    // worktree is NOT returned
     expect(
-      calls.some((call) => call[0] === "git" && call[2] === "worktree" && call[3] === "remove"),
+      calls.some((call) => call[0] === "treehouse" && call[2] === "return"),
     ).toBe(false);
     // branch is NOT deleted
     expect(

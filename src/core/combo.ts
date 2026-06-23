@@ -192,6 +192,7 @@ function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
     "  no_mistakes_repo_status=$(no-mistakes status 2>/dev/null || true)",
     "  no_mistakes_axi_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+    "  no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
     "  no_mistakes_run_branch=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*branch:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_run_status=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*status:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_gate_path=$(printf '%s\\n' \"$no_mistakes_repo_status\" | sed -n 's/^[[:space:]]*gate:[[:space:]]*//p' | sed -n '1p')",
@@ -222,7 +223,7 @@ function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
 
 export function buildNoMistakesGatekeeperRunScript(
   gatekeeperCommand: string,
-  options: { waitForConfigBeforeRun?: boolean; expectedBranch?: string } = {},
+  options: { expectedBranch?: string } = {},
 ): string[] {
   return [
     "no_mistakes_config_copy_pid=",
@@ -232,14 +233,8 @@ export function buildNoMistakesGatekeeperRunScript(
     "  ) &",
     "  no_mistakes_config_copy_pid=$!",
     "fi",
-    ...(options.waitForConfigBeforeRun
-      ? [
-        "if [ -n \"$no_mistakes_config_copy_pid\" ]; then",
-        "  wait \"$no_mistakes_config_copy_pid\" || exit 1",
-        "  no_mistakes_config_copy_pid=",
-        "fi",
-      ]
-      : []),
+    "# no-mistakes creates the active run worktree from inside axi run; keep",
+    "# the config handoff watcher alive while the gate command starts it.",
     gatekeeperCommand,
     "gatekeeper_inner_code=$?",
     "if [ -n \"$no_mistakes_config_copy_pid\" ]; then",
@@ -419,7 +414,7 @@ ${buildGateLeaseScript({ gateLeaseAcquire, gateLeaseRelease })}${emit} gate_stat
 gatekeeper_code=0
 (
 ${gatekeeperMirrorIntent === undefined ? ":" : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n")}
-${buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, { waitForConfigBeforeRun: gatekeeperMirrorIntent !== undefined, expectedBranch: combo.branch }).map((line) => `  ${line}`).join("\n")}
+${buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, { expectedBranch: combo.branch }).map((line) => `  ${line}`).join("\n")}
 ) < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
 if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then

@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   combo fixture -> closeMergedCombo -> terminal journal events + teardown
+ *   combo fixture -> closeMergedCombo -> terminal journal events + treehouse teardown
  *
  *   PUBLIC API
  *   ----------
@@ -102,6 +102,10 @@ function fakeDeps(overrides: Partial<ClosureDeps> = {}): { deps: ClosureDeps; ca
         calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
         return { status: 1, stdout: "", stderr: "No active run." };
       },
+      treehouse: (args, cwd) => {
+        calls.push(["treehouse", `cwd=${cwd}`, ...args]);
+        return { status: 0, stdout: "", stderr: "" };
+      },
       ...overrides,
     },
   };
@@ -188,14 +192,7 @@ describe("closeMergedCombo", () => {
       "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
     ]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "fetch", "origin", "main"]);
-    expect(calls).toContainEqual([
-      "git",
-      `cwd=${repoDir}`,
-      "worktree",
-      "remove",
-      "--force",
-      worktree,
-    ]);
+    expect(calls).toContainEqual(["treehouse", `cwd=${repoDir}`, "return", "--force", worktree]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
     expect(out).toEqual(["closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete"]);
@@ -216,13 +213,14 @@ describe("closeMergedCombo", () => {
     const { deps, calls, out } = fakeDeps({
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "worktree") {
-          return { status: 128, stdout: "", stderr: `fatal: '${worktree}' is not a working tree` };
-        }
         if (args[0] === "branch") {
           return { status: 1, stdout: "", stderr: "error: branch 'combo/issue-7' not found." };
         }
         return { status: 0, stdout: "", stderr: "" };
+      },
+      treehouse: (args, cwd) => {
+        calls.push(["treehouse", `cwd=${cwd}`, ...args]);
+        return { status: 1, stdout: "", stderr: `fatal: '${worktree}' is not a working tree` };
       },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
@@ -237,7 +235,7 @@ describe("closeMergedCombo", () => {
       { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
       { event: "combo_closed", source: "closure" },
     ]);
-    expect(calls).toContainEqual(["git", expect.any(String), "worktree", "remove", "--force", worktree]);
+    expect(calls).toContainEqual(["treehouse", expect.any(String), "return", "--force", worktree]);
     expect(calls).toContainEqual(["git", expect.any(String), "branch", "-D", "combo/issue-7"]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
     expect(out).toEqual([

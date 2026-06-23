@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation, isParked; forensics option parsing/outcome recording; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation, isParked; Treehouse lease acquisition/rollback; forensics option parsing/outcome recording; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
@@ -120,6 +120,7 @@ import {
   CODER_WINDOW,
   DIRECTOR_WINDOW,
   DIRECTOR_WATCH_WINDOW,
+  ensureComboSession,
   ensureJournalPane,
   ensureWindowPresent,
   JOURNAL_WINDOW,
@@ -138,6 +139,7 @@ export interface Deps {
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
   noMistakes: (args: string[], cwd: string) => CommandResult;
   sleep: (ms: number) => Promise<void>;
@@ -152,6 +154,14 @@ export function defaultDeps(): Deps {
     tmux: realTmux,
     git: (args, cwd) => {
       const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    },
+    treehouse: (args, cwd) => {
+      const result = spawnSync("treehouse", args, {
+        cwd,
+        encoding: "utf8",
+        env: { ...process.env, TREEHOUSE_NO_UPDATE_CHECK: "1" },
+      });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
     gh: (args) => {
@@ -179,6 +189,55 @@ function cliInvocation(): string {
 
 function isParked(events: ComboEvent[]): boolean {
   return events.at(-1)?.event === "parked";
+}
+
+function commandFailureText(result: { stdout: string; stderr: string }): string {
+  return result.stderr.trim() || result.stdout.trim() || "unknown error";
+}
+
+function treehouseLeasePath(stdout: string): string {
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
+  if (lines.length !== 1) {
+    throw new Error(`treehouse get --lease returned ${lines.length} path lines (expected exactly one)`);
+  }
+  return lines[0]!;
+}
+
+function returnTreehouseWorktreeBestEffort(deps: Pick<Deps, "treehouse">, repoDir: string, worktree: string): void {
+  deps.treehouse(["return", "--force", worktree], repoDir);
+}
+
+function deleteBranchBestEffort(deps: Pick<Deps, "git">, repoDir: string, branch: string): void {
+  deps.git(["branch", "-D", branch], repoDir);
+}
+
+function rollbackTreehouseLaunch(deps: Pick<Deps, "git" | "treehouse">, combo: ComboRecord): void {
+  returnTreehouseWorktreeBestEffort(deps, combo.repoDir, combo.worktree);
+  deleteBranchBestEffort(deps, combo.repoDir, combo.branch);
+}
+
+function acquireTreehouseWorktree(input: {
+  deps: Pick<Deps, "git" | "treehouse">;
+  combo: ComboRecord;
+  baseRef: string;
+}): ComboRecord {
+  const leased = input.deps.treehouse(["get", "--lease", "--lease-holder", input.combo.id], input.combo.repoDir);
+  if (leased.status !== 0) {
+    throw new Error(`treehouse get --lease failed: ${commandFailureText(leased)}`);
+  }
+  const worktree = treehouseLeasePath(leased.stdout);
+  const combo: ComboRecord = {
+    ...input.combo,
+    worktree,
+    worktreeProvider: "treehouse",
+    treehouseLeaseHolder: input.combo.id,
+  };
+  const switched = input.deps.git(["switch", "-c", combo.branch, input.baseRef], worktree);
+  if (switched.status !== 0) {
+    rollbackTreehouseLaunch(input.deps, combo);
+    throw new Error(`git switch -c ${combo.branch} ${input.baseRef} failed: ${commandFailureText(switched)}`);
+  }
+  return combo;
 }
 
 function syncStatusDeepPrLabels(input: {
@@ -276,43 +335,68 @@ export function createProgram(deps: Deps): Command {
       for (const line of renderOvertureChecklist(overture.result)) deps.out(line);
       assertOverturePassed(overture.result);
 
-      const { combo, config, issue, issueDetails, runDir, workPlan } = overture;
+      let { combo } = overture;
+      const { config, issue, issueDetails, runDir, workPlan } = overture;
+      combo = acquireTreehouseWorktree({ deps, combo, baseRef: options.base });
       const id = combo.id;
       const home = comboHome(deps.env);
       const session = combo.tmuxSession;
       const branch = combo.branch;
       const worktree = combo.worktree;
-
-      const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
-        coderCommand: config.coderCommand,
-        combo,
-      };
-      if (options.prompt !== undefined) coderInput.prompt = options.prompt;
-      else if (issue === undefined) {
-        coderInput.prompt = defaultWorkPlanPrompt(workPlan, join(runDir, WORK_PLAN_ARTIFACT));
-      }
-      const coderCommand = buildCoderInvocation(coderInput);
-      const directorCommand = buildDirectorInvocation({
-        combo,
-        directorCommand: config.directorCommand,
-      });
-      const prIntent = issueDetails === undefined
-        ? buildWorkPlanPrIntent(workPlan)
-        : buildIssuePrIntent({
-          combo,
-          issueTitle: issueDetails.title,
-          issueBody: issueDetails.body,
-        });
-
-      const worktreeResult = deps.git(["worktree", "add", worktree, "-b", branch, options.base], options.repo);
-      if (worktreeResult.status !== 0) {
-        throw new Error(`git worktree add failed: ${worktreeResult.stderr.trim()}`);
-      }
-      if (propagateNoMistakesConfig(options.repo, worktree)) {
-        deps.out(`no-mistakes: copied local config to ${worktree}/${NO_MISTAKES_CONFIG_FILE}`);
-      }
+      let directorCommand = "";
+      let runnerPath = "";
 
       try {
+        const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
+          coderCommand: config.coderCommand,
+          combo,
+        };
+        if (options.prompt !== undefined) coderInput.prompt = options.prompt;
+        else if (issue === undefined) {
+          coderInput.prompt = defaultWorkPlanPrompt(workPlan, join(runDir, WORK_PLAN_ARTIFACT));
+        }
+        const coderCommand = buildCoderInvocation(coderInput);
+        directorCommand = buildDirectorInvocation({
+          combo,
+          directorCommand: config.directorCommand,
+        });
+        const prIntent = issueDetails === undefined
+          ? buildWorkPlanPrIntent(workPlan)
+          : buildIssuePrIntent({
+            combo,
+            issueTitle: issueDetails.title,
+            issueBody: issueDetails.body,
+          });
+
+        const gatekeeperCommand = buildGatekeeperInvocation({
+          gatekeeperCommand: config.gatekeeperCommand,
+          combo,
+          ...(issueDetails === undefined
+            ? { workPlan }
+            : { issueTitle: issueDetails.title, issueBody: issueDetails.body }),
+        });
+        const quotedId = shellQuote(id);
+        const runnerInput: Parameters<typeof buildRunnerScript>[0] = {
+          combo,
+          baseRef: options.base,
+          coderCommand,
+          gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
+          gatekeeperMirrorIntent: buildNoMistakesPushIntent(prIntent),
+          activateCoder: `${cliInvocation()} activate-coder -n ${quotedId}`,
+          emit: `${cliInvocation()} emit -n ${quotedId}`,
+          activateReviewer: `${cliInvocation()} activate-reviewer -n ${quotedId}`,
+          gateLeaseAcquire: `${cliInvocation()} gate-lease acquire -n ${quotedId}`,
+          gateLeaseRelease: `${cliInvocation()} gate-lease release -n ${quotedId}`,
+        };
+        if (issue !== undefined) {
+          runnerInput.ensurePrAutoclose = `${cliInvocation()} ensure-pr-autoclose -n ${quotedId} --pr-url`;
+        }
+        const runner = buildRunnerScript(runnerInput);
+        runnerPath = join(runDir, "runner.sh");
+
+        if (propagateNoMistakesConfig(options.repo, worktree)) {
+          deps.out(`no-mistakes: copied local config to ${worktree}/${NO_MISTAKES_CONFIG_FILE}`);
+        }
         writeCombo(runDir, combo);
         writeConfigSnapshot(runDir, config);
         writeFileSync(join(runDir, WORK_PLAN_ARTIFACT), renderWorkPlanMarkdown(workPlan));
@@ -336,64 +420,37 @@ export function createProgram(deps: Deps): Command {
             },
           }),
         );
+        writeFileSync(runnerPath, runner);
+        chmodSync(runnerPath, 0o755);
+
+        // Birth event lands BEFORE the detached runner can emit anything,
+        // so journal ordering always matches the tested contract.
+        appendEvent(runDir, "combo_created", {
+          issue_url: combo.issueUrl,
+          work_item_source_type: workPlan.source.type,
+          work_item_source_reference: workPlan.source.reference,
+          work_item_title: workPlan.title,
+          repo: combo.repoDir,
+          worktree: combo.worktree,
+          branch: combo.branch,
+          tmux: session,
+        });
       } catch (error) {
         rmSync(runDir, { recursive: true, force: true });
-        deps.git(["worktree", "remove", "--force", worktree], options.repo);
-        deps.git(["branch", "-D", branch], options.repo);
+        rollbackTreehouseLaunch(deps, combo);
         throw error;
       }
-
-      const gatekeeperCommand = buildGatekeeperInvocation({
-        gatekeeperCommand: config.gatekeeperCommand,
-        combo,
-        ...(issueDetails === undefined
-          ? { workPlan }
-          : { issueTitle: issueDetails.title, issueBody: issueDetails.body }),
-      });
-      const quotedId = shellQuote(id);
-      const runnerInput: Parameters<typeof buildRunnerScript>[0] = {
-        combo,
-        baseRef: options.base,
-        coderCommand,
-        gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
-        gatekeeperMirrorIntent: buildNoMistakesPushIntent(prIntent),
-        emit: `${cliInvocation()} emit -n ${quotedId}`,
-        activateReviewer: `${cliInvocation()} activate-reviewer -n ${quotedId}`,
-        gateLeaseAcquire: `${cliInvocation()} gate-lease acquire -n ${quotedId}`,
-        gateLeaseRelease: `${cliInvocation()} gate-lease release -n ${quotedId}`,
-      };
-      if (issue !== undefined) {
-        runnerInput.ensurePrAutoclose = `${cliInvocation()} ensure-pr-autoclose -n ${quotedId} --pr-url`;
-      }
-      const runner = buildRunnerScript(runnerInput);
-      const runnerPath = join(runDir, "runner.sh");
-      writeFileSync(runnerPath, runner);
-      chmodSync(runnerPath, 0o755);
-
-      // Birth event lands BEFORE the detached runner can emit anything,
-      // so journal ordering always matches the tested contract.
-      appendEvent(runDir, "combo_created", {
-        issue_url: combo.issueUrl,
-        work_item_source_type: workPlan.source.type,
-        work_item_source_reference: workPlan.source.reference,
-        work_item_title: workPlan.title,
-        repo: combo.repoDir,
-        worktree: combo.worktree,
-        branch: combo.branch,
-        tmux: session,
-      });
 
       const created = deps.tmux(
         newSessionArgs(session, CODER_WINDOW, `COMBO_CHEN_RUNNER_PROGRESS=1 sh ${shellQuote(runnerPath)}`),
       );
       if (created.status !== 0) {
         // A combo that never started must not leave orphans behind: undo the
-        // run dir, the worktree, and the branch `worktree add -b` created, so
-        // a retry is idempotent. Worktree first — a branch checked out in a
-        // worktree can't be deleted.
+        // run dir, the Treehouse lease, and the branch created inside it, so
+        // a retry is idempotent. Return the worktree first — a branch checked
+        // out in a worktree can't be deleted.
         rmSync(runDir, { recursive: true, force: true });
-        deps.git(["worktree", "remove", "--force", worktree], options.repo);
-        deps.git(["branch", "-D", branch], options.repo);
+        rollbackTreehouseLaunch(deps, combo);
         throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
       }
       try {
@@ -402,7 +459,7 @@ export function createProgram(deps: Deps): Command {
           deps,
           combo,
           DIRECTOR_WINDOW,
-          buildDirectorInvocation({ combo, directorCommand: config.directorCommand }),
+          directorCommand,
         );
         startGatekeeperWindow(deps, combo, {
           timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
@@ -436,8 +493,7 @@ export function createProgram(deps: Deps): Command {
           );
         }
         rmSync(runDir, { recursive: true, force: true });
-        deps.git(["worktree", "remove", "--force", worktree], options.repo);
-        deps.git(["branch", "-D", branch], options.repo);
+        rollbackTreehouseLaunch(deps, combo);
         throw error;
       }
 
@@ -533,7 +589,8 @@ export function createProgram(deps: Deps): Command {
     .requiredOption("-n, --name <comboId>", "Combo id")
     .option("--iterations <n>", "Stop after n ticks; intended for tests and one-shot supervision")
     .action(async (options: { name: string; iterations?: string }) => {
-      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const home = comboHome(deps.env);
+      const runDir = runDirFor(home, options.name);
       const combo = readCombo(runDir);
       const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
       const maxTicks = options.iterations === undefined ? undefined : Number(options.iterations);
@@ -784,7 +841,8 @@ export function createProgram(deps: Deps): Command {
     .argument("<event>", "Event name")
     .option("--field <key=value...>", "Payload fields", (value: string, prev: string[]) => [...prev, value], [])
     .action(async (event: string, options: { name: string; field: string[] }) => {
-      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const home = comboHome(deps.env);
+      const runDir = runDirFor(home, options.name);
       const canonicalEvent = canonicalEventName(event);
       if (canonicalEvent === "coder_done") {
         const combo = readCombo(runDir);
@@ -813,6 +871,7 @@ export function createProgram(deps: Deps): Command {
         try {
           const combo = readCombo(runDir);
           const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+          ensureComboSession({ deps, combo, home, cli: cliInvocation() });
           refreshGatekeeperWindow(deps, combo, {
             timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
             retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
@@ -880,14 +939,19 @@ export function createProgram(deps: Deps): Command {
     )
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
-      const runDir = runDirFor(comboHome(deps.env), options.name);
+      const home = comboHome(deps.env);
+      const runDir = runDirFor(home, options.name);
       const combo = readCombo(runDir);
       const cli = cliInvocation();
+      const recreated = ensureComboSession({ deps, combo, home, cli });
       const prUrl = latestPrUrlFromEvents(readEvents(runDir));
       if (prUrl === undefined) {
         const result = startInitialGateRetry({ deps, combo, runDir, cli });
         if (result.started) {
-          deps.out(`gate-restart: initial gate restarted for ${combo.id} at ${result.headSha}`);
+          deps.out(
+            `gate-restart: initial gate restarted for ${combo.id} at ${result.headSha}` +
+              `${recreated ? " (recreated tmux session)" : ""}`,
+          );
         } else {
           deps.out(
             `gate-restart: initial gate not started for ${combo.id} (${result.reason}) at ${result.headSha}`,
@@ -897,7 +961,10 @@ export function createProgram(deps: Deps): Command {
       }
       const result = restartPostAddressGate({ deps, combo, runDir, prUrl, cli });
       if (result.started) {
-        deps.out(`gate-restart: post-address gate restarted for ${combo.id} at ${result.headSha}`);
+        deps.out(
+          `gate-restart: post-address gate restarted for ${combo.id} at ${result.headSha}` +
+            `${recreated ? " (recreated tmux session)" : ""}`,
+        );
       } else {
         deps.out(
           `gate-restart: post-address gate not started for ${combo.id} (${result.reason}) at ${result.headSha}`,
