@@ -40,6 +40,7 @@ export interface ReconcileDeps {
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => GhResult;
   sleep: (ms: number) => Promise<void>;
 }

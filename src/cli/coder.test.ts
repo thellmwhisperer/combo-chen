@@ -293,6 +293,73 @@ describe("nudgeReviewComments", () => {
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
 
+  it("pins routed review comments to the latest published gate SHA instead of local HEAD", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+    const publishedSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const localSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+    );
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_validated", { sha: publishedSha });
+
+    nudgeReviewComments({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+            return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+          }
+          if (args[0] === "rev-parse" && args[1] === "HEAD") {
+            return { status: 0, stdout: `${localSha}\n`, stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        gh: (args) => {
+          const endpoint = args.at(-1);
+          if (endpoint === "repos/o/r/issues/7/comments") {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                  user: { login: "external-reviewer" },
+                  body: "Please handle this.",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          return { status: 0, stdout: "[]", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+    });
+
+    const events = readEvents(runDir).filter((event) => event.event === "review_comment");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      author: "external-reviewer",
+      kind: "pr_comment",
+      url: "https://github.com/o/r/pull/7#issuecomment-1",
+      head_sha: publishedSha,
+    });
+    expect(calls).not.toContainEqual(["git", `cwd=${record.worktree}`, "rev-parse", "HEAD"]);
+  });
+
   it("uses the launch config snapshot for routed review nudges after repo TOML changes", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));

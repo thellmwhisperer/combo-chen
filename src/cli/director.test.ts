@@ -179,6 +179,9 @@ function fakeDeps(input: {
         }
         return { status: 0, stdout: "", stderr: "" };
       }
+      if (args[0] === "pr" && args[1] === "comment") {
+        return { status: 0, stdout: "", stderr: "" };
+      }
       const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
       if (endpoint.endsWith("/issues/7/comments")) {
         return { status: 0, stdout: JSON.stringify(input.issueComments ?? []), stderr: "" };
@@ -834,6 +837,76 @@ describe("tickDirector", () => {
     expect(secondTickDeps.out).toContain(`director: pr_conflict ${headSha} DIRTY; action rebase_required`);
   });
 
+  it("triggers configured external review after reviewer LGTM and waits for its required check", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[reviewer]",
+        'logins = ["teseo"]',
+        "",
+        "[ready]",
+        'required_checks = ["CodeRabbit"]',
+        "",
+        "[external_review]",
+        'commands = ["@coderabbitai review"]',
+        "",
+        "[external_comments]",
+        'agents = ["coderabbitai"]',
+      ].join("\n"),
+    );
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "StatusContext", context: "CodeRabbit", state: "PENDING" },
+      ],
+      externalReviewComments: [
+        {
+          body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join("\n"),
+          submittedAt: "2026-06-15T00:00:00Z",
+        },
+      ],
+      externalCommentLogin: "teseo",
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "external_review_requested",
+        sha: headSha,
+        command: "@coderabbitai review",
+        pr_url: "https://github.com/o/r/pull/7",
+      }),
+    );
+    const commentCall = calls.find(
+      (call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment",
+    );
+    expect(commentCall).toEqual([
+      "gh",
+      "pr",
+      "comment",
+      "https://github.com/o/r/pull/7",
+      "--body",
+      expect.stringContaining("@coderabbitai review"),
+    ]);
+    expect(commentCall?.at(-1)).toContain(headSha);
+    expect(out).toContain(`director: requested external review @coderabbitai review at ${headSha}`);
+    expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(
+      calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment"),
+    ).toHaveLength(1);
+  });
+
   it("emits READY without an external clean comment when configured required checks pass", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -1276,8 +1349,7 @@ describe("tickDirector", () => {
           return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
         }
         if (cwd === worktree && args[0] === "rev-parse" && args[1] === "HEAD") {
-          revParseCalls += 1;
-          return { status: 0, stdout: `${revParseCalls === 1 ? oldSha : newSha}\n`, stderr: "" };
+          return { status: 0, stdout: `${newSha}\n`, stderr: "" };
         }
         if (args[0] === "status" && args[1] === "--porcelain") {
           return { status: 0, stdout: "", stderr: "" };

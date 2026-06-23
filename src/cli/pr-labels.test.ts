@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~395 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~445 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
@@ -294,6 +294,90 @@ describe("combo PR label projection", () => {
       source: "test",
     });
     expect(readEvents(dir)[1]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["documentation"],
+      new_labels: ["documentation", "combo:lgtm", "combo:external-review-green"],
+      added_labels: ["combo:lgtm", "combo:external-review-green"],
+      removed_labels: [],
+      reason: "current",
+      source: "test",
+    });
+  });
+
+  it("provisions missing combo labels and retries a failed add mutation once", () => {
+    const calls: string[][] = [];
+    let addAttempts = 0;
+    let liveLabels: Array<{ name: string }> = [{ name: "documentation" }];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: liveLabels,
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
+        });
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--add-label") {
+        addAttempts += 1;
+        if (addAttempts === 1) {
+          return { status: 1, stdout: "", stderr: "'combo:lgtm' not found" };
+        }
+        liveLabels = liveLabels.concat(String(args[4]).split(",").map((name) => ({ name })));
+        return ghOk();
+      }
+      if (args[0] === "label" && args[1] === "create") {
+        return ghOk();
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    const result = syncComboPrLabels({
+      gh,
+      runDir: dir,
+      prUrl: PR_URL,
+      events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+      greenCheckNames: ["ExternalReview"],
+      source: "test",
+    });
+
+    expect(result.changed).toBe(true);
+    expect(addAttempts).toBe(2);
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
+      [
+        "label",
+        "create",
+        "combo:lgtm",
+        "--color",
+        "5319E7",
+        "--description",
+        "Combo reviewer LGTM is pinned to the current PR head.",
+        "--force",
+        "--repo",
+        "o/r",
+      ],
+      [
+        "label",
+        "create",
+        "combo:external-review-green",
+        "--color",
+        "0E8A16",
+        "--description",
+        "Configured external review signal is green for the current PR head.",
+        "--force",
+        "--repo",
+        "o/r",
+      ],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+    ]);
+    expect(readEvents(dir)).toHaveLength(1);
+    expect(readEvents(dir)[0]).toMatchObject({
       event: "pr_labels_updated",
       pr_url: PR_URL,
       head_sha: HEAD,

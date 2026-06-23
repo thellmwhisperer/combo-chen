@@ -101,6 +101,13 @@ command = "claude {prompt}"
 # Environment override: COMBO_CHEN_READY_REQUIRED_CHECKS.
 required_checks = ["CodeRabbit"]
 
+[external_review]
+# Commands posted as PR comments after the active reviewer emits a current-head
+# LGTM, used to trigger external review systems whose SUCCESS checks are listed
+# in [ready]. Each command is posted once per head SHA.
+# Environment override: COMBO_CHEN_EXTERNAL_REVIEW_COMMANDS.
+commands = ["@external-reviewer review"]
+
 [pr_labels]
 # Check names that satisfy the combo:external-review-green PR label.
 # Environment override: COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES.

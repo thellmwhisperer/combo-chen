@@ -1,6 +1,6 @@
 /**
  * @overview Combo PR label projection helpers.
- *   ~440 lines, deterministic desired-label, diff, and GitHub mutation helpers.
+ *   ~510 lines, deterministic desired-label, diff, and GitHub mutation helpers.
  *
  *   READING GUIDE
  *   -------------
@@ -21,7 +21,8 @@
  *
  *   INTERNALS
  *   ---------
- *   orderedLabels, current work label, stale/conflict/current-head predicates, GH label parsing
+ *   orderedLabels, combo label provisioning, current work label, stale/conflict/current-head predicates,
+ *   GH label parsing
  *
  * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
  * @deps ../core/events, ./checks, ./gate, ./github, ./reviewer
@@ -51,6 +52,45 @@ export const COMBO_PR_LABELS = [
 ] as const;
 
 export type ComboPrLabel = (typeof COMBO_PR_LABELS)[number];
+
+const COMBO_PR_LABEL_METADATA: Record<ComboPrLabel, { color: string; description: string }> = {
+  "combo:working-coder": {
+    color: "FBCA04",
+    description: "Combo coder is addressing review feedback or pending work.",
+  },
+  "combo:working-reviewer": {
+    color: "D4C5F9",
+    description: "Combo reviewer is evaluating the current PR head.",
+  },
+  "combo:working-gate": {
+    color: "FBCA04",
+    description: "Combo gatekeeper is validating or is the current active worker.",
+  },
+  "combo:lgtm": {
+    color: "5319E7",
+    description: "Combo reviewer LGTM is pinned to the current PR head.",
+  },
+  "combo:external-review-green": {
+    color: "0E8A16",
+    description: "Configured external review signal is green for the current PR head.",
+  },
+  "combo:ready": {
+    color: "0E8A16",
+    description: "Combo PR has current-head gate, review, checks, and CI agreement.",
+  },
+  "combo:stale": {
+    color: "D93F0B",
+    description: "Combo PR has stale validation or review signals.",
+  },
+  "combo:conflict": {
+    color: "B60205",
+    description: "Combo PR is dirty or conflicting against its base.",
+  },
+  "combo:needs-human": {
+    color: "B60205",
+    description: "Combo requires human attention before it can continue.",
+  },
+};
 
 export interface ComboPrLabelProjectionInput {
   events: ComboEvent[];
@@ -222,11 +262,72 @@ function editPrLabels(
   labels: ComboPrLabel[],
 ): void {
   if (labels.length === 0) return;
-  const result = gh(["pr", "edit", prUrl, flag, labels.join(",")]);
-  if (result.status !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim() || "gh pr edit failed";
-    throw new Error(`PR label update failed for ${prUrl}: ${detail}`);
+  const result = runPrLabelEdit(gh, prUrl, flag, labels);
+  if (result.status === 0) return;
+
+  const detail = ghFailureDetail(result);
+  if (flag === "--add-label" && shouldProvisionMissingComboLabels(detail, labels)) {
+    provisionComboPrLabels(gh, prUrl, labels);
+    const retry = runPrLabelEdit(gh, prUrl, flag, labels);
+    if (retry.status === 0) return;
+    throw new Error(`PR label update failed for ${prUrl}: ${ghFailureDetail(retry)}`);
   }
+
+  throw new Error(`PR label update failed for ${prUrl}: ${detail}`);
+}
+
+function runPrLabelEdit(
+  gh: GhRunner,
+  prUrl: string,
+  flag: "--add-label" | "--remove-label",
+  labels: ComboPrLabel[],
+): ReturnType<GhRunner> {
+  return gh(["pr", "edit", prUrl, flag, labels.join(",")]);
+}
+
+function shouldProvisionMissingComboLabels(detail: string, labels: ComboPrLabel[]): boolean {
+  return /not found/i.test(detail) && labels.some((label) => detail.includes(label));
+}
+
+function provisionComboPrLabels(gh: GhRunner, prUrl: string, labels: ComboPrLabel[]): void {
+  const repoArgs = prUrlRepoArgs(prUrl);
+  for (const label of labels) {
+    const metadata = COMBO_PR_LABEL_METADATA[label];
+    const result = gh([
+      "label",
+      "create",
+      label,
+      "--color",
+      metadata.color,
+      "--description",
+      metadata.description,
+      "--force",
+      ...repoArgs,
+    ]);
+    if (result.status !== 0) {
+      throw new Error(`PR label provision failed for ${prUrl}: ${label}: ${ghFailureDetail(result)}`);
+    }
+  }
+}
+
+function prUrlRepoArgs(prUrl: string): string[] {
+  const repo = repoSlugFromPrUrl(prUrl);
+  return repo === undefined ? [] : ["--repo", repo];
+}
+
+function repoSlugFromPrUrl(prUrl: string): string | undefined {
+  try {
+    const url = new URL(prUrl);
+    const [owner, repo, kind] = url.pathname.split("/").filter(Boolean);
+    if (owner === undefined || repo === undefined || kind !== "pull") return undefined;
+    return `${owner}/${repo}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function ghFailureDetail(result: ReturnType<GhRunner>): string {
+  return result.stderr.trim() || result.stdout.trim() || "gh command failed";
 }
 
 function appendPrLabelsUpdated(

@@ -1,6 +1,6 @@
 /**
  * @overview Event journal: append-only JSONL spine per combo run.
- *   ~349 lines, 14 exports, 1 canonical schema, per-run append locking.
+ *   ~350 lines, 14 exports, 1 canonical schema, per-run append locking.
  *
  *   READING GUIDE
  *   ─────────────
@@ -73,6 +73,7 @@ export const EVENT_TYPES = {
   pr_autoclose_failed: { required: ["exit_code", "url"] },
   needs_human: { required: ["reason"] },
   director_prompted: { required: ["reason", "target"] },
+  external_review_requested: { required: ["sha", "command", "pr_url"] },
   review_comment: { required: ["author", "kind", "url"] },
   lgtm: { required: ["sha"] },
   lgtm_stale: { required: ["old_sha", "new_sha"] },

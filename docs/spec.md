@@ -22,8 +22,8 @@ Validation at launch (hard failures, the combo refuses to start):
   overture logic internally. A failing check prints `X <check>: <resource> <detail>`
   and exits before creating worktrees, branches, or tmux sessions.
 - Checks: work_item_readable, repo_exists, repo_matches_issue,
-  source_checkout_clean, base_ref_resolved, combo_id_valid, run_dir_free,
-  branch_free, worktree_free, tmux_session_free, config_parses,
+  source_checkout_clean, base_ref_resolved, treehouse_available,
+  combo_id_valid, run_dir_free, branch_free, worktree_free, tmux_session_free, config_parses,
   coder_command_safe, reviewer_command_safe, no_mistakes_available,
   no_mistakes_run_free, no_mistakes_config_predictable.
 - The result is written as a machine-readable `overture.json` artifact in the
@@ -58,12 +58,12 @@ Validation at launch (hard failures, the combo refuses to start):
 
 ```text
 OVERTURE    deterministic launch runway: checks work-item readability, repo/issue
-  │           match, clean source checkout, base ref, branch/worktree/tmux
+  │           match, clean source checkout, base ref, Treehouse/worktree/branch/tmux
   │           availability, run dir reuse, config parse, coder/reviewer command
   │           safety, no-mistakes availability and run conflict. Blocked checks
   │           print an X with the failing resource and exit before creating any
   │           launch resources. Writes overture.json when the run dir is available.
-  └─▶ SETUP      clean main verified, worktree acquired from base ref under project .worktrees/, tmux session up
+  └─▶ SETUP      clean main verified, Treehouse worktree leased, branch created from base ref, tmux session up
   └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
               └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, coder responding mode workers, and live PR label sync; code-2 verdicts prompt the director via `director_prompted`
@@ -294,6 +294,11 @@ ignored config or environment outside that file.
   worktree, and once the committed local HEAD differs from the conflicted SHA,
   the normal post-address no-mistakes gate, reviewer, and current-head READY
   path resume.
+- If `[external_review].commands` is configured and required READY checks are
+  missing or not yet SUCCESS after a current-head reviewer LGTM, the director
+  posts each command once for that head SHA and records
+  `external_review_requested` (fields `sha`, `command`, `pr_url`). READY still
+  depends on the configured check result, not on the comment itself.
 - External agent comments are routed as review input for the coder. Configure
   their comment/noise filters with `[external_comments].agents`; clean or
   rate-limited external comments do not approve the PR and do not affect READY
@@ -313,7 +318,7 @@ ignored config or environment outside that file.
     A `merged` event records the GitHub fact but is not resource convergence;
     until `combo_closed` appears, `status` reports the combo as
     `closure_pending`. Closure verifies the merge commit is in the base
-    branch, removes the local worktree and branch, then journals
+    branch, returns the Treehouse worktree lease and removes the local branch, then journals
     `combo_closed` (fields: optional `source`). The remote branch is left
     alone by default.
     When `source` is `"closure"`, the event was synthesized by the explicit
@@ -458,8 +463,8 @@ ignored config or environment outside that file.
     runtime ledger (for the PR URL), and GitHub PR facts; it refuses teardown unless GitHub
     reports `MERGED`; then it records any missing `merged` event with
     `source: "closure"`, refuses resource teardown while no-mistakes still
-    reports an active or awaiting run for the combo branch, removes the local
-    worktree and branch, kills the tmux session, and records `combo_closed`
+    reports an active or awaiting run for the combo branch, returns the
+    Treehouse worktree lease, deletes the local branch, kills the tmux session, and records `combo_closed`
     with `source: "closure"`. Existing `combo_closed` events are treated as
     already converged. Reviewer/director-watch only records the live merge fact
     and reports the closure command to run; it does not run cleanup itself.
@@ -746,7 +751,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
 3. **v0 scope as proposed**:
    `run`/`attach`/`status`/`park`/`resume`/`stop`/`events`/`forensics`/`closure`/`reconcile`/`activate-reviewer`,
    coder (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental
-   re-review), director-owned tmux poll loop; promptable director window; treehouse, ACP,
+   re-review), director-owned tmux poll loop; promptable director window; ACP,
    counterfactual log, preflight and multi-combo dashboard deferred to v1+.
 
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the

@@ -7,7 +7,7 @@
 **A deterministic director for autonomous work-item-to-PR pipelines.**
 
 combo-chen turns one GitHub issue or a local work-plan file into one reviewed
-pull request. It creates an isolated worktree, starts the configured coder,
+pull request. It leases an isolated Treehouse worktree, starts the configured coder,
 routes the result through a gatekeeper, opens or updates the PR, starts a
 reviewer, and records every hard signal in an append-only journal.
 
@@ -33,7 +33,7 @@ combo-chen makes the process explicit.
 ## How It Works
 
 1. You point combo-chen at a GitHub issue or a local work-plan file.
-2. It creates an isolated worktree and branch.
+2. It leases an isolated Treehouse worktree and creates the combo branch inside it.
 3. A coder agent implements the work item and leaves local commits.
 4. A gatekeeper validates and publishes the branch to GitHub. Before each gate run,
    the generated script acquires a branch-scoped gate lease so independent
@@ -66,7 +66,7 @@ combo-chen run (--issue <url> | --plan <file>)
     |
     +--> overture checks (see combo-chen overture)
     |
-    +--> isolated worktree + branch
+    +--> Treehouse lease + isolated worktree + branch
     |
     +--> coder agent writes local commits
     |
@@ -177,6 +177,9 @@ logins = ["claude"]
 [ready]
 required_checks = ["CodeRabbit"]
 
+[external_review]
+commands = ["@external-reviewer review"]
+
 [pr_labels]
 green_check_names = ["CodeRabbit"]
 
@@ -202,6 +205,9 @@ accepted for routing; by default this is the active reviewer agent name.
 present with exact `SUCCESS`; by default this includes `CodeRabbit`, and a
 skipped CodeRabbit review is not a READY success. These external checks are not
 reviewer approval.
+`[external_review].commands` names PR-comment commands the director posts once
+per current head after the active reviewer emits LGTM, typically to trigger
+external review bots whose checks are listed under `[ready]`.
 `[pr_labels].green_check_names` names the check contexts/runs that satisfy the
 `combo:external-review-green` status label.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
@@ -367,7 +373,7 @@ combo-chen director-prompt -n <combo-id> --reason <reason> <message...>
 `overture` checks the launch runway before spending agent tokens or creating
 tmux sessions. It runs the same deterministic checks that `run` executes
 internally: work item readability, repo/issue match, clean checkout, base ref,
-branch/worktree/tmux availability, no-mistakes status, and coder/reviewer
+Treehouse/worktree/branch/tmux availability, no-mistakes status, and coder/reviewer
 command safety. A blocked check prints an `X` and exits before any launch
 resources are created. Run it standalone to verify readiness, or let `run`
 consume it automatically.
@@ -399,7 +405,7 @@ consume it automatically.
   known.
 - `reconcile --apply` repairs journals that froze before a merged or closed PR
   was recorded locally. Add `-n <combo-id>` to scope repair and teardown to a
-  single combo. Teardown is idempotent: already-clean worktrees, branches, and
+  single combo. Teardown is idempotent: already-returned worktrees, branches, and
   tmux sessions count as success.
 
 ## Parallelize-First Operating Protocol
@@ -427,8 +433,8 @@ Recovery playbook:
 - Gate lease contention: for same-branch conflicts, inspect the lease owner in
   `status`, then resolve stale/conflicting ownership before retrying the gate.
 - Post-merge closure: run `combo-chen closure -n <combo-id>` after GitHub reports
-  `MERGED`; status/reviewer may record the merge fact but do not remove local
-  resources.
+  `MERGED`; status/reviewer may record the merge fact but do not return the
+  Treehouse lease or delete local resources.
 
 Future parallel runs should leave postmortem metadata: wave size, combo ids,
 branches, PRs, gate-lease waits/conflicts, recovery commands used, final
@@ -522,8 +528,7 @@ gate-runner, and director-watch windows; raw event output never replaces the
 coder role), and opt-in runner progress status lines
 (`COMBO_CHEN_RUNNER_PROGRESS=1`).
 
-Deferred: preflight scoring, counterfactual automerge logs, worktree pools, and ACP
-role driving.
+Deferred: preflight scoring, counterfactual automerge logs, and ACP role driving.
 
 ## License
 

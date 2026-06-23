@@ -494,6 +494,60 @@ export function reviewStateAllowsReady(events: ComboEvent[], headSha: string): b
   return livePinnedLgtmSha(events) === headSha;
 }
 
+function hasExternalReviewRequest(events: ComboEvent[], input: {
+  headSha: string;
+  command: string;
+  prUrl: string;
+}): boolean {
+  return events.some((event) =>
+    event.event === "external_review_requested" &&
+    event["sha"] === input.headSha &&
+    event["command"] === input.command &&
+    event["pr_url"] === input.prUrl,
+  );
+}
+
+function externalReviewRequestBody(command: string, headSha: string): string {
+  return [
+    command,
+    "",
+    `Codex -- Re-running external reviewer for current PR head ${headSha}.`,
+  ].join("\n");
+}
+
+function requestExternalReviewsIfNeeded(input: {
+  deps: DirectorDeps;
+  runDir: string;
+  events: ComboEvent[];
+  prUrl: string;
+  headSha: string;
+  commands: string[];
+}): void {
+  for (const command of input.commands) {
+    if (hasExternalReviewRequest(input.events, { headSha: input.headSha, command, prUrl: input.prUrl })) continue;
+    const result = input.deps.gh([
+      "pr",
+      "comment",
+      input.prUrl,
+      "--body",
+      externalReviewRequestBody(command, input.headSha),
+    ]);
+    if (result.status !== 0) {
+      input.deps.out(
+        `director: external review request failed for ${input.prUrl}: ` +
+          `${result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`}`,
+      );
+      continue;
+    }
+    appendEvent(input.runDir, "external_review_requested", {
+      sha: input.headSha,
+      command,
+      pr_url: input.prUrl,
+    });
+    input.deps.out(`director: requested external review ${command} at ${input.headSha}`);
+  }
+}
+
 function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
   let events = readEvents(runDir);
@@ -565,7 +619,17 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   if (!headStateAllowsReady(events, prView)) return;
   if (!reviewStateAllowsReady(events, headSha)) return;
   if (!checkRollupSucceeded(prView.statusCheckRollup, { requiredCheckNames: config.readyRequiredChecks, ambientCheckNames: config.externalCommentAgents })) return;
-  if (!requiredChecksSucceeded(prView.statusCheckRollup, config.readyRequiredChecks)) return;
+  if (!requiredChecksSucceeded(prView.statusCheckRollup, config.readyRequiredChecks)) {
+    requestExternalReviewsIfNeeded({
+      deps,
+      runDir,
+      events,
+      prUrl,
+      headSha,
+      commands: config.externalReviewCommands,
+    });
+    return;
+  }
   if (!gateStateAllowsReady(events, headSha)) {
     const status = latestGateStatus(events);
     if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return;

@@ -15,7 +15,7 @@
  *   ┌─ TEST SECTIONS (by CLI command) ───────────────────────────────┐
  *   │ command surface       Verifies all commands are registered     │
  *   │ overture              Launch runway checklist + artifact       │
- *   │ run                   Worktree + runner.sh + tmux session      │
+ *   │ run                   Treehouse lease + runner.sh + tmux       │
  *   │ attach                Session resolution and journal window    │
  *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
@@ -33,7 +33,7 @@
  *   │ park                  reboot handoff + non-terminal tmux stop  │
  *   │ stop                  kill-session + journal stopped event     │
  *   │ resolvePollMs         Env variable resolution                  │
- *   │ run ordering          Git worktree + branch safety             │
+ *   │ run ordering          Treehouse lease + branch safety          │
  *   └────────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
@@ -92,6 +92,18 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
       }
       if (args[0] === "status" && args[1] === "--porcelain") {
         return { status: 0, stdout: "", stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    },
+    treehouse: (args, cwd) => {
+      calls.push(["treehouse", `cwd=${cwd}`, ...args]);
+      if (args[0] === "get" && args.includes("--lease")) {
+        const holderIndex = args.indexOf("--lease-holder");
+        const holder = holderIndex === -1 ? "treehouse-worktree" : (args[holderIndex + 1] ?? "treehouse-worktree");
+        const suffix = holder === "o-r-7" ? "issue-7" : holder;
+        const worktree = join(cwd, ".worktrees", suffix);
+        mkdirSync(worktree, { recursive: true });
+        return { status: 0, stdout: `${worktree}\n`, stderr: "" };
       }
       return { status: 0, stdout: "", stderr: "" };
     },
@@ -2888,8 +2900,23 @@ describe("run", () => {
     expect(runner).not.toContain("activate-coder");
     expect(runner).toContain("activate-reviewer -n 'o-r-7'");
 
-    const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
-    expect(gitCall).toBeDefined();
+    expect(calls).toContainEqual([
+      "treehouse",
+      `cwd=${repoDir}`,
+      "get",
+      "--lease",
+      "--lease-holder",
+      "o-r-7",
+    ]);
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${join(repoDir, ".worktrees", "issue-7")}`,
+      "switch",
+      "-c",
+      "combo/issue-7",
+      "origin/main",
+    ]);
+    expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
 
     const tmuxNewSession = calls.find((c) => c[0] === "tmux" && c[1] === "new-session");
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
@@ -3143,15 +3170,22 @@ describe("run", () => {
     expect(spawnSync("sh", ["-n", join(runDir, "runner.sh")], { encoding: "utf8" }).status).toBe(0);
 
     expect(calls).toContainEqual([
-      "git",
+      "treehouse",
       `cwd=${repoDir}`,
-      "worktree",
-      "add",
-      combo!.worktree,
-      "-b",
+      "get",
+      "--lease",
+      "--lease-holder",
+      combo!.id,
+    ]);
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${combo!.worktree}`,
+      "switch",
+      "-c",
       combo!.branch,
       "origin/main",
     ]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
     const events = readEvents(runDir);
     expect(events[0]).toMatchObject({
       event: "combo_created",
@@ -3376,14 +3410,14 @@ exit 0
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("journal"),
     );
     const killIndex = calls.findIndex((call) => call[0] === "tmux" && call[1] === "kill-session");
-    const worktreeRemoveIndex = calls.findIndex(
-      (call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"),
+    const treehouseReturnIndex = calls.findIndex(
+      (call) => call[0] === "treehouse" && call.includes("return"),
     );
     const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
     expect(journalIndex).toBeGreaterThan(-1);
     expect(killIndex).toBeGreaterThan(journalIndex);
-    expect(worktreeRemoveIndex).toBeGreaterThan(killIndex);
-    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(treehouseReturnIndex).toBeGreaterThan(killIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(treehouseReturnIndex);
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
   });
 
@@ -6831,7 +6865,7 @@ describe("resolvePollMs", () => {
 });
 
 describe("run ordering and safety", () => {
-  it("creates the combo worktree from origin/main instead of the source checkout HEAD", async () => {
+  it("leases the combo worktree from Treehouse and creates the branch from origin/main", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
@@ -6840,15 +6874,22 @@ describe("run ordering and safety", () => {
 
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "fetch", "origin", "main"]);
     expect(calls).toContainEqual([
-      "git",
+      "treehouse",
       `cwd=${repoDir}`,
-      "worktree",
-      "add",
-      join(repoDir, ".worktrees", "issue-7"),
-      "-b",
+      "get",
+      "--lease",
+      "--lease-holder",
+      "o-r-7",
+    ]);
+    expect(calls).toContainEqual([
+      "git",
+      `cwd=${join(repoDir, ".worktrees", "issue-7")}`,
+      "switch",
+      "-c",
       "combo/issue-7",
       "origin/main",
     ]);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
   });
 
   it("allows --base to override the combo branch base ref", async () => {
@@ -6860,11 +6901,9 @@ describe("run ordering and safety", () => {
 
     expect(calls).toContainEqual([
       "git",
-      `cwd=${repoDir}`,
-      "worktree",
-      "add",
-      join(repoDir, ".worktrees", "issue-7"),
-      "-b",
+      `cwd=${join(repoDir, ".worktrees", "issue-7")}`,
+      "switch",
+      "-c",
       "combo/issue-7",
       "origin/release-candidate",
     ]);
@@ -7175,11 +7214,9 @@ describe("run ordering and safety", () => {
 
     expect(calls).toContainEqual([
       "git",
-      `cwd=${repoDir}`,
-      "worktree",
-      "add",
-      join(repoDir, ".worktrees", "issue-7"),
-      "-b",
+      `cwd=${join(repoDir, ".worktrees", "issue-7")}`,
+      "switch",
+      "-c",
       "combo/issue-7",
       "origin/main",
     ]);
@@ -7325,15 +7362,8 @@ describe("run ordering and safety", () => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
         if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
-        if (args[0] === "worktree" && args[1] === "add") {
+        if (args[0] === "switch" && args[1] === "-c") {
           mkdirSync(snapshotPath, { recursive: true });
-        }
-        if (args[0] === "worktree" && args[1] === "remove") {
-          teardownSnapshots.push({
-            step: "worktree-remove",
-            runDirExists: existsSync(runDir),
-            comboExists: existsSync(join(runDir, "combo.json")),
-          });
         }
         if (args[0] === "branch" && args[1] === "-D") {
           teardownSnapshots.push({
@@ -7344,29 +7374,37 @@ describe("run ordering and safety", () => {
         }
         return { status: 0, stdout: "", stderr: "" };
       },
+      treehouse: (args, cwd) => {
+        calls.push(["treehouse", `cwd=${cwd}`, ...args]);
+        if (args[0] === "return") {
+          teardownSnapshots.push({
+            step: "treehouse-return",
+            runDirExists: existsSync(runDir),
+            comboExists: existsSync(join(runDir, "combo.json")),
+          });
+        }
+        return { status: 0, stdout: `${join(repoDir, ".worktrees", "issue-7")}\n`, stderr: "" };
+      },
     });
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(CONFIG_SNAPSHOT_FILE);
 
-    const worktreeAddIndex = calls.findIndex((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"));
-    const worktreeRemoveIndex = calls.findIndex(
-      (c) => c[0] === "git" && c.includes("worktree") && c.includes("remove"),
-    );
+    const treehouseGetIndex = calls.findIndex((c) => c[0] === "treehouse" && c.includes("get"));
+    const treehouseReturnIndex = calls.findIndex((c) => c[0] === "treehouse" && c.includes("return"));
     const branchDeleteIndex = calls.findIndex((c) => c[0] === "git" && c.includes("branch") && c.includes("-D"));
-    expect(worktreeAddIndex).toBeGreaterThan(-1);
-    expect(calls[worktreeRemoveIndex]).toEqual([
-      "git",
+    expect(treehouseGetIndex).toBeGreaterThan(-1);
+    expect(calls[treehouseReturnIndex]).toEqual([
+      "treehouse",
       `cwd=${repoDir}`,
-      "worktree",
-      "remove",
+      "return",
       "--force",
       join(repoDir, ".worktrees", "issue-7"),
     ]);
     expect(calls[branchDeleteIndex]).toEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
-    expect(worktreeRemoveIndex).toBeGreaterThan(worktreeAddIndex);
-    expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
+    expect(treehouseReturnIndex).toBeGreaterThan(treehouseGetIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(treehouseReturnIndex);
     expect(teardownSnapshots).toEqual([
-      { step: "worktree-remove", runDirExists: false, comboExists: false },
+      { step: "treehouse-return", runDirExists: false, comboExists: false },
       { step: "branch-delete", runDirExists: false, comboExists: false },
     ]);
     expect(existsSync(runDir)).toBe(false);
@@ -7386,16 +7424,16 @@ describe("run ordering and safety", () => {
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/tmux/i);
 
-    const worktreeRemoveIndex = calls.findIndex((c) => c[0] === "git" && c.includes("remove"));
-    const worktreeRemove = calls[worktreeRemoveIndex];
-    expect(worktreeRemove).toBeDefined();
-    expect(worktreeRemove).toContain("worktree");
-    expect(worktreeRemove).toContain("--force");
-    expect(worktreeRemove).toContain(join(repoDir, ".worktrees", "issue-7"));
+    const treehouseReturnIndex = calls.findIndex((c) => c[0] === "treehouse" && c.includes("return"));
+    const treehouseReturn = calls[treehouseReturnIndex];
+    expect(treehouseReturn).toBeDefined();
+    expect(treehouseReturn).toContain("return");
+    expect(treehouseReturn).toContain("--force");
+    expect(treehouseReturn).toContain(join(repoDir, ".worktrees", "issue-7"));
 
     // Retry after a tmux failure must be idempotent: the branch created by
-    // `worktree add -b` has to go too, and only after the worktree (a branch
-    // checked out in a worktree can't be deleted).
+    // `git switch -c` has to go too, and only after Treehouse returned the
+    // worktree so the branch is no longer checked out there.
     const branchDeleteIndex = calls.findIndex(
       (c) => c[0] === "git" && c.includes("branch") && c.includes("-D"),
     );
@@ -7403,7 +7441,7 @@ describe("run ordering and safety", () => {
     expect(branchDelete).toBeDefined();
     expect(branchDelete).toContain(`cwd=${repoDir}`);
     expect(branchDelete).toContain("combo/issue-7");
-    expect(worktreeRemoveIndex).toBeLessThan(branchDeleteIndex);
+    expect(treehouseReturnIndex).toBeLessThan(branchDeleteIndex);
 
     expect(existsSync(runDirFor(h, "o-r-7"))).toBe(false);
   });

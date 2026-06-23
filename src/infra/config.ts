@@ -93,6 +93,8 @@ export interface ComboConfig {
   reviewerLogins: string[];
   /** External PR comment agents matched for noise filtering and coder routing. */
   externalCommentAgents: string[];
+  /** PR comment commands to trigger external reviewers after the active reviewer LGTM. */
+  externalReviewCommands: string[];
   /** GitHub check names that must be present with SUCCESS before READY. */
   readyRequiredChecks: string[];
   /** GitHub check names that satisfy the green external-review PR label. */
@@ -187,6 +189,9 @@ const DEFAULTS = {
   },
   external_comments: {
     agents: [],
+  },
+  external_review: {
+    commands: [],
   },
   ready: {
     required_checks: [],
@@ -426,6 +431,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let directorTable: TomlTable = { ...DEFAULTS.director };
   let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
   let externalCommentsTable: TomlTable = { ...DEFAULTS.external_comments };
+  let externalReviewTable: TomlTable = { ...DEFAULTS.external_review };
   let readyTable: TomlTable = { ...DEFAULTS.ready };
   let prLabelsTable: TomlTable = { ...DEFAULTS.pr_labels };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
@@ -512,6 +518,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         ...asTable(layer.table["external_comments"], `[external_comments] in ${layer.source}`),
       };
     }
+    if (layer.table["external_review"] !== undefined) {
+      externalReviewTable = {
+        ...externalReviewTable,
+        ...asTable(layer.table["external_review"], `[external_review] in ${layer.source}`),
+      };
+    }
     if (layer.table["pr_labels"] !== undefined) {
       prLabelsTable = {
         ...prLabelsTable,
@@ -580,6 +592,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "external_comments.agents",
     );
   }
+  if (env["COMBO_CHEN_EXTERNAL_REVIEW_COMMANDS"] !== undefined) {
+    externalReviewTable["commands"] = parseEnvStringArray(
+      env["COMBO_CHEN_EXTERNAL_REVIEW_COMMANDS"],
+      "external_review.commands",
+    );
+  }
   if (env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"] !== undefined) {
     prLabelsTable["green_check_names"] = parseEnvStringArray(
       env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"],
@@ -635,6 +653,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     .filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const externalCommentAgents = [...new Set([...configuredAgents, ...legacyAmbient])];
+  const externalReviewCommands = [
+    ...new Set(pickStringArray(externalReviewTable["commands"], "external_review.commands")),
+  ];
   const readyRequiredChecks = [...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks"))];
   const prLabelGreenCheckNamesResolved = [
     ...new Set(pickStringArray(prLabelsTable["green_check_names"], "pr_labels.green_check_names")),
@@ -723,6 +744,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerPrompt,
     reviewerLogins: [...new Set(reviewerLogins ?? [reviewerAgent])],
     externalCommentAgents: [...new Set(externalCommentAgents)],
+    externalReviewCommands,
     readyRequiredChecks,
     prLabelGreenCheckNames: prLabelGreenCheckNamesResolved,
     workerStallTicks: pickPositiveInteger(

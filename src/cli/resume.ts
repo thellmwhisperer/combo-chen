@@ -7,7 +7,7 @@
  *   1. Start at resumeCombo             <- CLI-facing recovery dispatcher.
  *   2. classifyResumeState              <- single-state precedence contract.
  *   3. ensurePrOpenedForLiveCi          <- bridge PRs opened by no-mistakes.
- *   4. ensureResumeSession              <- recreates only tmux monitoring shell.
+ *   4. ensureComboSession               <- recreates only tmux monitoring shell.
  *   5. salvageCoderStoppedBeforeHandoff <- explicit salvage/audit guidance.
  *
  *   MAIN FLOW
@@ -21,7 +21,7 @@
  *
  *   INTERNALS
  *   ---------
- *   classifyResumeState, ensureResumeSession, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers, director-watch window management for initial-gate retry
+ *   classifyResumeState, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers, director-watch window management for initial-gate retry
  *
  * @exports ResumeDeps, resumeCombo
  * @deps ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ./gate, ./github, ./reviewer, ./sessions, ./status, ./watchers
@@ -30,7 +30,7 @@ import { shellQuote } from "../core/combo.js";
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { hasSessionArgs, newSessionArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
@@ -40,7 +40,7 @@ import {
 } from "./gate.js";
 import type { GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
-import { DIRECTOR_WATCH_WINDOW, JOURNAL_WINDOW, killWindowIfPresent } from "./sessions.js";
+import { DIRECTOR_WATCH_WINDOW, ensureComboSession, killWindowIfPresent } from "./sessions.js";
 import {
   AWAITING_REVIEW_GATE,
   deepComboStatus,
@@ -50,7 +50,7 @@ import {
 } from "./status.js";
 import { buildDirectorWatchCommand } from "./watchers.js";
 
-// -- 1/3 HELPER · Dependencies and tmux session recovery --
+// -- 1/3 HELPER · Dependencies --
 export interface ResumeDeps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
@@ -60,25 +60,6 @@ export interface ResumeDeps {
   noMistakes: (args: string[], cwd: string) => CommandResult;
 }
 
-function ensureResumeSession(input: {
-  deps: Pick<ResumeDeps, "tmux">;
-  combo: ComboRecord;
-  home: string;
-  cli: string;
-}): boolean {
-  const { deps, combo, home, cli } = input;
-  if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0) return false;
-
-  const command = `COMBO_CHEN_HOME=${shellQuote(home)} ${cli} events --follow -n ${shellQuote(combo.id)}`;
-  const created = deps.tmux(newSessionArgs(combo.tmuxSession, JOURNAL_WINDOW, command));
-  if (created.status !== 0) {
-    throw new Error(
-      `tmux failed to recreate resume session "${combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
-    );
-  }
-  return true;
-}
 // -/ 1/3
 
 // -- 2/3 HELPER · Resume state classification --
@@ -261,14 +242,14 @@ export function resumeCombo(input: {
   const state = classifyResumeState({ combo, events, downstream, headSha, home, cli });
 
   if (state.kind === "reviewer_ready") {
-    const recreated = ensureResumeSession({ deps, combo, home, cli });
+    const recreated = ensureComboSession({ deps, combo, home, cli });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(`resume: ${PR_READY_FOR_REVIEWER}${recreated ? " (recreated tmux session)" : ""}`);
     return;
   }
 
   if (state.kind === "gate_running") {
-    const recreated = ensureResumeSession({ deps, combo, home, cli });
+    const recreated = ensureComboSession({ deps, combo, home, cli });
     ensureGatekeeperWindow(deps, combo, {
       timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
       retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
@@ -291,7 +272,7 @@ export function resumeCombo(input: {
   }
 
   if (state.kind === "initial_gate_retry") {
-    const recreated = ensureResumeSession({ deps, combo, home, cli });
+    const recreated = ensureComboSession({ deps, combo, home, cli });
     const result = startInitialGateRetry({ deps, combo, runDir, cli });
     try {
       killWindowIfPresent(deps, combo, DIRECTOR_WATCH_WINDOW);
@@ -327,7 +308,7 @@ export function resumeCombo(input: {
   }
 
   if (state.kind === "pr_exists") {
-    const recreated = ensureResumeSession({ deps, combo, home, cli });
+    const recreated = ensureComboSession({ deps, combo, home, cli });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(
       `resume: PR exists at ${state.prUrl}; reviewer/director monitoring ensured` +

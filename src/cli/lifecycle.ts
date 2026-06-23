@@ -1,33 +1,34 @@
 /**
- * @overview Merged-combo teardown helpers. ~135 lines, 3 exports, idempotent git cleanup.
+ * @overview Merged-combo teardown helpers. ~145 lines, 3 exports, idempotent Treehouse cleanup.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at teardownMergedCombo   <- verifies merge reachability before cleanup.
- *   2. Then requireGit                <- retry wrapper for each git operation.
+ *   2. Then requireRetriedCommand     <- retry wrapper for git and Treehouse.
  *
  *   MAIN FLOW
  *   ---------
- *   teardownMergedCombo -> fetch base -> verify merge sha -> remove/already-gone worktree -> delete/already-gone branch
+ *   teardownMergedCombo -> fetch base -> verify merge sha -> treehouse return -> delete/already-gone branch
  *
  *   PUBLIC API
  *   ----------
- *   LifecycleDeps          Git/sleep deps for teardown.
+ *   LifecycleDeps          Git/Treehouse/sleep deps for teardown.
  *   TeardownMergedComboResult  Resource outcomes from teardown.
  *   teardownMergedCombo    Clean up local combo state after a merged PR.
  *
  *   INTERNALS
  *   ---------
- *   requireGit, gitFailureText, isAlreadyRemovedWorktree, isAlreadyDeletedBranch
+ *   requireGit, requireTreehouse, requireRetriedCommand, commandFailureText, isAlreadyRemovedWorktree, isAlreadyDeletedBranch
  *
  * @exports LifecycleDeps, TeardownMergedComboResult, teardownMergedCombo
  * @deps ../core/state
  */
 import type { ComboRecord } from "../core/state.js";
 
-// -- 1/2 HELPER · LifecycleDeps and requireGit --
+// -- 1/2 HELPER · LifecycleDeps and retry wrappers --
 export interface LifecycleDeps {
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   sleep: (ms: number) => Promise<void>;
 }
 
@@ -46,18 +47,39 @@ async function requireGit(
   description: string,
   options: GitRetryOptions,
 ): Promise<GitOutcome> {
+  return requireRetriedCommand(deps, deps.git, args, cwd, description, options);
+}
+
+async function requireTreehouse(
+  deps: LifecycleDeps,
+  args: string[],
+  cwd: string,
+  description: string,
+  options: GitRetryOptions,
+): Promise<GitOutcome> {
+  return requireRetriedCommand(deps, deps.treehouse, args, cwd, description, options);
+}
+
+async function requireRetriedCommand(
+  deps: LifecycleDeps,
+  run: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string },
+  args: string[],
+  cwd: string,
+  description: string,
+  options: GitRetryOptions,
+): Promise<GitOutcome> {
   for (let attempt = 0; ; attempt += 1) {
-    const result = deps.git(args, cwd);
+    const result = run(args, cwd);
     if (result.status === 0) return "ok";
     if (options.acceptsFailure?.(result) === true) return "accepted_failure";
     if (attempt >= options.retries) {
-      throw new Error(`${description} failed: ${gitFailureText(result)}`);
+      throw new Error(`${description} failed: ${commandFailureText(result)}`);
     }
     await deps.sleep(options.backoffSeconds * 1000 * (attempt + 1));
   }
 }
 
-function gitFailureText(result: { stdout: string; stderr: string }): string {
+function commandFailureText(result: { stdout: string; stderr: string }): string {
   return result.stderr.trim() || result.stdout.trim() || "unknown error";
 }
 
@@ -106,11 +128,11 @@ export async function teardownMergedCombo(input: {
     `merge verification for ${input.mergeSha} in ${baseRef}`,
     retryOptions,
   );
-  const worktree = await requireGit(
+  const worktree = await requireTreehouse(
     input.deps,
-    ["worktree", "remove", "--force", input.combo.worktree],
+    ["return", "--force", input.combo.worktree],
     input.combo.repoDir,
-    `git worktree remove ${input.combo.worktree}`,
+    `treehouse return ${input.combo.worktree}`,
     { ...retryOptions, acceptsFailure: isAlreadyRemovedWorktree },
   );
   const branch = await requireGit(

@@ -26,8 +26,8 @@
  *   INTERNALS
  *   ---------
  *   readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
- *   checkBaseRef, checkBranchFree, checkNoMistakesRunway, runDirReusable,
- *   writeOvertureArtifact
+ *   checkBaseRef, checkTreehouseAvailable, checkBranchFree,
+ *   checkNoMistakesRunway, runDirReusable, writeOvertureArtifact
  *
  * @exports OVERTURE_ARTIFACT, OvertureBlockedError, OvertureDeps, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
  * @deps node:{crypto,fs,path}, ../core/{state,work-plan}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./status, ./work-plan
@@ -68,6 +68,7 @@ type CommandResult = { status: number; stdout: string; stderr: string };
 export interface OvertureDeps {
   env: Record<string, string | undefined>;
   git: (args: string[], cwd: string) => CommandResult;
+  treehouse: (args: string[], cwd: string) => CommandResult;
   gh: GhRunner;
   noMistakes: (args: string[], cwd: string) => CommandResult;
   tmux: (args: string[]) => TmuxResult;
@@ -218,6 +219,14 @@ function checkBaseRef(deps: OvertureDeps, repoDir: string, baseRef: string): Ove
     return failed("base_ref_resolved", baseRef, errorDetail(`git fetch origin ${branch} failed`, fetched));
   }
   return ok("base_ref_resolved", baseRef);
+}
+
+function checkTreehouseAvailable(deps: OvertureDeps, repoDir: string): OvertureCheck {
+  const status = deps.treehouse(["status"], repoDir);
+  if (status.status !== 0) {
+    return failed("treehouse_available", repoDir, errorDetail("treehouse status failed", status));
+  }
+  return ok("treehouse_available", repoDir);
 }
 
 function checkComboId(id: string): OvertureCheck {
@@ -415,6 +424,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     checkRepoMatchesIssue(input.deps, input.repoDir, issue),
     checkSourceCheckout(input.deps, input.repoDir, config.sourceBranch),
     checkBaseRef(input.deps, input.repoDir, input.baseRef),
+    checkTreehouseAvailable(input.deps, input.repoDir),
     checkComboId(id),
     runDirReusable(runDir),
     checkBranchFree(input.deps, input.repoDir, branch),

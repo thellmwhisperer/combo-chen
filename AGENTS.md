@@ -27,8 +27,8 @@ Hard rule: `reviewer != coder`.
 1. `combo-chen run --issue <url>` or `combo-chen run --plan <file>` runs overture
    first: deterministic launch runway checks are recorded to `overture.json`
    before any agent tokens are spent or tmux role windows are started. On
-   success it creates an isolated worktree, writes `runner.sh`, starts tmux,
-   and journals `combo_created`.
+   success it leases an isolated Treehouse worktree, creates the combo branch
+   inside it, writes `runner.sh`, starts tmux, and journals `combo_created`.
 2. Coder/gnhf runs in the worktree and commits locally.
 3. no-mistakes validates and publishes the initial PR. If the initial gate
    fails before the PR opens, the director auto-retries it up to configured
@@ -59,8 +59,8 @@ Hard rule: `reviewer != coder`.
 8. After the human merges the PR, `combo-chen closure -n <combo-id>`
    deterministically converges the combo's local resources: it verifies
    GitHub reports MERGED, records any missing `merged` event, refuses
-   teardown while no-mistakes is active, removes the worktree and branch,
-   kills the tmux session, and journals `combo_closed`. The reviewer and
+   teardown while no-mistakes is active, returns the Treehouse worktree lease,
+   removes the branch, kills the tmux session, and journals `combo_closed`. The reviewer and
    director-watch only record the merge fact and report the closure command
    to run; they do not perform cleanup themselves. Reconcile can record a
    missing merge fact but similarly defers resource convergence to closure.
@@ -156,6 +156,7 @@ detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (separate coder, journal, gatekeeper/live,
 gate-runner, and director-watch windows; raw event output never replaces the
 coder role), and opt-in runner progress status lines
-(`COMBO_CHEN_RUNNER_PROGRESS=1`).
+(`COMBO_CHEN_RUNNER_PROGRESS=1`), and mandatory Treehouse-backed worktree
+leases.
 Deferred: preflight scoring, counterfactual
-automerge log, treehouse pools, and ACP role driving.
+automerge log, and ACP role driving.
