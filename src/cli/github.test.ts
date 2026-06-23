@@ -114,7 +114,7 @@ describe("cli GitHub helpers", () => {
 
     expect(facts?.pr?.ci).toBe("success");
     expect(facts?.pr?.readyRequiredChecks).toBe("failure");
-    expect(facts?.pr).not.toHaveProperty("codeRabbit");
+    expect(facts?.pr).not.toHaveProperty("externalReview");
   });
 
   it("uses exact required READY check names for forensics classification", () => {

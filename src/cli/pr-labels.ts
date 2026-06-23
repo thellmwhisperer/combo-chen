@@ -43,7 +43,7 @@ export const COMBO_PR_LABELS = [
   "combo:working-reviewer",
   "combo:working-gate",
   "combo:lgtm",
-  "combo:coderabbit-green",
+  "combo:external-review-green",
   "combo:ready",
   "combo:stale",
   "combo:conflict",
@@ -139,7 +139,7 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
   const stale = hasStaleCurrentHeadSignal(input.events, headSha);
 
   if (lgtmCurrent) labels.add("combo:lgtm");
-  if (greenCheckSucceeded) labels.add("combo:coderabbit-green");
+  if (greenCheckSucceeded) labels.add("combo:external-review-green");
   if (readyCurrent) labels.add("combo:ready");
   if (stale && !readyCurrent) labels.add("combo:stale");
 

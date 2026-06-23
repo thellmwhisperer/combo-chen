@@ -59,7 +59,7 @@ function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
 function successfulRollup(): unknown[] {
   return [
     { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
-    { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+    { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "SUCCESS" },
     { __typename: "StatusContext", context: "coverage", state: "SUCCESS" },
   ];
 }
@@ -89,7 +89,7 @@ function fakeDeps(input: {
   prHeadSha: string;
   worktreeHeadSha?: string;
   rollup?: unknown[];
-  codeRabbitComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
+  externalReviewComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
   externalCommentLogin?: string;
   issueComments?: unknown[];
   prLabels?: unknown[];
@@ -167,9 +167,9 @@ function fakeDeps(input: {
         return { status: 0, stdout: "[]", stderr: "" };
       }
       if (endpoint.endsWith("/pulls/7/reviews")) {
-        const comments = input.codeRabbitComments ?? [
+        const comments = input.externalReviewComments ?? [
           {
-            body: "CodeRabbit review complete. No issues found.",
+            body: "ExternalReview review complete. No issues found.",
             commitSha: input.prHeadSha,
             submittedAt: "2026-06-15T00:00:00Z",
           },
@@ -183,7 +183,7 @@ function fakeDeps(input: {
               html_url: `https://github.com/o/r/pull/7#pullrequestreview-${index + 1}`,
               state: "COMMENTED",
               submitted_at: comment.submittedAt ?? `2026-06-15T00:00:0${index}Z`,
-              user: { login: input.externalCommentLogin ?? "coderabbitai" },
+              user: { login: input.externalCommentLogin ?? "external-reviewer" },
             })),
           ),
           stderr: "",
@@ -591,12 +591,12 @@ describe("tickDirector", () => {
       prHeadSha: headSha,
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
-        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "FAILURE" },
-        { __typename: "CheckRun", name: "Rabbit Pro", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "FAILURE" },
+        { __typename: "CheckRun", name: "ExternalReview Pro", status: "COMPLETED", conclusion: "SUCCESS" },
       ],
-      codeRabbitComments: [],
+      externalReviewComments: [],
       prLabels: [{ name: "documentation" }],
-      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "Rabbit Pro" },
+      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "ExternalReview Pro" },
     });
     deps.tmux = (args) => {
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
@@ -613,7 +613,7 @@ describe("tickDirector", () => {
       "edit",
       "https://github.com/o/r/pull/7",
       "--add-label",
-      "combo:working-reviewer,combo:coderabbit-green",
+      "combo:working-reviewer,combo:external-review-green",
     ]);
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
@@ -621,8 +621,8 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
         head_sha: headSha,
         old_labels: ["documentation"],
-        new_labels: ["documentation", "combo:working-reviewer", "combo:coderabbit-green"],
-        added_labels: ["combo:working-reviewer", "combo:coderabbit-green"],
+        new_labels: ["documentation", "combo:working-reviewer", "combo:external-review-green"],
+        added_labels: ["combo:working-reviewer", "combo:external-review-green"],
         removed_labels: [],
         reason: "current",
         source: "director-watch",
@@ -670,13 +670,13 @@ describe("tickDirector", () => {
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      ["[ready]", 'required_checks = ["CodeRabbit"]'].join("\n"),
+      ["[ready]", 'required_checks = ["ExternalReview"]'].join("\n"),
     );
     const { deps } = fakeDeps({
       homeDir: h,
       record,
       prHeadSha: headSha,
-      codeRabbitComments: [
+      externalReviewComments: [
         {
           body: "Review skipped: rate limited for this account.",
           submittedAt: "2026-06-15T00:01:00Z",
@@ -701,7 +701,7 @@ describe("tickDirector", () => {
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      ["[ready]", 'required_checks = ["CodeRabbit", "ReviewDog"]'].join("\n"),
+      ["[ready]", 'required_checks = ["ExternalReview", "ReviewDog"]'].join("\n"),
     );
     const { deps } = fakeDeps({
       homeDir: h,
@@ -709,7 +709,7 @@ describe("tickDirector", () => {
       prHeadSha: headSha,
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
-        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "SUCCESS" },
       ],
     });
 
@@ -741,7 +741,7 @@ describe("tickDirector", () => {
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
       ],
-      codeRabbitComments: [
+      externalReviewComments: [
         {
           body: "ReviewDog review complete. No issues found.",
           commitSha: headSha,
@@ -795,7 +795,7 @@ describe("tickDirector", () => {
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
       ],
-      codeRabbitComments: [
+      externalReviewComments: [
         {
           body: "ReviewDog review complete. No issues found.",
           commitSha: headSha,
@@ -842,9 +842,9 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: headSha,
-      codeRabbitComments: [
+      externalReviewComments: [
         {
-          body: "CodeRabbit review complete. No issues found.",
+          body: "ExternalReview review complete. No issues found.",
           submittedAt: "2026-06-15T00:00:00Z",
         },
         {
@@ -871,7 +871,7 @@ describe("tickDirector", () => {
       prHeadSha: headSha,
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" },
-        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "SUCCESS" },
       ],
     });
 
@@ -1024,7 +1024,7 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: oldSha,
-      codeRabbitComments: [],
+      externalReviewComments: [],
       issueComments: [
         {
           html_url: "https://github.com/o/r/pull/7#issuecomment-1",
@@ -1076,7 +1076,7 @@ describe("tickDirector", () => {
     });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      ["[external_comments]", 'agents = ["coderabbit"]'].join("\n"),
+      ["[external_comments]", 'agents = ["external-reviewer"]'].join("\n"),
     );
     const { deps, calls } = fakeDeps({
       homeDir: h,
@@ -1086,16 +1086,16 @@ describe("tickDirector", () => {
       issueComments: [
         {
           body: [
-            "@coderabbitai review",
+            "@external-reviewer review",
             "",
-            "Codex -- Re-running CodeRabbit for current PR #82 head 73f80173.",
+            "Codex -- Re-running external-reviewer for current PR #82 head 73f80173.",
           ].join("\n"),
           html_url: "https://github.com/o/r/pull/7#issuecomment-1",
           user: { login: "maintainer-bot" },
           created_at: "2026-06-15T02:51:55Z",
         },
       ],
-      codeRabbitComments: [
+      externalReviewComments: [
         {
           body: `lgtm @ ${currentHead}\n\nRuntime review. No findings.`,
           commitSha: currentHead,

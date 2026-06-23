@@ -1241,7 +1241,7 @@ describe("nudge-review-comments", () => {
             stdout: JSON.stringify([
               {
                 html_url: "https://github.com/o/r/pull/7#issuecomment-1",
-                user: { login: "coderabbitai" },
+                user: { login: "external-reviewer" },
                 body: "Please handle this.",
               },
             ]),
@@ -1268,7 +1268,7 @@ describe("nudge-review-comments", () => {
     const events = readEvents(dir).filter((event) => event.event === "review_comment");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      author: "coderabbitai",
+      author: "external-reviewer",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
       head_sha: "abc123",
@@ -1335,7 +1335,7 @@ describe("nudge-review-comments", () => {
             stdout: JSON.stringify([
               {
                 html_url: "https://github.com/o/r/pull/7#issuecomment-1",
-                user: { login: "coderabbitai" },
+                user: { login: "external-reviewer" },
                 body: "Please handle this.",
               },
             ]),
@@ -1364,7 +1364,7 @@ describe("nudge-review-comments", () => {
     const events = readEvents(dir).filter((event) => event.event === "review_comment");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      author: "coderabbitai",
+      author: "external-reviewer",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
       head_sha: "abc123",
@@ -3810,7 +3810,7 @@ describe("status", () => {
     const { deps, calls } = fakeDeps({
       env: {
         COMBO_CHEN_HOME: h,
-        COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "Rabbit Pro",
+        COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "ExternalReview Pro",
       },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
@@ -3842,8 +3842,8 @@ describe("status", () => {
                 ? {
                     statusCheckRollup: [
                       { name: "test", conclusion: "SUCCESS" },
-                      { name: "CodeRabbit", conclusion: "FAILURE" },
-                      { name: "Rabbit Pro", conclusion: "SUCCESS" },
+                      { name: "ExternalReview", conclusion: "FAILURE" },
+                      { name: "ExternalReview Pro", conclusion: "SUCCESS" },
                     ],
                   }
                 : {}),
@@ -3869,7 +3869,7 @@ describe("status", () => {
       "edit",
       prUrl,
       "--add-label",
-      "combo:working-gate,combo:coderabbit-green",
+      "combo:working-gate,combo:external-review-green",
     ]);
     expect(readEvents(dir)).toContainEqual(
       expect.objectContaining({
@@ -3877,8 +3877,8 @@ describe("status", () => {
         pr_url: prUrl,
         head_sha: headSha,
         old_labels: [],
-        new_labels: ["combo:working-gate", "combo:coderabbit-green"],
-        added_labels: ["combo:working-gate", "combo:coderabbit-green"],
+        new_labels: ["combo:working-gate", "combo:external-review-green"],
+        added_labels: ["combo:working-gate", "combo:external-review-green"],
         removed_labels: [],
         reason: "current",
         source: "status-deep",
@@ -4323,7 +4323,7 @@ describe("forensics", () => {
               mergeStateStatus: "CLEAN",
               statusCheckRollup: [
                 { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
-                { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+                { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "SUCCESS" },
               ],
             }),
             stderr: "",

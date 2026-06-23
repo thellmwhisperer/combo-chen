@@ -611,7 +611,7 @@ projection only; the journal and GitHub checks remain the source of truth.
 | `combo:working-reviewer` | Reviewer window is active and no higher-priority work is underway. |
 | `combo:working-gate` | Gatekeeper window is active or a `gate_started` journal entry is the latest gate event. |
 | `combo:lgtm` | A current-head SHA-pinned LGTM exists from a configured reviewer login. |
-| `combo:coderabbit-green` | A `[pr_labels].green_check_names` check is SUCCESS for the current head. |
+| `combo:external-review-green` | A `[pr_labels].green_check_names` check is SUCCESS for the current head. |
 | `combo:ready` | All current-head READY signals agree: gate, reviewer LGTM, required checks, and remaining CI. |
 | `combo:stale` | One or more current-head signals (LGTM, gate, READY) are pinned to an older SHA. Removed when signals realign. |
 | `combo:conflict` | GitHub reports the PR merge state as DIRTY or CONFLICTING. |
@@ -622,7 +622,7 @@ projection only; the journal and GitHub checks remain the source of truth.
 - Labels are applied only while the PR is open (GitHub state `OPEN`).
 - A single work-in-progress label is chosen with this precedence:
   `combo:working-gate` > `combo:working-coder` > `combo:working-reviewer`.
-- Signal labels (`combo:lgtm`, `combo:coderabbit-green`, `combo:ready`) are
+- Signal labels (`combo:lgtm`, `combo:external-review-green`, `combo:ready`) are
   removed when the PR head changes and revalidated against the new head.
 - When GitHub reports a dirty/conflicting merge state, all signal labels are
   removed and `combo:conflict` is applied instead.

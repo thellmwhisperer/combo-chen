@@ -49,7 +49,7 @@ combo-chen makes the process explicit.
    reviewer LGTM, configured required READY checks, and passing remaining checks.
 9. While the PR is open, GitHub labels reflect the live combo state
    (`combo:working-coder`, `combo:working-reviewer`, `combo:working-gate`,
-   `combo:lgtm`, `combo:coderabbit-green`, `combo:ready`, `combo:stale`,
+   `combo:lgtm`, `combo:external-review-green`, `combo:ready`, `combo:stale`,
    `combo:conflict`), leaving a visible path through the workflow timeline.
 10. After the human merges the PR, `combo-chen closure -n <combo-id>` converges
    local resources deterministically.
@@ -173,14 +173,14 @@ merge = "human"
 logins = ["claude"]
 
 [ready]
-required_checks = ["CodeRabbit"]
+required_checks = ["ExternalReview"]
 
 [pr_labels]
-green_check_names = ["CodeRabbit"]
+green_check_names = ["ExternalReview"]
 
 [external_comments]
 # External comment/noise filters only; not approval and not READY checks.
-agents = ["coderabbit"]
+agents = ["external-reviewer"]
 
 [reviewer.claude]
 command = "claude {prompt}"
@@ -199,7 +199,7 @@ accepted for routing; by default this is the active reviewer agent name.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
 present with `SUCCESS`; these external checks are not reviewer approval.
 `[pr_labels].green_check_names` names the check contexts/runs that satisfy the
-`combo:coderabbit-green` status label.
+`combo:external-review-green` status label.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
 filtered for bookkeeping/noise and otherwise routed to coder responding mode.
 
@@ -472,7 +472,7 @@ a machine-readable runtime ledger for each combo capsule,
 branch-scoped gate leases for parallel capsules with stale recovery and heartbeat,
 wave-based parallel scaling (start 2, then 3, then 4-6 with postmortem justification),
 current-head READY agreement, and live GitHub PR label projection
-(combo:working-*, combo:lgtm, combo:coderabbit-green, combo:ready, combo:stale,
+(combo:working-*, combo:lgtm, combo:external-review-green, combo:ready, combo:stale,
 combo:conflict) with mutation journaling. Work items can be GitHub issues (`--issue`) or
 local markdown work plans (`--plan`).
 

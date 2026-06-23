@@ -35,20 +35,20 @@ describe("GitHub check readiness helpers", () => {
   it("keeps configured required READY checks out of the normal CI rollup", () => {
     expect(
       checkRollupSucceeded(
-        [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "FAILURE")],
-        { requiredCheckNames: ["CodeRabbit"] },
+        [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "FAILURE")],
+        { requiredCheckNames: ["ExternalReview"] },
       ),
     ).toBe(true);
     expect(
       checkRollupSucceeded(
-        [checkRun("unit", "FAILURE"), checkRun("CodeRabbit", "SUCCESS")],
-        { requiredCheckNames: ["CodeRabbit"] },
+        [checkRun("unit", "FAILURE"), checkRun("ExternalReview", "SUCCESS")],
+        { requiredCheckNames: ["ExternalReview"] },
       ),
     ).toBe(false);
     expect(
       checkRollupSucceeded(
-        [checkRun("CodeRabbit", "SUCCESS")],
-        { requiredCheckNames: ["CodeRabbit"] },
+        [checkRun("ExternalReview", "SUCCESS")],
+        { requiredCheckNames: ["ExternalReview"] },
       ),
     ).toBe(true);
   });
@@ -56,8 +56,8 @@ describe("GitHub check readiness helpers", () => {
   it("does not let external-comment checks stand in for normal CI", () => {
     expect(
       checkRollupSucceeded(
-        [checkRun("CodeRabbit", "SUCCESS")],
-        { ambientCheckNames: ["coderabbit"] },
+        [checkRun("ExternalReview", "SUCCESS")],
+        { ambientCheckNames: ["ExternalReview"] },
       ),
     ).toBe(false);
   });
@@ -65,16 +65,16 @@ describe("GitHub check readiness helpers", () => {
   it("requires every configured READY check to be present with SUCCESS", () => {
     const rollup = [
       checkRun("unit", "SUCCESS"),
-      checkRun("CodeRabbit", "SUCCESS"),
+      checkRun("ExternalReview", "SUCCESS"),
       checkRun("ReviewDog", "SUCCESS"),
     ];
 
-    expect(requiredChecksSucceeded(rollup, ["CodeRabbit", "ReviewDog"])).toBe(true);
-    expect(requiredChecksSucceeded(rollup, ["CodeRabbit", "Copilot"])).toBe(false);
+    expect(requiredChecksSucceeded(rollup, ["ExternalReview", "ReviewDog"])).toBe(true);
+    expect(requiredChecksSucceeded(rollup, ["ExternalReview", "Copilot"])).toBe(false);
     expect(
       requiredChecksSucceeded(
-        [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "SUCCESS"), checkRun("ReviewDog", "SKIPPED")],
-        ["CodeRabbit", "ReviewDog"],
+        [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS"), checkRun("ReviewDog", "SKIPPED")],
+        ["ExternalReview", "ReviewDog"],
       ),
     ).toBe(false);
     expect(requiredChecksSucceeded([checkRun("ReviewDog Extended", "SUCCESS")], ["ReviewDog"])).toBe(false);

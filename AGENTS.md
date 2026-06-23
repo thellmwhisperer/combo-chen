@@ -40,7 +40,7 @@ Hard rule: `reviewer != coder`.
    coder responding, code 2 prompts the director, and code 3 journals
    `needs_human`. On each tick the director also updates the PR's GitHub
    labels to project the live combo state (`combo:working-*`, `combo:lgtm`,
-   `combo:coderabbit-green`, `combo:ready`, `combo:stale`, `combo:conflict`).
+   `combo:external-review-green`, `combo:ready`, `combo:stale`, `combo:conflict`).
 5. Review comments are routed to the resumed coder thread. Mechanical fixes are
    handled locally; intent-touching decisions emit `needs_human`.
 6. Local addressing commits trigger a generated-script post-address
