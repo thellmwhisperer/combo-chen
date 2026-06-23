@@ -684,6 +684,7 @@ describe("command surface", () => {
       "source checkout path must not be auto-replaced: /repos/combo-chen/src/cli/main.ts",
     );
 
+    expect(calls).toEqual([]);
     expect(downloads).toEqual([]);
     expect(replacements).toEqual([]);
     expect(out).toEqual([]);
