@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~6400 lines.
+ *   deps so tests run without a real terminal or network. ~6500 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -29,6 +29,7 @@
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
+ *   │ update                Active self-update command wiring         │
  *   │ park                  reboot handoff + non-terminal tmux stop  │
  *   │ stop                  kill-session + journal stopped event     │
  *   │ resolvePollMs         Env variable resolution                  │
@@ -36,10 +37,11 @@
  *   └────────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan},
+ * @deps vitest, node:{child_process,crypto,fs,os,path}, ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan},
  *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./main
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -188,8 +190,125 @@ describe("command surface", () => {
         "run",
         "status",
         "stop",
+        "update",
       ].sort(),
     );
+  });
+
+  it("wires update --yes through release resolution, staging, and replacement", async () => {
+    const archiveBytes = Buffer.from("release archive bytes");
+    const archiveSha = createHash("sha256").update(archiveBytes).digest("hex");
+    const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
+    const stagingDir = "/updates/combo-chen-update-1";
+    const downloads: unknown[] = [];
+    const extracts: unknown[] = [];
+    const writes = new Map<string, string>();
+    const replacements: unknown[] = [];
+    const { deps, calls, out } = fakeDeps({
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "api" && args[1] === "repos/thellmwhisperer/combo-chen/releases?per_page=100") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                tag_name: "v1.2.1",
+                prerelease: false,
+                draft: false,
+                assets: [
+                  {
+                    name: assetName,
+                    browser_download_url: `https://downloads.example/${assetName}`,
+                  },
+                  {
+                    name: "checksums.txt",
+                    browser_download_url: "https://downloads.example/checksums.txt",
+                  },
+                ],
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+      },
+      update: {
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-23T09:00:00.000Z" },
+        installTargetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
+        platform: "linux",
+        arch: "x64",
+        makeStagingDir: () => stagingDir,
+        async download(request) {
+          downloads.push(request);
+          if (request.fileName === assetName) return archiveBytes;
+          if (request.fileName === "checksums.txt") return `${archiveSha}  ${assetName}\n`;
+          throw new Error(`unexpected download ${request.fileName}`);
+        },
+        async mkdir() {},
+        async writeFile(path, data) {
+          writes.set(path, Buffer.from(data).toString("utf8"));
+        },
+        async remove() {},
+        async extractArchive(input) {
+          extracts.push(input);
+          return {
+            rootDir: `${input.destinationDir}/combo-chen-v1.2.1`,
+            executablePath: `${input.destinationDir}/combo-chen-v1.2.1/bin/combo-chen`,
+            files: [`${input.destinationDir}/combo-chen-v1.2.1/bin/combo-chen`],
+          };
+        },
+        replaceInstallTarget(input) {
+          replacements.push(input);
+          return {
+            targetPath: input.targetPath,
+            stagedExecutablePath: `${input.stagedArtifactRoot}/bin/combo-chen`,
+            installTarget: {
+              path: input.targetPath,
+              kind: "release_archive",
+              autoReplaceable: true,
+              reason: "release archive executable",
+            },
+            executableMode: 0o755,
+            replaced: true,
+          };
+        },
+      },
+    });
+
+    await exec(deps, ["update", "--yes"]);
+
+    expect(calls).toContainEqual(["gh", "api", "repos/thellmwhisperer/combo-chen/releases?per_page=100"]);
+    expect(downloads).toEqual([
+      {
+        kind: "archive",
+        url: `https://downloads.example/${assetName}`,
+        fileName: assetName,
+      },
+      {
+        kind: "checksums",
+        url: "https://downloads.example/checksums.txt",
+        fileName: "checksums.txt",
+      },
+    ]);
+    expect(writes.get(`${stagingDir}/downloads/${assetName}`)).toBe("release archive bytes");
+    expect(extracts).toEqual([
+      {
+        archivePath: `${stagingDir}/downloads/${assetName}`,
+        destinationDir: `${stagingDir}/extracted`,
+        assetFileName: assetName,
+      },
+    ]);
+    expect(replacements).toEqual([
+      {
+        targetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
+        stagedArtifactRoot: `${stagingDir}/extracted/combo-chen-v1.2.1`,
+      },
+    ]);
+    expect(out).toEqual([
+      "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
+      `verified ${assetName} (${archiveSha})`,
+      "installed combo-chen 1.2.1 to /opt/combo-chen-v1.2.0/bin/combo-chen",
+    ]);
   });
 
   it("describes status as the parallel capsule dashboard", () => {
