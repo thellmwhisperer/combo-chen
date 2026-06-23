@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~990 lines, 23 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1000 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,director,gatekeeper},
- *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./pr-labels, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./pr-labels, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -123,6 +123,7 @@ import {
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, formatGateLeaseStatus, type CommandResult } from "./status.js";
+import { defaultUpdateCommandDeps, runUpdateCommand, type UpdateCommandDeps } from "./update.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan, WORK_PLAN_ARTIFACT } from "./work-plan.js";
 import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
 
@@ -138,6 +139,7 @@ export interface Deps {
   noMistakes: (args: string[], cwd: string) => CommandResult;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
+  update?: Partial<UpdateCommandDeps>;
 }
 
 export function defaultDeps(): Deps {
@@ -209,6 +211,23 @@ export function createProgram(deps: Deps): Command {
   program.exitOverride();
   program.description("The parallel capsule director for autonomous work-item → PR pipelines.");
   program.version(formatReleaseMetadata(releaseMetadata), "-v, --version", "Print release build metadata");
+
+  program
+    .command("update")
+    .description("Update this combo-chen release archive from GitHub Releases")
+    .option("--beta", "Include prerelease GitHub releases", false)
+    .option("-y, --yes", "Confirm replacement without prompting", false)
+    .action(async (options: { beta?: boolean; yes?: boolean }) => {
+      const updateDeps: UpdateCommandDeps = {
+        ...defaultUpdateCommandDeps({ gh: deps.gh, out: deps.out }),
+        ...deps.update,
+      };
+      await runUpdateCommand({
+        beta: options.beta === true,
+        yes: options.yes === true,
+        deps: updateDeps,
+      });
+    });
 
   program
     .command("overture")
