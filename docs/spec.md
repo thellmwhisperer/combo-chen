@@ -462,8 +462,8 @@ ignored config or environment outside that file.
 
 ## 8a. Release artifact contract
 
-The release channel is a producer contract for future update code. A release
-build carries inspectable metadata: `combo-chen --version` reports the package
+The release channel is the producer side of the active updater. A release build
+carries inspectable metadata: `combo-chen --version` reports the package
 version, commit, and build date embedded by the bundler. Automation supplies
 `COMBO_CHEN_COMMIT` and `COMBO_CHEN_BUILD_DATE`; local builds use deterministic
 fallbacks where configured and otherwise mark unknown/current values.
@@ -483,11 +483,35 @@ release:assets` runs the build and materializes reproducible archives plus
 GitHub release automation runs the release asset producer for published and
 prereleased GitHub releases, using the release tag checkout and release creation
 timestamp, then uploads `dist/release/*.tar.gz` and
-`dist/release/checksums.txt` to that release.
+`dist/release/checksums.txt` to that release. This release asset contract feeds
+the active `combo-chen update` command directly.
 
-No network update or executable replacement behavior is part of this contract.
-The current system only defines, verifies, and publishes artifacts; future
-update code must verify `checksums.txt` before installing anything.
+The active command queries GitHub Releases, compares the current embedded build
+metadata with the selected release candidate, and reports the current,
+update-available, unsupported, or failure state. Stable mode ignores
+prereleases:
+
+```bash
+combo-chen update --yes
+```
+
+Beta mode includes prereleases:
+
+```bash
+combo-chen update --beta --yes
+```
+
+For an installable candidate, the command downloads the selected archive and
+checksums.txt, verifies the checksum before extraction, extracts into an
+isolated staging directory, and hands the staged release archive to the atomic
+replacement primitive. Checksum, download, and extraction failures are
+explicit: the command reports failures before replacement and leaves the
+previous installation intact.
+Replacement errors are contained by the U3 atomic replacement primitive.
+Unsupported source checkouts and package-manager dev shims fail before staging
+with useful non-auto-replaceable errors. The live combo/session integration is
+owned by #72; the active update command does not restart daemons, inspect
+running capsules, or apply passive update notices.
 
 ### U0 update contract bridge
 
@@ -524,7 +548,7 @@ verification, and isolated extraction for a resolved update plan.  The
 `checksums.txt`, verifies the digest before extraction, extracts into an
 isolated staging directory, and returns a `StagedUpdateArtifact` descriptor
 with archive paths, checksums, and extracted executable metadata for the
-future replacement slice.  All network and filesystem operations are injected
+replacement primitive.  All network and filesystem operations are injected
 behind `UpdateStagingDeps` so tests can run with mock downloads, filesystem
 calls, and extraction.  Checksum mismatches, missing entries, unavailable
 checksums, malformed `checksums.txt`, archive download failures, and extraction
@@ -540,7 +564,7 @@ Completed updater slices:
 
 Remaining follow-up slices:
 
-- U4: active capsule guard.
+- U4: live combo/session integration owned by #72.
 
 ## 8b. Parallelize-first operating contract
 
