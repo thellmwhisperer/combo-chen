@@ -249,8 +249,8 @@ package version, commit, and build date embedded at build time. Local builds use
 safe fallbacks; release automation passes `COMBO_CHEN_COMMIT` and
 `COMBO_CHEN_BUILD_DATE`.
 
-The release asset contract is intentionally small because future update code
-will consume it directly:
+The release asset contract feeds the active `combo-chen update` command
+directly:
 
 - Platform archives are named
   `combo-chen-vX.Y.Z-<platform>-<arch>.tar.gz`; the default targets are
@@ -266,9 +266,30 @@ will consume it directly:
   releases and uploads `dist/release/*.tar.gz` plus
   `dist/release/checksums.txt` to the release.
 
-No network update or executable replacement behavior is introduced here. This
-contract only defines and produces the artifacts that a future updater will
-verify and install.
+`combo-chen update` queries GitHub Releases, compares the current embedded build
+metadata with the latest eligible release, and prints the current,
+update-available, unsupported, or failure state. Stable mode ignores prereleases:
+
+```bash
+combo-chen update --yes
+```
+
+Beta mode includes prereleases:
+
+```bash
+combo-chen update --beta --yes
+```
+
+After resolving a newer candidate, the command downloads the selected archive
+and checksums.txt, verifies the checksum before extraction, extracts into an
+isolated staging directory, and then hands the staged release archive to the
+atomic replacement primitive. Checksum, download, and extraction failures are
+explicit: the command reports failures before replacement and leaves the
+previous installation intact.
+Unsupported source checkouts and package-manager dev shims fail with useful
+non-auto-replaceable errors. The live combo/session integration is owned by
+#72; the active update command does not restart daemons, inspect running
+capsules, or apply passive update notices.
 
 ## U0 update contract bridge and updater slices
 
@@ -291,8 +312,8 @@ U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
 verification, and isolated extraction primitives.  It accepts a resolved update
 plan or fixture, downloads the archive and `checksums.txt`, verifies the digest
 before extraction, extracts into an isolated staging directory, and returns a
-`StagedUpdateArtifact` descriptor with enough metadata for the future
-replacement slice.  All network and filesystem operations are injected through
+`StagedUpdateArtifact` descriptor with enough metadata for the replacement
+primitive.  All network and filesystem operations are injected through
 `UpdateStagingDeps` so tests run without real I/O.  Checksum mismatches, missing
 entries, unavailable checksums, and extraction failures are reported
 deterministically with cleanup status.
@@ -317,7 +338,7 @@ Completed updater slices:
 
 Remaining follow-up slices:
 
-- U4: active capsule guard.
+- U4: live combo/session integration owned by #72.
 
 ## Commands
 
