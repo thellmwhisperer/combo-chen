@@ -57,7 +57,14 @@ import { releaseMetadata } from "../infra/release-metadata.js";
 
 // -- 1/3 HELPER · command dependency contract --
 const UPDATE_REPOSITORY_API_PATH = "repos/thellmwhisperer/combo-chen/releases?per_page=100";
-const UPDATE_DOWNLOAD_TIMEOUT_MS = 60_000;
+const UPDATE_DOWNLOAD_TIMEOUT_MS = (() => {
+  const env = process.env.COMBO_CHEN_UPDATE_DOWNLOAD_TIMEOUT_MS;
+  if (env !== undefined) {
+    const parsed = Number.parseInt(env, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 60_000;
+})();
 
 export interface UpdateCommandDeps {
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
@@ -165,7 +172,7 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
   if (!options.yes) {
-    throw new Error(`confirmation required; rerun with -y/--yes to install ${plan.candidate.tagName}`);
+    throw new Error(`confirmation required; rerun with -y/--yes to install ${candidateVersion}`);
   }
 
   const stagingDir = options.deps.makeStagingDir();

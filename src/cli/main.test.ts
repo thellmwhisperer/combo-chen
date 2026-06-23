@@ -381,7 +381,7 @@ describe("command surface", () => {
     });
 
     await expect(exec(deps, ["update"])).rejects.toThrow(
-      "confirmation required; rerun with -y/--yes to install v1.2.1",
+      "confirmation required; rerun with -y/--yes to install 1.2.1",
     );
 
     expect(downloads).toEqual([]);

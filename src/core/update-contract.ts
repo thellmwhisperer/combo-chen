@@ -57,6 +57,8 @@
  *   compareReleaseCandidate, compareNormalizedReleaseVersions
  * @deps ../infra/release-artifacts
  */
+import { realpathSync } from "node:fs";
+
 import { RELEASE_TARGETS, releaseAssetFileName } from "../infra/release-artifacts.js";
 
 // -- 1/3 HELPER · Update contract types --
@@ -300,8 +302,15 @@ export function classifyInstallTarget(
   input: InstallTargetClassificationInput,
 ): InstallTargetClassification {
   const path = normalizeInstallTargetPath(input.path.trim());
+  const resolved = (() => {
+    try {
+      return normalizeInstallTargetPath(realpathSync(path));
+    } catch {
+      return path;
+    }
+  })();
 
-  if (DEV_SHIM_PATTERN.test(path)) {
+  if (DEV_SHIM_PATTERN.test(resolved)) {
     return {
       path,
       kind: "dev_shim",
@@ -310,7 +319,7 @@ export function classifyInstallTarget(
     };
   }
 
-  if (releaseArchiveVersionFromPath(path) !== undefined) {
+  if (releaseArchiveVersionFromPath(resolved) !== undefined) {
     return {
       path,
       kind: "release_archive",
@@ -319,7 +328,7 @@ export function classifyInstallTarget(
     };
   }
 
-  if (isSourceCheckoutPath(path)) {
+  if (isSourceCheckoutPath(resolved)) {
     return {
       path,
       kind: "source_checkout",
