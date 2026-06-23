@@ -1,7 +1,7 @@
 /**
  * @overview Run identity and persistence: one directory per combo under the
  *   combo home, holding combo.json (the record) and journal.jsonl (the spine).
- *   ~170 lines, 14 exports.
+ *   ~175 lines, 14 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -62,6 +62,8 @@ export interface ComboRecord {
   workItemTitle?: string;
   repoDir: string;
   worktree: string;
+  worktreeProvider?: "treehouse";
+  treehouseLeaseHolder?: string;
   branch: string;
   tmuxSession: string;
   createdAt: string;

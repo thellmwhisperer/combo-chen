@@ -47,6 +47,7 @@ describe("loadConfig", () => {
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.externalCommentAgents).toEqual([]);
+    expect(config.externalReviewCommands).toEqual([]);
     expect(config.readyRequiredChecks).toEqual([]);
     expect(config.prLabelGreenCheckNames).toEqual([]);
     expect(config.roles.merge).toBe("human");
@@ -146,6 +147,26 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("claude");
     expect(config.externalCommentAgents).toEqual(["reviewdog"]);
     expect(config).not.toHaveProperty("ambientReviewerAgents");
+  });
+
+  it("loads external review trigger commands separately from comment filters", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[external_review]",
+        'commands = ["@coderabbitai review"]',
+        "",
+        "[external_comments]",
+        'agents = ["coderabbitai"]',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.externalReviewCommands).toEqual(["@coderabbitai review"]);
+    expect(config.externalCommentAgents).toEqual(["coderabbitai"]);
   });
 
   it("loads reviewer GitHub logins for trusted LGTM authors", () => {

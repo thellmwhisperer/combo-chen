@@ -40,6 +40,7 @@ export interface ClosureDeps {
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => GhResult;
   noMistakes: (args: string[], cwd: string) => CommandResult;
   sleep: (ms: number) => Promise<void>;

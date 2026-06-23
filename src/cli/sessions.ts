@@ -1,28 +1,29 @@
 /**
- * @overview tmux session helpers. ~180 lines, 12 exports, attach and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~210 lines, 13 exports, attach/recovery and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveAttachCombo    <- resolves explicit or sole running combo.
- *   2. Then ensureJournalPane         <- creates dedicated journal window, not a pane
- *   3. Use kill helpers on demand     <- stop/reviewer cleanup paths.
+ *   2. Then ensureComboSession        <- recreates a visible room from persisted state.
+ *   3. Then ensureJournalPane         <- creates dedicated journal window, not a pane.
+ *   4. Use kill helpers on demand     <- stop/reviewer cleanup paths.
  *
  *   MAIN FLOW
  *   ---------
- *   resolveAttachCombo -> running combo; ensureJournalPane -> ensure journal role window
+ *   resume/gate recovery -> ensureComboSession -> ensure journal role window
  *
  *   PUBLIC API
  *   ----------
  *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, SessionDeps
  *   KillComboSessionResult
- *   killComboSession, killWindowIfPresent, ensureWindowPresent, resolveAttachCombo, ensureJournalPane (creates a journal window, not a pane)
+ *   killComboSession, killWindowIfPresent, ensureWindowPresent, ensureComboSession, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
  *   windowSet, tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, resolveAttachCombo, ensureJournalPane
- * @deps ../core/combo, ../core/state, ../infra/tmux
+ * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ * @deps ../core/{combo,state}, ../infra/tmux
  */
 import { shellQuote } from "../core/combo.js";
 import { type ComboRecord, listCombos } from "../core/state.js";
@@ -31,6 +32,7 @@ import {
   killSessionArgs,
   killWindowArgs,
   listWindowsArgs,
+  newSessionArgs,
   newWindowArgs,
   type TmuxResult,
 } from "../infra/tmux.js";
@@ -118,6 +120,26 @@ export function ensureWindowPresent(
   if (created.status !== 0) {
     throw new Error(
       `tmux failed to start "${windowName}" in "${combo.tmuxSession}": ` +
+        `${created.stderr.trim() || "unknown error"}`,
+    );
+  }
+  return true;
+}
+
+export function ensureComboSession(input: {
+  deps: SessionDeps;
+  combo: ComboRecord;
+  home: string;
+  cli: string;
+}): boolean {
+  const { deps, combo, home, cli } = input;
+  if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0) return false;
+
+  const command = `COMBO_CHEN_HOME=${shellQuote(home)} ${cli} events --follow -n ${shellQuote(combo.id)}`;
+  const created = deps.tmux(newSessionArgs(combo.tmuxSession, JOURNAL_WINDOW, command));
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to recreate combo session "${combo.tmuxSession}": ` +
         `${created.stderr.trim() || "unknown error"}`,
     );
   }

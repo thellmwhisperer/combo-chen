@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for merged-combo lifecycle cleanup. ~105 lines, teardown order and idempotence.
+ * @overview Unit tests for merged-combo lifecycle cleanup. ~110 lines, teardown order and idempotence.
  *
  *   READING GUIDE
  *   -------------
@@ -8,7 +8,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   fake combo -> teardownMergedCombo -> ordered or already-clean git calls
+ *   fake combo -> teardownMergedCombo -> merge verification -> treehouse return -> branch delete
  *
  *   PUBLIC API
  *   ----------
@@ -55,6 +55,10 @@ describe("teardownMergedCombo", () => {
           calls.push([cwd, ...args]);
           return { status: 0, stdout: "", stderr: "" };
         },
+        treehouse: (args, cwd) => {
+          calls.push([cwd, "treehouse", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
         sleep: async (ms) => {
           calls.push(["sleep", String(ms)]);
         },
@@ -69,7 +73,7 @@ describe("teardownMergedCombo", () => {
     expect(calls).toEqual([
       [record.repoDir, "fetch", "origin", "main"],
       [record.repoDir, "merge-base", "--is-ancestor", "merge123", "origin/main"],
-      [record.repoDir, "worktree", "remove", "--force", record.worktree],
+      [record.repoDir, "treehouse", "return", "--force", record.worktree],
       [record.repoDir, "branch", "-D", record.branch],
     ]);
   });
@@ -82,13 +86,14 @@ describe("teardownMergedCombo", () => {
       deps: {
         git: (args, cwd) => {
           calls.push([cwd, ...args]);
-          if (args[0] === "worktree") {
-            return { status: 128, stdout: "", stderr: `fatal: '${record.worktree}' is not a working tree` };
-          }
           if (args[0] === "branch") {
             return { status: 1, stdout: "", stderr: `error: branch '${record.branch}' not found.` };
           }
           return { status: 0, stdout: "", stderr: "" };
+        },
+        treehouse: (args, cwd) => {
+          calls.push([cwd, "treehouse", ...args]);
+          return { status: 1, stdout: "", stderr: `fatal: '${record.worktree}' is not a working tree` };
         },
         sleep: async (ms) => {
           calls.push(["sleep", String(ms)]);
@@ -104,7 +109,7 @@ describe("teardownMergedCombo", () => {
     expect(calls).toEqual([
       [record.repoDir, "fetch", "origin", "main"],
       [record.repoDir, "merge-base", "--is-ancestor", "merge123", "origin/main"],
-      [record.repoDir, "worktree", "remove", "--force", record.worktree],
+      [record.repoDir, "treehouse", "return", "--force", record.worktree],
       [record.repoDir, "branch", "-D", record.branch],
     ]);
   });

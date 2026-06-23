@@ -25,7 +25,7 @@
  *   INTERNALS
  *   ---------
  *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
- *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
+ *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -122,7 +122,11 @@ export function startGatekeeperWindow(
   options: GatekeeperAttachOptions,
 ): void {
   const created = deps.tmux(
-    newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, buildGatekeeperAttachCommand(combo, options)),
+    newWindowArgs(
+      combo.tmuxSession,
+      GATEKEEPER_WINDOW,
+      buildPersistentGatekeeperWindowCommand(buildGatekeeperAttachCommand(combo, options)),
+    ),
   );
   if (created.status !== 0) {
     throw new Error(
@@ -373,6 +377,21 @@ function indentShellLines(lines: string[], spaces: number): string[] {
   return lines.map((line) => `${prefix}${line}`);
 }
 
+function buildPersistentGatekeeperWindowCommand(command: string): string {
+  return shellScript(
+    "(",
+    indentShellLines(command.split(/\r?\n/), 2),
+    ")",
+    "combo_chen_gatekeeper_window_code=$?",
+    'printf "\\n[combo-chen] gatekeeper exited with code %s\\n" "$combo_chen_gatekeeper_window_code"',
+    'printf "[combo-chen] window retained for inspection until closure; press Ctrl-C to close manually.\\n"',
+    'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" != "0" ]; then',
+    "  while :; do sleep 3600; done",
+    "fi",
+    'exit "$combo_chen_gatekeeper_window_code"',
+  );
+}
+
 function gateFailureReasonScript(): string[] {
   return [
     "gatekeeper_failure_reason=gate_failed",
@@ -423,12 +442,14 @@ function buildInitialGateRetryScript(input: {
 }): string {
   const shortSha = input.headSha.slice(0, 12);
   const gatekeeperLog = join(input.runDir, `gatekeeper-initial-${shortSha}.log`);
+  const statusFile = join(input.runDir, `gatekeeper-initial-${shortSha}.status`);
   const autocloseLog = join(input.runDir, `autoclose-initial-${shortSha}.log`);
   return shellScript(
     "#!/bin/sh",
     "set -u",
     `printf '%s\\n' ${shellQuote(`initial gate retry for ${input.combo.id} at ${input.headSha}`)}`,
     `gatekeeper_log=${shellQuote(gatekeeperLog)}`,
+    `status_file=${shellQuote(statusFile)}`,
     `autoclose_log=${shellQuote(autocloseLog)}`,
     `cd ${shellQuote(input.combo.worktree)}`,
     `${input.emit} gate_started`,
@@ -436,17 +457,22 @@ function buildInitialGateRetryScript(input: {
     "gate_lease_code=0",
     gateLeaseScriptLines({ acquire: input.gateLeaseAcquire, release: input.gateLeaseRelease }),
     `${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"`,
-    "gatekeeper_code=0",
+    `rm -f "$status_file"`,
     "(",
-    indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 2),
+    "  gatekeeper_code=0",
+    "  (",
+    indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 4),
     indentShellLines(
       buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand, {
-        waitForConfigBeforeRun: true,
         expectedBranch: input.combo.branch,
       }),
-      2,
+      4,
     ),
-    `) > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?`,
+    "  ) || gatekeeper_code=$?",
+    `  printf '%s\\n' "$gatekeeper_code" > "$status_file"`,
+    `) 2>&1 | tee "$gatekeeper_log"`,
+    `gatekeeper_code=$(cat "$status_file" 2>/dev/null || printf '1')`,
+    `rm -f "$status_file"`,
     gateAlreadyRunningGuardScript(input),
     "if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' \"$gatekeeper_log\"; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
@@ -581,7 +607,6 @@ export function buildPostAddressGateScript(input: {
     indentShellLines(buildNoMistakesMirrorPublishScript(input.combo, input.gatekeeperMirrorIntent), 4),
     indentShellLines(
       buildNoMistakesGatekeeperRunScript(input.gatekeeperCommand, {
-        waitForConfigBeforeRun: true,
         expectedBranch: input.combo.branch,
       }),
       4,
@@ -668,7 +693,7 @@ function startPostAddressGate(input: {
   );
   chmodSync(scriptPath, 0o755);
 
-  const command = `sh ${shellQuote(scriptPath)}`;
+  const command = buildPersistentGatekeeperWindowCommand(`sh ${shellQuote(scriptPath)}`);
 
   killWindowIfPresent(input.deps, input.combo, GATE_RUNNER_WINDOW);
   const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATE_RUNNER_WINDOW, command));

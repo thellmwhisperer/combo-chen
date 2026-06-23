@@ -70,6 +70,7 @@ describe("event schema", () => {
         "pr_autoclose_failed",
         "needs_human",
         "director_prompted",
+        "external_review_requested",
         "review_comment",
         "lgtm",
         "lgtm_stale",

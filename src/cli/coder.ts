@@ -41,7 +41,7 @@ import {
   readCoderThreadArtifact,
   routeReviewComments,
 } from "../roles/coder-responding.js";
-import { syncNoMistakesMirror } from "./gate.js";
+import { latestPublishedGateSha, syncNoMistakesMirror } from "./gate.js";
 
 // -- 1/3 HELPER · Dependency contracts --
 export interface ActivateCoderDeps {
@@ -116,6 +116,14 @@ function ensureCoderRespondingWindow(input: {
   }
 }
 
+function reviewCommentHeadSha(
+  deps: NudgeReviewCommentsDeps,
+  combo: { id: string; worktree: string },
+  events: ReturnType<typeof readEvents>,
+): string {
+  return latestPublishedGateSha(events) ?? worktreeHeadSha(deps, combo);
+}
+
 // -- 2/3 CORE · activateCoder <- START HERE --
 export function activateCoder(input: {
   deps: ActivateCoderDeps;
@@ -183,7 +191,7 @@ export function nudgeReviewComments(input: {
         resumeCommand: config.coderResumeCommand,
       });
     }
-    const headSha = hasUnroutedComments ? worktreeHeadSha(deps, combo) : undefined;
+    const headSha = hasUnroutedComments ? reviewCommentHeadSha(deps, combo, readEvents(runDir)) : undefined;
     const routed = routeReviewComments({
       runDir,
       tmuxSession: combo.tmuxSession,
