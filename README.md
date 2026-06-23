@@ -347,6 +347,7 @@ combo-chen overture --issue <issue-url> [--repo <dir>] [--base <ref>]
 combo-chen overture --plan <file> [--repo <dir>] [--base <ref>]
 combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen run --plan <file> [--repo <dir>] [--base <ref>] [--prompt <text>]
+combo-chen update [--beta] [-y|--yes]
 combo-chen status [--deep] [--all]
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
