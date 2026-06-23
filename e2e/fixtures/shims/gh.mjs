@@ -88,6 +88,18 @@ if (args[0] === "label" && args[1] === "create") {
 
 if (args[0] === "api") {
   const endpoint = args[args.length - 1] || "";
+  if (process.env.E2E_REVIEWER_CODE1 === "1" && endpoint === "repos/o/r/pulls/1/reviews") {
+    const head = process.env.E2E_HEAD_SHA || process.env.E2E_MERGE_SHA || "head";
+    process.stdout.write(`${JSON.stringify([{
+      html_url: "https://github.com/o/r/pull/1#pullrequestreview-reviewer-code-1",
+      user: { login: "e2e-reviewer" },
+      state: "COMMENTED",
+      body: ["combo-chen-reviewer-verdict:", `head: ${head}`, "code: 1"].join("\n"),
+      commit_id: head,
+      submitted_at: "2026-06-23T23:19:47Z",
+    }])}\n`);
+    process.exit(0);
+  }
   if (process.env.E2E_CODERABBIT_REVIEW === "1" && endpoint === "repos/o/r/pulls/1/comments") {
     process.stdout.write(`${JSON.stringify([{
       html_url: "https://github.com/o/r/pull/1#discussion_r1",
