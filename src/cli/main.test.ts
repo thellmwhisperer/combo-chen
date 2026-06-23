@@ -311,6 +311,88 @@ describe("command surface", () => {
     ]);
   });
 
+  it("rejects update without --yes with a confirmation message", async () => {
+    const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
+    const downloads: unknown[] = [];
+    const dirs: string[] = [];
+    const writes: unknown[] = [];
+    const extracts: unknown[] = [];
+    const removals: string[] = [];
+    const replacements: unknown[] = [];
+    const { deps, out } = fakeDeps({
+      gh: (args) => {
+        if (args[0] === "api" && args[1] === "repos/thellmwhisperer/combo-chen/releases?per_page=100") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                tag_name: "v1.2.1",
+                prerelease: false,
+                draft: false,
+                assets: [
+                  {
+                    name: assetName,
+                    browser_download_url: `https://downloads.example/${assetName}`,
+                  },
+                  {
+                    name: "checksums.txt",
+                    browser_download_url: "https://downloads.example/checksums.txt",
+                  },
+                ],
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+      },
+      update: {
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-23T09:00:00.000Z" },
+        installTargetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
+        platform: "linux",
+        arch: "x64",
+        makeStagingDir: () => {
+          throw new Error("staging should not start without confirmation");
+        },
+        async download(request) {
+          downloads.push(request);
+          throw new Error("download should not run without confirmation");
+        },
+        async mkdir(path) {
+          dirs.push(path);
+          throw new Error("mkdir should not run without confirmation");
+        },
+        async writeFile(path, data) {
+          writes.push({ path, data });
+          throw new Error("writeFile should not run without confirmation");
+        },
+        async remove(path) {
+          removals.push(path);
+        },
+        async extractArchive(input) {
+          extracts.push(input);
+          throw new Error("extractArchive should not run without confirmation");
+        },
+        replaceInstallTarget(input) {
+          replacements.push(input);
+          throw new Error("replacement should not run without confirmation");
+        },
+      },
+    });
+
+    await expect(exec(deps, ["update"])).rejects.toThrow(
+      "confirmation required; rerun with -y/--yes to install v1.2.1",
+    );
+
+    expect(downloads).toEqual([]);
+    expect(dirs).toEqual([]);
+    expect(writes).toEqual([]);
+    expect(extracts).toEqual([]);
+    expect(removals).toEqual([]);
+    expect(replacements).toEqual([]);
+    expect(out).toEqual(["update available: combo-chen 1.2.0 -> 1.2.1 (stable)"]);
+  });
+
   it("wires update --beta through prerelease resolution, staging, and replacement", async () => {
     const archiveBytes = Buffer.from("beta release archive bytes");
     const archiveSha = createHash("sha256").update(archiveBytes).digest("hex");
