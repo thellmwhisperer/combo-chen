@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~472 lines, 9 exports, 1 critical function.
+ *   ~480 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -227,19 +227,49 @@ export function buildNoMistakesGatekeeperRunScript(
 ): string[] {
   return [
     "no_mistakes_config_copy_pid=",
+    "no_mistakes_config_copy_status=",
+    "no_mistakes_config_copy_done=.combo-chen-no-mistakes-config-copy.$$",
+    "gatekeeper_status_file=.combo-chen-gatekeeper-status.$$",
+    "rm -f \"$no_mistakes_config_copy_done\" \"$gatekeeper_status_file\"",
     "if [ -f .no-mistakes.yaml ]; then",
     "  (",
     ...noMistakesDaemonConfigCopyScript(options.expectedBranch).map((line) => `    ${line}`),
+    "    printf '%s\\n' ok > \"$no_mistakes_config_copy_done\"",
     "  ) &",
     "  no_mistakes_config_copy_pid=$!",
     "fi",
-    "# no-mistakes creates the active run worktree from inside axi run; keep",
-    "# the config handoff watcher alive while the gate command starts it.",
-    gatekeeperCommand,
-    "gatekeeper_inner_code=$?",
+    "# no-mistakes creates the active run worktree from inside axi run, so run",
+    "# the gate in parallel with the watcher but do not accept a successful gate",
+    "# until the watcher has copied the repo config into that worktree.",
+    "(",
+    `  ${gatekeeperCommand}`,
+    "  printf '%s\\n' \"$?\" > \"$gatekeeper_status_file\"",
+    ") &",
+    "gatekeeper_command_pid=$!",
+    "gatekeeper_finished_before_config=0",
     "if [ -n \"$no_mistakes_config_copy_pid\" ]; then",
-    "  wait \"$no_mistakes_config_copy_pid\" || gatekeeper_inner_code=1",
+    "  while [ ! -f \"$no_mistakes_config_copy_done\" ]; do",
+    "    if [ -f \"$gatekeeper_status_file\" ]; then",
+    "      gatekeeper_finished_before_config=1",
+    "      break",
+    "    fi",
+    "    if ! kill -0 \"$no_mistakes_config_copy_pid\" 2>/dev/null; then",
+    "      break",
+    "    fi",
+    "    sleep 1",
+    "  done",
+    "  wait \"$no_mistakes_config_copy_pid\" || no_mistakes_config_copy_status=1",
     "fi",
+    "wait \"$gatekeeper_command_pid\" || true",
+    "gatekeeper_inner_code=$(cat \"$gatekeeper_status_file\" 2>/dev/null || printf '1')",
+    "if [ \"$gatekeeper_finished_before_config\" = \"1\" ] && [ \"$gatekeeper_inner_code\" = \"0\" ]; then",
+    "  printf '%s\\n' \"no-mistakes config copy failed: gatekeeper finished before config copy\" >&2",
+    "  gatekeeper_inner_code=1",
+    "fi",
+    "if [ -n \"$no_mistakes_config_copy_status\" ]; then",
+    "  gatekeeper_inner_code=1",
+    "fi",
+    "rm -f \"$no_mistakes_config_copy_done\" \"$gatekeeper_status_file\"",
     "exit \"$gatekeeper_inner_code\"",
   ];
 }

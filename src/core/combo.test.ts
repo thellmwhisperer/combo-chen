@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1582 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1625 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_GATEKEEPER_COMMAND } from "../infra/config.js";
 import { buildGatekeeperInvocation } from "../roles/gatekeeper.js";
 import type { ComboEvent } from "./events.js";
-import { buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
+import { buildNoMistakesGatekeeperRunScript, buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
 
 function ev(event: ComboEvent["event"], extra: Record<string, unknown> = {}): ComboEvent {
   return { t: new Date().toISOString(), event, ...extra };
@@ -1218,6 +1218,64 @@ fi
     const gatekeeperOutput = readFileSync(gatekeeperLog, "utf8");
     expect(gatekeeperOutput).toContain("no-mistakes axi run");
     expect(gatekeeperOutput).toContain("copied .no-mistakes.yaml");
+  });
+
+  it("rejects a successful gatekeeper result that finishes before the config copy", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    const dataDir = join(dir, "no-mistakes-data");
+    const gatePath = join(dataDir, "repos", "dd1c02626404.git");
+    const daemonWorktree = join(dataDir, "worktrees", "dd1c02626404", "01CONFIGRACE");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(daemonWorktree, { recursive: true });
+    writeFileSync(join(worktree, ".no-mistakes.yaml"), "commands:\n  test: pnpm test\n");
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+if [ "$1" = "status" ]; then
+  sleep 2
+  printf 'daemon: running\\n'
+  printf 'gate: %s\\n' "$NO_MISTAKES_GATE"
+  exit 0
+fi
+if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  printf 'id: 01CONFIGRACE\\n'
+  printf 'branch: combo/issue-7\\n'
+  printf 'status: running\\n'
+  exit 0
+fi
+exit 0
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const gatekeeperPath = join(dir, "gatekeeper.sh");
+    writeFileSync(
+      gatekeeperPath,
+      ["#!/bin/sh", "set -u", ...buildNoMistakesGatekeeperRunScript("true", { expectedBranch: "combo/issue-7" })].join(
+        "\n",
+      ),
+    );
+    chmodSync(gatekeeperPath, 0o755);
+
+    const result = spawnSync("sh", [gatekeeperPath], {
+      cwd: worktree,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
+        NO_MISTAKES_GATE: gatePath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("no-mistakes config copy failed: gatekeeper finished before config copy");
+    expect(readFileSync(join(daemonWorktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
   });
 
   it("exits the gate subshell when the mirror push fails, preventing the gatekeeper command from running", () => {

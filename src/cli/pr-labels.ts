@@ -1,6 +1,6 @@
 /**
  * @overview Combo PR label projection helpers.
- *   ~510 lines, deterministic desired-label, diff, and GitHub mutation helpers.
+ *   ~535 lines, deterministic desired-label, diff, and GitHub mutation helpers.
  *
  *   READING GUIDE
  *   -------------
@@ -262,18 +262,22 @@ function editPrLabels(
   labels: ComboPrLabel[],
 ): void {
   if (labels.length === 0) return;
-  const result = runPrLabelEdit(gh, prUrl, flag, labels);
-  if (result.status === 0) return;
+  const provisioned = new Set<ComboPrLabel>();
+  for (let attempt = 0; attempt <= labels.length; attempt += 1) {
+    const result = runPrLabelEdit(gh, prUrl, flag, labels);
+    if (result.status === 0) return;
 
-  const detail = ghFailureDetail(result);
-  if (flag === "--add-label" && shouldProvisionMissingComboLabels(detail, labels)) {
-    provisionComboPrLabels(gh, prUrl, labels);
-    const retry = runPrLabelEdit(gh, prUrl, flag, labels);
-    if (retry.status === 0) return;
-    throw new Error(`PR label update failed for ${prUrl}: ${ghFailureDetail(retry)}`);
+    const detail = ghFailureDetail(result);
+    const missing = flag === "--add-label" ? missingComboLabelsFromError(detail, labels) : [];
+    const unprovisioned = missing.filter((label) => !provisioned.has(label));
+    if (unprovisioned.length === 0) {
+      throw new Error(`PR label update failed for ${prUrl}: ${detail}`);
+    }
+    provisionComboPrLabels(gh, prUrl, unprovisioned);
+    for (const label of unprovisioned) provisioned.add(label);
   }
 
-  throw new Error(`PR label update failed for ${prUrl}: ${detail}`);
+  throw new Error(`PR label update failed for ${prUrl}: label provisioning retry limit reached`);
 }
 
 function runPrLabelEdit(
@@ -285,12 +289,14 @@ function runPrLabelEdit(
   return gh(["pr", "edit", prUrl, flag, labels.join(",")]);
 }
 
-function shouldProvisionMissingComboLabels(detail: string, labels: ComboPrLabel[]): boolean {
-  return /not found/i.test(detail) && labels.some((label) => detail.includes(label));
+function missingComboLabelsFromError(detail: string, labels: ComboPrLabel[]): ComboPrLabel[] {
+  if (!/not found/i.test(detail)) return [];
+  return labels.filter((label) => detail.includes(label));
 }
 
 function provisionComboPrLabels(gh: GhRunner, prUrl: string, labels: ComboPrLabel[]): void {
   const repoArgs = prUrlRepoArgs(prUrl);
+  const failures: string[] = [];
   for (const label of labels) {
     const metadata = COMBO_PR_LABEL_METADATA[label];
     const result = gh([
@@ -305,8 +311,11 @@ function provisionComboPrLabels(gh: GhRunner, prUrl: string, labels: ComboPrLabe
       ...repoArgs,
     ]);
     if (result.status !== 0) {
-      throw new Error(`PR label provision failed for ${prUrl}: ${label}: ${ghFailureDetail(result)}`);
+      failures.push(`${label}: ${ghFailureDetail(result)}`);
     }
+  }
+  if (failures.length > 0) {
+    throw new Error(`PR label provision failed for ${prUrl}: ${failures.join("; ")}`);
   }
 }
 
