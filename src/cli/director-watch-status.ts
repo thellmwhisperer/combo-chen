@@ -153,7 +153,7 @@ function readinessFacts(input: DirectorWatchStatusLineInput): ReadinessFacts {
   return {
     pr: prReadyState(prState),
     gate: headSha === undefined ? "unknown" : gateReady(input.events, headSha) ? "yes" : "no",
-    reviewer: headSha === undefined ? "unknown" : livePinnedLgtmSha(input.events) === headSha ? "yes" : "no",
+    reviewer: headSha === undefined ? "unknown" : shaMatchesHead(livePinnedLgtmSha(input.events), headSha) ? "yes" : "no",
     checks: rollup === undefined ? "unknown" : requiredChecksSucceeded(rollup, requiredCheckNames) ? "yes" : "no",
     ci: rollup === undefined
       ? "unknown"
