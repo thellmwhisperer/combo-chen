@@ -30,12 +30,13 @@
  *   summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine
  *
  * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
- * @deps ../core/events, ../core/gate-lease, ../core/state, ./checks, ./github
+ * @deps ../core/events, ../core/gate-lease, ../core/state, ./checks, ./gate, ./github
  */
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import type { GateLeaseRecord } from "../core/gate-lease.js";
 import type { ComboRecord } from "../core/state.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
+import { shaMatchesHead } from "./gate.js";
 import { latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
 
 export const PR_READY_FOR_REVIEWER = "PR ready for reviewer";
@@ -190,13 +191,6 @@ export function deepNoMistakesStatus(combo: Pick<ComboRecord, "branch" | "worktr
 // -/ 3/4
 
 // -- 4/4 CORE · deepComboStatus <- START HERE --
-function shaMatchesHead(candidate: string | undefined, headSha: string): boolean {
-  if (candidate === undefined) return false;
-  const pin = candidate.trim().toLowerCase();
-  const head = headSha.trim().toLowerCase();
-  return pin.length >= 7 && (pin === head || head.startsWith(pin));
-}
-
 function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: DeepGithubStatusOptions = {}): string | undefined {
   if (prUrl === undefined) return undefined;
 

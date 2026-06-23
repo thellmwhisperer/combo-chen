@@ -19,14 +19,14 @@
  *   GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE
  *   buildGatekeeperAttachCommand, startGatekeeperWindow
  *   ensureGatekeeperWindow, remoteShaForRef, latestGateStatus
- *   latestPublishedGateSha, propagateNoMistakesConfig
+ *   latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig
  *   startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  *
  *   INTERNALS
  *   ---------
  *   requireComboGit, worktreeHeadSha, buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
- * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
@@ -204,6 +204,13 @@ export function latestPublishedGateSha(events: ComboEvent[]): string | undefined
     }
   }
   return undefined;
+}
+
+export function shaMatchesHead(candidate: string | undefined, headSha: string | undefined): boolean {
+  if (candidate === undefined || headSha === undefined) return false;
+  const pin = candidate.trim().toLowerCase();
+  const head = headSha.trim().toLowerCase();
+  return pin.length >= 7 && (pin === head || head.startsWith(pin));
 }
 
 export function propagateNoMistakesConfig(repoDir: string, worktree: string): boolean {

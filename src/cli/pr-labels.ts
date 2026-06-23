@@ -24,7 +24,7 @@
  *   orderedLabels, current work label, stale/conflict/current-head predicates, GH label parsing
  *
  * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
- * @deps ../core/events, ./checks, ./github, ./reviewer
+ * @deps ../core/events, ./checks, ./gate, ./github, ./reviewer
  */
 import { appendEvent, type ComboEvent } from "../core/events.js";
 import {
@@ -33,6 +33,7 @@ import {
   checkSignalIsSuccess,
   requiredChecksSucceeded,
 } from "./checks.js";
+import { latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import type { GhRunner } from "./github.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -350,23 +351,7 @@ function latestReadyForMergeSha(events: ComboEvent[]): string | undefined {
   return undefined;
 }
 
-function latestPublishedGateSha(events: ComboEvent[]): string | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]!;
-    if (event.event === "gate_validated") return stringField(event, "sha");
-    if (event.event === "gate_status" && event["state"] === "idle") {
-      return stringField(event, "head_sha");
-    }
-  }
-  return undefined;
-}
 
-function shaMatchesHead(candidate: string | undefined, headSha: string): boolean {
-  if (candidate === undefined) return false;
-  const pin = candidate.trim().toLowerCase();
-  const head = headSha.trim().toLowerCase();
-  return pin.length >= 7 && (pin === head || head.startsWith(pin));
-}
 
 function stringField(event: ComboEvent, field: string): string | undefined {
   const value = event[field];

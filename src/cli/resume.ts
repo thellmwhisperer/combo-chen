@@ -35,6 +35,7 @@ import {
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
   latestGateStatus,
+  shaMatchesHead,
   startInitialGateRetry,
 } from "./gate.js";
 import type { GhRunner } from "./github.js";
@@ -112,13 +113,6 @@ function currentWorktreeHeadSha(deps: Pick<ResumeDeps, "git">, combo: ComboRecor
   if (result.status !== 0) return undefined;
   const headSha = result.stdout.trim();
   return headSha === "" ? undefined : headSha;
-}
-
-function shaMatchesHead(candidate: string | undefined, headSha: string | undefined): boolean {
-  if (candidate === undefined || headSha === undefined) return false;
-  const pin = candidate.trim().toLowerCase();
-  const head = headSha.trim().toLowerCase();
-  return pin.length >= 7 && (pin === head || head.startsWith(pin));
 }
 
 function branchPrUrl(gh: GhRunner, branch: string): string | undefined {
