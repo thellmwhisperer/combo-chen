@@ -115,23 +115,24 @@ export async function tickDirector(input: {
     if (workerInspection.escalated) {
       const statusEvents = readEvents(runDir);
       const prUrl = latestPrUrl(statusEvents);
-      if (prUrl !== undefined) {
-        syncDirectorPrLabels({ deps, combo, runDir, events: statusEvents, prUrl, config });
+      if (prUrl === undefined) {
+        emitTickComplete({
+          deps,
+          comboId,
+          cli,
+          runDir,
+          pollSeconds: config.limits.babysitPollSeconds,
+          readyRequiredChecks: config.readyRequiredChecks,
+          ambientCheckNames: config.externalCommentAgents,
+          events: statusEvents,
+          workerSummaries,
+        });
+        return;
       }
-      emitTickComplete({
-        deps,
-        comboId,
-        cli,
-        runDir,
-        pollSeconds: config.limits.babysitPollSeconds,
-        readyRequiredChecks: config.readyRequiredChecks,
-        ambientCheckNames: config.externalCommentAgents,
-        events: statusEvents,
-        workerSummaries,
-      });
-      return;
+      events = statusEvents;
+    } else {
+      events = readEvents(runDir);
     }
-    events = readEvents(runDir);
   }
 
   const openedPrUrl = latestPrUrl(events);

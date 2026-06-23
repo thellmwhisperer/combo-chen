@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~820 lines, log-derived regressions.
+ *   and process shims for external services. ~890 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -72,6 +72,7 @@ interface HarnessOptions {
   quoteNoMistakesRunId?: boolean;
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
+  workerStallTicks?: number;
 }
 
 interface ComboRecordJson {
@@ -507,6 +508,73 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("routes a reviewer code 1 verdict even when retained worker panes are stalled", () => {
+    const harness = prepareHarness({ workerStallTicks: 1 });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+      for (const window of ["reviewer", "gatekeeper", "coder-responding"]) {
+        run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", window, "true"], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          COMBO_CHEN_WORKER_STALL_TICKS: "1",
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_REVIEWER_CODE1: "1",
+        },
+      });
+      expect(tick.stdout).toContain("director: worker coder: unchanged_ticks=1");
+      expect(tick.stdout).toContain("nudged https://github.com/o/r/pull/1#pullrequestreview-reviewer-code-1");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
+          expect.objectContaining({
+            event: "review_comment",
+            author: "e2e-reviewer",
+            kind: "review",
+            url: "https://github.com/o/r/pull/1#pullrequestreview-reviewer-code-1",
+            head_sha: headSha,
+          }),
+        ]),
+      );
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder-responding`, "C-m"] }),
+        ]),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("starts a post-address gate after coder commits fixes for routed external comments", () => {
     const harness = prepareHarness({ externalCommentAgents: ["coderabbitai"] });
     let passed = false;
@@ -779,6 +847,14 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
       "teardown_git_backoff_seconds = 1",
       "watch_failure_limit = 1",
       "watch_backoff_max_seconds = 1",
+      "",
+      ...(options.workerStallTicks === undefined
+        ? []
+        : [
+            "[monitor]",
+            `worker_stall_ticks = ${options.workerStallTicks}`,
+            "",
+          ]),
       "",
       "[run]",
       'source_branch = "main"',

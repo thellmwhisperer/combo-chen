@@ -476,6 +476,65 @@ describe("tickDirector", () => {
     expect(out).toContainEqual(expect.stringContaining("worker gatekeeper unchanged pane for 2 ticks"));
   });
 
+  it("keeps polling post-PR reviewer verdicts when retained worker panes are stalled", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_validated", { sha: headSha });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      env: {
+        COMBO_CHEN_REVIEWER_LOGINS: "external-reviewer",
+        COMBO_CHEN_WORKER_STALL_TICKS: "1",
+      },
+      externalReviewComments: [
+        {
+          body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 1"].join("\n"),
+          commitSha: headSha,
+          submittedAt: "2026-06-15T00:01:00Z",
+        },
+      ],
+    });
+    deps.tmux = (args) => {
+      calls.push(["tmux", ...args]);
+      if (args[0] === "list-windows") {
+        return { status: 0, stdout: "coder\nreviewer\ngatekeeper\ncoder-responding\n", stderr: "" };
+      }
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "idle pane\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
+    );
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "review_comment",
+        author: "external-reviewer",
+        kind: "review",
+        url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+        head_sha: headSha,
+      }),
+    );
+    expect(calls).toContainEqual([
+      "tmux",
+      "send-keys",
+      "-t",
+      "combo-chen-o-r-7:coder-responding",
+      "C-m",
+    ]);
+    expect(out).toContain("nudged https://github.com/o/r/pull/7#pullrequestreview-1");
+    expect(out).toContain("director: tick complete for o-r-7");
+  });
+
   it("does not inspect worker panes before a pre-PR worker phase starts", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
