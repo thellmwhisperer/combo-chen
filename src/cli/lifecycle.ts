@@ -89,7 +89,10 @@ function normalizedGitFailure(result: { stdout: string; stderr: string }): strin
 
 function isAlreadyRemovedWorktree(result: { stdout: string; stderr: string }): boolean {
   const text = normalizedGitFailure(result);
-  return text.includes("not a working tree") || text.includes("no such file or directory");
+  return text.includes("not a working tree") ||
+    text.includes("no such file or directory") ||
+    text.includes("not managed by treehouse") ||
+    text.includes("is being destroyed");
 }
 
 function isAlreadyDeletedBranch(result: { stdout: string; stderr: string }): boolean {
