@@ -47,6 +47,7 @@ import {
 } from "../core/update-resolver.js";
 import {
   stageResolvedUpdate,
+  type StagedUpdateArtifact,
   type UpdateDownloadRequest,
   type UpdateExtractionInput,
   type UpdateExtractionResult,
@@ -168,26 +169,32 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
   }
 
   const stagingDir = options.deps.makeStagingDir();
-  const staged = await stageResolvedUpdate({
-    plan: {
-      asset: {
-        fileName: asset.fileName,
-        downloadUrl: releaseAsset.browserDownloadUrl,
+  let staged: StagedUpdateArtifact;
+  try {
+    staged = await stageResolvedUpdate({
+      plan: {
+        asset: {
+          fileName: asset.fileName,
+          downloadUrl: releaseAsset.browserDownloadUrl,
+        },
+        checksums: {
+          fileName: RELEASE_CHECKSUMS_FILE,
+          downloadUrl: checksumsAsset.browserDownloadUrl,
+        },
       },
-      checksums: {
-        fileName: RELEASE_CHECKSUMS_FILE,
-        downloadUrl: checksumsAsset.browserDownloadUrl,
+      stagingDir,
+      deps: {
+        download: options.deps.download,
+        mkdir: options.deps.mkdir,
+        writeFile: options.deps.writeFile,
+        remove: options.deps.remove,
+        extractArchive: options.deps.extractArchive,
       },
-    },
-    stagingDir,
-    deps: {
-      download: options.deps.download,
-      mkdir: options.deps.mkdir,
-      writeFile: options.deps.writeFile,
-      remove: options.deps.remove,
-      extractArchive: options.deps.extractArchive,
-    },
-  });
+    });
+  } catch (error) {
+    options.deps.out(`update failed before replacement: ${errorMessage(error)}`);
+    throw error;
+  }
 
   options.deps.out(`verified ${staged.assetFileName} (${staged.actualSha256})`);
   let replacement: InstallReplacementResult;
