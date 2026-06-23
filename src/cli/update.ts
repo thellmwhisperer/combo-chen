@@ -57,6 +57,7 @@ import { releaseMetadata } from "../infra/release-metadata.js";
 
 // -- 1/3 HELPER · command dependency contract --
 const UPDATE_REPOSITORY_API_PATH = "repos/thellmwhisperer/combo-chen/releases?per_page=100";
+const UPDATE_DOWNLOAD_TIMEOUT_MS = 60_000;
 
 export interface UpdateCommandDeps {
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
@@ -94,7 +95,7 @@ export function defaultUpdateCommandDeps(input: {
     installTargetPath: input.argv1 ?? process.argv[1] ?? "",
     makeStagingDir: () => mkdtempSync(join(tmpdir(), "combo-chen-update-")),
     async download(request) {
-      const response = await fetch(request.url);
+      const response = await fetch(request.url, { signal: AbortSignal.timeout(UPDATE_DOWNLOAD_TIMEOUT_MS) });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
       }
@@ -118,6 +119,7 @@ export function defaultUpdateCommandDeps(input: {
 // -- 2/3 CORE · runUpdateCommand <- START HERE --
 export async function runUpdateCommand(options: UpdateCommandOptions): Promise<void> {
   const mode = options.beta ? "beta" : "stable";
+  assertAutoReplaceableInstallTarget(options.deps.installTargetPath);
   const releases = fetchGitHubReleases(options.deps.gh);
   const plan = resolveReadOnlyUpdatePlan({
     current: options.deps.current,
@@ -159,8 +161,6 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
   if (checksumsAsset?.browserDownloadUrl === undefined) {
     throw new Error(`release ${plan.candidate.tagName} is missing ${RELEASE_CHECKSUMS_FILE}`);
   }
-
-  assertAutoReplaceableInstallTarget(options.deps.installTargetPath);
 
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
@@ -260,10 +260,7 @@ function defaultExtractArchive(input: UpdateExtractionInput): UpdateExtractionRe
     throw new Error(`tar list failed: ${listed.stderr.trim() || "unknown error"}`);
   }
   const archiveFiles = listed.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
-  const rootName = archiveFiles[0]?.split("/")[0];
-  if (rootName === undefined || rootName.length === 0) {
-    throw new Error(`release archive is empty: ${input.assetFileName}`);
-  }
+  const rootName = archiveRootName(input.assetFileName, archiveFiles);
 
   const extracted = spawnSync("tar", ["-xzf", input.archivePath, "-C", input.destinationDir], {
     encoding: "utf8",
@@ -278,6 +275,39 @@ function defaultExtractArchive(input: UpdateExtractionInput): UpdateExtractionRe
     executablePath: join(rootDir, "bin", "combo-chen"),
     files: archiveFiles.map((archivePath) => join(input.destinationDir, ...archivePath.split("/"))),
   };
+}
+
+function archiveRootName(assetFileName: string, archiveFiles: readonly string[]): string {
+  if (archiveFiles.length === 0) throw new Error(`release archive is empty: ${assetFileName}`);
+
+  const roots = new Set<string>();
+  for (const archiveFile of archiveFiles) {
+    const normalized = archiveFile.replace(/^\.\//, "");
+    if (normalized.length === 0 || normalized === ".") continue;
+
+    const parts = normalized.split("/");
+    const root = parts[0];
+    if (
+      root === undefined ||
+      root.length === 0 ||
+      root === "." ||
+      root === ".." ||
+      (parts.length === 1 && !normalized.endsWith("/"))
+    ) {
+      throw new Error(`release archive must contain a single top-level directory: ${assetFileName}`);
+    }
+
+    roots.add(root);
+    if (roots.size > 1) {
+      throw new Error(`release archive must contain a single top-level directory: ${assetFileName}`);
+    }
+  }
+
+  const rootName = Array.from(roots)[0];
+  if (rootName === undefined) {
+    throw new Error(`release archive must contain a single top-level directory: ${assetFileName}`);
+  }
+  return rootName;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
