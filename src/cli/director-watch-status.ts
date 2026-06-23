@@ -24,7 +24,7 @@
 import { deriveStatus, type ComboStatus } from "../core/combo.js";
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
-import { latestGateStatus, latestPublishedGateSha } from "./gate.js";
+import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
 // -- 1/3 CORE · buildDirectorWatchStatusLine <- START HERE --
@@ -172,7 +172,7 @@ function gateReady(events: ComboEvent[], headSha: string): boolean {
   ) {
     return false;
   }
-  return shaMatches(latestPublishedGateSha(events), headSha);
+  return shaMatchesHead(latestPublishedGateSha(events), headSha);
 }
 
 function formatReadiness(readiness: ReadinessFacts): string {
@@ -218,13 +218,6 @@ function pendingAction(
 // -- 3/3 HELPER · Deterministic formatting primitives --
 function shortSha(sha: string): string {
   return sha.slice(0, 7);
-}
-
-function shaMatches(candidate: string | undefined, headSha: string): boolean {
-  if (candidate === undefined) return false;
-  const pin = candidate.trim().toLowerCase();
-  const head = headSha.trim().toLowerCase();
-  return pin.length >= 7 && (pin === head || head.startsWith(pin));
 }
 
 function terminalPrState(state: string): boolean {
