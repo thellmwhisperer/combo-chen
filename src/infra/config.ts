@@ -186,7 +186,7 @@ const DEFAULTS = {
     ].join("\n"),
   },
   external_comments: {
-    agents: ["coderabbit"],
+    agents: [],
   },
   ready: {
     required_checks: [],
@@ -278,13 +278,6 @@ function normalizeLimitAliases(table: TomlTable): TomlTable {
     return table;
   }
   return { ...table, coder_timeout_minutes: table["rower_timeout_minutes"] };
-}
-
-function normalizePrLabelAliases(table: TomlTable): TomlTable {
-  if (table["green_check_names"] !== undefined || table["code_rabbit_check_names"] === undefined) {
-    return table;
-  }
-  return { ...table, green_check_names: table["code_rabbit_check_names"] };
 }
 
 function pickNonNegativeInteger(table: TomlTable, key: string, fallback: number, where = "[limits]"): number {
@@ -522,7 +515,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     if (layer.table["pr_labels"] !== undefined) {
       prLabelsTable = {
         ...prLabelsTable,
-        ...normalizePrLabelAliases(asTable(layer.table["pr_labels"], `[pr_labels] in ${layer.source}`)),
+        ...asTable(layer.table["pr_labels"], `[pr_labels] in ${layer.source}`),
       };
     }
     if (layer.table["monitor"] !== undefined) {
@@ -587,12 +580,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "external_comments.agents",
     );
   }
-  const prLabelGreenCheckNames =
-    env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"] ??
-    env["COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES"];
-  if (prLabelGreenCheckNames !== undefined) {
+  if (env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"] !== undefined) {
     prLabelsTable["green_check_names"] = parseEnvStringArray(
-      prLabelGreenCheckNames,
+      env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"],
       "pr_labels.green_check_names",
     );
   }

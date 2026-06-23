@@ -227,7 +227,7 @@ describe("nudgeReviewComments", () => {
               stdout: JSON.stringify([
                 {
                   html_url: "https://github.com/o/r/pull/7#issuecomment-1",
-                  user: { login: "coderabbitai" },
+                  user: { login: "external-reviewer" },
                   body: "Please handle this.",
                 },
               ]),
@@ -244,7 +244,7 @@ describe("nudgeReviewComments", () => {
     const events = readEvents(runDir).filter((event) => event.event === "review_comment");
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      author: "coderabbitai",
+      author: "external-reviewer",
       kind: "pr_comment",
       url: "https://github.com/o/r/pull/7#issuecomment-1",
       head_sha: "abc123",
@@ -319,7 +319,7 @@ describe("nudgeReviewComments", () => {
               stdout: JSON.stringify([
                 {
                   html_url: "https://github.com/o/r/pull/7#issuecomment-1",
-                  user: { login: "coderabbitai" },
+                  user: { login: "external-reviewer" },
                   body: "Please handle this.",
                 },
               ]),
@@ -365,7 +365,7 @@ describe("nudgeReviewComments", () => {
       join(record.repoDir, "combo-chen.toml"),
       [
         "[external_comments]",
-        'agents = ["coderabbit"]',
+        'agents = ["external-reviewer"]',
         "",
         "[coder_responding]",
         'review_nudge_prompt = "Please address {author} {url}"',
@@ -402,7 +402,7 @@ describe("nudgeReviewComments", () => {
               stdout: JSON.stringify([
                 {
                   html_url: "https://github.com/o/r/pull/7#issuecomment-1",
-                  user: { login: "coderabbitai" },
+                  user: { login: "external-reviewer" },
                   body: "Review skipped: rate limited for this account.",
                 },
                 {

@@ -99,12 +99,12 @@ command = "claude {prompt}"
 # approval. Each configured name must be present with exact SUCCESS; all other
 # checks in the PR rollup must also be green.
 # Environment override: COMBO_CHEN_READY_REQUIRED_CHECKS.
-required_checks = ["CodeRabbit"]
+required_checks = ["ExternalReview"]
 
 [pr_labels]
-# Check names that satisfy the combo:coderabbit-green PR label.
+# Check names that satisfy the combo:external-review-green PR label.
 # Environment override: COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES.
-green_check_names = ["CodeRabbit"]
+green_check_names = ["ExternalReview"]
 
 [coder_responding]
 window_name = "coder-responding"
@@ -121,7 +121,7 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 # External comment agents are matched by review/comment author for noise
 # filtering and coder routing. They do not approve PRs or satisfy READY checks.
 # Environment override: COMBO_CHEN_EXTERNAL_COMMENT_AGENTS.
-agents = ["coderabbit"]
+agents = ["external-reviewer"]
 
 [reviewer]
 # Free-form reviewer instructions passed into the generated prompt. Keep this

@@ -49,7 +49,7 @@ function runDir(): string {
 }
 
 const comment: ReviewCommentSignal = {
-  author: "coderabbitai",
+  author: "external-reviewer",
   kind: "review_comment",
   url: "https://github.com/o/r/pull/7#discussion_r1",
 };
@@ -76,7 +76,7 @@ describe("buildReviewNudgePrompt", () => {
 
   it("lets config replace the whole nudge prompt while still rendering placeholders", () => {
     expect(buildReviewNudgePrompt(comment, "Handle {kind} at {url} from {author}")).toBe(
-      "Handle 'review_comment' at 'https://github.com/o/r/pull/7#discussion_r1' from 'coderabbitai'",
+      "Handle 'review_comment' at 'https://github.com/o/r/pull/7#discussion_r1' from 'external-reviewer'",
     );
   });
 });
@@ -360,15 +360,15 @@ describe("signalFromComment", () => {
       signalFromComment(
         {
           body: [
-            "@coderabbitai review",
+            "@external-reviewer review",
             "",
-            "Codex -- Re-running CodeRabbit for current PR #82 head 73f80173 after the no-mistakes documentation commit.",
+            "Codex -- Re-running external-reviewer for current PR #82 head 73f80173 after the no-mistakes documentation commit.",
           ].join("\n"),
           html_url: "https://github.com/o/r/pull/7#issuecomment-1",
           user: { login: "maintainer-bot" },
         },
         "pr_comment",
-        { externalCommentAgents: ["coderabbit"] },
+        { externalCommentAgents: ["external-reviewer"] },
       ),
     ).toBeUndefined();
 

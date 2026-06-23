@@ -46,7 +46,7 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("codex");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
-    expect(config.externalCommentAgents).toEqual(["coderabbit"]);
+    expect(config.externalCommentAgents).toEqual([]);
     expect(config.readyRequiredChecks).toEqual([]);
     expect(config.prLabelGreenCheckNames).toEqual([]);
     expect(config.roles.merge).toBe("human");
@@ -220,7 +220,7 @@ describe("loadConfig", () => {
     const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
 
     expect(config.reviewerAgent).toBe("claude");
-    expect(config.externalCommentAgents).toEqual(["coderabbit", "reviewdog"]);
+    expect(config.externalCommentAgents).toEqual(["reviewdog"]);
   });
 
   it("loads READY required checks separately from external comment filters", () => {
@@ -230,7 +230,7 @@ describe("loadConfig", () => {
       "combo-chen.toml",
       [
         "[ready]",
-        'required_checks = ["CodeRabbit", "ReviewDog"]',
+        'required_checks = ["ExternalReview", "ReviewDog"]',
         "",
         "[external_comments]",
         'agents = ["copilot"]',
@@ -242,7 +242,7 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
 
-    expect(config.readyRequiredChecks).toEqual(["CodeRabbit", "ReviewDog"]);
+    expect(config.readyRequiredChecks).toEqual(["ExternalReview", "ReviewDog"]);
     expect(config.externalCommentAgents).toEqual(["copilot"]);
   });
 
@@ -264,7 +264,7 @@ describe("loadConfig", () => {
     writeToml(
       repoDir,
       "combo-chen.toml",
-      ["[ready]", 'required_checks = ["CodeRabbit"]'].join("\n"),
+      ["[ready]", 'required_checks = ["ExternalReview"]'].join("\n"),
     );
 
     const config = loadConfig({
@@ -281,7 +281,7 @@ describe("loadConfig", () => {
     writeToml(
       repoDir,
       "combo-chen.toml",
-      ["[external_comments]", 'agents = ["coderabbit"]'].join("\n"),
+      ["[external_comments]", 'agents = ["external-reviewer"]'].join("\n"),
     );
 
     const config = loadConfig({
@@ -300,41 +300,19 @@ describe("loadConfig", () => {
       "combo-chen.toml",
       [
         "[pr_labels]",
-        'green_check_names = ["Rabbit Pro"]',
+        'green_check_names = ["ExternalReview Pro"]',
       ].join("\n"),
     );
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
-    expect(repoConfig.prLabelGreenCheckNames).toEqual(["Rabbit Pro"]);
+    expect(repoConfig.prLabelGreenCheckNames).toEqual(["ExternalReview Pro"]);
 
     const envConfig = loadConfig({
       repoDir,
       userConfigPath: join(tempDir(), "missing.toml"),
-      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "Rabbit Enterprise\nRabbit CI" },
+      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "ExternalReview Enterprise\nExternalReview CI" },
     });
-    expect(envConfig.prLabelGreenCheckNames).toEqual(["Rabbit Enterprise", "Rabbit CI"]);
-  });
-
-  it("keeps legacy provider-specific PR label check names as aliases", () => {
-    const repoDir = tempDir();
-    writeToml(
-      repoDir,
-      "combo-chen.toml",
-      [
-        "[pr_labels]",
-        'code_rabbit_check_names = ["Rabbit Legacy"]',
-      ].join("\n"),
-    );
-
-    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
-    expect(repoConfig.prLabelGreenCheckNames).toEqual(["Rabbit Legacy"]);
-
-    const envConfig = loadConfig({
-      repoDir,
-      userConfigPath: join(tempDir(), "missing.toml"),
-      env: { COMBO_CHEN_PR_LABEL_CODE_RABBIT_CHECK_NAMES: "Rabbit Enterprise\nRabbit CI" },
-    });
-    expect(envConfig.prLabelGreenCheckNames).toEqual(["Rabbit Enterprise", "Rabbit CI"]);
+    expect(envConfig.prLabelGreenCheckNames).toEqual(["ExternalReview Enterprise", "ExternalReview CI"]);
   });
 
   it("keeps configured external comment agents out of coder and active reviewer roles", () => {
@@ -640,7 +618,7 @@ describe("loadConfig", () => {
         "[roles]",
         'coder = "hermes:deepseek"',
         'gatekeeper = "no-mistakes"',
-        'reviewer = ["coderabbit", "hermes:gemini"]',
+        'reviewer = ["external-reviewer", "hermes:gemini"]',
         "",
         '[coder."hermes:deepseek"]',
         'command = "hermes -z {prompt}"',
@@ -655,7 +633,7 @@ describe("loadConfig", () => {
         'prompt = "project reviewer instructions 1234"',
         "",
         "[external_comments]",
-        'agents = ["coderabbit"]',
+        'agents = ["external-reviewer"]',
         "",
         '[reviewer."hermes:gemini"]',
         'command = "hermes review {pr_url} {prompt}"',
@@ -671,8 +649,8 @@ describe("loadConfig", () => {
 
     expect(config.roles.coder).toBe("hermes:deepseek");
     expect(config.roles.gatekeeper).toBe("no-mistakes");
-    expect(config.roles.reviewer).toEqual(["coderabbit", "hermes:gemini"]);
-    expect(config.externalCommentAgents).toEqual(["coderabbit"]);
+    expect(config.roles.reviewer).toEqual(["external-reviewer", "hermes:gemini"]);
+    expect(config.externalCommentAgents).toEqual(["external-reviewer"]);
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
     expect(config.roles).not.toHaveProperty("gordon");
@@ -790,7 +768,7 @@ describe("loadConfig", () => {
       "combo-chen.toml",
       [
         "[roles]",
-        'gordon = ["coderabbit", "hermes:gemini"]',
+        'gordon = ["external-reviewer", "hermes:gemini"]',
         "",
         "[gordon]",
         'prompt = "project reviewer instructions 1234"',
@@ -818,7 +796,7 @@ describe("loadConfig", () => {
 
   it("requires at least one configured gordon command", () => {
     const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", '[roles]\ngordon = ["coderabbit"]\n');
+    writeToml(repoDir, "combo-chen.toml", '[roles]\ngordon = ["external-reviewer"]\n');
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/i);
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command/i);

@@ -122,14 +122,14 @@ describe("combo PR label projection", () => {
           headSha: HEAD,
           statusCheckRollup: [
             checkRun("unit", "SUCCESS"),
-            checkRun("CodeRabbit", "SUCCESS"),
+            checkRun("ExternalReview", "SUCCESS"),
             checkRun("ReviewDog", "SUCCESS"),
           ],
         },
         requiredCheckNames: ["ReviewDog"],
-        greenCheckNames: ["CodeRabbit"],
+        greenCheckNames: ["ExternalReview"],
       }),
-    ).toEqual(["combo:lgtm", "combo:coderabbit-green", "combo:ready"]);
+    ).toEqual(["combo:lgtm", "combo:external-review-green", "combo:ready"]);
   });
 
   it("uses explicit configured green check names for the provider green label", () => {
@@ -140,13 +140,13 @@ describe("combo PR label projection", () => {
           state: "OPEN",
           headSha: HEAD,
           statusCheckRollup: [
-            checkRun("CodeRabbit", "FAILURE"),
+            checkRun("ExternalReview", "FAILURE"),
             checkRun("ReviewDog", "SUCCESS"),
           ],
         },
         greenCheckNames: ["ReviewDog"],
       }),
-    ).toEqual(["combo:lgtm", "combo:coderabbit-green"]);
+    ).toEqual(["combo:lgtm", "combo:external-review-green"]);
   });
 
   it("does not project the provider green label from an unconfigured check name", () => {
@@ -156,7 +156,7 @@ describe("combo PR label projection", () => {
         pr: {
           state: "OPEN",
           headSha: HEAD,
-          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
         },
       }),
     ).toEqual(["combo:lgtm"]);
@@ -173,15 +173,15 @@ describe("combo PR label projection", () => {
       pr: {
         state: "OPEN",
         headSha: HEAD,
-        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "SUCCESS")],
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
       },
-      greenCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["ExternalReview"],
     });
 
-    expect(projection.labels).toEqual(["combo:coderabbit-green", "combo:stale"]);
+    expect(projection.labels).toEqual(["combo:external-review-green", "combo:stale"]);
     expect(
       diffComboPrLabels(
-        ["combo:lgtm", "combo:coderabbit-green", "combo:ready", "documentation"],
+        ["combo:lgtm", "combo:external-review-green", "combo:ready", "documentation"],
         projection.labels,
       ),
     ).toEqual({
@@ -196,15 +196,15 @@ describe("combo PR label projection", () => {
       pr: {
         state: "OPEN",
         headSha: HEAD,
-        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "FAILURE")],
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "FAILURE")],
       },
-      greenCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["ExternalReview"],
     });
 
     expect(projection.labels).toEqual(["combo:lgtm"]);
-    expect(diffComboPrLabels(["combo:coderabbit-green"], projection.labels)).toEqual({
+    expect(diffComboPrLabels(["combo:external-review-green"], projection.labels)).toEqual({
       add: ["combo:lgtm"],
-      remove: ["combo:coderabbit-green"],
+      remove: ["combo:external-review-green"],
     });
   });
 
@@ -220,17 +220,17 @@ describe("combo PR label projection", () => {
         state: "OPEN",
         headSha: HEAD,
         mergeStateStatus: "DIRTY",
-        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "SUCCESS")],
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
       },
-      greenCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["ExternalReview"],
     });
 
     expect(projection.labels).toEqual(["combo:conflict"]);
     expect(
-      diffComboPrLabels(["combo:lgtm", "combo:coderabbit-green", "combo:ready"], projection.labels),
+      diffComboPrLabels(["combo:lgtm", "combo:external-review-green", "combo:ready"], projection.labels),
     ).toEqual({
       add: ["combo:conflict"],
-      remove: ["combo:lgtm", "combo:coderabbit-green", "combo:ready"],
+      remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
     });
   });
 
@@ -244,7 +244,7 @@ describe("combo PR label projection", () => {
           headRefOid: HEAD,
           state: "OPEN",
           labels: liveLabels,
-          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
         });
       }
       if (args[0] === "pr" && args[1] === "edit" && args[3] === "--remove-label") {
@@ -265,20 +265,20 @@ describe("combo PR label projection", () => {
       runDir: dir,
       prUrl: PR_URL,
       events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
-      greenCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["ExternalReview"],
       source: "test",
     });
 
     expect(result.changed).toBe(true);
     expect(result.diff).toEqual({
-      add: ["combo:lgtm", "combo:coderabbit-green"],
+      add: ["combo:lgtm", "combo:external-review-green"],
       remove: ["combo:ready"],
     });
     expect(calls).toEqual([
       ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
       ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
       ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
-      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:coderabbit-green"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
       ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
     ]);
     expect(readEvents(dir)).toHaveLength(2);
@@ -298,8 +298,8 @@ describe("combo PR label projection", () => {
       pr_url: PR_URL,
       head_sha: HEAD,
       old_labels: ["documentation"],
-      new_labels: ["documentation", "combo:lgtm", "combo:coderabbit-green"],
-      added_labels: ["combo:lgtm", "combo:coderabbit-green"],
+      new_labels: ["documentation", "combo:lgtm", "combo:external-review-green"],
+      added_labels: ["combo:lgtm", "combo:external-review-green"],
       removed_labels: [],
       reason: "current",
       source: "test",
@@ -316,7 +316,7 @@ describe("combo PR label projection", () => {
           headRefOid: HEAD,
           state: "OPEN",
           labels: liveLabels,
-          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
         });
       }
       if (args[0] === "pr" && args[1] === "edit" && args[3] === "--remove-label") {
@@ -336,7 +336,7 @@ describe("combo PR label projection", () => {
         runDir: dir,
         prUrl: PR_URL,
         events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
-        greenCheckNames: ["CodeRabbit"],
+        greenCheckNames: ["ExternalReview"],
         source: "test",
       }),
     ).toThrow("add failed");
@@ -345,7 +345,7 @@ describe("combo PR label projection", () => {
       ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
       ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
       ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
-      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:coderabbit-green"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
     ]);
     expect(readEvents(dir)).toHaveLength(1);
     expect(readEvents(dir)[0]).toMatchObject({
@@ -369,8 +369,8 @@ describe("combo PR label projection", () => {
         return ghOk({
           headRefOid: HEAD,
           state: "OPEN",
-          labels: [{ name: "combo:lgtm" }, { name: "combo:coderabbit-green" }],
-          statusCheckRollup: [checkRun("CodeRabbit", "SUCCESS")],
+          labels: [{ name: "combo:lgtm" }, { name: "combo:external-review-green" }],
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
         });
       }
       return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
@@ -382,7 +382,7 @@ describe("combo PR label projection", () => {
       runDir: dir,
       prUrl: PR_URL,
       events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
-      greenCheckNames: ["CodeRabbit"],
+      greenCheckNames: ["ExternalReview"],
     });
 
     expect(result.changed).toBe(false);

@@ -29,7 +29,7 @@ function event(
 function successfulRollup(): unknown[] {
   return [
     { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
-    { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+    { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "SUCCESS" },
   ];
 }
 
@@ -41,7 +41,7 @@ describe("buildDirectorWatchStatusLine", () => {
       cli: "node dist/cli.mjs",
       now,
       pollSeconds: 42,
-      readyRequiredChecks: ["CodeRabbit"],
+      readyRequiredChecks: ["ExternalReview"],
       events: [
         event("combo_created", "2026-06-22T11:00:00.000Z", {
           issue_url: "https://github.com/o/r/issues/7",
@@ -85,7 +85,7 @@ describe("buildDirectorWatchStatusLine", () => {
       cli: "node dist/cli.mjs",
       now,
       pollSeconds: 30,
-      readyRequiredChecks: ["CodeRabbit"],
+      readyRequiredChecks: ["ExternalReview"],
       events: [
         event("combo_created", "2026-06-22T11:00:00.000Z", {
           issue_url: "https://github.com/o/r/issues/7",
