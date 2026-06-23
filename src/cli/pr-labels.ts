@@ -310,9 +310,10 @@ function prHasConflict(mergeStateStatus: string | undefined): boolean {
 
 function currentReadyAgreement(input: ComboPrLabelProjectionInput, lgtmCurrent: boolean): boolean {
   const headSha = input.pr.headSha;
+  const readySha = latestReadyForMergeSha(input.events);
   return (
-    latestReadyForMergeSha(input.events) !== undefined &&
-    shaMatchesHead(latestReadyForMergeSha(input.events), headSha) &&
+    readySha !== undefined &&
+    shaMatchesHead(readySha, headSha) &&
     lgtmCurrent &&
     shaMatchesHead(latestPublishedGateSha(input.events), headSha) &&
     checkRollupSucceeded(input.pr.statusCheckRollup, {
@@ -342,7 +343,6 @@ function hasStaleCurrentHeadSignal(events: ComboEvent[], headSha: string): boole
   );
 }
 
-
 function latestReadyForMergeSha(events: ComboEvent[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
@@ -350,8 +350,6 @@ function latestReadyForMergeSha(events: ComboEvent[]): string | undefined {
   }
   return undefined;
 }
-
-
 
 function stringField(event: ComboEvent, field: string): string | undefined {
   const value = event[field];
@@ -391,6 +389,8 @@ function fetchComboPrLabelView(
   return {
     pr: {
       headSha: headRefOid,
+      // `gh pr view` always requests state; if it is ever omitted, keep the
+      // projection live instead of silently skipping label reconciliation.
       state: typeof state === "string" && state.trim() !== "" ? state : "OPEN",
       ...(typeof mergeStateStatus === "string" && mergeStateStatus.trim() !== ""
         ? { mergeStateStatus }
