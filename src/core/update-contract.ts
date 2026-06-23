@@ -32,16 +32,16 @@
  *   UpdateVersionComparison       Read-only candidate comparison result.
  *   UpdateAssetTarget             Platform/architecture pair used for asset lookup.
  *   UpdateAssetSelectionInput     Input facts for pure archive selection.
- *   UpdateAssetSelection          Future platform asset selection result.
+ *   UpdateAssetSelection          Platform asset selection result consumed by the resolver and updater.
  *   UpdateChecksumEntry           Parsed checksums.txt row.
  *   UpdateChecksumLookupInput     Input facts for exact checksum lookup.
  *   UpdateChecksumLookup          Exact checksum lookup result.
- *   ChecksumVerificationInput     Future checksum verification input.
+ *   ChecksumVerificationInput     Checksum verification input consumed by U2 staging and the updater.
  *   InstallTargetKind             Local install target class.
  *   InstallTargetClassificationInput Input facts for local install classification.
  *   InstallTargetClassification   Local install target facts.
  *   ActiveComboState              Future active capsule guard facts.
- *   ReadOnlyUpdatePlan            Future update plan aggregate.
+ *   ReadOnlyUpdatePlan            Aggregate update plan consumed by the active update command.
  *
  *   INTERNALS
  *   ---------
@@ -55,7 +55,7 @@
  *   InstallTargetClassification, ActiveComboState, ReadOnlyUpdatePlan, normalizeReleaseVersion,
  *   selectUpdateAsset, parseUpdateChecksums, lookupUpdateChecksum, classifyInstallTarget,
  *   compareReleaseCandidate, compareNormalizedReleaseVersions
- * @deps ../infra/release-artifacts
+ * @deps node:fs, ../infra/release-artifacts
  */
 import { realpathSync } from "node:fs";
 
