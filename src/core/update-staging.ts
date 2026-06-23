@@ -1,6 +1,6 @@
 /**
  * @overview U2 update download, checksum verification, and staging primitives.
- *   ~356 lines, 13 exports, orchestrates only injectable network/filesystem/extraction boundaries.
+ *   ~400 lines, 13 exports, orchestrates only injectable network/filesystem/extraction boundaries.
  *
  *   READING GUIDE
  *   -------------
@@ -180,11 +180,23 @@ export async function stageResolvedUpdate(input: {
     }
     archiveBytes = toBuffer(archiveData);
 
-    const checksumsText = await resolveChecksumsText({
-      checksums: input.plan.checksums,
-      fileName: checksumsFileName,
-      deps: input.deps,
-    });
+    let checksumsText: string;
+    try {
+      checksumsText = await resolveChecksumsText({
+        checksums: input.plan.checksums,
+        fileName: checksumsFileName,
+        deps: input.deps,
+      });
+    } catch (error) {
+      if (error instanceof UpdateStagingError) throw error;
+      return await failWithCleanup({
+        code: "download_failed",
+        message: `failed to download ${checksumsFileName}: ${errorMessage(error)}`,
+        stagingDir: input.stagingDir,
+        deps: input.deps,
+        cause: error,
+      });
+    }
 
     let expectedSha256: string;
     try {
