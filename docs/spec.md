@@ -372,8 +372,10 @@ ignored config or environment outside that file.
   local no-mistakes state, then attaches to that run, so simultaneous combos
   cannot render each other's run. On `gate_started` the emit handler recreates
   the gatekeeper window so the live role window is visible when no-mistakes
-  becomes active. The coder window streams live coder stdout/stderr, while the
-  journal window tails `combo-chen events --follow` so raw event output never
+  becomes active. The coder window streams live coder stdout/stderr; combo
+  launch enables concise `runner:` progress lines there for deterministic
+  rebase, gate, and PR-detection steps around the coder stream. The journal
+  window tails `combo-chen events --follow` so raw event output never
   replaces the coder role. After PR open,
   one `director-watch` window runs the polling loop and renders one routine
   per-tick operator status line (combo id, phase age, PR state/head,

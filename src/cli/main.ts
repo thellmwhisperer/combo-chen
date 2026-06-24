@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1079 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1081 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -383,7 +383,9 @@ export function createProgram(deps: Deps): Command {
         tmux: session,
       });
 
-      const created = deps.tmux(newSessionArgs(session, CODER_WINDOW, `sh "${runnerPath}"`));
+      const created = deps.tmux(
+        newSessionArgs(session, CODER_WINDOW, `COMBO_CHEN_RUNNER_PROGRESS=1 sh ${shellQuote(runnerPath)}`),
+      );
       if (created.status !== 0) {
         // A combo that never started must not leave orphans behind: undo the
         // run dir, the worktree, and the branch `worktree add -b` created, so

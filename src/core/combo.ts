@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~458 lines, 9 exports, 1 critical function.
+ *   ~472 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -175,6 +175,10 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+function runnerStatus(message: string): string {
+  return `runner_status ${shellQuote(`runner: ${message}`)}`;
+}
+
 function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
   return [
     `no_mistakes_expected_branch=${expectedBranch === undefined ? "\"\"" : shellQuote(expectedBranch)}`,
@@ -346,8 +350,15 @@ coder_status="$(dirname "$0")/coder.exit"
 gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
 rebase_log="$(dirname "$0")/rebase.log"
+runner_progress="\${COMBO_CHEN_RUNNER_PROGRESS:-0}"
+runner_status() {
+  if [ "$runner_progress" = "1" ]; then
+    printf '%s\\n' "$1"
+  fi
+}
 
 cd ${shellQuote(combo.worktree)}
+${runnerStatus(`syncing worktree with ${baseRef}`)}
 ${baseFetch}
 if ! git rebase ${shellQuote(baseRef)} >> "$rebase_log" 2>&1; then
   ${emit} rebase_conflict --field base="$(git merge-base HEAD ${shellQuote(baseRef)} 2>/dev/null || true)"
@@ -355,6 +366,7 @@ if ! git rebase ${shellQuote(baseRef)} >> "$rebase_log" 2>&1; then
 fi
 coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
+${runnerStatus("starting coder")}
 ${emit} coder_started
 
 rm -f "$coder_status"
@@ -398,6 +410,7 @@ else
   exit $code
 fi
 
+${runnerStatus("coder finished; starting gatekeeper")}
 ${emit} gate_started
 gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
 gate_lease_code=0
@@ -427,6 +440,7 @@ if [ "$gatekeeper_code" -ne 0 ]; then
   exit $gatekeeper_code
 fi
 
+${runnerStatus("gatekeeper finished; detecting PR")}
 gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 pr_url=$(gh pr list --head ${shellQuote(combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)
@@ -446,8 +460,10 @@ if [ -n "\${pr_url:-}" ]; then
   fi
   ${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
   ${emit} pr_opened --field url="$pr_url"
+  ${runnerStatus("PR detected; starting reviewer")}
   ${activateReviewer}
 else
+  ${runnerStatus("no PR detected; needs human")}
   ${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
   ${emit} needs_human --field reason=pr_missing
 fi
