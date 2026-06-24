@@ -278,6 +278,9 @@ ignored config or environment outside that file.
   rollup are successful for that SHA — the director journals
   `ready_for_merge` (required fields `sha`, `pr_url`) and the combo
   transitions to READY.
+- The default required READY check list includes `CodeRabbit`. A skipped or
+  pending CodeRabbit result does not satisfy READY; the check must report exact
+  SUCCESS.
 - If GitHub later reports an open READY PR as dirty or conflicting against the
   current base (`mergeStateStatus=DIRTY` or `mergeable=CONFLICTING`), the
   director journals `pr_conflict` (required fields `sha`, `pr_url`,
