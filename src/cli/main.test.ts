@@ -5113,7 +5113,7 @@ describe("status", () => {
 });
 
 describe("forensics", () => {
-  function seedCombo(homeDir: string, id: string, issueNumber: number): string {
+  function seedIssueCombo(homeDir: string, id: string, issueNumber: number): string {
     const dir = runDirFor(homeDir, id);
     writeCombo(dir, {
       id,
@@ -5129,8 +5129,8 @@ describe("forensics", () => {
 
   it("renders a markdown report for selected issue numbers from local run logs", async () => {
     const h = home();
-    const dir = seedCombo(h, "o-r-7", 7);
-    seedCombo(h, "o-r-8", 8);
+    const dir = seedIssueCombo(h, "o-r-7", 7);
+    seedIssueCombo(h, "o-r-8", 8);
     writeFileSync(
       join(dir, "journal.jsonl"),
       [
@@ -5155,7 +5155,7 @@ describe("forensics", () => {
 
   it("reports an actionable no-match message for issue outcome lookups", async () => {
     const h = home();
-    seedCombo(h, "o-r-7", 7);
+    seedIssueCombo(h, "o-r-7", 7);
     const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["forensics", "--issues", "210"]);
@@ -5169,7 +5169,7 @@ describe("forensics", () => {
 
   it("refuses to record an incomplete outcome without a PR link and head SHA", async () => {
     const h = home();
-    seedCombo(h, "o-r-7", 7);
+    seedIssueCombo(h, "o-r-7", 7);
     const ghCalls: string[][] = [];
     const { deps } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -5198,7 +5198,7 @@ describe("forensics", () => {
 
   it("records the generated outcome block on the source issue when requested", async () => {
     const h = home();
-    const dir = seedCombo(h, "o-r-7", 7);
+    const dir = seedIssueCombo(h, "o-r-7", 7);
     writeFileSync(
       join(dir, "journal.jsonl"),
       [
@@ -5277,7 +5277,7 @@ describe("forensics", () => {
 
   it("emits JSON reports with the same core facts", async () => {
     const h = home();
-    const dir = seedCombo(h, "o-r-7", 7);
+    const dir = seedIssueCombo(h, "o-r-7", 7);
     writeFileSync(
       join(dir, "journal.jsonl"),
       [
@@ -5299,8 +5299,8 @@ describe("forensics", () => {
 
   it("enriches reports with live GitHub PR and issue facts", async () => {
     const h = home();
-    const openDir = seedCombo(h, "o-r-7", 7);
-    const mergedDir = seedCombo(h, "o-r-8", 8);
+    const openDir = seedIssueCombo(h, "o-r-7", 7);
+    const mergedDir = seedIssueCombo(h, "o-r-8", 8);
     writeFileSync(
       join(openDir, "journal.jsonl"),
       [
