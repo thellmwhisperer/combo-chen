@@ -3003,7 +3003,7 @@ describe("run", () => {
       "combo-chen-o-r-7",
       "-n",
       "coder",
-      expect.stringContaining("runner.sh"),
+      expect.stringContaining("COMBO_CHEN_RUNNER_PROGRESS=1 sh"),
     ]);
     expect(initialWindows.map((call) => call[call.indexOf("-n") + 1])).toEqual([
       "journal",
