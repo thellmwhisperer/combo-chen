@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~485 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~525 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
@@ -230,6 +230,49 @@ describe("combo PR label projection", () => {
       diffComboPrLabels(["combo:lgtm", "combo:external-review-green", "combo:ready"], projection.labels),
     ).toEqual({
       add: ["combo:conflict"],
+      remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
+    });
+  });
+
+  it("invalidates READY-style labels while a newer local addressed head is being gated", () => {
+    const localHead = "dddddddddddddddddddddddddddddddddddddddd";
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: HEAD }),
+        event("lgtm", { sha: HEAD }),
+        event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+        event("review_comment", {
+          author: "coderabbitai[bot]",
+          kind: "review_comment",
+          url: "https://github.com/o/r/pull/7#discussion_r1",
+          head_sha: HEAD,
+        }),
+        event("address_done", { head_sha: localHead }),
+        event("gate_stale", { old_sha: HEAD, new_sha: localHead }),
+        event("gate_started"),
+        event("gate_status", { state: "fix_inflight", head_sha: localHead }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [
+          checkRun("unit", "SUCCESS"),
+          checkRun("ExternalReview", "SUCCESS"),
+        ],
+      },
+      activity: { gateActive: true },
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(projection.labels).toEqual(["combo:working-gate", "combo:stale"]);
+    expect(
+      diffComboPrLabels(
+        ["combo:working-gate", "combo:lgtm", "combo:external-review-green", "combo:ready"],
+        projection.labels,
+      ),
+    ).toEqual({
+      add: ["combo:stale"],
       remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
     });
   });

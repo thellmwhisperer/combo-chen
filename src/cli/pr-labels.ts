@@ -1,6 +1,6 @@
 /**
  * @overview Combo PR label projection helpers.
- *   ~535 lines, deterministic desired-label, diff, and GitHub mutation helpers.
+ *   ~575 lines, deterministic desired-label, diff, and GitHub mutation helpers.
  *
  *   READING GUIDE
  *   -------------
@@ -171,13 +171,14 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
     return { labels: orderedLabels(labels), headSha, prState, reason: "conflict" };
   }
 
-  const lgtmCurrent = shaMatchesHead(livePinnedLgtmSha(input.events), headSha);
+  const localGateHeadMismatch = hasLocalGateHeadDifferentFromPrHead(input.events, headSha);
+  const lgtmCurrent = !localGateHeadMismatch && shaMatchesHead(livePinnedLgtmSha(input.events), headSha);
   const greenCheckSucceeded = namedCheckSucceeded(
     input.pr.statusCheckRollup,
     configuredGreenCheckNames(input),
-  );
-  const readyCurrent = currentReadyAgreement(input, lgtmCurrent);
-  const stale = hasStaleCurrentHeadSignal(input.events, headSha);
+  ) && !localGateHeadMismatch;
+  const readyCurrent = !localGateHeadMismatch && currentReadyAgreement(input, lgtmCurrent);
+  const stale = localGateHeadMismatch || hasStaleCurrentHeadSignal(input.events, headSha);
 
   if (lgtmCurrent) labels.add("combo:lgtm");
   if (greenCheckSucceeded) labels.add("combo:external-review-green");
@@ -458,6 +459,38 @@ function hasStaleCurrentHeadSignal(events: ComboEvent[], headSha: string): boole
   return [livePinnedLgtmSha(events), latestReadyForMergeSha(events), latestPublishedGateSha(events)].some(
     (sha) => sha !== undefined && !shaMatchesHead(sha, headSha),
   );
+}
+
+function hasLocalGateHeadDifferentFromPrHead(events: ComboEvent[], headSha: string): boolean {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "ready_for_merge" || event.event === "pr_opened") return false;
+    if (event.event === "address_done" || event.event === "address_noop") {
+      return shaDiffersFromHead(stringField(event, "head_sha"), headSha);
+    }
+    if (event.event === "gate_stale") {
+      return shaDiffersFromHead(stringField(event, "new_sha"), headSha);
+    }
+    if (event.event === "gate_validated") {
+      return shaDiffersFromHead(stringField(event, "sha"), headSha);
+    }
+    if (event.event === "gate_status") {
+      const state = stringField(event, "state");
+      if (
+        state === "fix_inflight" ||
+        state === "awaiting_approval" ||
+        state === "failed" ||
+        state === "idle"
+      ) {
+        return shaDiffersFromHead(stringField(event, "head_sha"), headSha);
+      }
+    }
+  }
+  return false;
+}
+
+function shaDiffersFromHead(candidate: string | undefined, headSha: string): boolean {
+  return candidate !== undefined && !shaMatchesHead(candidate, headSha);
 }
 
 function latestReadyForMergeSha(events: ComboEvent[]): string | undefined {
