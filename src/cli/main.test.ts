@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7404 lines.
+ *   deps so tests run without a real terminal or network. ~7433 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -5165,6 +5165,35 @@ describe("forensics", () => {
       "No matching issue-backed combos for --issues 210 in this COMBO_CHEN_HOME.",
     );
     expect(out.join("\n")).toContain("Use -n <combo-id> for plan-backed runs or rerun after launch.");
+  });
+
+  it("refuses to record an incomplete outcome without a PR link and head SHA", async () => {
+    const h = home();
+    seedCombo(h, "o-r-7", 7);
+    const ghCalls: string[][] = [];
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(args);
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ state: "OPEN", closedAt: null }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "issue" && args[1] === "comment") {
+          return { status: 0, stdout: "https://github.com/o/r/issues/7#issuecomment-1\n", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await expect(exec(deps, ["forensics", "--issues", "7", "--record-outcome"])).rejects.toThrow(
+      "Cannot record forensics outcome for o-r-7: missing PR link and head SHA",
+    );
+
+    expect(ghCalls.some((args) => args[0] === "issue" && args[1] === "comment")).toBe(false);
   });
 
   it("records the generated outcome block on the source issue when requested", async () => {
