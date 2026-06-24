@@ -277,7 +277,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
       const resume = run(process.execPath, [cliPath, "resume", "-n", combo.id], {
         cwd: harness.repo,
-        env: harness.env,
+        env: { ...harness.env, E2E_TREEHOUSE_UNAVAILABLE_ON_RETURN: "1" },
       });
       expect(resume.stdout).toContain(`resume: closure pending for ${combo.id} (github); running closure`);
       expect(resume.stdout).toContain("teardown complete");
