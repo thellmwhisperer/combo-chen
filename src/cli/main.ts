@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1015 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1025 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -442,6 +442,16 @@ export function createProgram(deps: Deps): Command {
       deps.out(`🥢 ${session}`);
       deps.out(`   worktree ${worktree} · branch ${branch}`);
       deps.out(`   coder: ${config.roles.coder} · gatekeeper: ${config.roles.gatekeeper}`);
+      deps.out(
+        [
+          `   topology: coder=${CODER_WINDOW}`,
+          `journal=${JOURNAL_WINDOW}`,
+          `gate-live=${GATEKEEPER_WINDOW}`,
+          `gate-runner=${GATE_RUNNER_WINDOW}`,
+          `director-watch=${DIRECTOR_WATCH_WINDOW}`,
+          "coder-responding=lazy",
+        ].join(" · "),
+      );
       deps.out(`   journal: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);
     });
 
