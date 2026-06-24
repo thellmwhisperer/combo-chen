@@ -25,7 +25,7 @@
  *   GH label parsing
  *
  * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
- * @deps ../core/events, ./checks, ./gate, ./github, ./reviewer
+ * @deps node:child_process, ../core/events, ./checks, ./gate, ./github, ./reviewer
  */
 import { execSync } from "node:child_process";
 import { appendEvent, type ComboEvent } from "../core/events.js";

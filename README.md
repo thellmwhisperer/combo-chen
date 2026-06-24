@@ -114,6 +114,7 @@ Requirements:
 - pnpm
 - git
 - tmux
+- Treehouse CLI for worktree management
 - GitHub CLI (`gh`) authenticated for the target repo
 - the agent tools configured for your coder, gatekeeper, and reviewer roles
 
