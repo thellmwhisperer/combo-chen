@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7311 lines.
+ *   deps so tests run without a real terminal or network. ~7325 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -5151,6 +5151,20 @@ describe("forensics", () => {
     expect(out.join("\n")).toContain("Coder: 4m");
     expect(out.join("\n")).toContain("stale_lgtm_after_push");
     expect(out.join("\n")).not.toContain("## o-r-8");
+  });
+
+  it("reports an actionable no-match message for issue outcome lookups", async () => {
+    const h = home();
+    seedCombo(h, "o-r-7", 7);
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["forensics", "--issues", "210"]);
+
+    expect(out.join("\n")).toContain("# combo-chen forensics");
+    expect(out.join("\n")).toContain(
+      "No matching issue-backed combos for --issues 210 in this COMBO_CHEN_HOME.",
+    );
+    expect(out.join("\n")).toContain("Use -n <combo-id> for plan-backed runs or rerun after launch.");
   });
 
   it("emits JSON reports with the same core facts", async () => {
