@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for tmux session helpers. ~145 lines, attach selection and idempotent cleanup.
+ * @overview Unit tests for tmux session helpers. ~215 lines, attach selection, session recovery, and cleanup.
  *
  *   READING GUIDE
  *   -------------
@@ -30,8 +30,10 @@ import { describe, expect, it } from "vitest";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import {
   ensureJournalPane,
+  ensureComboSession,
   killComboSession,
   killWindowIfPresent,
+  JOURNAL_WINDOW,
   REVIEWER_WINDOW,
   resolveAttachCombo,
 } from "./sessions.js";
@@ -110,7 +112,73 @@ describe("ensureJournalPane", () => {
 });
 // -/ 3/4
 
-// -- 4/4 CORE · kill helper tests --
+// -- 4/4 CORE · session recovery + kill helper tests --
+describe("ensureComboSession", () => {
+  it("recreates a missing combo room with a journal window instead of mislabeling it as coder", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    expect(
+      ensureComboSession({
+        deps: {
+          tmux: (args) => {
+            calls.push(args);
+            if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "can't find session" };
+            return { status: 0, stdout: "", stderr: "" };
+          },
+        },
+        combo: record,
+        home: "/combo-home",
+        cli: "node cli.mjs",
+      }),
+    ).toBe(true);
+
+    expect(calls).toEqual([
+      ["has-session", "-t", "combo-chen-o-r-7"],
+      [
+        "new-session",
+        "-d",
+        "-s",
+        "combo-chen-o-r-7",
+        "-n",
+        JOURNAL_WINDOW,
+        "COMBO_CHEN_HOME='/combo-home' node cli.mjs events --follow -n 'o-r-7'",
+      ],
+    ]);
+  });
+
+  it("creates a journal window when attach finds only a recreated room without coder UI", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    ensureJournalPane(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      record,
+      "node cli.mjs",
+    );
+
+    expect(calls).toEqual([
+      ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
+      [
+        "new-window",
+        "-t",
+        "combo-chen-o-r-7",
+        "-n",
+        JOURNAL_WINDOW,
+        "node cli.mjs events --follow -n 'o-r-7'",
+      ],
+    ]);
+  });
+});
+
 describe("killComboSession", () => {
   it("treats an already-gone tmux session as success", () => {
     const calls: string[][] = [];

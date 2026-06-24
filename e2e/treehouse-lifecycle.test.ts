@@ -412,8 +412,32 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       expect(tmuxLog).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ args: ["new-session", "-d", "-s", combo.tmuxSession, "-n", "coder", expect.any(String)] }),
-          expect.objectContaining({ args: ["new-window", "-t", combo.tmuxSession, "-n", "gatekeeper", expect.stringContaining("window retained for inspection until closure")] }),
+          expect.objectContaining({
+            args: [
+              "new-session",
+              "-d",
+              "-s",
+              combo.tmuxSession,
+              "-n",
+              "journal",
+              expect.stringContaining("events --follow"),
+            ],
+          }),
+          expect.objectContaining({
+            args: [
+              "new-window",
+              "-t",
+              combo.tmuxSession,
+              "-n",
+              "gatekeeper",
+              expect.stringContaining("no-mistakes attach --run"),
+            ],
+          }),
+        ]),
+      );
+      expect(tmuxLog).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ args: ["new-session", "-d", "-s", combo.tmuxSession, "-n", "coder", expect.stringContaining("events --follow")] }),
         ]),
       );
 
