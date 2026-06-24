@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7195 lines.
+ *   deps so tests run without a real terminal or network. ~7209 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -38,7 +38,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,crypto,fs,os,path}, ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan},
- *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./main
+ *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./gate, ./main
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -59,6 +59,7 @@ import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from ".
 import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
+import { GATE_RUNNER_WINDOW } from "./gate.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
@@ -2476,7 +2477,7 @@ describe("emit", () => {
     expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
   });
 
-  it("is a no-op when the gatekeeper tmux window already exists", async () => {
+  it("refreshes the gatekeeper tmux window when gate_started is emitted with an existing gatekeeper", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -2499,12 +2500,22 @@ describe("emit", () => {
       },
     });
 
-    await exec(deps, ["emit", "-n", "o-r-7", "hodor_started"]);
+    await exec(deps, ["emit", "-n", "o-r-7", "gate_started"]);
 
     const gatekeeperWindow = calls.find(
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
-    expect(gatekeeperWindow).toBeUndefined();
+    expect(calls).toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:gatekeeper"]);
+    expect(gatekeeperWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "gatekeeper",
+      expect.stringContaining("no-mistakes attach"),
+    ]);
+    expect(gatekeeperWindow?.at(-1)).toContain(worktree);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["gate_started"]);
   });
 
@@ -2834,6 +2845,7 @@ describe("run", () => {
         journal: "journal",
         director: "director",
         gatekeeper: "gatekeeper",
+        gateRunner: GATE_RUNNER_WINDOW,
         directorWatch: "director-watch",
       },
       logs: {
@@ -3000,6 +3012,7 @@ describe("run", () => {
       roleWindows: {
         coder: "coder",
         gatekeeper: "gatekeeper",
+        gateRunner: GATE_RUNNER_WINDOW,
         directorWatch: "director-watch",
       },
       workItem: {
@@ -3719,11 +3732,11 @@ describe("resume", () => {
     expect(gitCalls.some((call) => call.includes("rev-parse") && call.includes("HEAD"))).toBe(true);
     expect(gitCalls.some((call) => call.includes("status") && call.includes("--porcelain"))).toBe(true);
 
-    const gatekeeperWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    const gateRunnerWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
     );
-    expect(gatekeeperWindow).toBeDefined();
-    const command = gatekeeperWindow?.at(-1) ?? "";
+    expect(gateRunnerWindow).toBeDefined();
+    const command = gateRunnerWindow?.at(-1) ?? "";
     expect(command).toContain("gatekeeper-initial-cccccccccccc.sh");
     expect(command).not.toContain("activate-coder");
 
@@ -3846,10 +3859,10 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    const gatekeeperWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    const gateRunnerWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
     );
-    expect(gatekeeperWindow).toBeDefined();
+    expect(gateRunnerWindow).toBeDefined();
     const script = readFileSync(join(dir, "gatekeeper-initial-eeeeeeeeeeee.sh"), "utf8");
     expect(script).toContain('git push -o "$mirror_intent" no-mistakes');
     expect(script).toContain("no-mistakes axi run --intent");
