@@ -641,7 +641,10 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
     appendEvent(runDir, "gate_validated", { sha: headSha, source: "github" });
     events = readEvents(runDir);
   }
-  if (!gateStateAllowsReady(events, headSha)) return;
+  if (!gateStateAllowsReady(events, headSha)) {
+    deps.out(`director: gate not ready for ${comboId}: gate evidence unavailable or stale after recovery`);
+    return;
+  }
 
   appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: prUrl });
   deps.out(`director: ready_for_merge ${headSha}`);

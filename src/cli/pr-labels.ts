@@ -27,6 +27,7 @@
  * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
  * @deps ../core/events, ./checks, ./gate, ./github, ./reviewer
  */
+import { execSync } from "node:child_process";
 import { appendEvent, type ComboEvent } from "../core/events.js";
 import {
   checkNameMatchesAny,
@@ -275,6 +276,7 @@ function editPrLabels(
     }
     provisionComboPrLabels(gh, prUrl, unprovisioned);
     for (const label of unprovisioned) provisioned.add(label);
+    execSync("sleep 0.5", { stdio: "ignore" });
   }
 
   throw new Error(`PR label update failed for ${prUrl}: label provisioning retry limit reached`);
@@ -290,7 +292,7 @@ function runPrLabelEdit(
 }
 
 function missingComboLabelsFromError(detail: string, labels: ComboPrLabel[]): ComboPrLabel[] {
-  if (!/not found/i.test(detail)) return [];
+  if (!/'[^']+' not found/i.test(detail)) return [];
   return labels.filter((label) => detail.includes(label));
 }
 
@@ -327,8 +329,13 @@ function prUrlRepoArgs(prUrl: string): string[] {
 function repoSlugFromPrUrl(prUrl: string): string | undefined {
   try {
     const url = new URL(prUrl);
-    const [owner, repo, kind] = url.pathname.split("/").filter(Boolean);
-    if (owner === undefined || repo === undefined || kind !== "pull") return undefined;
+    const segments = url.pathname.split("/").filter(Boolean);
+    let pullIdx = segments.indexOf("pull");
+    if (pullIdx === -1) pullIdx = segments.indexOf("pulls");
+    if (pullIdx < 2) return undefined;
+    const owner = segments[pullIdx - 2];
+    const repo = segments[pullIdx - 1];
+    if (!owner || !repo) return undefined;
     return `${owner}/${repo}`;
   } catch {
     return undefined;
