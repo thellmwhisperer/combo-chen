@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for combo forensics reports. ~155 lines, fixture-driven incidents.
+ * @overview Unit tests for combo forensics reports. ~194 lines, fixture-driven incidents.
  *
  *   READING GUIDE
  *   -------------
@@ -118,6 +118,46 @@ describe("forensics analyzer", () => {
       "merged_pr_open_issue",
       "local_status_stale",
     ]);
+  });
+
+  it("renders a copy-ready dogfood outcome block with head and review-check state", () => {
+    const headSha = "abc123";
+    const report = analyzeForensicsCombo({
+      combo,
+      events: [
+        event("2026-06-11T10:00:00.000Z", "combo_created", { issue_url: combo.issueUrl }),
+        event("2026-06-11T10:05:05.000Z", "gate_started"),
+        event("2026-06-11T10:08:00.000Z", "gate_validated", { sha: headSha }),
+        event("2026-06-11T10:08:30.000Z", "pr_opened", { url: "https://github.com/o/r/pull/55" }),
+        event("2026-06-11T10:09:00.000Z", "lgtm", { sha: headSha }),
+        event("2026-06-11T10:11:00.000Z", "ready_for_merge", {
+          pr_url: "https://github.com/o/r/pull/55",
+          sha: headSha,
+        }),
+      ],
+      github: {
+        pr: {
+          url: "https://github.com/o/r/pull/55",
+          headSha,
+          state: "OPEN",
+          ci: "success",
+          readyRequiredChecks: "success",
+        },
+        issue: { state: "OPEN" },
+      },
+      tmux: { sessionExists: true, windows: ["coder", "gatekeeper"] },
+    });
+
+    const markdown = renderForensicsMarkdown([report]);
+
+    expect(markdown).toContain("- Outcome:");
+    expect(markdown).toContain("  - PR link: https://github.com/o/r/pull/55");
+    expect(markdown).toContain("  - Head SHA: abc123");
+    expect(markdown).toContain(
+      "  - Review/check state: reviewer=current · gatekeeper=current · required READY checks=success · CI=success",
+    );
+    expect(markdown).toContain("  - Failures found: none");
+    expect(markdown).toContain("  - Follow-up bugs: none recorded");
   });
 
   it("includes generic plan work item source and title in reports", () => {
