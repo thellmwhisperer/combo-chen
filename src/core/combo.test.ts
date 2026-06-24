@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1573 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1582 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -239,6 +239,17 @@ describe("buildRunnerScript", () => {
     expect(pr).toBeGreaterThan(gatekeeper);
     expect(activateCoder).toBe(-1);
     expect(activateReviewer).toBeGreaterThan(pr);
+  });
+
+  it("renders optional human-readable runner progress for the coder pane", () => {
+    expect(script).toContain('runner_progress="${COMBO_CHEN_RUNNER_PROGRESS:-0}"');
+    expect(script).toContain("runner_status()");
+    expect(script).toContain("runner: syncing worktree with origin/main");
+    expect(script).toContain("runner: starting coder");
+    expect(script).toContain("runner: coder finished; starting gatekeeper");
+    expect(script).toContain("runner: gatekeeper finished; detecting PR");
+    expect(script).toContain("runner: PR detected; starting reviewer");
+    expect(script).toContain("runner: no PR detected; needs human");
   });
 
   it("can guard the gatekeeper run with a branch-scoped gate lease", () => {
