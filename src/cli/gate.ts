@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~855 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~863 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
