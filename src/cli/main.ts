@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1000 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1015 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -92,8 +92,10 @@ import { analyzeForensicsCombo, renderForensicsMarkdown } from "./forensics.js";
 import {
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
+  GATE_RUNNER_WINDOW,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
+  refreshGatekeeperWindow,
   restartPostAddressGate,
   scriptedMirrorGatekeeperCommandTemplate,
   startGatekeeperWindow,
@@ -325,6 +327,7 @@ export function createProgram(deps: Deps): Command {
               journal: JOURNAL_WINDOW,
               director: DIRECTOR_WINDOW,
               gatekeeper: GATEKEEPER_WINDOW,
+              gateRunner: GATE_RUNNER_WINDOW,
               directorWatch: DIRECTOR_WATCH_WINDOW,
             },
             promptTargets: {
@@ -774,6 +777,7 @@ export function createProgram(deps: Deps): Command {
             coder: CODER_WINDOW,
             director: DIRECTOR_WINDOW,
             gatekeeper: GATEKEEPER_WINDOW,
+            gateRunner: GATE_RUNNER_WINDOW,
             directorWatch: DIRECTOR_WATCH_WINDOW,
           },
         });
@@ -786,7 +790,7 @@ export function createProgram(deps: Deps): Command {
         try {
           const combo = readCombo(runDir);
           const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-          ensureGatekeeperWindow(deps, combo, {
+          refreshGatekeeperWindow(deps, combo, {
             timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
             retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
           });

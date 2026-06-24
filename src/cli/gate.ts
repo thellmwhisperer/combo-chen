@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~863 lines, 19 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~870 lines, 21 exports, attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -16,9 +16,9 @@
  *   PUBLIC API
  *   ----------
  *   GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions
- *   GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE
+ *   GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE
  *   buildGatekeeperAttachCommand, startGatekeeperWindow
- *   ensureGatekeeperWindow, remoteShaForRef, latestGateStatus
+ *   ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus
  *   latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig
  *   startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  *
@@ -27,7 +27,7 @@
  *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
  *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand
  *
- * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
@@ -75,6 +75,7 @@ export interface GatekeeperAttachOptions {
 }
 
 export const GATEKEEPER_WINDOW = "gatekeeper";
+export const GATE_RUNNER_WINDOW = "gate-runner";
 export const NO_MISTAKES_CONFIG_FILE = ".no-mistakes.yaml";
 // -/ 1/5
 
@@ -145,6 +146,15 @@ export function ensureGatekeeperWindow(
   }
   if (listed.stdout.split(/\r?\n/).includes(GATEKEEPER_WINDOW)) return;
 
+  startGatekeeperWindow(deps, combo, options);
+}
+
+export function refreshGatekeeperWindow(
+  deps: GatekeeperWindowDeps,
+  combo: ComboRecord,
+  options: GatekeeperAttachOptions,
+): void {
+  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
   startGatekeeperWindow(deps, combo, options);
 }
 // -/ 2/5
@@ -520,11 +530,11 @@ export function startInitialGateRetry(input: {
   );
   chmodSync(scriptPath, 0o755);
 
-  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
-  const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, `sh ${shellQuote(scriptPath)}`));
+  killWindowIfPresent(deps, combo, GATE_RUNNER_WINDOW);
+  const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATE_RUNNER_WINDOW, `sh ${shellQuote(scriptPath)}`));
   if (created.status !== 0) {
     throw new Error(
-      `tmux failed to start initial gatekeeper retry in "${combo.tmuxSession}": ` +
+      `tmux failed to start initial gate runner in "${combo.tmuxSession}": ` +
         `${created.stderr.trim() || "unknown error"}`,
     );
   }
@@ -656,11 +666,11 @@ function startPostAddressGate(input: {
 
   const command = `sh ${shellQuote(scriptPath)}`;
 
-  killWindowIfPresent(input.deps, input.combo, GATEKEEPER_WINDOW);
-  const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATEKEEPER_WINDOW, command));
+  killWindowIfPresent(input.deps, input.combo, GATE_RUNNER_WINDOW);
+  const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATE_RUNNER_WINDOW, command));
   if (created.status !== 0) {
     throw new Error(
-      `tmux failed to start post-address gatekeeper in "${input.combo.tmuxSession}": ` +
+      `tmux failed to start post-address gate runner in "${input.combo.tmuxSession}": ` +
         `${created.stderr.trim() || "unknown error"}`,
     );
   }

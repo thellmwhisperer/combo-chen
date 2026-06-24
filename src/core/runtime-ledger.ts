@@ -1,5 +1,5 @@
 /**
- * @overview Runtime ledger persistence for a combo capsule. ~235 lines,
+ * @overview Runtime ledger persistence for a combo capsule. ~240 lines,
  *   10 exports, writes and updates the machine-readable resource artifact.
  *
  *   READING GUIDE
@@ -49,6 +49,7 @@ export interface RuntimeRoleWindows {
   journal?: string;
   director?: string;
   gatekeeper?: string;
+  gateRunner?: string;
   reviewer?: string;
   reviewerWatch?: string;
   directorWatch?: string;

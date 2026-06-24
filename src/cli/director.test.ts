@@ -39,6 +39,7 @@ import {
   tickDirector,
   type DirectorDeps,
 } from "./director.js";
+import { GATE_RUNNER_WINDOW } from "./gate.js";
 
 // -- 1/2 HELPER · Fixtures --
 const ISSUE = "https://github.com/o/r/issues/7";
@@ -320,10 +321,10 @@ describe("tickDirector", () => {
 
     expect(sleeps).toEqual([1000]);
     const scriptPath = join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.sh`);
-    const gatekeeperWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    const gateRunnerWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
     );
-    expect(gatekeeperWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    expect(gateRunnerWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("initial gate retry for o-r-7");
     expect(script).toContain("emit -n 'o-r-7' gate_started");
@@ -368,7 +369,7 @@ describe("tickDirector", () => {
     });
     deps.tmux = (args) => {
       calls.push(["tmux", ...args]);
-      if (args[0] === "new-window" && args.includes("gatekeeper")) {
+      if (args[0] === "new-window" && args.includes(GATE_RUNNER_WINDOW)) {
         return { status: 1, stdout: "", stderr: "no server running" };
       }
       return { status: 0, stdout: "", stderr: "" };
@@ -1291,11 +1292,11 @@ describe("tickDirector", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "gate_stale", old_sha: oldSha, new_sha: newSha }),
     );
-    const gatekeeperWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    const gateRunnerWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
-    expect(gatekeeperWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    expect(gateRunnerWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
     expect(readFileSync(join(worktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
     expect(out).toContain(`no-mistakes: copied local config to ${worktree}/.no-mistakes.yaml`);
@@ -1329,11 +1330,11 @@ describe("tickDirector", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "gate_stale", old_sha: oldSha, new_sha: newSha }),
     );
-    const gatekeeperWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    const gateRunnerWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
-    expect(gatekeeperWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    expect(gateRunnerWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
   });
 
