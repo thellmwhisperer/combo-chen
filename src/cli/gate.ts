@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~870 lines, 21 exports, attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~900 lines, 19 exports, persistent attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -282,6 +282,16 @@ function worktreeHeadSha(deps: GateDeps, combo: ComboRecord): string {
     ["rev-parse", "HEAD"],
     "git rev-parse HEAD",
   ).stdout.trim();
+}
+
+function worktreeContainsSha(deps: GateDeps, combo: ComboRecord, ancestorSha: string, headSha: string): boolean {
+  if (ancestorSha === headSha) return true;
+  const result = deps.git(["merge-base", "--is-ancestor", ancestorSha, headSha], combo.worktree);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(
+    `git merge-base --is-ancestor failed for ${combo.id}: ${result.stderr.trim() || `exit code ${result.status}`}`,
+  );
 }
 
 function hasUncommittedChanges(deps: GateDeps, combo: ComboRecord): boolean {
@@ -806,6 +816,14 @@ export function runPostAddressGateIfNeeded(input: {
   const recoveryHeadSha = latestCoderRecoveryHeadShaAfterGate(events, lastPublishedSha);
   if (recoveryHeadSha === undefined || recoveryHeadSha === headSha) {
     deps.out(`director: no coder HEAD change for ${combo.id}; waiting for coder to commit`);
+    return;
+  }
+
+  if (!worktreeContainsSha(deps, combo, lastPublishedSha, headSha)) {
+    deps.out(
+      `director: worktree HEAD ${headSha} does not include published gate ${lastPublishedSha}; ` +
+        "waiting for coder sync before post-address gate",
+    );
     return;
   }
 

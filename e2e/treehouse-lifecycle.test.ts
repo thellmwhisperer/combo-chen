@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~950 lines, log-derived regressions.
+ *   and process shims for external services. ~1050 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -695,6 +695,82 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       ).length;
       expect(after).toBe(before + 1);
       expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(true);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("does not post-address gate from a local worktree behind the PR head", () => {
+    const harness = prepareHarness({ externalCommentAgents: ["coderabbitai"] });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(join(combo.worktree, "published-only.txt"), "published\n");
+      run("git", ["add", "published-only.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "test: published pr head"], { cwd: combo.worktree });
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      expect(publishedSha).not.toBe(localSha);
+      run("git", ["reset", "--hard", localSha], { cwd: combo.worktree });
+      expect(run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim()).toBe(localSha);
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+        ["lgtm", [`sha=${publishedSha}`]],
+        ["ready_for_merge", [`sha=${publishedSha}`, `pr_url=${prUrl}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const before = readJsonLines<LogEntryJson>(harness.logs.tmux).filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
+      ).length;
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: publishedSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_CODERABBIT_REVIEW: "1",
+        },
+      });
+
+      expect(tick.stdout).toContain("nudged https://github.com/o/r/pull/1#discussion_r1");
+      expect(tick.stdout).toContain(
+        `director: worktree HEAD ${localSha} does not include published gate ${publishedSha}; waiting for coder sync before post-address gate`,
+      );
+      expect(tick.stdout).not.toContain("director: post-address gate started");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "review_comment",
+            kind: "review_comment",
+            url: "https://github.com/o/r/pull/1#discussion_r1",
+            head_sha: publishedSha,
+          }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "address_done")).toBe(false);
+      expect(events.some((event) => event.event === "gate_stale")).toBe(false);
+
+      const after = readJsonLines<LogEntryJson>(harness.logs.tmux).filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
+      ).length;
+      expect(after).toBe(before);
+      expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(false);
 
       passed = true;
     } finally {
