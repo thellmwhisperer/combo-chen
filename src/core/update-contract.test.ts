@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the read-only updater contract foundation.
- *   ~210 lines, no exports, pins release identity, asset selection, checksums, install targets, and candidate comparison.
+ *   ~240 lines, no exports, pins release identity, asset selection, checksums, install targets, and candidate comparison.
  *
  *   READING GUIDE
  *   -------------
@@ -23,8 +23,11 @@
  *   none
  *
  * @exports none
- * @deps vitest, ./update-contract
+ * @deps node:{fs,os,path}, vitest, ./update-contract
  */
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -215,6 +218,25 @@ describe("update contract release identity", () => {
 
     expect(classifyInstallTarget({ path: "/work/combo-chen/node_modules/.bin/combo-chen" })).toEqual({
       path: "/work/combo-chen/node_modules/.bin/combo-chen",
+      kind: "dev_shim",
+      autoReplaceable: false,
+      reason: "package manager shim must not be auto-replaced",
+    });
+  });
+
+  it("classifies real node_modules .bin symlinks by the original shim path", () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-update-contract-"));
+    const releaseBin = join(root, "combo-chen-v1.2.3", "bin");
+    const shimBin = join(root, "node_modules", ".bin");
+    mkdirSync(releaseBin, { recursive: true });
+    mkdirSync(shimBin, { recursive: true });
+    const releaseTarget = join(releaseBin, "combo-chen");
+    const shimPath = join(shimBin, "combo-chen");
+    writeFileSync(releaseTarget, "cli\n");
+    symlinkSync(releaseTarget, shimPath);
+
+    expect(classifyInstallTarget({ path: shimPath })).toEqual({
+      path: shimPath,
       kind: "dev_shim",
       autoReplaceable: false,
       reason: "package manager shim must not be auto-replaced",
