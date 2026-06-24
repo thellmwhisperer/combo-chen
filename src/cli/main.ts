@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1068 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1079 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -1015,6 +1015,10 @@ function recordForensicsOutcomes(
     if (report.issueUrl.trim() === "") {
       throw new Error(`Cannot record forensics outcome for ${report.id}: combo has no GitHub issue URL`);
     }
+    const missing = missingOutcomeEvidence(report);
+    if (missing.length > 0) {
+      throw new Error(`Cannot record forensics outcome for ${report.id}: missing ${missing.join(" and ")}`);
+    }
     const body = renderForensicsOutcomeMarkdown(report);
     const result = deps.gh(["issue", "comment", report.issueUrl, "--body", body]);
     if (result.status !== 0) {
@@ -1023,6 +1027,13 @@ function recordForensicsOutcomes(
     }
     deps.out(`forensics: recorded outcome for ${report.id} on ${report.issueUrl}`);
   }
+}
+
+function missingOutcomeEvidence(report: ReturnType<typeof analyzeForensicsCombo>): string[] {
+  const missing: string[] = [];
+  if (report.prUrl === undefined) missing.push("PR link");
+  if (report.gates.reviewer.headSha === undefined) missing.push("head SHA");
+  return missing;
 }
 
 function collectForensicsTmuxFacts(deps: Deps, combo: ComboRecord): { sessionExists: boolean; windows?: string[] } | undefined {
