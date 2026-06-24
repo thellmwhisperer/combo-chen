@@ -83,7 +83,24 @@ if (args[0] === "axi" && args[1] === "run") {
   }
   const delay = Number.parseInt(process.env.E2E_NO_MISTAKES_RUN_DELAY_MS || "250", 10);
   if (Number.isFinite(delay) && delay > 0) sleep(delay);
+  if (process.env.E2E_NO_MISTAKES_FAIL_AXI_RUN === "1") {
+    const state = load();
+    state.active = false;
+    save(state);
+    process.stdout.write("run: failed\n  review: failed\n");
+    process.stdout.write('error: "step review failed: agent review: acp:opencode output parse: JSON output findings[1].action must match one of the allowed values"\n');
+    process.exit(1);
+  }
   process.stdout.write("outcome: checks-passed\n");
+  process.exit(0);
+}
+
+if (args[0] === "attach" && args[1] === "--run") {
+  if (process.env.E2E_NO_MISTAKES_ATTACH_FAIL === "1") {
+    process.stderr.write(`get run: run not found: ${JSON.stringify(args[2] || "")}\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`attached ${args[2] || ""}\n`);
   process.exit(0);
 }
 

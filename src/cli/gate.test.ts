@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~380 lines, attach, config artifact, mirror sync, and runtime snapshot use.
+ * @overview Unit tests for gatekeeper CLI helpers. ~410 lines, attach, config artifact, mirror sync, and runtime snapshot use.
  *
  *   READING GUIDE
  *   -------------
@@ -117,6 +117,23 @@ describe("gatekeeper attach window helpers", () => {
         "done",
       ].join("\n"),
     );
+  });
+
+  it("can stop polling when the generated gate script has already finished", () => {
+    const command = buildGatekeeperAttachCommand(
+      combo({ worktree: "/tmp/o'hara worktree" }),
+      {
+        timeoutSeconds: 45,
+        retryIntervalSeconds: 15,
+        replaceProcess: false,
+        stopWhenFileExists: "/tmp/o'hara gate.done",
+      },
+    );
+
+    expect(command).toContain("gatekeeper_done_file='/tmp/o'\\''hara gate.done'");
+    expect(command).toContain('if [ -n "$gatekeeper_done_file" ] && [ -f "$gatekeeper_done_file" ]; then');
+    expect(command).toContain("gatekeeper-attach: gate script finished before attach became available");
+    expect(command).toContain("exit 2");
   });
 
   it("starts the gatekeeper window only when it is absent", () => {
@@ -248,8 +265,12 @@ describe("gatekeeper runtime config snapshots", () => {
     expect(script.indexOf("gate-lease acquire")).toBeLessThan(script.indexOf("no-mistakes axi run"));
     const gatekeeperWindowCommand = calls.find((call) => call[0] === "new-window")?.at(-1) ?? "";
     expect(gatekeeperWindowCommand).toContain("no-mistakes attach --run");
+    expect(gatekeeperWindowCommand).toContain("gatekeeper-attach: gate script finished before attach became available");
     expect(gatekeeperWindowCommand).toContain(
-      `sh '${join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh")}' > "$combo_chen_gate_script_window_log" 2>&1 &`,
+      `sh '${join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh")}' > "$combo_chen_gate_script_window_log" 2>&1`,
+    );
+    expect(gatekeeperWindowCommand).toContain(
+      `combo_chen_gate_script_done='${join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh.window.log.done")}'`,
     );
     expect(gatekeeperWindowCommand).toContain('wait "$combo_chen_gate_script_pid"');
   });
