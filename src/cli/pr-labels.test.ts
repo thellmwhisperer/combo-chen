@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~555 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~595 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
@@ -222,6 +222,7 @@ describe("combo PR label projection", () => {
         mergeStateStatus: "DIRTY",
         statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
       },
+      activity: { gateActive: true },
       greenCheckNames: ["ExternalReview"],
     });
 
@@ -274,6 +275,45 @@ describe("combo PR label projection", () => {
     ).toEqual({
       add: ["combo:stale"],
       remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
+    });
+  });
+
+  it("keeps the coder owner label when a newer local addressed head has a failed gate", () => {
+    const localHead = "dddddddddddddddddddddddddddddddddddddddd";
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: HEAD }),
+        event("lgtm", { sha: HEAD }),
+        event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+        event("review_comment", {
+          author: "teseo",
+          kind: "review",
+          url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+          head_sha: HEAD,
+        }),
+        event("address_done", { head_sha: localHead }),
+        event("gate_stale", { old_sha: HEAD, new_sha: localHead }),
+        event("gate_started"),
+        event("gate_status", { state: "fix_inflight", head_sha: localHead }),
+        event("gate_status", { state: "failed", head_sha: localHead }),
+        event("gate_failed", { exit_code: 1, reason: "gate_failed" }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [
+          checkRun("unit", "SUCCESS"),
+          checkRun("ExternalReview", "SUCCESS"),
+        ],
+      },
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(projection.labels).toEqual(["combo:working-coder", "combo:stale"]);
+    expect(diffComboPrLabels(["combo:stale"], projection.labels)).toEqual({
+      add: ["combo:working-coder"],
+      remove: [],
     });
   });
 
