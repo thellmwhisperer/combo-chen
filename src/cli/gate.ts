@@ -530,6 +530,10 @@ export function startInitialGateRetry(input: {
   );
   chmodSync(scriptPath, 0o755);
 
+  refreshGatekeeperWindow(deps, combo, {
+    timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+    retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+  });
   killWindowIfPresent(deps, combo, GATE_RUNNER_WINDOW);
   const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATE_RUNNER_WINDOW, `sh ${shellQuote(scriptPath)}`));
   if (created.status !== 0) {
