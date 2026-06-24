@@ -657,7 +657,7 @@ export function createProgram(deps: Deps): Command {
     .description("Resume a persisted combo without starting a fresh run")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
-      resumeCombo({
+      await resumeCombo({
         deps,
         home: comboHome(deps.env),
         comboId: options.name,
