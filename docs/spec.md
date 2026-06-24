@@ -364,14 +364,15 @@ ignored config or environment outside that file.
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo: windows for coder, gatekeeper, director,
+- One tmux session per combo: windows for coder, journal, gatekeeper, director,
   and any interactive agent roles (reviewer, coder responding mode). The gatekeeper
   window resolves the branch's no-mistakes run id from the local no-mistakes
   state, then follows `no-mistakes axi status --run <id>` instead of using
   global attach, so simultaneous combos cannot render each other's run. On
   `gate_started` the emit handler recreates the gatekeeper window so the live
   role window is visible when no-mistakes becomes active. The coder window
-  streams live coder stdout/stderr and includes a short (12-line) journal pane showing live events. After PR open,
+  streams live coder stdout/stderr, while the journal window tails
+  `combo-chen events --follow` so raw event output never replaces the coder role. After PR open,
   one `director-watch` window runs the polling loop and renders a
   per-tick operator status line (combo id, phase age, PR state/head,
   last journal event age, GitHub poll timing, worker counters, gate

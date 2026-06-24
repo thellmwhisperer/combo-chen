@@ -1,15 +1,15 @@
 /**
- * @overview tmux session helpers. ~190 lines, 12 exports, attach and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~180 lines, 12 exports, attach and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveAttachCombo    <- resolves explicit or sole running combo.
- *   2. Then ensureJournalPane         <- keeps event tail visible in coder window.
+ *   2. Then ensureJournalPane         <- keeps event tail visible in a journal window.
  *   3. Use kill helpers on demand     <- stop/reviewer cleanup paths.
  *
  *   MAIN FLOW
  *   ---------
- *   resolveAttachCombo -> running combo; ensureJournalPane -> inspect panes -> split event tail
+ *   resolveAttachCombo -> running combo; ensureJournalPane -> ensure journal role window
  *
  *   PUBLIC API
  *   ----------
@@ -19,20 +19,19 @@
  *
  *   INTERNALS
  *   ---------
- *   windowSet, paneCount, tmuxFailureText, isMissingSession
+ *   windowSet, tmuxFailureText, isMissingSession
  *
  * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, resolveAttachCombo, ensureJournalPane
- * @deps ../core/state, ../infra/tmux
+ * @deps ../core/combo, ../core/state, ../infra/tmux
  */
+import { shellQuote } from "../core/combo.js";
 import { type ComboRecord, listCombos } from "../core/state.js";
 import {
   hasSessionArgs,
   killSessionArgs,
   killWindowArgs,
-  listPanesArgs,
   listWindowsArgs,
   newWindowArgs,
-  splitWindowArgs,
   type TmuxResult,
 } from "../infra/tmux.js";
 
@@ -158,35 +157,16 @@ export function resolveAttachCombo(
 // -/ 2/3
 
 // -- 3/3 CORE · ensureJournalPane --
-function paneCount(stdout: string): number {
-  return stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean).length;
-}
-
 export function ensureJournalPane(
   deps: SessionDeps,
   combo: ComboRecord,
   cliInvocation: string,
 ): void {
-  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, CODER_WINDOW));
-  if (listed.status !== 0) {
-    throw new Error(
-      `tmux failed to inspect coder panes in "${combo.tmuxSession}": ` +
-        `${listed.stderr.trim() || "unknown error"}`,
-    );
-  }
-  if (paneCount(listed.stdout) >= 2) return;
-
-  const split = deps.tmux(
-    splitWindowArgs(combo.tmuxSession, CODER_WINDOW, `${cliInvocation} events --follow -n ${combo.id}`),
+  ensureWindowPresent(
+    deps,
+    combo,
+    JOURNAL_WINDOW,
+    `${cliInvocation} events --follow -n ${shellQuote(combo.id)}`,
   );
-  if (split.status !== 0) {
-    throw new Error(
-      `tmux failed to recreate the journal pane in "${combo.tmuxSession}": ` +
-        `${split.stderr.trim() || "unknown error"}`,
-    );
-  }
 }
 // -/ 3/3

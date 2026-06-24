@@ -120,6 +120,7 @@ import {
   DIRECTOR_WATCH_WINDOW,
   ensureJournalPane,
   ensureWindowPresent,
+  JOURNAL_WINDOW,
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, formatGateLeaseStatus, type CommandResult } from "./status.js";
@@ -321,6 +322,7 @@ export function createProgram(deps: Deps): Command {
             cli: cliInvocation(),
             roleWindows: {
               coder: CODER_WINDOW,
+              journal: JOURNAL_WINDOW,
               director: DIRECTOR_WINDOW,
               gatekeeper: GATEKEEPER_WINDOW,
               directorWatch: DIRECTOR_WATCH_WINDOW,

@@ -16,7 +16,7 @@
  *   │ command surface       Verifies all commands are registered     │
  *   │ overture              Launch runway checklist + artifact       │
  *   │ run                   Worktree + runner.sh + tmux session      │
- *   │ attach                Session resolution and journal pane      │
+ *   │ attach                Session resolution and journal window    │
  *   │ activate-coder        Coder resume worker                      │
  *   │ nudge-review-comments Mirror sync + PR comment routing         │
  *   │ director-prompt       Manual director prompt endpoint           │
@@ -1533,7 +1533,7 @@ describe("attach", () => {
     expect(calls.some((call) => call[1] === "attach")).toBe(false);
   });
 
-  it("recreates a missing journal pane before attaching", async () => {
+  it("recreates a missing journal window before attaching", async () => {
     const h = home();
     seedCombo(h, "o-r-7", "2026-06-10T10:00:00.000Z");
     const { deps, calls } = fakeDeps({
@@ -1541,28 +1541,28 @@ describe("attach", () => {
       tmux: (args) => {
         calls.push(["tmux", ...args]);
         if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
-        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
     });
 
     await exec(deps, ["attach", "--name", "o-r-7"]);
 
-    const splitIndex = calls.findIndex((call) => call[1] === "split-window");
+    const journalIndex = calls.findIndex(
+      (call) => call[1] === "new-window" && call[call.indexOf("-n") + 1] === "journal",
+    );
     const attachIndex = calls.findIndex((call) => call[1] === "attach");
-    expect(calls[splitIndex]).toEqual([
+    expect(calls[journalIndex]).toEqual([
       "tmux",
-      "split-window",
-      "-d",
-      "-v",
-      "-l",
-      "12",
+      "new-window",
       "-t",
-      "combo-chen-o-r-7:coder",
-      expect.stringContaining("events --follow -n o-r-7"),
+      "combo-chen-o-r-7",
+      "-n",
+      "journal",
+      expect.stringContaining("events --follow -n 'o-r-7'"),
     ]);
     expect(calls[attachIndex]).toEqual(["tmux", "attach", "-t", "combo-chen-o-r-7"]);
-    expect(splitIndex).toBeLessThan(attachIndex);
+    expect(journalIndex).toBeLessThan(attachIndex);
     expect(calls.some((call) => call[1] === "select-pane")).toBe(false);
   });
 });
@@ -2831,6 +2831,7 @@ describe("run", () => {
       tmuxSession: "combo-chen-o-r-7",
       roleWindows: {
         coder: "coder",
+        journal: "journal",
         director: "director",
         gatekeeper: "gatekeeper",
         directorWatch: "director-watch",
@@ -2882,6 +2883,16 @@ describe("run", () => {
     expect(tmuxNewSession).toContain("combo-chen-o-r-7");
     expect(tmuxNewSession).toContain("coder");
     const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
+    const journalWindow = tmuxNewWindows.find((call) => call[call.indexOf("-n") + 1] === "journal");
+    expect(journalWindow).toEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      "journal",
+      expect.stringContaining("events --follow -n 'o-r-7'"),
+    ]);
     const directorWindow = tmuxNewWindows.find((call) => call[call.indexOf("-n") + 1] === "director");
     expect(directorWindow).toEqual([
       "tmux",
@@ -2914,17 +2925,7 @@ describe("run", () => {
       "director-watch",
       expect.stringContaining("director-tick -n 'o-r-7'"),
     ]);
-    expect(calls).toContainEqual([
-      "tmux",
-      "split-window",
-      "-d",
-      "-v",
-      "-l",
-      "12",
-      "-t",
-      "combo-chen-o-r-7:coder",
-      expect.stringContaining("events --follow -n o-r-7"),
-    ]);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "split-window")).toBe(false);
     expect(calls.some((call) => call[1] === "select-pane")).toBe(false);
 
     const events = readEvents(runDir);
@@ -3205,7 +3206,7 @@ exit 0
     ]);
   });
 
-  it("does not delete run state or worktree when journal-pane rollback cannot kill tmux", async () => {
+  it("does not delete run state or worktree when journal-window rollback cannot kill tmux", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const { deps, calls } = fakeDeps({
@@ -3214,8 +3215,10 @@ exit 0
         calls.push(["tmux", ...args]);
         if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "" };
         if (args[0] === "new-session") return { status: 0, stdout: "", stderr: "" };
-        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
-        if (args[0] === "split-window") return { status: 1, stdout: "", stderr: "pane failed" };
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
+        if (args[0] === "new-window" && args.includes("journal")) {
+          return { status: 1, stdout: "", stderr: "window failed" };
+        }
         if (args[0] === "kill-session") return { status: 1, stdout: "", stderr: "server busy" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -3233,7 +3236,7 @@ exit 0
     expect(calls.some((call) => call[0] === "git" && call.includes("-D"))).toBe(false);
   });
 
-  it("rolls back run state after killing tmux when journal-pane setup fails", async () => {
+  it("rolls back run state after killing tmux when journal-window setup fails", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const { deps, calls } = fakeDeps({
@@ -3242,24 +3245,28 @@ exit 0
         calls.push(["tmux", ...args]);
         if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "" };
         if (args[0] === "new-session") return { status: 0, stdout: "", stderr: "" };
-        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
-        if (args[0] === "split-window") return { status: 1, stdout: "", stderr: "pane failed" };
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
+        if (args[0] === "new-window" && args.includes("journal")) {
+          return { status: 1, stdout: "", stderr: "window failed" };
+        }
         return { status: 0, stdout: "", stderr: "" };
       },
     });
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
-      /journal pane.*pane failed/,
+      /journal.*window failed/,
     );
 
-    const splitIndex = calls.findIndex((call) => call[0] === "tmux" && call[1] === "split-window");
+    const journalIndex = calls.findIndex(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("journal"),
+    );
     const killIndex = calls.findIndex((call) => call[0] === "tmux" && call[1] === "kill-session");
     const worktreeRemoveIndex = calls.findIndex(
       (call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"),
     );
     const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
-    expect(splitIndex).toBeGreaterThan(-1);
-    expect(killIndex).toBeGreaterThan(splitIndex);
+    expect(journalIndex).toBeGreaterThan(-1);
+    expect(killIndex).toBeGreaterThan(journalIndex);
     expect(worktreeRemoveIndex).toBeGreaterThan(killIndex);
     expect(branchDeleteIndex).toBeGreaterThan(worktreeRemoveIndex);
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
