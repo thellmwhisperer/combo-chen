@@ -35,7 +35,7 @@ import {
   checkSignalIsSuccess,
   requiredChecksSucceeded,
 } from "./checks.js";
-import { latestPublishedGateSha, shaMatchesHead } from "./gate.js";
+import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import type { GhRunner } from "./github.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -375,7 +375,10 @@ function currentWorkLabel(
   headSha: string,
   activity: ComboPrLabelProjectionInput["activity"] = {},
 ): ComboPrLabel | undefined {
-  if (activity.gateActive || journalGateActive(events)) return "combo:working-gate";
+  const lastGateStatus = latestGateStatus(events);
+  if (lastGateStatus?.state !== "failed" && (activity.gateActive || journalGateActive(events))) {
+    return "combo:working-gate";
+  }
   if (activity.coderRespondingActive || hasUnaddressedReviewComment(events, headSha)) {
     return "combo:working-coder";
   }
