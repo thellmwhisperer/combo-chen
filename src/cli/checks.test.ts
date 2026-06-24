@@ -31,6 +31,10 @@ function checkRun(name: string, conclusion: string): unknown {
   return { __typename: "CheckRun", name, status: "COMPLETED", conclusion };
 }
 
+function statusContext(context: string, state: string, description?: string): unknown {
+  return { __typename: "StatusContext", context, state, description };
+}
+
 describe("GitHub check readiness helpers", () => {
   it("keeps configured required READY checks out of the normal CI rollup", () => {
     expect(
@@ -82,6 +86,13 @@ describe("GitHub check readiness helpers", () => {
 
   it("does not treat a skipped CodeRabbit check as a required READY success", () => {
     expect(requiredChecksSucceeded([checkRun("CodeRabbit", "SKIPPED")], ["CodeRabbit"])).toBe(false);
+  });
+
+  it("does not accept skipped review statuses as required READY checks", () => {
+    const skippedReview = statusContext("CodeRabbit", "SUCCESS", "Review skipped");
+
+    expect(requiredChecksSucceeded([checkRun("unit", "SUCCESS"), skippedReview], ["CodeRabbit"])).toBe(false);
+    expect(checkRollupSucceeded([skippedReview], { requiredCheckNames: ["CodeRabbit"] })).toBe(false);
   });
 });
 // -/ 1/1

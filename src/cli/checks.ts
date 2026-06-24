@@ -1,6 +1,6 @@
 /**
  * @overview GitHub check-rollup helpers for CI and configured READY checks.
- *   ~105 lines, 6 exports, provider-name matching without provider-specific logic.
+ *   ~120 lines, 6 exports, provider-name matching without provider-specific logic.
  *
  *   READING GUIDE
  *   -------------
@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   isRecord, upperString, checkLabels
+ *   isRecord, upperString, checkSignalIsReviewSkipped, checkLabels
  *
  * @exports checkName, checkNameMatchesAny, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded
  * @deps none
@@ -41,6 +41,16 @@ function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
 }
 
+function lowerString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== "" ? value.trim().toLowerCase() : undefined;
+}
+
+function checkSignalIsReviewSkipped(item: Record<string, unknown>): boolean {
+  return [item["description"], item["summary"], item["title"], item["text"]].some((value) =>
+    lowerString(value)?.includes("review skipped"),
+  );
+}
+
 function checkLabels(item: unknown): string[] {
   if (!isRecord(item)) return [];
   const parts = [item["name"], item["context"], item["workflowName"]];
@@ -55,6 +65,7 @@ export function checkName(item: unknown): string {
 
 export function checkSignalSucceeded(item: unknown): boolean {
   if (!isRecord(item)) return false;
+  if (checkSignalIsReviewSkipped(item)) return false;
   const conclusion = upperString(item["conclusion"]);
   if (conclusion !== undefined) return SUCCESSFUL_CHECK_CONCLUSIONS.has(conclusion);
   const state = upperString(item["state"] ?? item["status"]);
@@ -64,6 +75,7 @@ export function checkSignalSucceeded(item: unknown): boolean {
 
 export function checkSignalIsSuccess(item: unknown): boolean {
   if (!isRecord(item)) return false;
+  if (checkSignalIsReviewSkipped(item)) return false;
   const conclusion = upperString(item["conclusion"]);
   if (conclusion !== undefined) return conclusion === "SUCCESS";
   const state = upperString(item["state"] ?? item["status"]);
@@ -90,7 +102,7 @@ export function checkRollupSucceeded(
   const ignoredCheckNames = requiredCheckNames.concat(options.ambientCheckNames ?? []);
   const checks = rollup.filter((item) => !checkNameMatchesAny(item, ignoredCheckNames));
   if (checks.length > 0) return checks.every(checkSignalSucceeded);
-  return rollup.some((item) => checkNameMatchesAny(item, requiredCheckNames));
+  return requiredCheckNames.length > 0 && requiredChecksSucceeded(rollup, requiredCheckNames);
 }
 
 export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredCheckNames: string[]): boolean {
