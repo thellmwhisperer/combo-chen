@@ -627,6 +627,9 @@ Every future parallel run should capture postmortem metadata: wave size,
 combo ids, branches, PR URLs, gate lease wait/conflict counts, reviewer auth
 incidents, parked/resumed capsules, closure outcomes, validation commands, and
 whether the wave-derived limit changed.
+`combo-chen forensics` renders those dogfood/postmortem fields as a copy-ready
+outcome block: PR link, head SHA, review/check state, failures found, and
+follow-up bug status.
 
 ## 8c. Preflight
 
