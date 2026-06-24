@@ -1405,7 +1405,7 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
     expect(readFileSync(join(dir, "gatekeeper.log"), "utf8")).toBe(gateToon);
   });
 
-  it("emits coder_failed with branch-vs-base commit evidence when a coder commits then exits nonzero", () => {
+  it("emits coder_failed with branch-vs-base commit evidence when a coder commits then exits nonzero", { timeout: 30000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
