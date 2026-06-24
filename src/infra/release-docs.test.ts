@@ -1,14 +1,14 @@
 /**
- * @overview Contract tests for the public release and update documentation.
+ * @overview Contract tests for public release, update, and command documentation.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at describe("release docs") <- updater-facing documentation contract.
+ *   1. Start at describe("release docs") <- public documentation contracts.
  *   2. The helper only loads checked-in Markdown docs.
  *
  *   MAIN FLOW
  *   ---------
- *   README/spec markdown -> canonical release/update command strings
+ *   README/spec markdown -> canonical release/update and command strings
  *
  *   PUBLIC API
  *   ----------
@@ -71,6 +71,14 @@ describe("release docs", () => {
       expect(doc).toContain("U3: install target and atomic replacement");
       expect(doc).toContain("U4: live combo/session integration owned by #72");
     }
+  });
+
+  it("documents forensics JSON output and outcome posting as separate command forms", () => {
+    const readme = readDoc("README.md");
+
+    expect(readme).toContain("combo-chen forensics --issues <numbers> [--format json]\n");
+    expect(readme).toContain("combo-chen forensics --issues <numbers> [--record-outcome]\n");
+    expect(readme).not.toContain("combo-chen forensics --issues <numbers> [--format json] [--record-outcome]");
   });
 });
 // -/ 2/2

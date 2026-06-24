@@ -357,7 +357,8 @@ combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
 combo-chen resume -n <combo-id>
-combo-chen forensics --issues <numbers> [--format json] [--record-outcome]
+combo-chen forensics --issues <numbers> [--format json]
+combo-chen forensics --issues <numbers> [--record-outcome]
 combo-chen reconcile [-n <combo-id>] [--apply]
 combo-chen stop -n <combo-id>
 combo-chen director-prompt -n <combo-id> --reason <reason> <message...>
