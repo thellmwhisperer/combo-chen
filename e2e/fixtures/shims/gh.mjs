@@ -30,6 +30,19 @@ function uniq(values) {
   return [...new Set(values)];
 }
 
+function statusCheckRollup() {
+  const rollup = [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" }];
+  if (process.env.E2E_CODERABBIT_SKIPPED_STATUS === "1") {
+    rollup.push({
+      __typename: "StatusContext",
+      context: "CodeRabbit",
+      state: "SUCCESS",
+      description: "Review skipped",
+    });
+  }
+  return rollup;
+}
+
 if (args[0] === "pr" && args[1] === "list") {
   process.stdout.write(`${process.env.E2E_PR_URL || "https://github.com/o/r/pull/1"}\n`);
   process.exit(0);
@@ -49,7 +62,7 @@ if (args[0] === "pr" && args[1] === "view") {
     baseRefName: "main",
     mergeCommit: { oid: process.env.E2E_MERGE_SHA || "merge" },
     labels: state.prLabels.map((name) => ({ name })),
-    statusCheckRollup: [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+    statusCheckRollup: statusCheckRollup(),
   })}\n`);
   process.exit(0);
 }
