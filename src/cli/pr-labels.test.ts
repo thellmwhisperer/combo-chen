@@ -101,11 +101,27 @@ describe("combo PR label projection", () => {
 
     expect(
       labels({
-        events: [event("pr_opened", { url: PR_URL })],
+        events: [event("pr_opened", { url: PR_URL }), event("gate_started")],
         pr: { state: "OPEN", headSha: HEAD },
         activity: { gateActive: true, reviewerActive: true },
       }),
     ).toEqual(["combo:working-gate"]);
+  });
+
+  it("does not project gate ownership from a retained idle gatekeeper window", () => {
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_started"),
+        event("gate_status", { state: "idle", head_sha: OLD_HEAD }),
+        event("gate_validated", { sha: OLD_HEAD }),
+      ],
+      pr: { state: "OPEN", headSha: HEAD },
+      activity: { gateActive: true },
+    });
+
+    expect(projection.labels).toEqual(["combo:stale"]);
+    expect(diffComboPrLabels(["combo:stale"], projection.labels)).toEqual({ add: [], remove: [] });
   });
 
   it("projects current-head LGTM, configured green check, and READY labels only when live signals agree", () => {
