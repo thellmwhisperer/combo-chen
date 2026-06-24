@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the read-only updater contract foundation.
- *   ~240 lines, no exports, pins release identity, asset selection, checksums, install targets, and candidate comparison.
+ *   ~360 lines, no exports, pins release identity, asset selection, checksums, install targets, and candidate comparison.
  *
  *   READING GUIDE
  *   -------------
