@@ -25,7 +25,7 @@
  *   INTERNALS
  *   ---------
  *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
- *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand
+ *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -72,6 +72,7 @@ export interface PostAddressGateDeps extends GateDeps, GatekeeperWindowDeps {
 export interface GatekeeperAttachOptions {
   timeoutSeconds: number;
   retryIntervalSeconds: number;
+  replaceProcess?: boolean;
 }
 
 export const GATEKEEPER_WINDOW = "gatekeeper";
@@ -94,6 +95,9 @@ export function buildGatekeeperAttachCommand(
   // Resolve it through branch-aware axi status before attaching; bare attach is
   // repo-global in no-mistakes and can follow a sibling combo run.
   const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
+  const attachLine = options.replaceProcess === false
+    ? "    no-mistakes attach --run \"$no_mistakes_run_id\""
+    : "    exec no-mistakes attach --run \"$no_mistakes_run_id\"";
   return [
     `cd ${shellQuote(combo.worktree)}`,
     `expected_branch=${shellQuote(combo.branch)}`,
@@ -103,7 +107,7 @@ export function buildGatekeeperAttachCommand(
     "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
     "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
-    "    exec no-mistakes attach --run \"$no_mistakes_run_id\"",
+    attachLine,
     "  fi",
     "  attempt=$((attempt + 1))",
     `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
@@ -402,6 +406,35 @@ function buildPersistentGatekeeperWindowCommand(command: string): string {
   );
 }
 
+function buildScriptWithGatekeeperAttachCommand(
+  combo: ComboRecord,
+  scriptPath: string,
+  options: GatekeeperAttachOptions,
+): string {
+  const scriptWindowLog = `${scriptPath}.window.log`;
+  return buildPersistentGatekeeperWindowCommand(
+    shellScript(
+      `combo_chen_gate_script_window_log=${shellQuote(scriptWindowLog)}`,
+      `sh ${shellQuote(scriptPath)} > "$combo_chen_gate_script_window_log" 2>&1 &`,
+      "combo_chen_gate_script_pid=$!",
+      "combo_chen_gate_attach_code=0",
+      "(",
+      indentShellLines(
+        buildGatekeeperAttachCommand(combo, { ...options, replaceProcess: false }).split(/\r?\n/),
+        2,
+      ),
+      ") || combo_chen_gate_attach_code=$?",
+      'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
+      '  printf "[combo-chen] gatekeeper attach exited with code %s; waiting for script.\\n" "$combo_chen_gate_attach_code" >&2',
+      '  tail -80 "$combo_chen_gate_script_window_log" >&2 2>/dev/null || true',
+      "fi",
+      "combo_chen_gate_script_code=0",
+      'wait "$combo_chen_gate_script_pid" || combo_chen_gate_script_code=$?',
+      'exit "$combo_chen_gate_script_code"',
+    ),
+  );
+}
+
 function gateFailureReasonScript(): string[] {
   return [
     "gatekeeper_failure_reason=gate_failed",
@@ -566,12 +599,17 @@ export function startInitialGateRetry(input: {
   );
   chmodSync(scriptPath, 0o755);
 
-  refreshGatekeeperWindow(deps, combo, {
-    timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-    retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-  });
-  killWindowIfPresent(deps, combo, GATE_RUNNER_WINDOW);
-  const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATE_RUNNER_WINDOW, `sh ${shellQuote(scriptPath)}`));
+  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
+  const created = deps.tmux(
+    newWindowArgs(
+      combo.tmuxSession,
+      GATEKEEPER_WINDOW,
+      buildScriptWithGatekeeperAttachCommand(combo, scriptPath, {
+        timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+        retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+      }),
+    ),
+  );
   if (created.status !== 0) {
     throw new Error(
       `tmux failed to start initial gate runner in "${combo.tmuxSession}": ` +
@@ -682,6 +720,7 @@ function startPostAddressGate(input: {
   headSha: string;
   prUrl: string;
   cli: string;
+  attachOptions: GatekeeperAttachOptions;
 }): void {
   const scriptPath = join(input.runDir, `gatekeeper-post-${input.headSha.slice(0, 12)}.sh`);
   writeFileSync(
@@ -703,7 +742,7 @@ function startPostAddressGate(input: {
   );
   chmodSync(scriptPath, 0o755);
 
-  const command = buildPersistentGatekeeperWindowCommand(`sh ${shellQuote(scriptPath)}`);
+  const command = buildScriptWithGatekeeperAttachCommand(input.combo, scriptPath, input.attachOptions);
 
   killWindowIfPresent(input.deps, input.combo, GATE_RUNNER_WINDOW);
   const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATE_RUNNER_WINDOW, command));
@@ -774,6 +813,10 @@ export function restartPostAddressGate(input: {
     headSha,
     prUrl,
     cli,
+    attachOptions: {
+      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+    },
   });
   return { started: true, headSha };
 }
@@ -854,6 +897,10 @@ export function runPostAddressGateIfNeeded(input: {
     headSha,
     prUrl,
     cli,
+    attachOptions: {
+      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+    },
   });
   deps.out(`director: post-address gate started for ${combo.id} at ${headSha}`);
 }
