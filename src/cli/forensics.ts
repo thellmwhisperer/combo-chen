@@ -1,5 +1,5 @@
 /**
- * @overview Combo forensics report model and renderers. ~375 lines, pure analysis only.
+ * @overview Combo forensics report model and renderers. ~407 lines, pure analysis only.
  *
  *   READING GUIDE
  *   -------------
@@ -277,6 +277,12 @@ export function renderForensicsMarkdown(reports: ForensicsComboReport[]): string
     if (report.issueUrl.trim() !== "") lines.push(`- GitHub issue: ${report.issueUrl}`);
     lines.push(`- PR: ${report.prUrl ?? "unknown"}`);
     lines.push(`- Phase: ${report.phase}`);
+    lines.push("- Outcome:");
+    lines.push(`  - PR link: ${report.prUrl ?? "unknown"}`);
+    lines.push(`  - Head SHA: ${report.gates.reviewer.headSha ?? "unknown"}`);
+    lines.push(`  - Review/check state: ${reviewCheckState(report)}`);
+    lines.push(`  - Failures found: ${failuresFound(report)}`);
+    lines.push(`  - Follow-up bugs: ${followUpBugs(report)}`);
     lines.push(
       [
         "- Timings:",
@@ -317,6 +323,29 @@ export function renderForensicsMarkdown(reports: ForensicsComboReport[]): string
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+function reviewCheckState(report: ForensicsComboReport): string {
+  return [
+    `reviewer=${currentSignal(report.gates.reviewer.current, report.gates.reviewer.headSha)}`,
+    `gatekeeper=${currentSignal(report.gates.gatekeeper.current, report.gates.reviewer.headSha)}`,
+    `required READY checks=${report.gates.readyRequiredChecks}`,
+    `CI=${report.gates.ci}`,
+  ].join(" · ");
+}
+
+function currentSignal(current: boolean, headSha: string | undefined): "current" | "not current" | "unknown" {
+  if (headSha === undefined) return "unknown";
+  return current ? "current" : "not current";
+}
+
+function failuresFound(report: ForensicsComboReport): string {
+  if (report.incidents.length === 0) return "none";
+  return report.incidents.map((item) => `${item.id} (${item.severity})`).join("; ");
+}
+
+function followUpBugs(report: ForensicsComboReport): string {
+  return report.incidents.length === 0 ? "none recorded" : "not recorded; inspect failures above";
 }
 
 function latestPrUrl(events: ComboEvent[]): string | undefined {

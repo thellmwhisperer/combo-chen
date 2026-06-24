@@ -390,7 +390,10 @@ consume it automatically.
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream
   state. It does not start a fresh run on an existing combo.
-- `forensics` produces a read-only report for stalled or confusing runs.
+- `forensics` produces a read-only report for stalled or confusing runs. The
+  markdown includes a copy-ready outcome block with PR link, head SHA,
+  review/check state, failures found, and follow-up bug status for dogfood
+  records.
 - `reconcile --apply` repairs journals that froze before a merged or closed PR
   was recorded locally. Add `-n <combo-id>` to scope repair and teardown to a
   single combo. Teardown is idempotent: already-clean worktrees, branches, and
