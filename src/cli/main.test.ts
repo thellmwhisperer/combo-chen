@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7170 lines.
+ *   deps so tests run without a real terminal or network. ~7180 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -3540,6 +3540,18 @@ describe("resume", () => {
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
     expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    const recreatedSession = calls.find((call) => call[0] === "tmux" && call[1] === "new-session");
+    expect(recreatedSession).toEqual([
+      "tmux",
+      "new-session",
+      "-d",
+      "-s",
+      "combo-chen-o-r-7",
+      "-n",
+      "journal",
+      expect.stringContaining("events --follow -n 'o-r-7'"),
+    ]);
+    expect(recreatedSession).not.toContain("coder");
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))).toBe(true);
     const gatekeeperCommand = calls.find(
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
