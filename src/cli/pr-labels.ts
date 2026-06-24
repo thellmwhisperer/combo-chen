@@ -376,7 +376,7 @@ function currentWorkLabel(
   activity: ComboPrLabelProjectionInput["activity"] = {},
 ): ComboPrLabel | undefined {
   const lastGateStatus = latestGateStatus(events);
-  if (lastGateStatus?.state !== "failed" && (activity.gateActive || journalGateActive(events))) {
+  if (lastGateStatus?.state !== "failed" && journalGateActive(events)) {
     return "combo:working-gate";
   }
   if (activity.coderRespondingActive || hasUnaddressedReviewComment(events, headSha)) {
@@ -390,6 +390,11 @@ function journalGateActive(events: ComboEvent[]): boolean {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
     if (event.event === "gate_started") return true;
+    if (event.event === "gate_status") {
+      const state = stringField(event, "state");
+      if (state === "fix_inflight" || state === "awaiting_approval") return true;
+      if (state === "idle" || state === "failed") return false;
+    }
     if (
       event.event === "gate_validated" ||
       event.event === "gate_failed" ||
@@ -399,7 +404,6 @@ function journalGateActive(events: ComboEvent[]): boolean {
     ) {
       return false;
     }
-    if (event.event === "gate_status" && event["state"] === "idle") return false;
   }
   return false;
 }
