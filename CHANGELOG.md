@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.59](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.58...combo-chen-v0.0.59) (2026-06-24)
+
+
+### Features
+
+* **update:** Implemented the first active `combo-chen update --yes` assembly slice, wiring the CLI through release resolution, verified staging, and guarded replacement with a mocked integration test. ([a2c6469](https://github.com/thellmwhisperer/combo-chen/commit/a2c6469455e4190fd5eb5375462c5586815b6997))
+
+
+### Bug Fixes
+
+* **update:** Added a command-boundary guard so source-checkout update targets fail before staging, download, extraction, or replacement begins. ([77acb78](https://github.com/thellmwhisperer/combo-chen/commit/77acb7809f8b92797e7a658cb7f6a4c30b2fa474))
+* **update:** Added command-level checksum-mismatch failure reporting for `combo-chen update --yes` while preserving the no-extraction/no-replacement boundary. ([15b6cc2](https://github.com/thellmwhisperer/combo-chen/commit/15b6cc25fc113f91bfd6db2b2243e9ef54e037d7))
+* **update:** classify shims before realpath ([f9f585d](https://github.com/thellmwhisperer/combo-chen/commit/f9f585db9a23d812b41dc2b98c84f2a55de11082))
+* **update:** harden review edge cases ([b1e7cda](https://github.com/thellmwhisperer/combo-chen/commit/b1e7cda1fe4c94f86463d459b929959077b92916))
+* **update:** Pinned and fixed the remaining update download-failure path so a checksums asset download failure cleans staging, skips extraction/replacement, and reports a precise before-replacement error. ([72893f0](https://github.com/thellmwhisperer/combo-chen/commit/72893f08ad2a428100706a6156753689c8136006))
+* **update:** route missing checksums through staging ([263a064](https://github.com/thellmwhisperer/combo-chen/commit/263a064ce229dbb149d7ef8a9f0dc82c7eb746b5))
+
 ## [0.0.58](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.57...combo-chen-v0.0.58) (2026-06-23)
 
 
