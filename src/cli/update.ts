@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~310 lines, 4 exports, wires release resolution, verified staging, and installer replacement.
+ *   ~350 lines, 4 exports, wires release resolution, verified staging, and installer replacement.
  *
  *   READING GUIDE
  *   -------------
@@ -165,9 +165,6 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
   }
 
   const checksumsAsset = plan.candidate.assets.find((candidateAsset) => candidateAsset.name === RELEASE_CHECKSUMS_FILE);
-  if (checksumsAsset?.browserDownloadUrl === undefined) {
-    throw new Error(`release ${plan.candidate.tagName} is missing ${RELEASE_CHECKSUMS_FILE}`);
-  }
 
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
@@ -186,7 +183,7 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
         },
         checksums: {
           fileName: RELEASE_CHECKSUMS_FILE,
-          downloadUrl: checksumsAsset.browserDownloadUrl,
+          downloadUrl: checksumsAsset?.browserDownloadUrl,
         },
       },
       stagingDir,
