@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~1050 lines, log-derived regressions.
+ *   and process shims for external services. ~1150 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -771,6 +771,107 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       ).length;
       expect(after).toBe(before);
       expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(false);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("removes stale READY labels while a newer local addressed head is in gate", () => {
+    const harness = prepareHarness({ greenCheckNames: ["ExternalReview"] });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(join(combo.worktree, "label-fix.txt"), "addressed\n");
+      run("git", ["add", "label-fix.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: addressed local head"], { cwd: combo.worktree });
+      const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      expect(localSha).not.toBe(publishedSha);
+
+      writeFileSync(
+        harness.env.E2E_GH_STATE!,
+        `${JSON.stringify({
+          prLabels: ["combo:working-gate", "combo:lgtm", "combo:external-review-green", "combo:ready"],
+          knownLabels: ["combo:working-gate", "combo:lgtm", "combo:external-review-green", "combo:ready", "combo:stale"],
+          failedMissingLabelAdd: false,
+        }, null, 2)}\n`,
+      );
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+        ["lgtm", [`sha=${publishedSha}`]],
+        ["ready_for_merge", [`sha=${publishedSha}`, `pr_url=${prUrl}`]],
+        ["review_comment", [
+          "author=coderabbitai[bot]",
+          "kind=review_comment",
+          "url=https://github.com/o/r/pull/1#discussion_r1",
+          `head_sha=${publishedSha}`,
+        ]],
+        ["address_done", [`head_sha=${localSha}`]],
+        ["gate_stale", [`old_sha=${publishedSha}`, `new_sha=${localSha}`]],
+        ["gate_started", []],
+        ["gate_status", ["state=fix_inflight", `head_sha=${localSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: publishedSha,
+          E2E_PR_STATE: "OPEN",
+        },
+      });
+
+      expect(tick.stdout).toContain("gate already in flight");
+      const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
+      expect(ghState.prLabels).toEqual(["combo:working-gate", "combo:stale"]);
+
+      const ghLog = readJsonLines<LogEntryJson>(harness.logs.gh);
+      expect(ghLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            args: ["pr", "edit", prUrl, "--remove-label", "combo:lgtm,combo:external-review-green,combo:ready"],
+          }),
+          expect.objectContaining({
+            args: ["pr", "edit", prUrl, "--add-label", "combo:stale"],
+          }),
+        ]),
+      );
+
+      const labelEvents = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).filter(
+        (event) => event.event === "pr_labels_updated",
+      );
+      expect(labelEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            pr_url: prUrl,
+            head_sha: publishedSha,
+            removed_labels: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
+            reason: "stale",
+            source: "director-watch",
+          }),
+          expect.objectContaining({
+            pr_url: prUrl,
+            head_sha: publishedSha,
+            added_labels: ["combo:stale"],
+            reason: "stale",
+            source: "director-watch",
+          }),
+        ]),
+      );
 
       passed = true;
     } finally {
