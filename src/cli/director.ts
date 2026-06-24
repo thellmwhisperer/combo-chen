@@ -528,16 +528,6 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   const blockingMergeState = blockingReadyMergeState(prView);
   if (prView.state === "OPEN" && blockingMergeState !== undefined) {
     if (!hasPrConflict(events, headSha, prUrl, blockingMergeState)) {
-      appendEvent(runDir, "pr_conflict", {
-        sha: headSha,
-        pr_url: prUrl,
-        merge_state: blockingMergeState,
-        ...(prView.mergeable !== undefined ? { mergeable: prView.mergeable } : {}),
-        ...(prView.baseRefName !== undefined ? { base_ref: prView.baseRefName } : {}),
-        action: "rebase_required",
-        source: "github",
-      });
-      deps.out(`director: pr_conflict ${headSha} ${blockingMergeState}; action rebase_required`);
       try {
         nudgePrConflict({
           deps,
@@ -551,6 +541,16 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
             ...(prView.baseRefName !== undefined ? { baseRef: prView.baseRefName } : {}),
           },
         });
+        appendEvent(runDir, "pr_conflict", {
+          sha: headSha,
+          pr_url: prUrl,
+          merge_state: blockingMergeState,
+          ...(prView.mergeable !== undefined ? { mergeable: prView.mergeable } : {}),
+          ...(prView.baseRefName !== undefined ? { base_ref: prView.baseRefName } : {}),
+          action: "rebase_required",
+          source: "github",
+        });
+        deps.out(`director: pr_conflict ${headSha} ${blockingMergeState}; action rebase_required`);
       } catch (error) {
         deps.out(
           `director: pr_conflict nudge failed for ${comboId}: ${

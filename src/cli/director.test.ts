@@ -102,6 +102,7 @@ function fakeDeps(input: {
   env?: Record<string, string | undefined>;
   git?: DirectorDeps["git"];
   sleep?: DirectorDeps["sleep"];
+  tmux?: DirectorDeps["tmux"];
 }): { deps: DirectorDeps; calls: string[][]; out: string[] } {
   const calls: string[][] = [];
   const out: string[] = [];
@@ -111,7 +112,7 @@ function fakeDeps(input: {
     out: (line) => out.push(line),
     tmux: (args) => {
       calls.push(["tmux", ...args]);
-      return { status: 0, stdout: "", stderr: "" };
+      return input.tmux?.(args) ?? { status: 0, stdout: "", stderr: "" };
     },
     gh: (args) => {
       calls.push(["gh", ...args]);
@@ -686,7 +687,7 @@ describe("tickDirector", () => {
       prHeadSha: headSha,
       mergeStateStatus: "DIRTY",
       mergeable: "CONFLICTING",
-      codeRabbitComments: [],
+      externalReviewComments: [],
     });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
@@ -724,6 +725,55 @@ describe("tickDirector", () => {
       "-t",
       "combo-chen-o-r-7:coder-responding",
     ]);
+  });
+
+  it("retries the pr_conflict nudge when the coder-responding window is missing", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" });
+
+    const firstTickDeps = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      mergeStateStatus: "DIRTY",
+      externalReviewComments: [],
+      tmux: (args) => {
+        if (args[0] === "set-buffer" && args.some((a) => a.includes("Rebase the combo worktree"))) {
+          return { status: 1, stdout: "", stderr: "can't find window" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps: firstTickDeps.deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    const afterFirst = readEvents(runDir).filter((e) => e.event === "pr_conflict");
+    expect(afterFirst).toHaveLength(0);
+    expect(
+      firstTickDeps.out.some((line) => line.includes(`pr_conflict nudge failed for ${record.id}`)),
+    ).toBe(true);
+
+    const secondTickDeps = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      mergeStateStatus: "DIRTY",
+      externalReviewComments: [],
+    });
+
+    await tickDirector({ deps: secondTickDeps.deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    const afterSecond = readEvents(runDir).filter((e) => e.event === "pr_conflict");
+    expect(afterSecond).toHaveLength(1);
+    expect(afterSecond[0]).toMatchObject({
+      event: "pr_conflict",
+      sha: headSha,
+      merge_state: "DIRTY",
+      action: "rebase_required",
+    });
+    expect(secondTickDeps.out).toContain(`director: pr_conflict ${headSha} DIRTY; action rebase_required`);
   });
 
   it("emits READY without an external clean comment when configured required checks pass", async () => {
@@ -985,7 +1035,7 @@ describe("tickDirector", () => {
       record,
       prHeadSha: newSha,
       worktreeHeadSha: newSha,
-      codeRabbitComments: [],
+      externalReviewComments: [],
     });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
@@ -1185,7 +1235,7 @@ describe("tickDirector", () => {
       prHeadSha: oldSha,
       worktreeHeadSha: newSha,
       mergeStateStatus: "DIRTY",
-      codeRabbitComments: [],
+      externalReviewComments: [],
     });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
