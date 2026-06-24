@@ -99,7 +99,13 @@ Loop hygiene: check the configured coordination inbox every cycle. Coders do not
 
 ### Monitoring coder progress (gnhf)
 
-When the coder is gnhf, the coder tmux window shows live stdout/stderr. Also check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log`. A growing `iteration-N.jsonl` means the coder is active. No growth plus no terminal event is a stall to investigate, not a success.
+When the coder is gnhf, the coder tmux window shows live stdout/stderr with opt-in
+`runner:` progress lines (rebase, gate, PR-detection) when launched with
+`COMBO_CHEN_RUNNER_PROGRESS=1`. Raw event/journal output lives in a dedicated
+`journal` tmux window (`combo-chen events --follow`), separate from the coder
+role. Also check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log`. A growing
+`iteration-N.jsonl` means the coder is active. No growth plus no terminal event
+is a stall to investigate, not a success.
 
 ### Restarting a stalled gate: `gate-restart`, never a hand-driven `axi run`
 
