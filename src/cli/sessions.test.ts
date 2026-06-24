@@ -4,7 +4,7 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveAttachCombo tests <- running combo selection.
- *   2. Then ensureJournalPane tests       <- event tail pane creation.
+ *   2. Then ensureJournalPane tests       <- event tail window creation.
  *   3. Then kill helper tests             <- session/window cleanup.
  *
  *   MAIN FLOW
@@ -79,7 +79,7 @@ describe("resolveAttachCombo", () => {
 
 // -- 3/4 CORE · ensureJournalPane tests --
 describe("ensureJournalPane", () => {
-  it("splits a journal pane with the configured CLI invocation when only one pane exists", () => {
+  it("creates a journal window with the configured CLI invocation when missing", () => {
     const calls: string[][] = [];
     const record = combo();
 
@@ -87,7 +87,7 @@ describe("ensureJournalPane", () => {
       {
         tmux: (args) => {
           calls.push(args);
-          if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+          if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
           return { status: 0, stdout: "", stderr: "" };
         },
       },
@@ -96,16 +96,14 @@ describe("ensureJournalPane", () => {
     );
 
     expect(calls).toEqual([
-      ["list-panes", "-t", "combo-chen-o-r-7:coder", "-F", "#{pane_index}"],
+      ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
       [
-        "split-window",
-        "-d",
-        "-v",
-        "-l",
-        "12",
+        "new-window",
         "-t",
-        "combo-chen-o-r-7:coder",
-        "node cli.mjs events --follow -n o-r-7",
+        "combo-chen-o-r-7",
+        "-n",
+        "journal",
+        "node cli.mjs events --follow -n 'o-r-7'",
       ],
     ]);
   });

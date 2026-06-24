@@ -46,6 +46,7 @@ export const RUNTIME_LEDGER_FILE = "runtime-ledger.json";
 
 export interface RuntimeRoleWindows {
   coder?: string;
+  journal?: string;
   director?: string;
   gatekeeper?: string;
   reviewer?: string;
