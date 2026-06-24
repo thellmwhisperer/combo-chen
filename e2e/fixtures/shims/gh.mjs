@@ -113,6 +113,18 @@ if (args[0] === "api") {
     }])}\n`);
     process.exit(0);
   }
+  if (process.env.E2E_REVIEWER_CODE0_LOGIN && endpoint === "repos/o/r/pulls/1/reviews") {
+    const head = process.env.E2E_HEAD_SHA || process.env.E2E_MERGE_SHA || "head";
+    process.stdout.write(`${JSON.stringify([{
+      html_url: "https://github.com/o/r/pull/1#pullrequestreview-reviewer-code-0",
+      user: { login: process.env.E2E_REVIEWER_CODE0_LOGIN },
+      state: "COMMENTED",
+      body: [`lgtm @ ${head}`, "", "combo-chen-reviewer-verdict:", `head: ${head}`, "code: 0"].join("\n"),
+      commit_id: head,
+      submitted_at: "2026-06-23T23:21:47Z",
+    }])}\n`);
+    process.exit(0);
+  }
   if (process.env.E2E_CODERABBIT_REVIEW === "1" && endpoint === "repos/o/r/pulls/1/comments") {
     process.stdout.write(`${JSON.stringify([{
       html_url: "https://github.com/o/r/pull/1#discussion_r1",

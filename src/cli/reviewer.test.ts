@@ -715,6 +715,83 @@ describe("tickReviewer", () => {
     expect(out).toEqual(["reviewer: no pinned lgtm for o-r-7"]);
   });
 
+  it("journals needs_human when a current-head reviewer verdict comes from an unauthorized GitHub login", async () => {
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    const headSha = "def4560def4560def4560def4560def4560def45";
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[reviewer]",
+        'logins = ["trusted-reviewer"]',
+        "",
+        "[reviewer.claude]",
+        'command = "claude {prompt}"',
+        "",
+      ].join("\n"),
+    );
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: () => ({ status: 0, stdout: "", stderr: "" }),
+        git: () => ({ status: 0, stdout: "", stderr: "" }),
+        gh: (args) => {
+          if (args[0] === "pr") {
+            return { status: 0, stdout: JSON.stringify({ headRefOid: headSha, state: "OPEN" }), stderr: "" };
+          }
+          if (args.join(" ").includes("issues/7/comments")) {
+            return { status: 0, stdout: "[]", stderr: "" };
+          }
+          if (args.join(" ").includes("pulls/7/reviews")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  body: [
+                    `lgtm @ ${headSha}`,
+                    "",
+                    "combo-chen-reviewer-verdict:",
+                    `head: ${headSha}`,
+                    "code: 0",
+                  ].join("\n"),
+                  user: { login: "teseo" },
+                  submitted_at: "2026-06-11T00:00:00Z",
+                  state: "COMMENTED",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "reviewer_login_mismatch",
+        sha: headSha,
+        author: "teseo",
+        allowed_logins: ["trusted-reviewer"],
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "lgtm")).toBe(false);
+    expect(out).toEqual([
+      `reviewer: needs_human reviewer_login_mismatch author=teseo allowed=trusted-reviewer sha=${headSha}`,
+    ]);
+  });
+
   it("treats reviewer verdict code 0 as a current-head LGTM signal", async () => {
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
