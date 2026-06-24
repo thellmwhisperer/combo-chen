@@ -1,5 +1,5 @@
 /**
- * @overview Coder-response CLI helpers. ~185 lines, 7 exports, review and conflict routing.
+ * @overview Coder-response CLI helpers. ~190 lines, 7 exports, review and conflict routing.
  *
  *   READING GUIDE
  *   -------------

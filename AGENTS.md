@@ -48,10 +48,12 @@ Hard rule: `reviewer != coder`.
    no-mistakes mirror with `--force-with-lease` when replacing an existing
    mirror branch; the tmux command stays short (`sh <script>`).
 7. READY is journaled only when all current-head signals agree:
-   gate validated the PR head SHA, reviewer LGTM is pinned to that SHA by a
-   configured reviewer GitHub login, every configured required READY check is
-   present with SUCCESS, and the remaining CI/check rollup is successful for
-   that SHA.
+    gate validated the PR head SHA, reviewer LGTM is pinned to that SHA by a
+    configured reviewer GitHub login, every configured required READY check is
+    present with SUCCESS, and the remaining CI/check rollup is successful for
+    that SHA. If GitHub later reports an open READY PR as dirty or conflicting
+    after the base advances, the director journals `pr_conflict`, invalidates
+    READY back to REVIEWING, and nudges coder responding to rebase.
 8. After the human merges the PR, `combo-chen closure -n <combo-id>`
    deterministically converges the combo's local resources: it verifies
    GitHub reports MERGED, records any missing `merged` event, refuses
@@ -144,6 +146,6 @@ branch-scoped gate leases for parallel capsules with stale recovery and heartbea
 promptable director window inside each combo capsule (non-polling contract, prompted by
 director-watch only for ambiguity or uncoded recovery), wave-based parallel scaling
 (start 2 capsules, then 3, then 4-6 with postmortem justification),
-current-head READY agreement, and live GitHub PR label projection with mutation journaling.
+current-head READY agreement with base-advance conflict detection, and live GitHub PR label projection with mutation journaling.
 Deferred: preflight scoring, counterfactual
 automerge log, treehouse pools, and ACP role driving.
