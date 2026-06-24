@@ -463,7 +463,7 @@ describe("cli GitHub helpers", () => {
     expect(latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha)).toBeUndefined();
   });
 
-  it("accepts reviewer verdict blocks only from allowed GitHub authors when configured", () => {
+  it("accepts current-head reviewer verdict blocks regardless of GitHub author", () => {
     const headSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
     const gh = (args: string[]) => {
       if (args.join(" ").includes("issues/7/comments")) {
@@ -471,7 +471,9 @@ describe("cli GitHub helpers", () => {
           status: 0,
           stdout: JSON.stringify([
             {
-              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 3"].join("\n"),
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 3", `lgtm @ ${headSha}`].join(
+                "\n",
+              ),
               user: { login: "drive-by" },
               created_at: "2026-06-11T00:02:00Z",
             },
@@ -494,7 +496,7 @@ describe("cli GitHub helpers", () => {
       latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha, undefined, {
         allowedAuthors: ["Trusted-Reviewer"],
       }),
-    ).toEqual({ headSha, code: 1, author: "trusted-reviewer" });
+    ).toEqual({ headSha, code: 3, author: "drive-by" });
   });
 });
 // -/ 1/1
