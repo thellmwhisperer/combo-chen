@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1025 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1043 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -710,6 +710,10 @@ export function createProgram(deps: Deps): Command {
         deps.out(JSON.stringify({ reports }, null, 2));
         return;
       }
+      if (reports.length === 0) {
+        deps.out(`${renderForensicsMarkdown(reports)}\n\n${formatForensicsNoMatches(options.name, issueFilter)}`);
+        return;
+      }
       deps.out(renderForensicsMarkdown(reports));
     });
 
@@ -980,6 +984,20 @@ function parseForensicsIssueFilter(value: string | undefined): Set<number> | und
     numbers.add(number);
   }
   return numbers;
+}
+
+function formatForensicsNoMatches(name: string | undefined, issueFilter: Set<number> | undefined): string {
+  if (name !== undefined) {
+    return `No matching combo for -n ${name} in this COMBO_CHEN_HOME.`;
+  }
+  if (issueFilter !== undefined) {
+    const issues = Array.from(issueFilter).sort((left, right) => left - right).join(",");
+    return [
+      `No matching issue-backed combos for --issues ${issues} in this COMBO_CHEN_HOME.`,
+      "Use -n <combo-id> for plan-backed runs or rerun after launch.",
+    ].join("\n");
+  }
+  return "No combos found in this COMBO_CHEN_HOME.";
 }
 
 function collectForensicsTmuxFacts(deps: Deps, combo: ComboRecord): { sessionExists: boolean; windows?: string[] } | undefined {
