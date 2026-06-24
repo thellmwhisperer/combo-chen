@@ -5,6 +5,28 @@
 
 ### Features
 
+* **forensics:** Added a copy-ready dogfood outcome block to forensics markdown so issue [#210](https://github.com/thellmwhisperer/combo-chen/issues/210)’s required PR/head/review-check/failure/follow-up fields can be recorded from the combo report. ([09388dd](https://github.com/thellmwhisperer/combo-chen/commit/09388ddcfc9e9e9288e16c8ae8fcb21a17643530))
+* **forensics:** Added an explicit forensics outcome-recording path so a matched dogfood report can post its compact Outcome block to the source GitHub issue. ([7a04832](https://github.com/thellmwhisperer/combo-chen/commit/7a04832a50057f40ed246e92fc23e4068c1f6abe))
+* **observability:** Added the next [#210](https://github.com/thellmwhisperer/combo-chen/issues/210) observability slice: launch now prints a human-readable topology summary, and a lifecycle integration test pins first-pass READY through closure without creating coder-responding. ([e5f863f](https://github.com/thellmwhisperer/combo-chen/commit/e5f863fb206499c439572a15d85ca359e2f12603))
+* **runner:** Added opt-in human-readable runner progress for tmux-launched combo runs so the coder pane shows concise deterministic lifecycle context around the live coder stream. ([caa1e66](https://github.com/thellmwhisperer/combo-chen/commit/caa1e66c71767082624d040758fdd2943eda3fd3))
+
+
+### Bug Fixes
+
+* **coder-responding:** Implemented the first [#210](https://github.com/thellmwhisperer/combo-chen/issues/210) slice by preventing first-pass PR-open flows from eagerly launching coder-responding and making coder-responding start lazily only when an actionable nudge needs it. ([ad570ae](https://github.com/thellmwhisperer/combo-chen/commit/ad570ae0ae574e059592680831ce4df191387ef6))
+* **director-watch:** Removed redundant routine `director-watch` completion chatter so the pane now emits one compact dashboard status line per tick, with tests and spec coverage. ([7b8eff0](https://github.com/thellmwhisperer/combo-chen/commit/7b8eff0a3a5ba9624caed35b33996abb586d8b30))
+* **forensics:** Added an actionable forensics no-match message so the issue [#210](https://github.com/thellmwhisperer/combo-chen/issues/210) outcome-recording path no longer silently produces an empty markdown report when the dogfood combo is not present locally. ([482d0e9](https://github.com/thellmwhisperer/combo-chen/commit/482d0e9e40ee18ad2849e61d40b65548a3aa56c6))
+* **forensics:** Added an outcome-recording safety guard so `forensics --record-outcome` refuses to post incomplete dogfood outcomes without both a PR link and head SHA. ([e8e8e8a](https://github.com/thellmwhisperer/combo-chen/commit/e8e8e8ae538f8f3e30338f8ec76be5e01865b01e))
+* **gate-live:** Split retry/post-address gate execution from the live no-mistakes gatekeeper pane so gate-live observability remains visible during gate runs. ([f536305](https://github.com/thellmwhisperer/combo-chen/commit/f5363055945ebfd37e2b08c6bab92b921b7540ea))
+* **gate:** Addressed the CodeRabbit gate-live retry visibility comment with a focused TDD fix and full validation. ([4074935](https://github.com/thellmwhisperer/combo-chen/commit/40749350f0ad886a4b55d6ef783716429274834c))
+* **resume:** Fixed the resume recovery topology so raw journal tailing no longer appears in the `coder` tmux window. ([5b5775f](https://github.com/thellmwhisperer/combo-chen/commit/5b5775f11ef773bccf2cf1491ebc09e9b5970cc3))
+* **tmux:** Promoted first-pass combo launch observability so raw journal output now lives in a dedicated `journal` tmux window instead of a split pane inside `coder`, with tests and spec coverage. ([3bfd7df](https://github.com/thellmwhisperer/combo-chen/commit/3bfd7df84944b843ece5b9460c6d2407a63b4ab7))
+
+## [0.0.61](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.60...combo-chen-v0.0.61) (2026-06-24)
+
+
+### Features
+
 * **observability:** human-readable tmux topology with separate coder, journal, gatekeeper/live, gate-runner, and director-watch windows; lazy coder responding mode (created only after review signals); opt-in runner progress lines (`COMBO_CHEN_RUNNER_PROGRESS=1`); and copy-ready forensics outcome blocks with `--record-outcome`. Fixes [#210](https://github.com/thellmwhisperer/combo-chen/issues/210). ([1877524](https://github.com/thellmwhisperer/combo-chen/commit/18775245c77f95007368e69770a80656811fbbb4))
 
 ## [0.0.60](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.59...combo-chen-v0.0.60) (2026-06-24)
