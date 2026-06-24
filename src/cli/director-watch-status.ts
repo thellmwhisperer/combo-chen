@@ -31,6 +31,8 @@ import { livePinnedLgtmSha } from "./reviewer.js";
 export interface DirectorWatchPrSnapshot {
   state: string;
   headSha?: string;
+  mergeStateStatus?: string;
+  mergeable?: string;
   statusCheckRollup?: unknown[];
   polledAt?: Date;
   error?: string;
@@ -98,7 +100,8 @@ function phaseAge(events: ComboEvent[], now: Date): string {
 
 function formatPr(pr: DirectorWatchPrSnapshot | undefined, prUrl: string | undefined): string {
   if (pr !== undefined) {
-    return pr.headSha === undefined ? pr.state : `${pr.state}@${shortSha(pr.headSha)}`;
+    const suffix = pr.mergeStateStatus ? `:${pr.mergeStateStatus}` : pr.mergeable ? `:${pr.mergeable}` : "";
+    return pr.headSha === undefined ? `${pr.state}${suffix}` : `${pr.state}${suffix}@${shortSha(pr.headSha)}`;
   }
   return prUrl === undefined ? "none" : "unknown";
 }

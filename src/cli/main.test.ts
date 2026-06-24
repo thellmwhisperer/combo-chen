@@ -4835,16 +4835,24 @@ describe("status", () => {
     expect(out.join("\n")).not.toContain("PR ready for reviewer");
   });
 
-  it("does not report PR ready for reviewer when the default CodeRabbit READY check is skipped", async () => {
+  it("does not report PR ready for reviewer when a required READY check is skipped", async () => {
     const h = home();
-    const worktree = "/repos/r/.worktrees/issue-7";
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        "[ready]",
+        'required_checks = ["CodeRabbit"]',
+      ].join("\n"),
+    );
+    const worktree = join(repoDir, ".worktrees", "issue-7");
     const prUrl = "https://github.com/o/r/pull/7";
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
       id: "o-r-7",
       issueUrl: ISSUE,
-      repoDir: "/repos/r",
+      repoDir,
       worktree,
       branch: "combo/issue-7",
       tmuxSession: "combo-chen-o-r-7",
