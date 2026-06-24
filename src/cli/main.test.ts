@@ -1383,6 +1383,53 @@ describe("gate-restart", () => {
     expect(readEvents(dir).some((e) => e.event === "address_done" && e["head_sha"] === HEAD)).toBe(true);
   });
 
+  it("refuses a post-address gate restart when local HEAD omits the published PR head", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    const publishedSha = "1234567890abcdef1234567890abcdef12345678";
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/9" });
+    appendEvent(dir, "gate_status", { state: "idle", head_sha: publishedSha });
+    appendEvent(dir, "gate_validated", { sha: publishedSha });
+    appendEvent(dir, "review_comment", {
+      author: "coderabbitai[bot]",
+      kind: "review_comment",
+      url: "https://github.com/o/r/pull/9#discussion_r1",
+      head_sha: publishedSha,
+    });
+    const { deps, calls, out } = gateDeps(h, {
+      git: (args) => {
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: `${HEAD}\n`, stderr: "" };
+        }
+        if (args[0] === "status" && args[1] === "--porcelain") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[2] === publishedSha && args[3] === HEAD) {
+          return { status: 1, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["gate-restart", "-n", "o-r-7"]);
+
+    expect(out.join("\n")).toContain("coder_worktree_out_of_sync");
+    expect(out.join("\n")).toContain(`does not include published gate ${publishedSha}`);
+    expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(false);
+    expect(existsSync(join(dir, `gatekeeper-post-${HEAD.slice(0, 12)}.sh`))).toBe(false);
+    expect(readEvents(dir).some((e) => e.event === "address_done" && e["head_sha"] === HEAD)).toBe(false);
+    expect(readEvents(dir).some((e) => e.event === "gate_stale" && e["new_sha"] === HEAD)).toBe(false);
+  });
+
   it("with a plan-backed PR open, restarts the post-address gate without issue fetch or autoclose guard", async () => {
     const h = home();
     const dir = runDirFor(h, "plan-generic-work-1234abcd");

@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~580 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~700 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -12,7 +12,7 @@
  *   MAIN FLOW
  *   ---------
  *   runInitialGateRetryIfNeeded -> inspectWorkerPanes -> wait for PR -> tickReviewer -> nudgeReviewComments
- *     -> runPostAddressGateIfNeeded -> runReadyForMergeIfNeeded -> syncDirectorPrLabels
+ *     -> runPostAddressGateIfNeeded -> route local PR-head sync recovery -> runReadyForMergeIfNeeded -> syncDirectorPrLabels
  *
  *   PUBLIC API
  *   ----------
@@ -174,7 +174,38 @@ export async function tickDirector(input: {
   const prUrl = latestPrUrl(readEvents(runDir)) ?? openedPrUrl;
   if (prUrl !== undefined) {
     try {
-      runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
+      const gateCheck = runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
+      if (
+        gateCheck.status === "blocked" &&
+        gateCheck.reason === "coder_worktree_out_of_sync" &&
+        !hasLocalWorktreeOutOfSync(readEvents(runDir), gateCheck.publishedSha, gateCheck.headSha, prUrl)
+      ) {
+        nudgePrConflict({
+          deps,
+          home,
+          comboId,
+          conflict: {
+            prUrl,
+            headSha: gateCheck.headSha,
+            mergeState: "LOCAL_OUT_OF_SYNC",
+            publishedSha: gateCheck.publishedSha,
+            localSha: gateCheck.headSha,
+          },
+        });
+        appendEvent(runDir, "pr_conflict", {
+          sha: gateCheck.headSha,
+          published_sha: gateCheck.publishedSha,
+          local_sha: gateCheck.headSha,
+          pr_url: prUrl,
+          merge_state: "LOCAL_OUT_OF_SYNC",
+          action: "rebase_required",
+          source: "local_worktree",
+        });
+        deps.out(
+          `director: local worktree ${gateCheck.headSha} does not include published gate ` +
+            `${gateCheck.publishedSha}; action rebase_required`,
+        );
+      }
     } catch (err) {
       deps.out(
         `director: post-address gate check failed for ${comboId}: ${
@@ -440,6 +471,23 @@ function hasPrConflict(events: ComboEvent[], headSha: string, prUrl: string, mer
       event["sha"] === headSha &&
       event["pr_url"] === prUrl &&
       event["merge_state"] === mergeState &&
+      event["action"] === "rebase_required",
+  );
+}
+
+function hasLocalWorktreeOutOfSync(
+  events: ComboEvent[],
+  publishedSha: string,
+  localSha: string,
+  prUrl: string,
+): boolean {
+  return events.some(
+    (event) =>
+      event.event === "pr_conflict" &&
+      event["published_sha"] === publishedSha &&
+      event["local_sha"] === localSha &&
+      event["pr_url"] === prUrl &&
+      event["merge_state"] === "LOCAL_OUT_OF_SYNC" &&
       event["action"] === "rebase_required",
   );
 }

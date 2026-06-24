@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~1480 lines, log-derived regressions.
+ *   and process shims for external services. ~1700 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -39,6 +39,8 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+import { CODER_THREAD_ARTIFACT } from "../src/roles/coder.js";
 
 // -- 1/3 HELPER · Command runner + JSON helpers --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -199,6 +201,17 @@ function launchPlanCombo(harness: Harness): { combo: ComboRecordJson; runDir: st
   const runDir = singleRunDir(harness.comboHome);
   const combo = readJson<ComboRecordJson>(join(runDir, "combo.json"));
   return { combo, runDir, launch };
+}
+
+function writeCoderThreadArtifact(runDir: string): void {
+  writeFileSync(
+    join(runDir, CODER_THREAD_ARTIFACT),
+    `${JSON.stringify({
+      agent: "codex",
+      thread_id: "019eeee0-0000-7000-8000-000000000001",
+      source: ".gnhf/runs/e2e/iteration-1.jsonl",
+    })}\n`,
+  );
 }
 // -/ 1/3
 
@@ -524,6 +537,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
       const prUrl = "https://github.com/o/r/pull/1";
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
 
@@ -599,6 +613,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
       const prUrl = "https://github.com/o/r/pull/1";
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
 
@@ -641,12 +656,13 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
-  it("escalates when a current-head reviewer LGTM is posted by an unauthorized GitHub login", () => {
+  it("accepts current-head reviewer code 0 even when GitHub author differs from reviewer.logins", () => {
     const harness = prepareHarness({ reviewerLogins: ["trusted-reviewer"] });
     let passed = false;
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
       const prUrl = "https://github.com/o/r/pull/1";
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
 
@@ -671,23 +687,12 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         },
       });
 
-      expect(tick.stdout).toContain("reviewer_login_mismatch author=teseo");
-      expect(tick.stdout).toContain("needs human: reviewer_login_mismatch");
+      expect(tick.stdout).toContain(`reviewer: lgtm current at ${headSha}`);
+      expect(tick.stdout).toContain("ready=[pr:yes gate:yes reviewer:yes");
 
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
-      expect(events).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            event: "needs_human",
-            reason: "reviewer_login_mismatch",
-            sha: headSha,
-            author: "teseo",
-            allowed_logins: ["trusted-reviewer"],
-          }),
-        ]),
-      );
-      expect(events.some((event) => event.event === "lgtm")).toBe(false);
-      expect(events.some((event) => event.event === "ready_for_merge")).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
+      expect(events.some((event) => event.event === "needs_human")).toBe(false);
 
       passed = true;
     } finally {
@@ -702,6 +707,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
       const prUrl = "https://github.com/o/r/pull/1";
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
 
@@ -821,6 +827,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
       const prUrl = "https://github.com/o/r/pull/1";
       const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
 
@@ -901,6 +908,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
       const prUrl = "https://github.com/o/r/pull/1";
       const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
 
@@ -969,12 +977,13 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   }, 15_000);
 
-  it("does not post-address gate from a local worktree behind the PR head", () => {
+  it("routes local sync recovery instead of post-address gating from a worktree behind the PR head", () => {
     const harness = prepareHarness({ externalCommentAgents: ["coderabbitai"] });
     let passed = false;
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
       const prUrl = "https://github.com/o/r/pull/1";
       const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
 
@@ -1016,6 +1025,9 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       expect(tick.stdout).toContain(
         `director: worktree HEAD ${localSha} does not include published gate ${publishedSha}; waiting for coder sync before post-address gate`,
       );
+      expect(tick.stdout).toContain(
+        `director: local worktree ${localSha} does not include published gate ${publishedSha}; action rebase_required`,
+      );
       expect(tick.stdout).not.toContain("director: post-address gate started");
 
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
@@ -1027,15 +1039,46 @@ describe("treehouse-backed combo lifecycle e2e", () => {
             url: "https://github.com/o/r/pull/1#discussion_r1",
             head_sha: publishedSha,
           }),
+          expect.objectContaining({
+            event: "pr_conflict",
+            sha: localSha,
+            published_sha: publishedSha,
+            local_sha: localSha,
+            pr_url: prUrl,
+            merge_state: "LOCAL_OUT_OF_SYNC",
+            action: "rebase_required",
+            source: "local_worktree",
+          }),
         ]),
       );
       expect(events.some((event) => event.event === "address_done")).toBe(false);
       expect(events.some((event) => event.event === "gate_stale")).toBe(false);
 
-      const after = readJsonLines<LogEntryJson>(harness.logs.tmux).filter(
+      const syncPrompt = readJsonLines<LogEntryJson>(harness.logs.tmux).find(
+        (entry) =>
+          entry.args[0] === "set-buffer" &&
+          typeof entry.args.at(-1) === "string" &&
+          entry.args.at(-1)?.includes("Local PR head sync recovery for coder responding mode"),
+      );
+      expect(syncPrompt?.args.at(-1)).toContain(`published_gate: ${publishedSha}`);
+      expect(syncPrompt?.args.at(-1)).toContain(`local_head: ${localSha}`);
+
+      const afterTick = readJsonLines<LogEntryJson>(harness.logs.tmux).filter(
         (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
       ).length;
-      expect(after).toBe(before);
+      expect(afterTick).toBe(before);
+      expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(false);
+
+      const restart = run(process.execPath, [cliPath, "gate-restart", "-n", combo.id], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      expect(restart.stdout).toContain("coder_worktree_out_of_sync");
+      expect(restart.stdout).toContain(`does not include published gate ${publishedSha}`);
+      const afterRestart = readJsonLines<LogEntryJson>(harness.logs.tmux).filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
+      ).length;
+      expect(afterRestart).toBe(before);
       expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(false);
 
       passed = true;

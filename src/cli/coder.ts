@@ -1,11 +1,11 @@
 /**
- * @overview Coder-response CLI helpers. ~240 lines, 7 exports, review and conflict routing.
+ * @overview Coder-response CLI helpers. ~220 lines, 7 exports, review, conflict, and PR-head sync routing.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at activateCoder         <- starts resumed coder worker.
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
- *   3. Then nudgePrConflict           <- routes base-advanced PR conflicts.
+ *   3. Then nudgePrConflict           <- routes base-advanced and local PR-head sync conflicts.
  *   4. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
@@ -19,8 +19,8 @@
  *   PrConflictNudge            PR conflict recovery prompt facts.
  *   activateCoder              Start coder responding mode.
  *   nudgeReviewComments        Route fresh review comments to the coder.
- *   buildPrConflictNudgePrompt Render deterministic conflict-recovery prompt.
- *   nudgePrConflict            Lazily start/nudge coder responding for conflicts.
+ *   buildPrConflictNudgePrompt Render deterministic conflict/sync-recovery prompt.
+ *   nudgePrConflict            Route a dirty/conflicting or out-of-sync PR to coder responding.
  *
  *   INTERNALS
  *   ---------
@@ -64,6 +64,8 @@ export interface PrConflictNudge {
   mergeState: string;
   mergeable?: string;
   baseRef?: string;
+  publishedSha?: string;
+  localSha?: string;
 }
 // -/ 1/3
 
@@ -212,6 +214,22 @@ export function nudgeReviewComments(input: {
 }
 
 export function buildPrConflictNudgePrompt(conflict: PrConflictNudge): string {
+  if (conflict.mergeState === "LOCAL_OUT_OF_SYNC") {
+    return [
+      "Local PR head sync recovery for coder responding mode:",
+      conflict.prUrl,
+      "",
+      `published_gate: ${conflict.publishedSha ?? conflict.headSha}`,
+      `local_head: ${conflict.localSha ?? conflict.headSha}`,
+      "",
+      "The coder worktree has local addressing commits, but its HEAD does not include the last published gate head.",
+      "Fetch the PR branch/head, rebase or replay the local addressing commits so the published gate SHA is an ancestor of HEAD, resolve mechanical conflicts with TDD, commit local changes, and stop.",
+      "Verify with git merge-base --is-ancestor <published_gate> HEAD before finishing.",
+      "If the sync needs a product or intent decision, emit needs_human before changing code.",
+      "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
+    ].join("\n");
+  }
+
   return [
     "PR conflict recovery for coder responding mode:",
     conflict.prUrl,
