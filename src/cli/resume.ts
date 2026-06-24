@@ -40,7 +40,7 @@ import {
 } from "./gate.js";
 import type { GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
-import { CODER_WINDOW, DIRECTOR_WATCH_WINDOW, killWindowIfPresent } from "./sessions.js";
+import { DIRECTOR_WATCH_WINDOW, JOURNAL_WINDOW, killWindowIfPresent } from "./sessions.js";
 import {
   AWAITING_REVIEW_GATE,
   deepComboStatus,
@@ -70,7 +70,7 @@ function ensureResumeSession(input: {
   if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0) return false;
 
   const command = `COMBO_CHEN_HOME=${shellQuote(home)} ${cli} events --follow -n ${shellQuote(combo.id)}`;
-  const created = deps.tmux(newSessionArgs(combo.tmuxSession, CODER_WINDOW, command));
+  const created = deps.tmux(newSessionArgs(combo.tmuxSession, JOURNAL_WINDOW, command));
   if (created.status !== 0) {
     throw new Error(
       `tmux failed to recreate resume session "${combo.tmuxSession}": ` +
