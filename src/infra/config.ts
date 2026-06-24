@@ -189,7 +189,7 @@ const DEFAULTS = {
     agents: [],
   },
   ready: {
-    required_checks: [],
+    required_checks: ["CodeRabbit"],
   },
   pr_labels: {
     green_check_names: [],

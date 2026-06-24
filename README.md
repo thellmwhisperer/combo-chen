@@ -175,10 +175,10 @@ merge = "human"
 logins = ["claude"]
 
 [ready]
-required_checks = ["ExternalReview"]
+required_checks = ["CodeRabbit"]
 
 [pr_labels]
-green_check_names = ["ExternalReview"]
+green_check_names = ["CodeRabbit"]
 
 [external_comments]
 # External comment/noise filters only; not approval and not READY checks.
@@ -199,7 +199,9 @@ Only comments or reviews authored by `[reviewer].logins` can satisfy the
 SHA-pinned reviewer LGTM gate and have their machine-readable verdict blocks
 accepted for routing; by default this is the active reviewer agent name.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
-present with `SUCCESS`; these external checks are not reviewer approval.
+present with exact `SUCCESS`; by default this includes `CodeRabbit`, and a
+skipped CodeRabbit review is not a READY success. These external checks are not
+reviewer approval.
 `[pr_labels].green_check_names` names the check contexts/runs that satisfy the
 `combo:external-review-green` status label.
 `[external_comments].agents` names GitHub App or bot logins whose comments are

@@ -59,6 +59,7 @@ function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
 function successfulRollup(): unknown[] {
   return [
     { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+    { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
     { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "SUCCESS" },
     { __typename: "StatusContext", context: "coverage", state: "SUCCESS" },
   ];
@@ -642,6 +643,43 @@ describe("tickDirector", () => {
     );
   });
 
+  it("removes combo:ready when the default CodeRabbit READY check is skipped", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SKIPPED" },
+      ],
+      prLabels: [{ name: "combo:ready" }],
+      externalReviewComments: [],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "edit",
+      "https://github.com/o/r/pull/7",
+      "--remove-label",
+      "combo:ready",
+    ]);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "pr_labels_updated",
+        removed_labels: ["combo:ready"],
+        reason: "current",
+        source: "director-watch",
+      }),
+    );
+  });
+
   it("emits READY when gate, reviewer, required checks, and normal checks all agree on the current head", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -830,6 +868,26 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
   });
 
+  it("does not emit READY when the default CodeRabbit READY check is skipped", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SKIPPED" },
+      ],
+      externalReviewComments: [],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+  });
+
   it("uses the configured external comment agent instead of a hardcoded provider", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -851,6 +909,7 @@ describe("tickDirector", () => {
       externalCommentLogin: "reviewdog",
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
       ],
       externalReviewComments: [
@@ -905,6 +964,7 @@ describe("tickDirector", () => {
       externalCommentLogin: "reviewdog",
       rollup: [
         { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
         { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
       ],
       externalReviewComments: [

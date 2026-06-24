@@ -79,5 +79,9 @@ describe("GitHub check readiness helpers", () => {
     ).toBe(false);
     expect(requiredChecksSucceeded([checkRun("ReviewDog Extended", "SUCCESS")], ["ReviewDog"])).toBe(false);
   });
+
+  it("does not treat a skipped CodeRabbit check as a required READY success", () => {
+    expect(requiredChecksSucceeded([checkRun("CodeRabbit", "SKIPPED")], ["CodeRabbit"])).toBe(false);
+  });
 });
 // -/ 1/1
