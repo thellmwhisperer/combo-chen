@@ -46,7 +46,9 @@ combo-chen makes the process explicit.
 6. Review comments are routed back to the coder in responding mode.
 7. New addressing commits go back through the gatekeeper before publication.
 8. The run becomes ready only when the current PR head has gate validation,
-   reviewer LGTM, configured required READY checks, and passing remaining checks.
+    reviewer LGTM, configured required READY checks, and passing remaining checks.
+    If a sibling merge advances the base and the READY PR becomes dirty or
+    conflicting, the director invalidates READY and routes the coder to rebase.
 9. While the PR is open, GitHub labels reflect the live combo state
    (`combo:working-coder`, `combo:working-reviewer`, `combo:working-gate`,
    `combo:lgtm`, `combo:external-review-green`, `combo:ready`, `combo:stale`,
@@ -493,7 +495,7 @@ launch-time config snapshots to protect runtime behavior from repo TOML drift,
 a machine-readable runtime ledger for each combo capsule,
 branch-scoped gate leases for parallel capsules with stale recovery and heartbeat,
 wave-based parallel scaling (start 2, then 3, then 4-6 with postmortem justification),
-current-head READY agreement, and live GitHub PR label projection
+current-head READY agreement with base-advance conflict detection, and live GitHub PR label projection
 (combo:working-*, combo:lgtm, combo:external-review-green, combo:ready, combo:stale,
 combo:conflict) with mutation journaling. Work items can be GitHub issues (`--issue`) or
 local markdown work plans (`--plan`).
