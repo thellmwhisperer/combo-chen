@@ -33,6 +33,7 @@ import {
   buildPostAddressGateScript,
   buildGatekeeperAttachCommand,
   ensureGatekeeperWindow,
+  GATEKEEPER_WINDOW,
   GATE_RUNNER_WINDOW,
   propagateNoMistakesConfig,
   remoteShaForRef,
@@ -216,6 +217,9 @@ describe("gatekeeper runtime config snapshots", () => {
         },
         tmux: (args) => {
           calls.push(args);
+          if (args.join(" ") === "list-windows -t combo-chen-o-r-7 -F #{window_name}") {
+            return { status: 0, stdout: "journal\ngatekeeper\ngate-runner\n", stderr: "" };
+          }
           return { status: 0, stdout: "", stderr: "" };
         },
       },
@@ -225,15 +229,24 @@ describe("gatekeeper runtime config snapshots", () => {
     });
 
     expect(result).toEqual({ started: true, headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.slice(0, 5)).toEqual([
+    expect(calls).toHaveLength(6);
+    expect(calls[1]).toEqual(["kill-window", "-t", "combo-chen-o-r-7:gatekeeper"]);
+    expect(calls[2]?.slice(0, 5)).toEqual([
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      GATEKEEPER_WINDOW,
+    ]);
+    expect(calls[4]).toEqual(["kill-window", "-t", "combo-chen-o-r-7:gate-runner"]);
+    expect(calls[5]?.slice(0, 5)).toEqual([
       "new-window",
       "-t",
       "combo-chen-o-r-7",
       "-n",
       GATE_RUNNER_WINDOW,
     ]);
-    expect(calls[1]).not.toContain("gatekeeper");
+    expect(calls[5]).not.toContain("gatekeeper");
     const script = readFileSync(join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-gate");
     expect(script).not.toContain("printf drifted-gate");
