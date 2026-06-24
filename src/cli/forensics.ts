@@ -1,11 +1,12 @@
 /**
- * @overview Combo forensics report model and renderers. ~407 lines, pure analysis only.
+ * @overview Combo forensics report model and renderers. ~425 lines, pure analysis only.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at analyzeForensicsCombo <- derives facts and incidents.
  *   2. Then renderForensicsMarkdown   <- human-readable report surface.
- *   3. Helpers at the bottom          <- journal timestamps and formatting.
+ *   3. Use renderForensicsOutcomeMarkdown for GitHub issue outcome comments.
+ *   4. Helpers at the bottom          <- journal timestamps and formatting.
  *
  *   MAIN FLOW
  *   ---------
@@ -15,13 +16,14 @@
  *   ----------
  *   ForensicsComboInput, ForensicsComboReport, ForensicsIncident
  *   analyzeForensicsCombo       Build one combo report from local and probe facts.
- *   renderForensicsMarkdown     Render combo reports as concise markdown.
+ *   renderForensicsMarkdown           Render combo reports as concise markdown.
+ *   renderForensicsOutcomeMarkdown    Render one compact outcome comment body.
  *
  *   INTERNALS
  *   ---------
  *   durationBetween, latestEvent, latestPrUrl, formatDuration, incident
  *
- * @exports ForensicsSignalState, ForensicsGithubPrFacts, ForensicsGithubIssueFacts, ForensicsTmuxFacts, ForensicsComboInput, ForensicsIncident, ForensicsComboReport, analyzeForensicsCombo, renderForensicsMarkdown
+ * @exports ForensicsSignalState, ForensicsGithubPrFacts, ForensicsGithubIssueFacts, ForensicsTmuxFacts, ForensicsComboInput, ForensicsIncident, ForensicsComboReport, analyzeForensicsCombo, renderForensicsMarkdown, renderForensicsOutcomeMarkdown
  * @deps ../core/{combo,events,state}, ./gate, ./reviewer
  */
 import { deriveStatus, type Phase } from "../core/combo.js";
@@ -323,6 +325,22 @@ export function renderForensicsMarkdown(reports: ForensicsComboReport[]): string
     lines.push("");
   }
   return lines.join("\n").trimEnd();
+}
+
+export function renderForensicsOutcomeMarkdown(report: ForensicsComboReport): string {
+  const lines = [
+    `<!-- combo-chen:forensics-outcome ${report.id} -->`,
+    `🤖 Codex — combo-chen forensics outcome for \`${report.id}\``,
+    "",
+    `- Work item: ${report.workItem.label}`,
+  ];
+  if (report.issueUrl.trim() !== "") lines.push(`- GitHub issue: ${report.issueUrl}`);
+  lines.push(`- PR link: ${report.prUrl ?? "unknown"}`);
+  lines.push(`- Head SHA: ${report.gates.reviewer.headSha ?? "unknown"}`);
+  lines.push(`- Review/check state: ${reviewCheckState(report)}`);
+  lines.push(`- Failures found: ${failuresFound(report)}`);
+  lines.push(`- Follow-up bugs: ${followUpBugs(report)}`);
+  return lines.join("\n");
 }
 
 function reviewCheckState(report: ForensicsComboReport): string {

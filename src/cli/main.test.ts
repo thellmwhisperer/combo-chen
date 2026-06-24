@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7325 lines.
+ *   deps so tests run without a real terminal or network. ~7404 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -25,7 +25,7 @@
  *   │ reconcile             Frozen journal repair command            │
  *   │ resume                Recovery routing without fresh run setup  │
  *   │ status                Table format + liveness/deep output      │
- *   │ forensics             Read-only markdown/JSON reports          │
+ *   │ forensics             Markdown/JSON reports + outcome comments │
  *   │ activate-reviewer     Reviewer + director-watch windows        │
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
@@ -5165,6 +5165,85 @@ describe("forensics", () => {
       "No matching issue-backed combos for --issues 210 in this COMBO_CHEN_HOME.",
     );
     expect(out.join("\n")).toContain("Use -n <combo-id> for plan-backed runs or rerun after launch.");
+  });
+
+  it("records the generated outcome block on the source issue when requested", async () => {
+    const h = home();
+    const dir = seedCombo(h, "o-r-7", 7);
+    writeFileSync(
+      join(dir, "journal.jsonl"),
+      [
+        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
+        { t: "2026-06-11T10:09:00.000Z", event: "gate_validated", sha: "def4560" },
+        { t: "2026-06-11T10:10:00.000Z", event: "lgtm", sha: "def4560" },
+      ].map((event) => JSON.stringify(event)).join("\n"),
+    );
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(args);
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "def4560",
+              state: "OPEN",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
+                { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ state: "OPEN", closedAt: null }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api" && args.join(" ").includes("issues/9/comments")) {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              { body: "lgtm @ def4560", user: { login: "claude" }, created_at: "2026-06-11T10:10:00Z" },
+            ]),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api" && args.join(" ").includes("pulls/9/reviews")) {
+          return { status: 0, stdout: "[]", stderr: "" };
+        }
+        if (args[0] === "issue" && args[1] === "comment") {
+          return { status: 0, stdout: "https://github.com/o/r/issues/7#issuecomment-1\n", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["forensics", "--issues", "7", "--record-outcome"]);
+
+    const commentCall = ghCalls.find((args) => args[0] === "issue" && args[1] === "comment");
+    expect(commentCall).toEqual([
+      "issue",
+      "comment",
+      "https://github.com/o/r/issues/7",
+      "--body",
+      expect.stringContaining("combo-chen forensics outcome for `o-r-7`"),
+    ]);
+    const body = commentCall?.[4] ?? "";
+    expect(body).toContain("- PR link: https://github.com/o/r/pull/9");
+    expect(body).toContain("- Head SHA: def4560");
+    expect(body).toContain("- Review/check state: reviewer=current");
+    expect(body).toContain("- Failures found: none");
+    expect(body).toContain("- Follow-up bugs: none recorded");
+    expect(out.join("\n")).toContain(
+      "forensics: recorded outcome for o-r-7 on https://github.com/o/r/issues/7",
+    );
   });
 
   it("emits JSON reports with the same core facts", async () => {
