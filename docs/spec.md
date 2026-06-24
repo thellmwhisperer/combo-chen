@@ -373,7 +373,7 @@ ignored config or environment outside that file.
   role window is visible when no-mistakes becomes active. The coder window
   streams live coder stdout/stderr, while the journal window tails
   `combo-chen events --follow` so raw event output never replaces the coder role. After PR open,
-  one `director-watch` window runs the polling loop and renders a
+  one `director-watch` window runs the polling loop and renders one routine
   per-tick operator status line (combo id, phase age, PR state/head,
   last journal event age, GitHub poll timing, worker counters, gate
   and reviewer pins, READY checklist, and the current pending action);

@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7180 lines.
+ *   deps so tests run without a real terminal or network. ~7195 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -5413,7 +5413,7 @@ describe("activate-reviewer", () => {
 });
 
 describe("director-watch command", () => {
-  it("uses the launch config snapshot for loop cadence after repo TOML changes", async () => {
+  it("uses the launch config snapshot while emitting one compact dashboard line per tick", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(join(repoDir, "combo-chen.toml"), "[limits]\nbabysit_poll_seconds = 42\n");
@@ -5439,7 +5439,11 @@ describe("director-watch command", () => {
     expect(statusLines).toHaveLength(2);
     expect(statusLines.every((line) => line.includes("combo=o-r-7"))).toBe(true);
     expect(statusLines.every((line) => line.includes("gh=not-polled next=42s"))).toBe(true);
-    expect(out.filter((line) => line === "director: tick complete for o-r-7")).toHaveLength(2);
+    expect(statusLines.every((line) => line.includes("ready=["))).toBe(true);
+    expect(statusLines.every((line) => line.includes('action="'))).toBe(true);
+    expect(statusLines.every((line) => line.trimStart().startsWith("{"))).toBe(false);
+    expect(out).toEqual(statusLines);
+    expect(out.some((line) => line === "director: tick complete for o-r-7")).toBe(false);
   });
 
   it("survives one failed director tick, journals watch_error, and runs the next tick", () => {

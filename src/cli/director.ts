@@ -235,7 +235,6 @@ function emitTickComplete(input: {
       ambientCheckNames: input.ambientCheckNames,
     }),
   );
-  input.deps.out(`director: tick complete for ${input.comboId}`);
 }
 
 function directorWatchPrSnapshot(
