@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for combo PR label projection.
- *   ~525 lines, deterministic GitHub-label state from journal + live PR facts.
+ *   ~555 lines, deterministic GitHub-label state from journal + live PR facts.
  *
  *   READING GUIDE
  *   -------------
@@ -274,6 +274,32 @@ describe("combo PR label projection", () => {
     ).toEqual({
       add: ["combo:stale"],
       remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
+    });
+  });
+
+  it("does not project a work label when the PR is ready at the current head", () => {
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: HEAD }),
+        event("lgtm", { sha: HEAD }),
+        event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [checkRun("test", "SUCCESS")],
+      },
+      activity: { reviewerActive: true },
+      requiredCheckNames: ["test"],
+    });
+
+    expect(projection.labels).toEqual(["combo:lgtm", "combo:ready"]);
+    expect(
+      diffComboPrLabels(["combo:lgtm", "combo:ready", "combo:working-reviewer"], projection.labels),
+    ).toEqual({
+      add: [],
+      remove: ["combo:working-reviewer"],
     });
   });
 
