@@ -162,7 +162,11 @@ export function defaultDeps(): Deps {
         encoding: "utf8",
         env: { ...process.env, TREEHOUSE_NO_UPDATE_CHECK: "1" },
       });
-      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+      return {
+        status: result.status ?? 1,
+        stdout: result.stdout ?? "",
+        stderr: result.stderr ?? result.error?.message ?? "",
+      };
     },
     gh: (args) => {
       const result = spawnSync("gh", args, { encoding: "utf8" });

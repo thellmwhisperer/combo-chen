@@ -194,6 +194,40 @@ describe("teardownMergedCombo", () => {
     ]);
   });
 
+  it("falls back to git worktree removal when Treehouse is unavailable", async () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    await teardownMergedCombo({
+      deps: {
+        git: (args, cwd) => {
+          calls.push([cwd, ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        treehouse: (args, cwd) => {
+          calls.push([cwd, "treehouse", ...args]);
+          return { status: 1, stdout: "", stderr: "spawnSync treehouse ENOENT" };
+        },
+        sleep: async (ms) => {
+          calls.push(["sleep", String(ms)]);
+        },
+      },
+      combo: record,
+      mergeSha: "merge123",
+      baseRefName: "main",
+      retries: 0,
+      backoffSeconds: 1,
+    });
+
+    expect(calls).toEqual([
+      [record.repoDir, "fetch", "origin", "main"],
+      [record.repoDir, "merge-base", "--is-ancestor", "merge123", "origin/main"],
+      [record.repoDir, "treehouse", "return", "--force", record.worktree],
+      [record.repoDir, "worktree", "remove", "--force", record.worktree],
+      [record.repoDir, "branch", "-D", record.branch],
+    ]);
+  });
+
   it("surfaces command context when Treehouse fails without output", async () => {
     const record = combo();
 

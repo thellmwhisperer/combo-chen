@@ -100,6 +100,13 @@ function isAlreadyRemovedWorktree(result: { stdout: string; stderr: string }): b
     text.includes("is being destroyed");
 }
 
+function isTreehouseUnavailable(result: { stdout: string; stderr: string }): boolean {
+  const text = normalizedGitFailure(result);
+  return (text.includes("treehouse") && text.includes("command not found")) ||
+    text.includes("spawnsync treehouse enoent") ||
+    text.includes("spawn treehouse enoent");
+}
+
 function isAlreadyDeletedBranch(result: { stdout: string; stderr: string }): boolean {
   const text = normalizedGitFailure(result);
   return text.includes("branch") && text.includes("not found");
@@ -136,13 +143,33 @@ export async function teardownMergedCombo(input: {
     `merge verification for ${input.mergeSha} in ${baseRef}`,
     retryOptions,
   );
-  const worktree = await requireTreehouse(
+  let treehouseUnavailable = false;
+  const treehouseReturn = await requireTreehouse(
     input.deps,
     ["return", "--force", input.combo.worktree],
     input.combo.repoDir,
     `treehouse return ${input.combo.worktree}`,
-    { ...retryOptions, acceptsFailure: isAlreadyRemovedWorktree },
+    {
+      ...retryOptions,
+      acceptsFailure: (result) => {
+        if (isAlreadyRemovedWorktree(result)) return true;
+        if (isTreehouseUnavailable(result)) {
+          treehouseUnavailable = true;
+          return true;
+        }
+        return false;
+      },
+    },
   );
+  const worktree = treehouseUnavailable
+    ? await requireGit(
+        input.deps,
+        ["worktree", "remove", "--force", input.combo.worktree],
+        input.combo.repoDir,
+        `git worktree remove fallback ${input.combo.worktree}`,
+        { ...retryOptions, acceptsFailure: isAlreadyRemovedWorktree },
+      )
+    : treehouseReturn;
   const branch = await requireGit(
     input.deps,
     ["branch", "-D", input.combo.branch],

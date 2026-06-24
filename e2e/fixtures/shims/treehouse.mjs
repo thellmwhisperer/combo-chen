@@ -41,6 +41,10 @@ if (args[0] === "get" && args.includes("--lease")) {
 }
 
 if (args[0] === "return") {
+  if (process.env.E2E_TREEHOUSE_UNAVAILABLE_ON_RETURN === "1") {
+    process.stderr.write("spawnSync treehouse ENOENT\n");
+    process.exit(1);
+  }
   const worktree = args[args.length - 1];
   if (!worktree || worktree === "return" || worktree === "--force") fail("missing worktree path");
   git(["worktree", "remove", "--force", worktree]);
