@@ -1,5 +1,5 @@
 /**
- * @overview First-class resume routing for persisted combos. ~355 lines,
+ * @overview First-class resume routing for persisted combos. ~390 lines,
  *   2 exports, state-machine driven safe actions.
  *
  *   READING GUIDE
@@ -31,6 +31,7 @@ import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from 
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { closeMergedCombo } from "./closure.js";
 import {
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
@@ -38,7 +39,7 @@ import {
   shaMatchesHead,
   startInitialGateRetry,
 } from "./gate.js";
-import type { GhRunner } from "./github.js";
+import { parsePrView, type GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
 import { DIRECTOR_WATCH_WINDOW, ensureComboSession, killWindowIfPresent } from "./sessions.js";
 import {
@@ -56,8 +57,10 @@ export interface ResumeDeps {
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: GhRunner;
   noMistakes: (args: string[], cwd: string) => CommandResult;
+  sleep: (ms: number) => Promise<void>;
 }
 
 // -/ 1/3
@@ -89,6 +92,15 @@ function hasEvent(events: ComboEvent[], eventName: ComboEvent["event"]): boolean
   return events.some((event) => event.event === eventName);
 }
 
+function hasClosurePendingEvent(events: ComboEvent[]): boolean {
+  let pending = false;
+  for (const event of events) {
+    if (event.event === "merged") pending = true;
+    if (event.event === "combo_closed") pending = false;
+  }
+  return pending;
+}
+
 function currentWorktreeHeadSha(deps: Pick<ResumeDeps, "git">, combo: ComboRecord): string | undefined {
   const result = deps.git(["rev-parse", "HEAD"], combo.worktree);
   if (result.status !== 0) return undefined;
@@ -101,6 +113,22 @@ function branchPrUrl(gh: GhRunner, branch: string): string | undefined {
   if (result.status !== 0) return undefined;
   const url = result.stdout.trim();
   return url === "" || url === "null" ? undefined : url;
+}
+
+function githubPrMerged(gh: GhRunner, prUrl: string): boolean {
+  const result = gh([
+    "pr",
+    "view",
+    prUrl,
+    "--json",
+    "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
+  ]);
+  if (result.status !== 0) return false;
+  try {
+    return parsePrView(result.stdout).state === "MERGED";
+  } catch {
+    return false;
+  }
 }
 
 function ensurePrOpenedForLiveCi(input: {
@@ -124,6 +152,7 @@ type ResumeState =
   | { kind: "gate_running"; downstream: string }
   | { kind: "gate_waiting"; downstream: string }
   | { kind: "initial_gate_retry" }
+  | { kind: "closure_pending"; reason: "journal" | "github" }
   | { kind: "pr_exists"; prUrl: string }
   | { kind: "coder_salvage"; lines: string[] }
   | { kind: "gate_ambiguous"; state: string }
@@ -195,6 +224,7 @@ function classifyResumeState(input: {
   headSha: string | undefined;
   home: string;
   cli: string;
+  gh: GhRunner;
 }): ResumeState {
   const { combo, events, downstream, headSha, home, cli } = input;
   if (downstream === PR_READY_FOR_REVIEWER) return { kind: "reviewer_ready" };
@@ -206,6 +236,10 @@ function classifyResumeState(input: {
   }
 
   const prUrl = latestPrUrlFromEvents(events);
+  if (hasClosurePendingEvent(events)) return { kind: "closure_pending", reason: "journal" };
+  if (prUrl !== undefined && githubPrMerged(input.gh, prUrl)) {
+    return { kind: "closure_pending", reason: "github" };
+  }
   if (prUrl !== undefined) return { kind: "pr_exists", prUrl };
 
   if (shouldRetryInitialGate(events, headSha)) return { kind: "initial_gate_retry" };
@@ -223,12 +257,12 @@ function classifyResumeState(input: {
 // -/ 2/3
 
 // -- 3/3 CORE · resumeCombo <- START HERE --
-export function resumeCombo(input: {
+export async function resumeCombo(input: {
   deps: ResumeDeps;
   home: string;
   comboId: string;
   cli: string;
-}): void {
+}): Promise<void> {
   const { deps, home, comboId, cli } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
@@ -239,7 +273,7 @@ export function resumeCombo(input: {
     ambientCheckNames: config.externalCommentAgents,
   });
   const headSha = currentWorktreeHeadSha(deps, combo);
-  const state = classifyResumeState({ combo, events, downstream, headSha, home, cli });
+  const state = classifyResumeState({ combo, events, downstream, headSha, home, cli, gh: deps.gh });
 
   if (state.kind === "reviewer_ready") {
     const recreated = ensureComboSession({ deps, combo, home, cli });
@@ -263,6 +297,12 @@ export function resumeCombo(input: {
         `${prUrl !== undefined ? "; reviewer/director monitoring ensured" : ""}` +
         `${recreated ? " (recreated tmux session)" : ""}`,
     );
+    return;
+  }
+
+  if (state.kind === "closure_pending") {
+    deps.out(`resume: closure pending for ${combo.id} (${state.reason}); running closure`);
+    await closeMergedCombo({ deps, home, comboId: combo.id });
     return;
   }
 

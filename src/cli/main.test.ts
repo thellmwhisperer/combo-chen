@@ -4093,6 +4093,56 @@ describe("resume", () => {
     expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
   });
 
+  it("runs closure instead of reviewer monitoring when the existing PR is already merged", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const prUrl = "https://github.com/o/r/pull/7";
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(runDir, "pr_opened", { url: prUrl });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            headRefOid: "head777",
+            state: "MERGED",
+            baseRefName: "main",
+            mergeCommit: { oid: "merge777" },
+            mergedBy: { login: "maintainer" },
+            statusCheckRollup: [],
+          }),
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+    expect(calls).toContainEqual(["treehouse", `cwd=${repoDir}`, "return", "--force", join(repoDir, ".worktrees", "issue-7")]);
+    expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
+    expect(readEvents(runDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+      { event: "combo_closed", source: "closure" },
+    ]);
+    expect(out.join("\n")).toContain("resume: closure pending for o-r-7 (github); running closure");
+    expect(out.join("\n")).toContain("closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete");
+  });
+
   it("surfaces exact no-mistakes gate findings and the respond command", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

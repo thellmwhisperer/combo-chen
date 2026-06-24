@@ -263,6 +263,51 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("resumes a GitHub-merged combo by converging closure instead of restarting review", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "pr_opened", "--field", `url=${prUrl}`], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      const resume = run(process.execPath, [cliPath, "resume", "-n", combo.id], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      expect(resume.stdout).toContain(`resume: closure pending for ${combo.id} (github); running closure`);
+      expect(resume.stdout).toContain("teardown complete");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).map((event) => event.event);
+      expect(events).toContain("merged");
+      expect(events).toContain("combo_closed");
+      expect(existsSync(combo.worktree)).toBe(false);
+      expect(run("git", ["branch", "--list", combo.branch], { cwd: harness.repo }).stdout.trim()).toBe("");
+
+      const treehouseLog = readJsonLines<LogEntryJson>(harness.logs.treehouse);
+      expect(treehouseLog).toContainEqual(
+        expect.objectContaining({ args: ["return", "--force", combo.worktree] }),
+      );
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog).toContainEqual(expect.objectContaining({ args: ["kill-session", "-t", combo.tmuxSession] }));
+      expect(tmuxLog).not.toContainEqual(
+        expect.objectContaining({ args: ["new-window", "-t", combo.tmuxSession, "-n", "reviewer", expect.any(String)] }),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) {
+        rmSync(harness.root, { recursive: true, force: true });
+      } else {
+        process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+      }
+    }
+  });
+
   it("executes the generated runner and copies no-mistakes config into the active gate worktree", () => {
     const harness = prepareHarness({ executeRunner: true, activeNoMistakes: true });
     let passed = false;

@@ -307,7 +307,7 @@ describe("closeMergedCombo", () => {
 
   it("reports teardown pending on transient git failure and does not crash", async () => {
     const h = home();
-    const { runDir } = writeTestCombo(h);
+    const { repoDir, runDir } = writeTestCombo(h);
     const { deps, calls, out } = fakeDeps({
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
@@ -323,7 +323,7 @@ describe("closeMergedCombo", () => {
     ]);
     expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
     expect(out).toEqual([
-      "closure: o-r-7 teardown pending: git fetch base branch failed: fatal: unable to fetch from origin",
+      `closure: o-r-7 teardown pending: git fetch base branch failed: fatal: unable to fetch from origin (exit 128; cwd ${repoDir}; command fetch origin main)`,
     ]);
   });
 

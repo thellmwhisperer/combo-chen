@@ -193,5 +193,26 @@ describe("teardownMergedCombo", () => {
       [record.repoDir, "branch", "-D", record.branch],
     ]);
   });
+
+  it("surfaces command context when Treehouse fails without output", async () => {
+    const record = combo();
+
+    await expect(
+      teardownMergedCombo({
+        deps: {
+          git: () => ({ status: 0, stdout: "", stderr: "" }),
+          treehouse: () => ({ status: 1, stdout: "", stderr: "" }),
+          sleep: async () => {},
+        },
+        combo: record,
+        mergeSha: "merge123",
+        baseRefName: "main",
+        retries: 0,
+        backoffSeconds: 1,
+      }),
+    ).rejects.toThrow(
+      `treehouse return ${record.worktree} failed: no output (exit 1; cwd ${record.repoDir}; command return --force ${record.worktree})`,
+    );
+  });
 });
 // -/ 2/2

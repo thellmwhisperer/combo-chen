@@ -73,14 +73,19 @@ async function requireRetriedCommand(
     if (result.status === 0) return "ok";
     if (options.acceptsFailure?.(result) === true) return "accepted_failure";
     if (attempt >= options.retries) {
-      throw new Error(`${description} failed: ${commandFailureText(result)}`);
+      throw new Error(`${description} failed: ${commandFailureText(result, args, cwd)}`);
     }
     await deps.sleep(options.backoffSeconds * 1000 * (attempt + 1));
   }
 }
 
-function commandFailureText(result: { stdout: string; stderr: string }): string {
-  return result.stderr.trim() || result.stdout.trim() || "unknown error";
+function commandFailureText(
+  result: { status: number; stdout: string; stderr: string },
+  args: string[],
+  cwd: string,
+): string {
+  const detail = result.stderr.trim() || result.stdout.trim() || "no output";
+  return `${detail} (exit ${result.status}; cwd ${cwd}; command ${args.join(" ")})`;
 }
 
 function normalizedGitFailure(result: { stdout: string; stderr: string }): string {
