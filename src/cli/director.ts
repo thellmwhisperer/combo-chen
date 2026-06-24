@@ -243,7 +243,7 @@ function directorWatchPrSnapshot(
   prUrl: string,
   polledAt: Date,
 ): DirectorWatchPrSnapshot {
-  const result = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,statusCheckRollup"]);
+  const result = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergeStateStatus,mergeable,statusCheckRollup"]);
   if (result.status !== 0) {
     return {
       state: "unknown",
@@ -256,6 +256,8 @@ function directorWatchPrSnapshot(
     return {
       state: pr.state,
       headSha: pr.headSha,
+      mergeStateStatus: pr.mergeStateStatus,
+      mergeable: pr.mergeable,
       statusCheckRollup: pr.statusCheckRollup,
       polledAt,
     };
