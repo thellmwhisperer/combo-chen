@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1385 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1390 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
@@ -1237,7 +1237,8 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
     expect(out).toContain("reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7");
-    expect(out).toContain("director: tick complete for o-r-7");
+    expect(out.some((line) => line.startsWith("director: watch "))).toBe(true);
+    expect(out.some((line) => line === "director: tick complete for o-r-7")).toBe(false);
   });
 
   it("starts a post-address gate only when an actionable nudge is followed by a new committed HEAD", async () => {
