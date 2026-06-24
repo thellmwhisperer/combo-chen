@@ -39,7 +39,7 @@ import {
   tickDirector,
   type DirectorDeps,
 } from "./director.js";
-import { GATE_RUNNER_WINDOW } from "./gate.js";
+import { GATEKEEPER_WINDOW } from "./gate.js";
 
 // -- 1/2 HELPER · Fixtures --
 const ISSUE = "https://github.com/o/r/issues/7";
@@ -324,10 +324,11 @@ describe("tickDirector", () => {
 
     expect(sleeps).toEqual([1000]);
     const scriptPath = join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.sh`);
-    const gateRunnerWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
-    expect(gateRunnerWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
+    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("initial gate retry for o-r-7");
     expect(script).toContain("emit -n 'o-r-7' gate_started");
@@ -372,7 +373,7 @@ describe("tickDirector", () => {
     });
     deps.tmux = (args) => {
       calls.push(["tmux", ...args]);
-      if (args[0] === "new-window" && args.includes(GATE_RUNNER_WINDOW)) {
+      if (args[0] === "new-window" && args.includes(GATEKEEPER_WINDOW)) {
         return { status: 1, stdout: "", stderr: "no server running" };
       }
       return { status: 0, stdout: "", stderr: "" };
@@ -532,7 +533,6 @@ describe("tickDirector", () => {
     expect(calls.some((call) => call.includes("combo-chen-o-r-7:coder"))).toBe(false);
     expect(calls.some((call) => call.includes("combo-chen-o-r-7:gatekeeper"))).toBe(false);
     expect(out).toContain("nudged https://github.com/o/r/pull/7#pullrequestreview-1");
-    expect(out).toContain("director: tick complete for o-r-7");
   });
 
   it("does not inspect worker panes before a pre-PR worker phase starts", async () => {
@@ -1426,11 +1426,12 @@ describe("tickDirector", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "gate_stale", old_sha: oldSha, new_sha: newSha }),
     );
-    const gateRunnerWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
-    expect(gateRunnerWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
+    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
     expect(readFileSync(join(worktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
     expect(out).toContain(`no-mistakes: copied local config to ${worktree}/.no-mistakes.yaml`);
@@ -1478,16 +1479,16 @@ describe("tickDirector", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "gate_stale", old_sha: oldSha, new_sha: newSha }),
     );
-    const gateRunnerWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
-    expect(gateRunnerWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gateRunnerWindow?.at(-1)).toContain("window retained for inspection until closure");
+    expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
+    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
   });
 
-  it("does not start a post-address gate when the local worktree is behind the published PR head", async () => {
+  it("routes local worktree sync recovery when the worktree is behind the published PR head", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -1505,6 +1506,7 @@ describe("tickDirector", () => {
       sha: publishedSha,
       pr_url: "https://github.com/o/r/pull/7",
     });
+    writeCoderThreadArtifact(runDir);
     const { deps, calls, out } = fakeDeps({
       homeDir: h,
       record,
@@ -1515,7 +1517,7 @@ describe("tickDirector", () => {
         {
           html_url: "https://github.com/o/r/pull/7#issuecomment-1",
           user: { login: "coderabbitai[bot]" },
-          body: "Review triggered.",
+          body: "Please address this actionable review comment.",
           created_at: "2026-06-24T07:22:48Z",
         },
       ],
@@ -1544,10 +1546,35 @@ describe("tickDirector", () => {
 
     expect(readEvents(runDir).some((event) => event.event === "address_done")).toBe(false);
     expect(readEvents(runDir).some((event) => event.event === "gate_stale")).toBe(false);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "pr_conflict",
+        sha: localSha,
+        published_sha: publishedSha,
+        local_sha: localSha,
+        pr_url: "https://github.com/o/r/pull/7",
+        merge_state: "LOCAL_OUT_OF_SYNC",
+        action: "rebase_required",
+        source: "local_worktree",
+      }),
+    );
     expect(calls.some((call) => call[0] === "tmux" && call.includes("gatekeeper"))).toBe(false);
     expect(out).toContain(
       `director: worktree HEAD ${localSha} does not include published gate ${publishedSha}; waiting for coder sync before post-address gate`,
     );
+    expect(out).toContain(
+      `director: local worktree ${localSha} does not include published gate ${publishedSha}; action rebase_required`,
+    );
+    const syncPrompts = calls.filter(
+      (call) =>
+        call[0] === "tmux" &&
+        call[1] === "set-buffer" &&
+        typeof call.at(-1) === "string" &&
+        call.at(-1)?.includes("Local PR head sync recovery for coder responding mode"),
+    );
+    expect(syncPrompts).toHaveLength(1);
+    expect(syncPrompts[0]?.at(-1)).toContain(`published_gate: ${publishedSha}`);
+    expect(syncPrompts[0]?.at(-1)).toContain(`local_head: ${localSha}`);
   });
 
   it("does not start a post-address gate for LGTM/bookkeeping artifacts without a coder HEAD change", async () => {

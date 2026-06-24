@@ -119,7 +119,7 @@ if (args[0] === "api") {
       html_url: "https://github.com/o/r/pull/1#pullrequestreview-reviewer-code-0",
       user: { login: process.env.E2E_REVIEWER_CODE0_LOGIN },
       state: "COMMENTED",
-      body: [`lgtm @ ${head}`, "", "combo-chen-reviewer-verdict:", `head: ${head}`, "code: 0"].join("\n"),
+      body: ["combo-chen-reviewer-verdict:", `head: ${head}`, "code: 0", `lgtm @ ${head}`].join("\n"),
       commit_id: head,
       submitted_at: "2026-06-23T23:21:47Z",
     }])}\n`);

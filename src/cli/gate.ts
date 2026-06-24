@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~980 lines, 19 exports, persistent attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~1000 lines, 20 exports, persistent attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -16,6 +16,7 @@
  *   PUBLIC API
  *   ----------
  *   GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions
+ *   PostAddressGateCheckResult
  *   GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE
  *   buildGatekeeperAttachCommand, startGatekeeperWindow
  *   ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus
@@ -27,7 +28,7 @@
  *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
  *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
- * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
@@ -75,6 +76,11 @@ export interface GatekeeperAttachOptions {
   replaceProcess?: boolean;
   stopWhenFileExists?: string;
 }
+
+export type PostAddressGateCheckResult =
+  | { status: "started"; headSha: string }
+  | { status: "blocked"; reason: "coder_worktree_out_of_sync"; headSha: string; publishedSha: string }
+  | { status: "idle"; reason: string; headSha?: string };
 
 export const GATEKEEPER_WINDOW = "gatekeeper";
 export const GATE_RUNNER_WINDOW = "gate-runner";
@@ -773,11 +779,11 @@ function startPostAddressGate(input: {
 
   const command = buildScriptWithGatekeeperAttachCommand(input.combo, scriptPath, input.attachOptions);
 
-  killWindowIfPresent(input.deps, input.combo, GATE_RUNNER_WINDOW);
-  const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATE_RUNNER_WINDOW, command));
+  killWindowIfPresent(input.deps, input.combo, GATEKEEPER_WINDOW);
+  const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATEKEEPER_WINDOW, command));
   if (created.status !== 0) {
     throw new Error(
-      `tmux failed to start post-address gate runner in "${input.combo.tmuxSession}": ` +
+      `tmux failed to start post-address gatekeeper in "${input.combo.tmuxSession}": ` +
         `${created.stderr.trim() || "unknown error"}`,
     );
   }
@@ -819,10 +825,22 @@ export function restartPostAddressGate(input: {
     return { started: false, headSha, reason: "uncommitted_changes" };
   }
 
+  const lastPublishedSha = latestPublishedGateSha(events);
+  if (
+    lastPublishedSha !== undefined &&
+    lastPublishedSha !== headSha &&
+    !worktreeContainsSha(deps, combo, lastPublishedSha, headSha)
+  ) {
+    deps.out(
+      `gate-restart: refusing post-address gate for ${combo.id}; worktree HEAD ${headSha} ` +
+        `does not include published gate ${lastPublishedSha}`,
+    );
+    return { started: false, headSha, reason: "coder_worktree_out_of_sync" };
+  }
+
   if (!hasAddressDone(events, headSha)) {
     appendEvent(runDir, "address_done", { head_sha: headSha });
   }
-  const lastPublishedSha = latestPublishedGateSha(events);
   if (
     lastPublishedSha !== undefined &&
     lastPublishedSha !== headSha &&
@@ -856,12 +874,12 @@ export function runPostAddressGateIfNeeded(input: {
   runDir: string;
   prUrl: string;
   cli: string;
-}): void {
+}): PostAddressGateCheckResult {
   const { deps, combo, runDir, prUrl, cli } = input;
   const events = readEvents(runDir);
   const lastStatus = latestGateStatus(events);
   const lastPublishedSha = latestPublishedGateSha(events);
-  if (lastStatus === undefined && lastPublishedSha === undefined) return;
+  if (lastStatus === undefined && lastPublishedSha === undefined) return { status: "idle", reason: "no_gate" };
 
   const headSha = worktreeHeadSha(deps, combo);
   if (lastStatus?.state === "fix_inflight") {
@@ -875,20 +893,22 @@ export function runPostAddressGateIfNeeded(input: {
     } else {
       deps.out(`director: gate already in flight for ${combo.id}`);
     }
-    return;
+    return { status: "idle", reason: "gate_in_flight", headSha };
   }
 
-  if (lastPublishedSha === undefined || lastPublishedSha === headSha) return;
+  if (lastPublishedSha === undefined || lastPublishedSha === headSha) {
+    return { status: "idle", reason: "published_head_current", headSha };
+  }
 
   if (lastStatus?.state === "failed" && lastStatus.headSha === headSha) {
     deps.out(`director: post-address gate already failed for ${combo.id} at ${headSha}`);
-    return;
+    return { status: "idle", reason: "gate_failed_at_head", headSha };
   }
 
   const recoveryHeadSha = latestCoderRecoveryHeadShaAfterGate(events, lastPublishedSha);
   if (recoveryHeadSha === undefined || recoveryHeadSha === headSha) {
     deps.out(`director: no coder HEAD change for ${combo.id}; waiting for coder to commit`);
-    return;
+    return { status: "idle", reason: "no_coder_head_change", headSha };
   }
 
   if (!worktreeContainsSha(deps, combo, lastPublishedSha, headSha)) {
@@ -896,7 +916,7 @@ export function runPostAddressGateIfNeeded(input: {
       `director: worktree HEAD ${headSha} does not include published gate ${lastPublishedSha}; ` +
         "waiting for coder sync before post-address gate",
     );
-    return;
+    return { status: "blocked", reason: "coder_worktree_out_of_sync", headSha, publishedSha: lastPublishedSha };
   }
 
   if (propagateNoMistakesConfig(combo.repoDir, combo.worktree)) {
@@ -905,7 +925,7 @@ export function runPostAddressGateIfNeeded(input: {
 
   if (hasUncommittedChanges(deps, combo)) {
     deps.out(`director: worktree has uncommitted changes for ${combo.id}; waiting for coder to commit`);
-    return;
+    return { status: "idle", reason: "uncommitted_changes", headSha };
   }
 
   if (!hasAddressDone(events, headSha)) {
@@ -932,6 +952,7 @@ export function runPostAddressGateIfNeeded(input: {
     },
   });
   deps.out(`director: post-address gate started for ${combo.id} at ${headSha}`);
+  return { status: "started", headSha };
 }
 // -/ 4/5
 

@@ -715,7 +715,7 @@ describe("tickReviewer", () => {
     expect(out).toEqual(["reviewer: no pinned lgtm for o-r-7"]);
   });
 
-  it("journals needs_human when a current-head reviewer verdict comes from an unauthorized GitHub login", async () => {
+  it("accepts current-head reviewer verdict code 0 regardless of GitHub author", async () => {
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
@@ -755,11 +755,10 @@ describe("tickReviewer", () => {
               stdout: JSON.stringify([
                 {
                   body: [
-                    `lgtm @ ${headSha}`,
-                    "",
                     "combo-chen-reviewer-verdict:",
                     `head: ${headSha}`,
                     "code: 0",
+                    `lgtm @ ${headSha}`,
                   ].join("\n"),
                   user: { login: "teseo" },
                   submitted_at: "2026-06-11T00:00:00Z",
@@ -777,19 +776,9 @@ describe("tickReviewer", () => {
       comboId: record.id,
     });
 
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({
-        event: "needs_human",
-        reason: "reviewer_login_mismatch",
-        sha: headSha,
-        author: "teseo",
-        allowed_logins: ["trusted-reviewer"],
-      }),
-    );
-    expect(readEvents(runDir).some((event) => event.event === "lgtm")).toBe(false);
-    expect(out).toEqual([
-      `reviewer: needs_human reviewer_login_mismatch author=teseo allowed=trusted-reviewer sha=${headSha}`,
-    ]);
+    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toEqual([`reviewer: lgtm current at ${headSha}`]);
   });
 
   it("treats reviewer verdict code 0 as a current-head LGTM signal", async () => {

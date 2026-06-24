@@ -34,7 +34,6 @@ import {
   buildGatekeeperAttachCommand,
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
-  GATE_RUNNER_WINDOW,
   propagateNoMistakesConfig,
   remoteShaForRef,
   runPostAddressGateIfNeeded,
@@ -334,9 +333,8 @@ describe("gatekeeper runtime config snapshots", () => {
       "-t",
       "combo-chen-o-r-7",
       "-n",
-      GATE_RUNNER_WINDOW,
+      GATEKEEPER_WINDOW,
     ]);
-    expect(calls[1]).not.toContain("gatekeeper");
     const script = readFileSync(join(runDir, "gatekeeper-post-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-post");
     expect(script).not.toContain("printf drifted-post");
