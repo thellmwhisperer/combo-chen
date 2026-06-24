@@ -493,20 +493,34 @@ through env, TOML, then fallback defaults.
 Active development.
 
 v0 implements the work-item-to-PR loop under the parallelize-first operating
-contract: deterministic overture launch
-runway, coder, gatekeeper, initial-gate
-retry with configurable attempts and backoff, reviewer with machine-readable
-verdict codes (0-3) and deterministic routing, director watching,
-review-comment routing, post-address gates, director prompt delivery for
-code-2 verdicts, park/resume, reconcile, forensics,
-launch-time config snapshots to protect runtime behavior from repo TOML drift,
-a machine-readable runtime ledger for each combo capsule,
-branch-scoped gate leases for parallel capsules with stale recovery and heartbeat,
-wave-based parallel scaling (start 2, then 3, then 4-6 with postmortem justification),
-current-head READY agreement with base-advance conflict detection, and live GitHub PR label projection
-(combo:working-*, combo:lgtm, combo:external-review-green, combo:ready, combo:stale,
-combo:conflict) with mutation journaling. Work items can be GitHub issues (`--issue`) or
-local markdown work plans (`--plan`).
+contract: deterministic overture launch runway,
+coder/gnhf, no-mistakes initial and
+post-address gates with automatic initial-gate retry, reviewer with
+machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
+lazy coder responding mode (created only after review signals or PR-conflict
+recovery need it, not on first-pass PR-open happy path), single `director-watch`
+observation with compact per-tick operator status lines, frozen journal
+`reconcile` repair for closed PRs (preserving all worktrees on close),
+merged-PR `reconcile` with merge-fact recording only (resource convergence
+deferred to `closure`), deterministic `closure` for post-merge local resource
+convergence, director prompt delivery for code-2 verdicts, no-mistakes config propagation,
+read-only forensics reports with copy-ready Outcome blocks and markdown-only
+`--record-outcome` for posting dogfood outcomes to GitHub issues, coder safety
+validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),
+`park`/`resume` for reboot-safe capsule handoff, the parallel capsule dashboard
+(`status`; actionable by default, `--all` for history, `--deep` for downstream
+probes, auto-reconcile + tmux liveness), launch-time config snapshots for
+deterministic runtime behavior, a machine-readable runtime ledger for each combo
+capsule, branch-scoped gate leases for parallel capsules with stale recovery and
+heartbeat, promptable director window inside each combo capsule (non-polling
+contract, prompted by director-watch only for ambiguity or uncoded recovery),
+wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
+justification), current-head READY agreement with base-advance conflict
+detection, live GitHub PR label projection with mutation journaling,
+human-readable tmux topology (separate coder, journal, gatekeeper/live,
+gate-runner, and director-watch windows; raw event output never replaces the
+coder role), and opt-in runner progress status lines
+(`COMBO_CHEN_RUNNER_PROGRESS=1`).
 
 Deferred: preflight scoring, counterfactual automerge logs, worktree pools, and ACP
 role driving.

@@ -20,7 +20,7 @@
  *   │ hasSession              Convenience: tmux has-session → boolean     │
  *   │ newSessionArgs          Build args for new-session -d              │
  *   │ newWindowArgs           Build args for new-window                  │
- *   │ splitWindowArgs         Build args for split-window (journal pane) │
+ *   │ splitWindowArgs         Legacy; split-window (journal pane) arg builder       │
  *   │ attachSessionArgs       Build args for attach                     │
  *   │ hasSessionArgs          Build args for has-session                │
  *   │ killSessionArgs         Build args for kill-session               │
@@ -34,7 +34,7 @@
  *   │ TmuxError               Thrown when tmux binary is absent          │
  *   ├─ INTERNALS ────────────────────────────────────────────────────────┤
  *   │ nudgeBufferName         Namespaced buffer name for nudgeWindowArgs │
- *   │ JOURNAL_PANE_HEIGHT     Split height for the journal pane          │
+ *   │ JOURNAL_PANE_HEIGHT     Legacy; journals live in a dedicated window │
  *   └────────────────────────────────────────────────────────────────────┘
  *
  * @exports TmuxError, JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux, hasSession
