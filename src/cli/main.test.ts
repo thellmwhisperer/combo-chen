@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~6900 lines.
+ *   deps so tests run without a real terminal or network. ~7100 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -610,6 +610,80 @@ describe("command surface", () => {
     expect(out).toEqual([
       "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
       `update failed before replacement: checksum mismatch for ${assetName}: expected ${expectedSha} but downloaded ${archiveSha}`,
+    ]);
+  });
+
+  it("reports missing checksums assets before replacement with staging cleanup", async () => {
+    const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
+    const stagingDir = "/updates/combo-chen-update-missing-checksums";
+    const downloads: unknown[] = [];
+    const extracts: unknown[] = [];
+    const removals: string[] = [];
+    const replacements: unknown[] = [];
+    const { deps, out } = fakeDeps({
+      gh: (args) => {
+        if (args[0] === "api" && args[1] === "repos/thellmwhisperer/combo-chen/releases?per_page=100") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                tag_name: "v1.2.1",
+                prerelease: false,
+                draft: false,
+                assets: [
+                  {
+                    name: assetName,
+                    browser_download_url: `https://downloads.example/${assetName}`,
+                  },
+                ],
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+      },
+      update: {
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-23T09:00:00.000Z" },
+        installTargetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
+        platform: "linux",
+        arch: "x64",
+        makeStagingDir: () => stagingDir,
+        async download(request) {
+          downloads.push(request);
+          throw new Error(`download should not run without checksums metadata: ${request.fileName}`);
+        },
+        async mkdir() {
+          throw new Error("mkdir should not run without checksums metadata");
+        },
+        async writeFile() {
+          throw new Error("writeFile should not run without checksums metadata");
+        },
+        async remove(path) {
+          removals.push(path);
+        },
+        async extractArchive(input) {
+          extracts.push(input);
+          throw new Error("extractArchive should not run without checksums metadata");
+        },
+        replaceInstallTarget(input) {
+          replacements.push(input);
+          throw new Error("replacement should not run without checksums metadata");
+        },
+      },
+    });
+
+    await expect(exec(deps, ["update", "--yes"])).rejects.toThrow(
+      "checksums.txt text or downloadUrl is required",
+    );
+
+    expect(downloads).toEqual([]);
+    expect(extracts).toEqual([]);
+    expect(replacements).toEqual([]);
+    expect(removals).toEqual([stagingDir]);
+    expect(out).toEqual([
+      "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
+      "update failed before replacement: checksums.txt text or downloadUrl is required",
     ]);
   });
 
