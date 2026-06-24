@@ -394,7 +394,8 @@ consume it automatically.
   markdown includes a copy-ready outcome block with PR link, head SHA,
   review/check state, failures found, and follow-up bug status for dogfood
   records. Add markdown-only `--record-outcome` to post that compact Outcome
-  block to each matched source GitHub issue.
+  block to each matched source GitHub issue once a PR link and head SHA are
+  known.
 - `reconcile --apply` repairs journals that froze before a merged or closed PR
   was recorded locally. Add `-n <combo-id>` to scope repair and teardown to a
   single combo. Teardown is idempotent: already-clean worktrees, branches, and
