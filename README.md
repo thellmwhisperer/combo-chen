@@ -176,17 +176,18 @@ merge = "human"
 logins = ["claude"]
 
 [ready]
+# Dogfood default: CodeRabbit must be present with SUCCESS before READY.
 required_checks = ["CodeRabbit"]
 
 [external_review]
-commands = ["@external-reviewer review"]
+commands = ["@coderabbitai review"]
 
 [pr_labels]
 green_check_names = ["CodeRabbit"]
 
 [external_comments]
 # External comment/noise filters only; not approval and not READY checks.
-agents = ["external-reviewer"]
+agents = ["coderabbitai"]
 
 [reviewer.claude]
 command = "claude {prompt}"
@@ -206,6 +207,8 @@ accepted for routing; by default this is the active reviewer agent name.
 present with exact `SUCCESS`; by default this includes `CodeRabbit`, and a
 skipped CodeRabbit review is not a READY success. These external checks are not
 reviewer approval.
+The example config uses CodeRabbit for combo-chen dogfood; keep the four
+external-review settings in sync when replacing it with another bot.
 `[external_review].commands` names PR-comment commands the director posts once
 per current head after the active reviewer emits LGTM, typically to trigger
 external review bots whose checks are listed under `[ready]`.

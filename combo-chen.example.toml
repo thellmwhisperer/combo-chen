@@ -99,6 +99,9 @@ command = "claude {prompt}"
 # approval. Each configured name must be present with exact SUCCESS; all other
 # checks in the PR rollup must also be green.
 # Environment override: COMBO_CHEN_READY_REQUIRED_CHECKS.
+# This repo dogfoods CodeRabbit as the required external reviewer. If a target
+# repo uses another external reviewer, replace the names in [ready],
+# [external_review], [pr_labels], and [external_comments] together.
 required_checks = ["CodeRabbit"]
 
 [external_review]
@@ -106,7 +109,7 @@ required_checks = ["CodeRabbit"]
 # LGTM, used to trigger external review systems whose SUCCESS checks are listed
 # in [ready]. Each command is posted once per head SHA.
 # Environment override: COMBO_CHEN_EXTERNAL_REVIEW_COMMANDS.
-commands = ["@external-reviewer review"]
+commands = ["@coderabbitai review"]
 
 [pr_labels]
 # Check names that satisfy the combo:external-review-green PR label.
@@ -128,7 +131,7 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 # External comment agents are matched by review/comment author for noise
 # filtering and coder routing. They do not approve PRs or satisfy READY checks.
 # Environment override: COMBO_CHEN_EXTERNAL_COMMENT_AGENTS.
-agents = ["external-reviewer"]
+agents = ["coderabbitai"]
 
 [reviewer]
 # Free-form reviewer instructions passed into the generated prompt. Keep this
