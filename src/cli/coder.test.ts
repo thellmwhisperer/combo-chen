@@ -195,7 +195,15 @@ describe("nudgeReviewComments", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+      [
+        "[thread_sitter]",
+        'review_nudge_prompt = "Please address {url}"',
+        'window_name = "sitter"',
+        "",
+        "[external_comments]",
+        'agents = ["external-reviewer"]',
+        "",
+      ].join("\n"),
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -303,9 +311,18 @@ describe("nudgeReviewComments", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+      [
+        "[thread_sitter]",
+        'review_nudge_prompt = "Please address {url}"',
+        'window_name = "sitter"',
+        "",
+        "[external_comments]",
+        'agents = ["external-reviewer"]',
+        "",
+      ].join("\n"),
     );
     writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     appendEvent(runDir, "gate_validated", { sha: publishedSha });
 
