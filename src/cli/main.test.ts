@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7209 lines.
+ *   deps so tests run without a real terminal or network. ~7311 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -2942,6 +2942,108 @@ describe("run", () => {
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
+  });
+
+  it("preserves human-readable role topology through a first-pass READY and closure path", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const prUrl = "https://github.com/o/r/pull/7";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const mergeSha = "cccccccccccccccccccccccccccccccccccccccc";
+    let prState: "OPEN" | "MERGED" = "OPEN";
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "issue" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({ title: "Issue title", body: "Issue body" }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        if (args[0] === "pr" && args[1] === "edit") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "pr" && args[1] === "view") {
+          const fields = args.at(-1) ?? "";
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: headSha,
+              state: prState,
+              baseRefName: "main",
+              mergeStateStatus: "CLEAN",
+              mergeCommit: prState === "MERGED" ? { oid: mergeSha } : null,
+              mergedAt: prState === "MERGED" ? "2026-06-11T10:12:00.000Z" : null,
+              mergedBy: prState === "MERGED" ? { login: "maintainer" } : null,
+              ...(fields.includes("labels") ? { labels: [] } : {}),
+              statusCheckRollup: [
+                { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
+                { __typename: "CheckRun", name: "CodeRabbit", status: "COMPLETED", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(out).toContain(
+      `   topology: coder=coder · journal=journal · gate-live=gatekeeper · gate-runner=${GATE_RUNNER_WINDOW} · director-watch=director-watch · coder-responding=lazy`,
+    );
+    const initialWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(calls.find((call) => call[0] === "tmux" && call[1] === "new-session")).toEqual([
+      "tmux",
+      "new-session",
+      "-d",
+      "-s",
+      "combo-chen-o-r-7",
+      "-n",
+      "coder",
+      expect.stringContaining("runner.sh"),
+    ]);
+    expect(initialWindows.map((call) => call[call.indexOf("-n") + 1])).toEqual([
+      "journal",
+      "director",
+      "gatekeeper",
+      "director-watch",
+    ]);
+    expect(initialWindows.find((call) => call.includes("journal"))?.at(-1)).toContain("events --follow");
+    expect(initialWindows.find((call) => call.includes("gatekeeper"))?.at(-1)).toContain("no-mistakes attach");
+    expect(initialWindows.find((call) => call.includes("director-watch"))?.at(-1)).toContain("director-tick");
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "split-window")).toBe(false);
+    expect(calls.some((call) => call.includes("coder-responding"))).toBe(false);
+
+    await exec(deps, ["emit", "-n", "o-r-7", "pr_opened", "--field", `url=${prUrl}`]);
+    await exec(deps, ["emit", "-n", "o-r-7", "gate_validated", "--field", `sha=${headSha}`]);
+    await exec(deps, ["emit", "-n", "o-r-7", "lgtm", "--field", `sha=${headSha}`]);
+    await exec(deps, ["director-tick", "-n", "o-r-7"]);
+
+    expect(readEvents(runDirFor(h, "o-r-7"))).toContainEqual(
+      expect.objectContaining({ event: "ready_for_merge", sha: headSha, pr_url: prUrl }),
+    );
+    const postReadyWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(postReadyWindows.map((call) => call[call.indexOf("-n") + 1])).toEqual([
+      "journal",
+      "director",
+      "gatekeeper",
+      "director-watch",
+    ]);
+    expect(calls.some((call) => call.includes("coder-responding"))).toBe(false);
+    expect(out.some((line) => line.startsWith("director: watch "))).toBe(true);
+    expect(out.some((line) => line === "director: tick complete for o-r-7")).toBe(false);
+
+    prState = "MERGED";
+    await exec(deps, ["closure", "-n", "o-r-7"]);
+
+    expect(readEvents(runDirFor(h, "o-r-7"))).toContainEqual(
+      expect.objectContaining({ event: "combo_closed", source: "closure" }),
+    );
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
+    expect(calls.some((call) => call.includes("coder-responding"))).toBe(false);
   });
 
   it("launches from a local markdown plan and persists the normalized work-plan artifact", async () => {
