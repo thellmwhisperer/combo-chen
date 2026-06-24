@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.60](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.59...combo-chen-v0.0.60) (2026-06-24)
+
+
+### Bug Fixes
+
+* **director:** Completed issue [#198](https://github.com/thellmwhisperer/combo-chen/issues/198) by routing READY conflicts into coder rebase recovery, post-rebase gating, and new-head READY restoration with the full suite green. ([9057734](https://github.com/thellmwhisperer/combo-chen/commit/905773408d4b61e1ac30f654c4211abdf3e6528e))
+* **ready-conflict:** Implemented the first READY-conflict invalidation slice for issue [#198](https://github.com/thellmwhisperer/combo-chen/issues/198): dirty/conflicting GitHub mergeability now records a durable recovery event and prevents stale READY from hiding the conflict. ([51a945e](https://github.com/thellmwhisperer/combo-chen/commit/51a945e1808b159b8078e138c5e3101556e25835))
+* **ready:** require coderabbit success ([9d0bc8b](https://github.com/thellmwhisperer/combo-chen/commit/9d0bc8b41b803c4039a5381e902e9b1af5002ab9))
+
 ## [0.0.59](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.58...combo-chen-v0.0.59) (2026-06-24)
 
 
