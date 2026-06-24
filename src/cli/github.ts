@@ -113,6 +113,7 @@ interface GitHubPin {
 export interface ReviewerVerdict {
   headSha: string;
   code: 0 | 1 | 2 | 3;
+  author?: string;
 }
 
 interface TimedReviewerVerdict extends ReviewerVerdict {
@@ -245,7 +246,7 @@ function reviewerVerdictsFromItems(
     if (typeof body !== "string") continue;
     const verdict = reviewerVerdictFromBody(body, currentHeadSha);
     if (verdict === undefined) continue;
-    verdicts.push({ ...verdict, t: timestampFromItem(entry) });
+    verdicts.push({ ...verdict, author: loginFromItem(entry), t: timestampFromItem(entry) });
   }
   return verdicts;
 }
@@ -302,7 +303,7 @@ export function latestGitHubReviewerVerdict(
   ];
   verdicts.sort((a, b) => a.t - b.t);
   const latest = verdicts.at(-1);
-  return latest === undefined ? undefined : { headSha: latest.headSha, code: latest.code };
+  return latest === undefined ? undefined : { headSha: latest.headSha, code: latest.code, author: latest.author };
 }
 // -/ 3/5
 

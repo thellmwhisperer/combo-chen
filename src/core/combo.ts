@@ -370,7 +370,6 @@ fi`;
 # combo-chen runner for ${combo.id} — generated, do not edit.
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
-coder_log="$(dirname "$0")/coder.log"
 coder_status="$(dirname "$0")/coder.exit"
 gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
@@ -397,22 +396,13 @@ ${emit} coder_started
 rm -f "$coder_status"
 (
   coder_code=0
-  (
-    ${coderCommand}
-  ) || coder_code=$?
+  ${coderCommand} || coder_code=$?
   printf '%s\\n' "$coder_code" > "$coder_status"
-) < /dev/null 2>&1 | tee "$coder_log"
-tee_status=$?
+)
 code=$(cat "$coder_status" 2>/dev/null || printf '1')
 case "$code" in
   ""|*[!0-9]*) code=1 ;;
 esac
-case "$tee_status" in
-  ""|*[!0-9]*) tee_status=1 ;;
-esac
-if [ "$code" -eq 0 ] && [ "$tee_status" -ne 0 ]; then
-  code=$tee_status
-fi
 rm -f "$coder_status"
 
 if [ "$code" -eq 0 ]; then

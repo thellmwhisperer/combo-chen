@@ -406,6 +406,7 @@ describe("cli GitHub helpers", () => {
             {
               body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 2"].join("\n"),
               submitted_at: "2026-06-11T00:01:00Z",
+              user: { login: "claude" },
             },
           ]),
           stderr: "",
@@ -417,6 +418,7 @@ describe("cli GitHub helpers", () => {
     expect(latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha)).toEqual({
       headSha,
       code: 2,
+      author: "claude",
     });
   });
 
@@ -492,7 +494,7 @@ describe("cli GitHub helpers", () => {
       latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha, undefined, {
         allowedAuthors: ["Trusted-Reviewer"],
       }),
-    ).toEqual({ headSha, code: 1 });
+    ).toEqual({ headSha, code: 1, author: "trusted-reviewer" });
   });
 });
 // -/ 1/1

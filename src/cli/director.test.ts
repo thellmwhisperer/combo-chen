@@ -476,7 +476,7 @@ describe("tickDirector", () => {
     expect(out).toContainEqual(expect.stringContaining("worker gatekeeper unchanged pane for 2 ticks"));
   });
 
-  it("keeps polling post-PR reviewer verdicts when retained worker panes are stalled", async () => {
+  it("keeps polling post-PR reviewer verdicts without treating retained coder and gatekeeper panes as active workers", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
@@ -490,7 +490,7 @@ describe("tickDirector", () => {
       prHeadSha: headSha,
       env: {
         COMBO_CHEN_REVIEWER_LOGINS: "external-reviewer",
-        COMBO_CHEN_WORKER_STALL_TICKS: "1",
+        COMBO_CHEN_WORKER_STALL_TICKS: "2",
       },
       externalReviewComments: [
         {
@@ -512,9 +512,7 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
-    );
+    expect(readEvents(runDir).some((entry) => entry.event === "needs_human")).toBe(false);
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
         event: "review_comment",
@@ -531,6 +529,8 @@ describe("tickDirector", () => {
       "combo-chen-o-r-7:coder-responding",
       "C-m",
     ]);
+    expect(calls.some((call) => call.includes("combo-chen-o-r-7:coder"))).toBe(false);
+    expect(calls.some((call) => call.includes("combo-chen-o-r-7:gatekeeper"))).toBe(false);
     expect(out).toContain("nudged https://github.com/o/r/pull/7#pullrequestreview-1");
     expect(out).toContain("director: tick complete for o-r-7");
   });
@@ -1452,10 +1452,24 @@ describe("tickDirector", () => {
     const { deps, calls } = fakeDeps({
       homeDir: h,
       record,
-      prHeadSha: oldSha,
+      prHeadSha: newSha,
       worktreeHeadSha: newSha,
-      mergeStateStatus: "DIRTY",
       externalReviewComments: [],
+      git: (args, cwd) => {
+        if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+          return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+        }
+        if (cwd === record.worktree && args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: `${newSha}\n`, stderr: "" };
+        }
+        if (args[0] === "status" && args[1] === "--porcelain") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[2] === oldSha && args[3] === newSha) {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
     });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
@@ -1468,7 +1482,8 @@ describe("tickDirector", () => {
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
-    expect(gateRunnerWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
+    expect(gateRunnerWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
+    expect(gateRunnerWindow?.at(-1)).toContain("window retained for inspection until closure");
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
   });
 

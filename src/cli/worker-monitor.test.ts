@@ -142,6 +142,31 @@ describe("inspectWorkerPanes", () => {
     ).toBe(true);
   });
 
+  it("escalates immediately when gnhf is held after an unsuccessful terminal result", () => {
+    const { record, runDir } = combo();
+    const { deps, out } = fakeDeps({
+      coder: [
+        "00:47:43  ·  21.8M in  ·  92K out  ·  7 commits",
+        '{"success":false,"summary":"The branch already contains commits, and GitHub has no PR yet."}',
+        "[ctrl+c to stop, gnhf again to resume]",
+        "",
+      ].join("\n"),
+    });
+
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"] });
+
+    expect(result.escalated).toBe(true);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_stalled",
+        worker: "coder",
+        detail: "gnhf stopped without success",
+      }),
+    );
+    expect(out).toContainEqual(expect.stringContaining("worker coder gnhf stopped without success"));
+  });
+
   it("does not count duplicate worker names twice in one tick", () => {
     const { record, runDir } = combo();
     const { deps } = fakeDeps({

@@ -85,7 +85,12 @@ export interface RuntimeLedger {
   runDir: string;
   tmuxSession: string;
   roleWindows: RuntimeRoleWindows;
-  logs: Record<"rebase" | "coder" | "gatekeeper" | "autoclose", string>;
+  logs: {
+    rebase: string;
+    gatekeeper: string;
+    autoclose: string;
+    coder?: string;
+  };
   commands: {
     attach: string;
     eventsFollow: string;
@@ -120,7 +125,6 @@ export function buildRuntimeLedger(input: RuntimeLedgerInput): RuntimeLedger {
     roleWindows: cleanRecord(input.roleWindows ?? {}),
     logs: {
       rebase: join(runDir, "rebase.log"),
-      coder: join(runDir, "coder.log"),
       gatekeeper: join(runDir, "gatekeeper.log"),
       autoclose: join(runDir, "autoclose.log"),
     },

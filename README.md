@@ -462,7 +462,6 @@ Important files:
 - `runtime-ledger.json`: machine-readable combo capsule resource ledger; written at launch, updated when PR/reviewer/director resources appear.
 - `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
 - `runner.sh`: generated initial runner.
-- `coder.log`: initial coder output.
 - `gatekeeper.log`: initial gatekeeper output.
 - `gatekeeper-post-<sha>.sh`: generated post-address gate.
 - `work-plan.md`: normalized work-plan artifact; the canonical source of work-item intent for reviewer, gatekeeper, and forensics.

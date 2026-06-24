@@ -2861,7 +2861,6 @@ describe("run", () => {
         directorWatch: "director-watch",
       },
       logs: {
-        coder: join(runDir, "coder.log"),
         gatekeeper: join(runDir, "gatekeeper.log"),
         autoclose: join(runDir, "autoclose.log"),
         rebase: join(runDir, "rebase.log"),

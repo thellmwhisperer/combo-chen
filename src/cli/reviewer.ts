@@ -270,6 +270,26 @@ export async function tickReviewer(input: {
       deps.out(`reviewer: needs_human from reviewer verdict code 3 at ${headSha}`);
       return;
     }
+    if (reviewerVerdict === undefined) {
+      const untrustedVerdict = latestGitHubReviewerVerdict(deps.gh, prUrl, headSha, ghApiCache);
+      const untrustedAuthor = untrustedVerdict?.author;
+      if (
+        untrustedVerdict?.code === 0 &&
+        untrustedAuthor !== undefined &&
+        !events.some((e) => e.event === "needs_human" && e["reason"] === "reviewer_login_mismatch" && e["sha"] === headSha)
+      ) {
+        appendEvent(runDir, "needs_human", {
+          reason: "reviewer_login_mismatch",
+          sha: headSha,
+          author: untrustedAuthor,
+          allowed_logins: config.reviewerLogins,
+        });
+        deps.out(
+          `reviewer: needs_human reviewer_login_mismatch author=${untrustedAuthor} allowed=${config.reviewerLogins.join(",")} sha=${headSha}`,
+        );
+        return;
+      }
+    }
   } catch (error) {
     deps.out(
       reviewerTransientFailure(
