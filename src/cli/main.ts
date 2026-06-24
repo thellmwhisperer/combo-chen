@@ -352,7 +352,6 @@ export function createProgram(deps: Deps): Command {
         coderCommand,
         gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
         gatekeeperMirrorIntent: buildNoMistakesPushIntent(prIntent),
-        activateCoder: `${cliInvocation()} activate-coder -n ${quotedId}`,
         emit: `${cliInvocation()} emit -n ${quotedId}`,
         activateReviewer: `${cliInvocation()} activate-reviewer -n ${quotedId}`,
         gateLeaseAcquire: `${cliInvocation()} gate-lease acquire -n ${quotedId}`,

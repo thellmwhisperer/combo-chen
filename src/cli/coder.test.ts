@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~440 lines, activate and nudge flows.
+ * @overview Unit tests for coder-response CLI helpers. ~473 lines, activate and nudge flows.
  *
  *   READING GUIDE
  *   -------------
@@ -198,6 +198,7 @@ describe("nudgeReviewComments", () => {
       '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
     );
     writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
 
     nudgeReviewComments({
@@ -256,6 +257,23 @@ describe("nudgeReviewComments", () => {
     expect(calls.filter((call) => call[0] === "tmux")).toEqual([
       [
         "tmux",
+        "list-windows",
+        "-t",
+        "combo-chen-owned-session",
+        "-F",
+        "#{window_name}",
+      ],
+      [
+        "tmux",
+        "new-window",
+        "-t",
+        "combo-chen-owned-session",
+        "-n",
+        "sitter",
+        `codex resume '${CODEX_THREAD_ID}'`,
+      ],
+      [
+        "tmux",
         "set-buffer",
         "-b",
         "combo-chen-nudge-combo-chen-owned-session-sitter",
@@ -291,6 +309,7 @@ describe("nudgeReviewComments", () => {
       join(record.repoDir, "combo-chen.toml"),
       '[coder_responding]\nreview_nudge_prompt = "Drifted prompt {url}"\nwindow_name = "drifted-sitter"\n',
     );
+    writeThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
 
     nudgeReviewComments({
@@ -336,6 +355,23 @@ describe("nudgeReviewComments", () => {
     expect(calls.filter((call) => call[0] === "tmux")).toEqual([
       [
         "tmux",
+        "list-windows",
+        "-t",
+        "combo-chen-owned-session",
+        "-F",
+        "#{window_name}",
+      ],
+      [
+        "tmux",
+        "new-window",
+        "-t",
+        "combo-chen-owned-session",
+        "-n",
+        "launch-sitter",
+        `codex resume '${CODEX_THREAD_ID}'`,
+      ],
+      [
+        "tmux",
         "set-buffer",
         "-b",
         "combo-chen-nudge-combo-chen-owned-session-launch-sitter",
@@ -373,6 +409,7 @@ describe("nudgeReviewComments", () => {
       ].join("\n"),
     );
     writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
 
     nudgeReviewComments({
