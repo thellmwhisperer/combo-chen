@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1390 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1350 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
@@ -1413,6 +1413,9 @@ describe("tickDirector", () => {
         if (args[0] === "status" && args[1] === "--porcelain") {
           return { status: 0, stdout: "", stderr: "" };
         }
+        if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[2] === oldSha && args[3] === newSha) {
+          return { status: 0, stdout: "", stderr: "" };
+        }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
       },
     });
@@ -1467,6 +1470,69 @@ describe("tickDirector", () => {
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
     expect(gateRunnerWindow?.at(-1)).toBe(`sh '${scriptPath}'`);
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
+  });
+
+  it("does not start a post-address gate when the local worktree is behind the published PR head", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    const record = combo({ repoDir, worktree });
+    const runDir = runDirFor(h, record.id);
+    const localSha = "70550c6f2fd5b5c6b372bba10c6a01be0e8756d0";
+    const publishedSha = "7b93e50b160e564952f850ca5db12cf5c52d40b3";
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_status", { state: "idle", head_sha: publishedSha });
+    appendEvent(runDir, "gate_validated", { sha: publishedSha });
+    appendEvent(runDir, "lgtm", { sha: publishedSha });
+    appendEvent(runDir, "ready_for_merge", {
+      sha: publishedSha,
+      pr_url: "https://github.com/o/r/pull/7",
+    });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: publishedSha,
+      worktreeHeadSha: localSha,
+      externalReviewComments: [],
+      issueComments: [
+        {
+          html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+          user: { login: "coderabbitai[bot]" },
+          body: "Review triggered.",
+          created_at: "2026-06-24T07:22:48Z",
+        },
+      ],
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (cwd === worktree && args[0] === "rev-parse" && args[1] === "HEAD") {
+          return { status: 0, stdout: `${localSha}\n`, stderr: "" };
+        }
+        if (args[0] === "status" && args[1] === "--porcelain") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (
+          cwd === worktree &&
+          args[0] === "merge-base" &&
+          args[1] === "--is-ancestor" &&
+          args[2] === publishedSha &&
+          args[3] === localSha
+        ) {
+          return { status: 1, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir).some((event) => event.event === "address_done")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "gate_stale")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call.includes("gatekeeper"))).toBe(false);
+    expect(out).toContain(
+      `director: worktree HEAD ${localSha} does not include published gate ${publishedSha}; waiting for coder sync before post-address gate`,
+    );
   });
 
   it("does not start a post-address gate for LGTM/bookkeeping artifacts without a coder HEAD change", async () => {
