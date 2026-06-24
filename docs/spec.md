@@ -629,7 +629,8 @@ incidents, parked/resumed capsules, closure outcomes, validation commands, and
 whether the wave-derived limit changed.
 `combo-chen forensics` renders those dogfood/postmortem fields as a copy-ready
 outcome block: PR link, head SHA, review/check state, failures found, and
-follow-up bug status.
+follow-up bug status. With markdown-only `--record-outcome`, forensics posts
+the compact Outcome block to each matched source GitHub issue comment stream.
 
 ## 8c. Preflight
 

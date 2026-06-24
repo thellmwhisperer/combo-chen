@@ -357,7 +357,7 @@ combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
 combo-chen resume -n <combo-id>
-combo-chen forensics --issues <numbers> [--format json]
+combo-chen forensics --issues <numbers> [--format json] [--record-outcome]
 combo-chen reconcile [-n <combo-id>] [--apply]
 combo-chen stop -n <combo-id>
 combo-chen director-prompt -n <combo-id> --reason <reason> <message...>
@@ -393,7 +393,8 @@ consume it automatically.
 - `forensics` produces a read-only report for stalled or confusing runs. The
   markdown includes a copy-ready outcome block with PR link, head SHA,
   review/check state, failures found, and follow-up bug status for dogfood
-  records.
+  records. Add markdown-only `--record-outcome` to post that compact Outcome
+  block to each matched source GitHub issue.
 - `reconcile --apply` repairs journals that froze before a merged or closed PR
   was recorded locally. Add `-n <combo-id>` to scope repair and teardown to a
   single combo. Teardown is idempotent: already-clean worktrees, branches, and

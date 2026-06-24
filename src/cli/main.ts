@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1043 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1068 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation, isParked; forensics option parsing; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation, isParked; forensics option parsing/outcome recording; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
@@ -88,7 +88,7 @@ import { closeMergedCombo } from "./closure.js";
 import { activateCoder, nudgeReviewComments } from "./coder.js";
 import { tickDirector } from "./director.js";
 import { promptDirector } from "./director-prompt.js";
-import { analyzeForensicsCombo, renderForensicsMarkdown } from "./forensics.js";
+import { analyzeForensicsCombo, renderForensicsMarkdown, renderForensicsOutcomeMarkdown } from "./forensics.js";
 import {
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
@@ -667,14 +667,18 @@ export function createProgram(deps: Deps): Command {
 
   program
     .command("forensics")
-    .description("Produce a read-only combo forensics report")
+    .description("Produce combo forensics reports, with explicit outcome recording opt-in")
     .option("--issues <numbers>", "Comma-separated GitHub issue numbers (filters issue-backed combos)")
     .option("-n, --name <comboId>", "Combo id to include")
     .option("--format <format>", "markdown or json", "markdown")
-    .action(async (options: { issues?: string; name?: string; format: string }) => {
+    .option("--record-outcome", "Post each matched Outcome block to its source GitHub issue")
+    .action(async (options: { issues?: string; name?: string; format: string; recordOutcome?: boolean }) => {
       const home = comboHome(deps.env);
       const issueFilter = parseForensicsIssueFilter(options.issues);
       const format = parseForensicsFormat(options.format);
+      if (options.recordOutcome && format === "json") {
+        throw new Error("--record-outcome cannot be combined with --format json");
+      }
       const combos = listCombos(home).filter((combo) => {
         if (options.name !== undefined && combo.id !== options.name) return false;
         if (issueFilter === undefined) return true;
@@ -713,6 +717,9 @@ export function createProgram(deps: Deps): Command {
       if (reports.length === 0) {
         deps.out(`${renderForensicsMarkdown(reports)}\n\n${formatForensicsNoMatches(options.name, issueFilter)}`);
         return;
+      }
+      if (options.recordOutcome) {
+        recordForensicsOutcomes(deps, reports);
       }
       deps.out(renderForensicsMarkdown(reports));
     });
@@ -998,6 +1005,24 @@ function formatForensicsNoMatches(name: string | undefined, issueFilter: Set<num
     ].join("\n");
   }
   return "No combos found in this COMBO_CHEN_HOME.";
+}
+
+function recordForensicsOutcomes(
+  deps: Pick<Deps, "gh" | "out">,
+  reports: ReturnType<typeof analyzeForensicsCombo>[],
+): void {
+  for (const report of reports) {
+    if (report.issueUrl.trim() === "") {
+      throw new Error(`Cannot record forensics outcome for ${report.id}: combo has no GitHub issue URL`);
+    }
+    const body = renderForensicsOutcomeMarkdown(report);
+    const result = deps.gh(["issue", "comment", report.issueUrl, "--body", body]);
+    if (result.status !== 0) {
+      const detail = result.stderr.trim() || result.stdout.trim() || "gh issue comment failed";
+      throw new Error(`Failed to record forensics outcome for ${report.id}: ${detail}`);
+    }
+    deps.out(`forensics: recorded outcome for ${report.id} on ${report.issueUrl}`);
+  }
 }
 
 function collectForensicsTmuxFacts(deps: Deps, combo: ComboRecord): { sessionExists: boolean; windows?: string[] } | undefined {
