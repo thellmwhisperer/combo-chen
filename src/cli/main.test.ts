@@ -59,7 +59,7 @@ import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from ".
 import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
-import { GATE_RUNNER_WINDOW } from "./gate.js";
+import { GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW } from "./gate.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
@@ -3915,11 +3915,11 @@ describe("resume", () => {
     expect(gitCalls.some((call) => call.includes("rev-parse") && call.includes("HEAD"))).toBe(true);
     expect(gitCalls.some((call) => call.includes("status") && call.includes("--porcelain"))).toBe(true);
 
-    const gateRunnerWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
-    expect(gateRunnerWindow).toBeDefined();
-    const command = gateRunnerWindow?.at(-1) ?? "";
+    expect(gatekeeperWindow).toBeDefined();
+    const command = gatekeeperWindow?.at(-1) ?? "";
     expect(command).toContain("gatekeeper-initial-cccccccccccc.sh");
     expect(command).not.toContain("activate-coder");
 
@@ -4042,10 +4042,10 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    const gateRunnerWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATE_RUNNER_WINDOW),
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
-    expect(gateRunnerWindow).toBeDefined();
+    expect(gatekeeperWindow).toBeDefined();
     const script = readFileSync(join(dir, "gatekeeper-initial-eeeeeeeeeeee.sh"), "utf8");
     expect(script).toContain('git push -o "$mirror_intent" no-mistakes');
     expect(script).toContain("no-mistakes axi run --intent");
