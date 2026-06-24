@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~1230 lines, log-derived regressions.
+ *   and process shims for external services. ~1380 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -67,7 +67,10 @@ interface HarnessOptions {
   executeGatekeeperWindows?: boolean;
   activeNoMistakes?: boolean;
   activateNoMistakesOnAxiRun?: boolean;
+  failNoMistakesAxiRun?: boolean;
+  failNoMistakesAttach?: boolean;
   gatekeeperCommand?: string;
+  gatekeeperAttachTimeoutSeconds?: number;
   externalCommentAgents?: string[];
   readyRequiredChecks?: string[];
   greenCheckNames?: string[];
@@ -772,6 +775,88 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("surfaces a failed post-address gate without waiting for the attach timeout", () => {
+    const harness = prepareHarness({
+      activateNoMistakesOnAxiRun: true,
+      externalCommentAgents: ["coderabbitai"],
+      failNoMistakesAttach: true,
+      failNoMistakesAxiRun: true,
+      gatekeeperAttachTimeoutSeconds: 5,
+      gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-post-address",
+      noMistakesRunDelayMs: 1200,
+    });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+        ["lgtm", [`sha=${publishedSha}`]],
+        ["ready_for_merge", [`sha=${publishedSha}`, `pr_url=${prUrl}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      writeFileSync(join(combo.worktree, "coderabbit-parser-fix.txt"), "addressed\n");
+      run("git", ["add", "coderabbit-parser-fix.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: address parser review"], { cwd: combo.worktree });
+      const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: publishedSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_CODERABBIT_REVIEW: "1",
+        },
+      });
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const gatekeeperWindowCommand = tmuxLog
+        .filter((entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"))
+        .at(-1)?.args.at(-1);
+      expect(gatekeeperWindowCommand).toBeDefined();
+
+      const pane = spawnSync("sh", ["-c", gatekeeperWindowCommand!], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
+        },
+        encoding: "utf8",
+        timeout: 15_000,
+      });
+      const paneOutput = `${pane.stdout ?? ""}\n${pane.stderr ?? ""}`;
+
+      expect(pane.status).toBe(1);
+      expect(paneOutput).toContain("gatekeeper-attach: gate script finished before attach became available");
+      expect(paneOutput).toContain("JSON output findings[1].action must match one of the allowed values");
+      expect(paneOutput).not.toContain("gatekeeper-attach: timed out");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "gate_status", state: "failed", head_sha: localSha }),
+          expect.objectContaining({ event: "gate_failed", reason: "gate_failed" }),
+        ]),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, 15_000);
+
   it("does not post-address gate from a local worktree behind the PR head", () => {
     const harness = prepareHarness({ externalCommentAgents: ["coderabbitai"] });
     let passed = false;
@@ -1169,6 +1254,8 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
       E2E_TMUX_RUN_GATEKEEPER_WINDOW: options.executeGatekeeperWindows === true ? "1" : "0",
       E2E_NO_MISTAKES_ACTIVE: options.activeNoMistakes === true ? "1" : "0",
       E2E_NO_MISTAKES_ACTIVATE_ON_AXI_RUN: options.activateNoMistakesOnAxiRun === true ? "1" : "0",
+      E2E_NO_MISTAKES_FAIL_AXI_RUN: options.failNoMistakesAxiRun === true ? "1" : "0",
+      E2E_NO_MISTAKES_ATTACH_FAIL: options.failNoMistakesAttach === true ? "1" : "0",
       E2E_NO_MISTAKES_QUOTE_RUN_ID: options.quoteNoMistakesRunId === true ? "1" : "0",
       E2E_NO_MISTAKES_GATE: join(noMistakesRoot, "repos", "e2e.git"),
       E2E_NO_MISTAKES_STATE: join(root, "no-mistakes-state.json"),
@@ -1215,7 +1302,7 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
       "",
       "[gatekeeper]",
       `command = ${JSON.stringify(gatekeeperCommand)}`,
-      "attach_timeout_seconds = 1",
+      `attach_timeout_seconds = ${options.gatekeeperAttachTimeoutSeconds ?? 1}`,
       "attach_retry_interval_seconds = 1",
       "initial_gate_retry_attempts = 0",
       "",

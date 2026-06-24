@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~900 lines, 19 exports, persistent attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~980 lines, 19 exports, persistent attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -73,6 +73,7 @@ export interface GatekeeperAttachOptions {
   timeoutSeconds: number;
   retryIntervalSeconds: number;
   replaceProcess?: boolean;
+  stopWhenFileExists?: string;
 }
 
 export const GATEKEEPER_WINDOW = "gatekeeper";
@@ -98,10 +99,22 @@ export function buildGatekeeperAttachCommand(
   const attachLine = options.replaceProcess === false
     ? "    no-mistakes attach --run \"$no_mistakes_run_id\""
     : "    exec no-mistakes attach --run \"$no_mistakes_run_id\"";
+  const doneFileLines = options.stopWhenFileExists === undefined
+    ? []
+    : [`gatekeeper_done_file=${shellQuote(options.stopWhenFileExists)}`];
+  const doneCheckLines = options.stopWhenFileExists === undefined
+    ? []
+    : [
+      '  if [ -n "$gatekeeper_done_file" ] && [ -f "$gatekeeper_done_file" ]; then',
+      '    echo "gatekeeper-attach: gate script finished before attach became available" >&2',
+      "    exit 2",
+      "  fi",
+    ];
   return [
     `cd ${shellQuote(combo.worktree)}`,
     `expected_branch=${shellQuote(combo.branch)}`,
     "expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)",
+    ...doneFileLines,
     "attempt=0",
     "while :; do",
     "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
@@ -109,6 +122,7 @@ export function buildGatekeeperAttachCommand(
     "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
     attachLine,
     "  fi",
+    ...doneCheckLines,
     "  attempt=$((attempt + 1))",
     `  if [ "$attempt" -gt ${maxAttempts} ]; then`,
     `    echo "gatekeeper-attach: timed out after ${options.timeoutSeconds} seconds" >&2`,
@@ -412,24 +426,39 @@ function buildScriptWithGatekeeperAttachCommand(
   options: GatekeeperAttachOptions,
 ): string {
   const scriptWindowLog = `${scriptPath}.window.log`;
+  const scriptDoneFile = `${scriptWindowLog}.done`;
   return buildPersistentGatekeeperWindowCommand(
     shellScript(
       `combo_chen_gate_script_window_log=${shellQuote(scriptWindowLog)}`,
-      `sh ${shellQuote(scriptPath)} > "$combo_chen_gate_script_window_log" 2>&1 &`,
+      `combo_chen_gate_script_done=${shellQuote(scriptDoneFile)}`,
+      `rm -f "$combo_chen_gate_script_done"`,
+      "(",
+      `  sh ${shellQuote(scriptPath)} > "$combo_chen_gate_script_window_log" 2>&1`,
+      "  combo_chen_gate_script_inner_code=$?",
+      `  printf '%s\\n' "$combo_chen_gate_script_inner_code" > "$combo_chen_gate_script_done"`,
+      `  exit "$combo_chen_gate_script_inner_code"`,
+      ") &",
       "combo_chen_gate_script_pid=$!",
       "combo_chen_gate_attach_code=0",
       "(",
       indentShellLines(
-        buildGatekeeperAttachCommand(combo, { ...options, replaceProcess: false }).split(/\r?\n/),
+        buildGatekeeperAttachCommand(combo, {
+          ...options,
+          replaceProcess: false,
+          stopWhenFileExists: scriptDoneFile,
+        }).split(/\r?\n/),
         2,
       ),
       ") || combo_chen_gate_attach_code=$?",
       'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
-      '  printf "[combo-chen] gatekeeper attach exited with code %s; waiting for script.\\n" "$combo_chen_gate_attach_code" >&2',
+      '  printf "[combo-chen] gatekeeper attach exited with code %s; showing gate script log.\\n" "$combo_chen_gate_attach_code" >&2',
       '  tail -80 "$combo_chen_gate_script_window_log" >&2 2>/dev/null || true',
       "fi",
       "combo_chen_gate_script_code=0",
       'wait "$combo_chen_gate_script_pid" || combo_chen_gate_script_code=$?',
+      'if [ -f "$combo_chen_gate_script_done" ]; then',
+      '  combo_chen_gate_script_code=$(cat "$combo_chen_gate_script_done" 2>/dev/null || printf "%s" "$combo_chen_gate_script_code")',
+      "fi",
       'exit "$combo_chen_gate_script_code"',
     ),
   );
