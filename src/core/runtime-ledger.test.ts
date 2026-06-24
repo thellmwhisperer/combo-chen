@@ -84,7 +84,7 @@ describe("readRuntimeLedger", () => {
       prUrl: "https://github.com/o/r/pull/7",
     });
     expect(ledger.commands.resume).toContain("resume -n 'o-r-7'");
-    expect(ledger.logs.coder).toBe(join(runDir, "coder.log"));
+    expect(ledger.logs).not.toHaveProperty("coder");
   });
 
   it.each([

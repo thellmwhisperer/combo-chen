@@ -135,7 +135,13 @@ if (cmd === "kill-window") {
   process.exit(0);
 }
 
-if (cmd === "capture-pane") process.exit(0);
+if (cmd === "capture-pane") {
+  const target = splitTarget(valueAfter("-t"));
+  const envName = `E2E_TMUX_CAPTURE_${target.window.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+  const output = process.env[envName] ?? process.env.E2E_TMUX_CAPTURE_PANE;
+  if (output) process.stdout.write(output);
+  process.exit(0);
+}
 if (cmd === "rename-window") process.exit(0);
 if (cmd === "set-buffer" || cmd === "paste-buffer" || cmd === "send-keys") process.exit(0);
 

@@ -74,6 +74,7 @@ interface HarnessOptions {
   externalCommentAgents?: string[];
   readyRequiredChecks?: string[];
   greenCheckNames?: string[];
+  reviewerLogins?: string[];
   quoteNoMistakesRunId?: boolean;
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
@@ -324,6 +325,10 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         expect.arrayContaining(["combo_created", "coder_started", "coder_done", "gate_started", "gate_status", "pr_opened"]),
       );
       expect(readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json")).prUrl).toBe(harness.env.E2E_PR_URL);
+      const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
+      expect(runner).not.toContain("coder_log=");
+      expect(runner).not.toContain("2>&1 | tee");
+      expect(existsSync(join(runDir, "coder.log"))).toBe(false);
 
       const gateConfig = join(harness.root, "no-mistakes", "worktrees", "e2e", "e2e-run", ".no-mistakes.yaml");
       expect(readFileSync(gateConfig, "utf8")).toContain("commands:");
@@ -341,7 +346,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  });
+  }, 15_000);
 
   it("resumes a broken combo when no-mistakes creates the run only after gate restart", () => {
     const harness = prepareHarness({
@@ -383,7 +388,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  });
+  }, 15_000);
 
   it("recreates a missing tmux room before restarting the initial gate", () => {
     const harness = prepareHarness({
@@ -454,7 +459,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  });
+  }, 15_000);
 
   it("closes a merged combo even when the tmux session already disappeared", () => {
     const harness = prepareHarness();
@@ -636,8 +641,63 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
-  it("routes a reviewer code 1 verdict even when retained worker panes are stalled", () => {
-    const harness = prepareHarness({ workerStallTicks: 1 });
+  it("escalates when a current-head reviewer LGTM is posted by an unauthorized GitHub login", () => {
+    const harness = prepareHarness({ reviewerLogins: ["trusted-reviewer"] });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_REVIEWER_CODE0_LOGIN: "teseo",
+        },
+      });
+
+      expect(tick.stdout).toContain("reviewer_login_mismatch author=teseo");
+      expect(tick.stdout).toContain("needs human: reviewer_login_mismatch");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "needs_human",
+            reason: "reviewer_login_mismatch",
+            sha: headSha,
+            author: "teseo",
+            allowed_logins: ["trusted-reviewer"],
+          }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "lgtm")).toBe(false);
+      expect(events.some((event) => event.event === "ready_for_merge")).toBe(false);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("routes a reviewer code 1 verdict without treating retained coder and gatekeeper panes as active workers", () => {
+    const harness = prepareHarness({ workerStallTicks: 2 });
     let passed = false;
 
     try {
@@ -666,19 +726,19 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         cwd: harness.repo,
         env: {
           ...harness.env,
-          COMBO_CHEN_WORKER_STALL_TICKS: "1",
+          COMBO_CHEN_WORKER_STALL_TICKS: "2",
           E2E_HEAD_SHA: headSha,
           E2E_PR_STATE: "OPEN",
           E2E_REVIEWER_CODE1: "1",
         },
       });
-      expect(tick.stdout).toContain("director: worker coder: unchanged_ticks=1");
+      expect(tick.stdout).not.toContain("director: worker coder:");
+      expect(tick.stdout).not.toContain("director: worker gatekeeper:");
       expect(tick.stdout).toContain("nudged https://github.com/o/r/pull/1#pullrequestreview-reviewer-code-1");
 
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
       expect(events).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
           expect.objectContaining({
             event: "review_comment",
             author: "e2e-reviewer",
@@ -688,6 +748,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           }),
         ]),
       );
+      expect(events.some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled")).toBe(false);
 
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       expect(tmuxLog).toEqual(
@@ -695,6 +756,57 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder-responding`, "C-m"] }),
         ]),
       );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("escalates when gnhf reaches an unsuccessful terminal hold before PR opens", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "coder_started"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      writeFileSync(join(combo.worktree, "coder-output.txt"), "implemented\n");
+      run("git", ["add", "coder-output.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "simulate coder local commits"], { cwd: combo.worktree });
+
+      const gnhfPane = [
+        "00:47:43  ·  21.8M in  ·  92K out  ·  7 commits",
+        '{"success":false,"summary":"The branch already contains commits, and GitHub has no PR yet."}',
+        "[ctrl+c to stop, gnhf again to resume]",
+        "",
+      ].join("\n");
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_TMUX_CAPTURE_CODER: gnhfPane,
+        },
+      });
+
+      expect(tick.stdout).toContain("director: worker coder gnhf stopped without success");
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "needs_human",
+            reason: "worker_stalled",
+            worker: "coder",
+          }),
+        ]),
+      );
+      expect(events.find((event) => event.event === "needs_human" && event["worker"] === "coder")).toMatchObject({
+        detail: expect.stringContaining("gnhf stopped without success"),
+      });
 
       passed = true;
     } finally {
@@ -1454,6 +1566,13 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
       'coder = "e2e-coder"',
       'reviewer = ["e2e-reviewer"]',
       "",
+      ...(options.reviewerLogins === undefined
+        ? []
+        : [
+            "[reviewer]",
+            `logins = ${JSON.stringify(options.reviewerLogins)}`,
+            "",
+          ]),
       "[coder.e2e-coder]",
       'command = "e2e-coder"',
       'resume_command = "true"',

@@ -284,21 +284,23 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("exit_code=$code");
   });
 
-  it("streams coder stdout and stderr to tmux while keeping coder.log beside the runner", () => {
-    expect(script).toContain('coder_log="$(dirname "$0")/coder.log"');
-    expect(script).toContain('2>&1 | tee "$coder_log"');
+  it("runs the coder directly in the tmux TTY without teeing a TUI log", () => {
+    expect(script).not.toContain("coder_log=");
+    expect(script).not.toContain("tee \"$coder_log\"");
+    expect(script).not.toContain("2>&1 | tee");
     expect(script).toContain('code=$(cat "$coder_status" 2>/dev/null || printf \'1\')');
 
     const coder = script.indexOf("gnhf");
-    const streamed = script.indexOf('2>&1 | tee "$coder_log"');
+    const statusWrite = script.indexOf('printf \'%s\\n\' "$coder_code" > "$coder_status"');
     const coderDone = script.indexOf("emit -n o-r-7 coder_done");
     expect(coder).toBeGreaterThan(-1);
-    expect(streamed).toBeGreaterThan(coder);
-    expect(coderDone).toBeGreaterThan(streamed);
+    expect(statusWrite).toBeGreaterThan(coder);
+    expect(coderDone).toBeGreaterThan(statusWrite);
   });
 
-  it("runs the coder with stdin closed so the runner cannot block for input", () => {
-    expect(script).toContain(") < /dev/null 2>&1 | tee \"$coder_log\"");
+  it("keeps the coder attached to the pane TTY so full-screen gnhf can render", () => {
+    expect(script).not.toContain(') < /dev/null 2>&1 | tee "$coder_log"');
+    expect(script).not.toContain("| tee");
   });
 
   it("runs the gatekeeper phase with stdin closed so auth prompts cannot block the runner", () => {
@@ -610,8 +612,8 @@ exit 1
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
       status: 0,
-      stdout: "fake coder completed\nfake coder stderr\n",
-      stderr: "",
+      stdout: "fake coder completed\n",
+      stderr: "fake coder stderr\n",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
@@ -621,12 +623,10 @@ exit 1
       "gate_status --field state=idle --field head_sha=",
       "needs_human --field reason=pr_missing",
     ]);
-    expect(readFileSync(join(dir, "coder.log"), "utf8")).toBe(
-      "fake coder completed\nfake coder stderr\n",
-    );
+    expect(existsSync(join(dir, "coder.log"))).toBe(false);
   });
 
-  it("preserves the real coder exit code when streaming through tee", () => {
+  it("preserves the real coder exit code without routing output through tee", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -692,10 +692,10 @@ exit 1
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
       status: 42,
-      stdout: "coder started\ncoder failed loudly\n",
-      stderr: "",
+      stdout: "coder started\n",
+      stderr: "coder failed loudly\n",
     });
-    expect(readFileSync(join(dir, "coder.log"), "utf8")).toBe("coder started\ncoder failed loudly\n");
+    expect(existsSync(join(dir, "coder.log"))).toBe(false);
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
       [
@@ -709,7 +709,7 @@ exit 1
     ]);
   });
 
-  it("fails the coder phase when tee cannot preserve coder.log", () => {
+  it("does not depend on tee even when a broken tee shim is on PATH", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -785,20 +785,17 @@ exit 1
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
-      status: 1,
+      status: 0,
       stdout: "coder completed\n",
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      [
-        "coder_failed",
-        "--field exit_code=1",
-        "--field has_new_commits=false",
-        "--field base_sha=head-sha",
-        "--field head_sha=head-sha",
-        "--field new_commit_count=0",
-      ].join(" "),
+      "coder_done",
+      "gate_started",
+      "gate_status --field state=fix_inflight --field head_sha=head-sha",
+      "gate_status --field state=idle --field head_sha=head-sha",
+      "needs_human --field reason=pr_missing",
     ]);
   });
 

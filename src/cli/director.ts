@@ -322,9 +322,7 @@ function livePrLabelActivity(
 function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
   if (latestPrUrl(events) !== undefined) {
     return [...new Set([
-      CODER_WINDOW,
       REVIEWER_WINDOW,
-      GATEKEEPER_WINDOW,
       coderRespondingWindowName,
     ])];
   }

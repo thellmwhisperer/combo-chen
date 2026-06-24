@@ -1,6 +1,7 @@
 /**
- * @overview Worker pane monitor. ~180 lines, detects permission prompts,
- *   dead panes, and unchanged panes before the director silently waits.
+ * @overview Worker pane monitor. ~190 lines, detects permission prompts,
+ *   terminal worker holds, dead panes, and unchanged panes before the director
+ *   silently waits.
  *
  *   READING GUIDE
  *   -------------
@@ -98,6 +99,10 @@ function hasPermissionPrompt(pane: string, patterns: RegExp[]): boolean {
   return pane.split(/\r?\n/).some((line) => patterns.some((pattern) => pattern.test(line)));
 }
 
+function hasGnhfTerminalFailure(pane: string): boolean {
+  return /"success"\s*:\s*false/.test(pane) && /gnhf\s+again\s+to\s+resume/i.test(pane);
+}
+
 function hasEscalation(runDir: string, reason: string, worker: string): boolean {
   return readEvents(runDir).some(
     (event) =>
@@ -171,6 +176,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     const pane = captured.stdout;
     if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
       escalate(runDir, deps, worker, "worker_permission_prompt", "permission prompt");
+      escalated = true;
+      continue;
+    }
+
+    if (worker === "coder" && hasGnhfTerminalFailure(pane)) {
+      escalate(runDir, deps, worker, "worker_stalled", "gnhf stopped without success");
       escalated = true;
       continue;
     }
