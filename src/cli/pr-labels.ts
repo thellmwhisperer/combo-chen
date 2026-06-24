@@ -163,9 +163,6 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
   }
 
   const conflict = prHasConflict(input.pr.mergeStateStatus);
-  const workLabel = currentWorkLabel(input.events, headSha, input.activity);
-  if (workLabel !== undefined && !conflict) labels.add(workLabel);
-
   if (conflict) {
     labels.add("combo:conflict");
     return { labels: orderedLabels(labels), headSha, prState, reason: "conflict" };
@@ -179,7 +176,9 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
   ) && !localGateHeadMismatch;
   const readyCurrent = !localGateHeadMismatch && currentReadyAgreement(input, lgtmCurrent);
   const stale = localGateHeadMismatch || hasStaleCurrentHeadSignal(input.events, headSha);
+  const workLabel = currentWorkLabel(input.events, headSha, input.activity);
 
+  if (workLabel !== undefined && !readyCurrent) labels.add(workLabel);
   if (lgtmCurrent) labels.add("combo:lgtm");
   if (greenCheckSucceeded) labels.add("combo:external-review-green");
   if (readyCurrent) labels.add("combo:ready");

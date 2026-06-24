@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~1150 lines, log-derived regressions.
+ *   and process shims for external services. ~1230 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -872,6 +872,87 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           }),
         ]),
       );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("removes retained worker labels when READY is current at the PR head", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(
+        harness.env.E2E_GH_STATE!,
+        `${JSON.stringify({
+          prLabels: ["combo:working-reviewer", "combo:lgtm", "combo:ready"],
+          knownLabels: ["combo:working-reviewer", "combo:lgtm", "combo:ready"],
+          failedMissingLabelAdd: false,
+        }, null, 2)}\n`,
+      );
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+        ["lgtm", [`sha=${headSha}`]],
+        ["ready_for_merge", [`sha=${headSha}`, `pr_url=${prUrl}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "reviewer", "true"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+        },
+      });
+
+      expect(tick.stdout).toContain("action=\"waiting for human merge\"");
+      const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
+      expect(ghState.prLabels).toEqual(["combo:lgtm", "combo:ready"]);
+
+      const ghLog = readJsonLines<LogEntryJson>(harness.logs.gh);
+      expect(ghLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            args: ["pr", "edit", prUrl, "--remove-label", "combo:working-reviewer"],
+          }),
+        ]),
+      );
+
+      const labelEvents = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).filter(
+        (event) => event.event === "pr_labels_updated",
+      );
+      expect(labelEvents).toEqual([
+        expect.objectContaining({
+          pr_url: prUrl,
+          head_sha: headSha,
+          old_labels: ["combo:working-reviewer", "combo:lgtm", "combo:ready"],
+          new_labels: ["combo:lgtm", "combo:ready"],
+          added_labels: [],
+          removed_labels: ["combo:working-reviewer"],
+          reason: "current",
+          source: "director-watch",
+        }),
+      ]);
 
       passed = true;
     } finally {
