@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~395 lines, attach, config artifact, mirror sync, and runtime snapshot use.
+ * @overview Unit tests for gatekeeper CLI helpers. ~380 lines, attach, config artifact, mirror sync, and runtime snapshot use.
  *
  *   READING GUIDE
  *   -------------
@@ -292,6 +292,9 @@ describe("gatekeeper runtime config snapshots", () => {
             return { status: 0, stdout: `${headSha}\n`, stderr: "" };
           }
           if (args.join(" ") === "status --porcelain") {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          if (args.join(" ") === `merge-base --is-ancestor ${oldSha} ${headSha}`) {
             return { status: 0, stdout: "", stderr: "" };
           }
           return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
