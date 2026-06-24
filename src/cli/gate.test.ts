@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~350 lines, attach, config artifact, mirror sync, and runtime snapshot use.
+ * @overview Unit tests for gatekeeper CLI helpers. ~395 lines, attach, config artifact, mirror sync, and runtime snapshot use.
  *
  *   READING GUIDE
  *   -------------
@@ -33,6 +33,7 @@ import {
   buildPostAddressGateScript,
   buildGatekeeperAttachCommand,
   ensureGatekeeperWindow,
+  GATE_RUNNER_WINDOW,
   propagateNoMistakesConfig,
   remoteShaForRef,
   runPostAddressGateIfNeeded,
@@ -225,6 +226,14 @@ describe("gatekeeper runtime config snapshots", () => {
 
     expect(result).toEqual({ started: true, headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
     expect(calls).toHaveLength(2);
+    expect(calls[1]?.slice(0, 5)).toEqual([
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      GATE_RUNNER_WINDOW,
+    ]);
+    expect(calls[1]).not.toContain("gatekeeper");
     const script = readFileSync(join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-gate");
     expect(script).not.toContain("printf drifted-gate");
@@ -286,6 +295,14 @@ describe("gatekeeper runtime config snapshots", () => {
     });
 
     expect(calls).toHaveLength(2);
+    expect(calls[1]?.slice(0, 5)).toEqual([
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      GATE_RUNNER_WINDOW,
+    ]);
+    expect(calls[1]).not.toContain("gatekeeper");
     const script = readFileSync(join(runDir, "gatekeeper-post-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-post");
     expect(script).not.toContain("printf drifted-post");
