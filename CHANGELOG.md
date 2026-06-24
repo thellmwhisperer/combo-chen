@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.61](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.60...combo-chen-v0.0.61) (2026-06-24)
+
+
+### Features
+
+* **observability:** human-readable tmux topology with separate coder, journal, gatekeeper/live, gate-runner, and director-watch windows; lazy coder responding mode (created only after review signals); opt-in runner progress lines (`COMBO_CHEN_RUNNER_PROGRESS=1`); and copy-ready forensics outcome blocks with `--record-outcome`. Fixes [#210](https://github.com/thellmwhisperer/combo-chen/issues/210). ([1877524](https://github.com/thellmwhisperer/combo-chen/commit/18775245c77f95007368e69770a80656811fbbb4))
+
 ## [0.0.60](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.59...combo-chen-v0.0.60) (2026-06-24)
 
 

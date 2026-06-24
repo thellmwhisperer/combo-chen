@@ -4,7 +4,7 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveAttachCombo    <- resolves explicit or sole running combo.
- *   2. Then ensureJournalPane         <- keeps event tail visible in a journal window.
+ *   2. Then ensureJournalPane         <- creates dedicated journal window, not a pane
  *   3. Use kill helpers on demand     <- stop/reviewer cleanup paths.
  *
  *   MAIN FLOW
@@ -13,9 +13,9 @@
  *
  *   PUBLIC API
  *   ----------
- *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps
+ *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, SessionDeps
  *   KillComboSessionResult
- *   killComboSession, killWindowIfPresent, ensureWindowPresent, resolveAttachCombo, ensureJournalPane
+ *   killComboSession, killWindowIfPresent, ensureWindowPresent, resolveAttachCombo, ensureJournalPane (creates a journal window, not a pane)
  *
  *   INTERNALS
  *   ---------
