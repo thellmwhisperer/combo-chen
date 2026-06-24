@@ -310,7 +310,7 @@ export function classifyInstallTarget(
     }
   })();
 
-  if (DEV_SHIM_PATTERN.test(resolved)) {
+  if (DEV_SHIM_PATTERN.test(path)) {
     return {
       path,
       kind: "dev_shim",
