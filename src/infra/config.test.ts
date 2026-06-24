@@ -47,7 +47,7 @@ describe("loadConfig", () => {
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.externalCommentAgents).toEqual([]);
-    expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
+    expect(config.readyRequiredChecks).toEqual([]);
     expect(config.prLabelGreenCheckNames).toEqual([]);
     expect(config.roles.merge).toBe("human");
     expect(config.roles).not.toHaveProperty("rower");

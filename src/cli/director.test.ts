@@ -643,10 +643,14 @@ describe("tickDirector", () => {
     );
   });
 
-  it("removes combo:ready when the default CodeRabbit READY check is skipped", async () => {
+  it("removes combo:ready when a required READY check is skipped", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      ["[ready]", 'required_checks = ["CodeRabbit"]'].join("\n"),
+    );
     appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" });
     const { deps, calls } = fakeDeps({
       homeDir: h,
@@ -868,10 +872,14 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
   });
 
-  it("does not emit READY when the default CodeRabbit READY check is skipped", async () => {
+  it("does not emit READY when a configured READY check is skipped", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      ["[ready]", 'required_checks = ["CodeRabbit"]'].join("\n"),
+    );
     const { deps } = fakeDeps({
       homeDir: h,
       record,
