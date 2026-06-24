@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7100 lines.
+ *   deps so tests run without a real terminal or network. ~7170 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -137,6 +137,17 @@ function seedCodexGnhfRun(worktree: string): void {
   writeFileSync(
     join(gnhfRun, "iteration-1.jsonl"),
     `${JSON.stringify({ type: "thread.started", thread_id: CODEX_THREAD_ID })}\n`,
+  );
+}
+
+function writeCoderThreadArtifact(runDir: string): void {
+  writeFileSync(
+    join(runDir, CODER_THREAD_ARTIFACT),
+    `${JSON.stringify({
+      agent: "codex",
+      thread_id: CODEX_THREAD_ID,
+      source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+    })}\n`,
   );
 }
 
@@ -1883,6 +1894,7 @@ describe("nudge-review-comments", () => {
       tmuxSession: "combo-chen-owned-session",
       createdAt: new Date().toISOString(),
     });
+    writeCoderThreadArtifact(dir);
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     const { deps, calls } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -1932,6 +1944,23 @@ describe("nudge-review-comments", () => {
     expect(tmuxCalls).toEqual([
       [
         "tmux",
+        "list-windows",
+        "-t",
+        "combo-chen-owned-session",
+        "-F",
+        "#{window_name}",
+      ],
+      [
+        "tmux",
+        "new-window",
+        "-t",
+        "combo-chen-owned-session",
+        "-n",
+        "sitter",
+        `codex resume '${CODEX_THREAD_ID}'`,
+      ],
+      [
+        "tmux",
         "set-buffer",
         "-b",
         "combo-chen-nudge-combo-chen-owned-session-sitter",
@@ -1952,7 +1981,6 @@ describe("nudge-review-comments", () => {
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
       ["git", `cwd=${worktree}`, "rev-parse", "HEAD"],
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
-      ["git", `cwd=${worktree}`, "rev-parse", "HEAD"],
     ]);
     const ghCalls = calls.filter((call) => call[0] === "gh");
     expect(ghCalls).not.toHaveLength(0);
@@ -1977,6 +2005,7 @@ describe("nudge-review-comments", () => {
       tmuxSession: "combo-chen-owned-session",
       createdAt: new Date().toISOString(),
     });
+    writeCoderThreadArtifact(dir);
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     const { deps, calls, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -2843,7 +2872,7 @@ describe("run", () => {
     expect(axiRun).toBeGreaterThan(daemonStart);
     expect(axiRun).toBeGreaterThan(mirrorPush);
     expect(runner).toContain("mirror_intent='no-mistakes.intent=");
-    expect(runner).toContain("activate-coder -n 'o-r-7'");
+    expect(runner).not.toContain("activate-coder");
     expect(runner).toContain("activate-reviewer -n 'o-r-7'");
 
     const gitCall = calls.find((c) => c[0] === "git" && c.includes("worktree"));
@@ -3066,7 +3095,7 @@ describe("run", () => {
     const runner = readFileSync(runnerPath, "utf8");
     expect(runner).toContain(`emit -n ${shellQuote(hostileId)} coder_started`);
     expect(runner).toContain(`emit -n ${shellQuote(hostileId)} pr_opened`);
-    expect(runner).toContain(`activate-coder -n ${shellQuote(hostileId)}`);
+    expect(runner).not.toContain("activate-coder");
     expect(runner).toContain(`activate-reviewer -n ${shellQuote(hostileId)}`);
     expect(runner).toContain(`ensure-pr-autoclose -n ${shellQuote(hostileId)} --pr-url`);
     expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
@@ -3690,7 +3719,7 @@ describe("resume", () => {
     expect(script).toContain("branch: combo/issue-7");
     expect(script).toContain("pr_autoclose_failed");
     expect(script).toContain("emit -n 'o-r-7' pr_opened");
-    expect(script).toContain("activate-coder -n 'o-r-7'");
+    expect(script).not.toContain("activate-coder");
     expect(script).toContain("activate-reviewer -n 'o-r-7'");
     expect(spawnSync("sh", ["-n", scriptPath], { encoding: "utf8" }).status).toBe(0);
     expect(out.join("\n")).toContain(`resume: initial gate relaunched for o-r-7 at ${headSha}`);

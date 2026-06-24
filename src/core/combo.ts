@@ -24,7 +24,7 @@
  *     fetch/rebase baseRef → coder_started → coderCommand →
  *       coder_done (success) | coder_failed + exit $code (failure/log failure, exit sanitized)
  *     → gate_started → optional gate lease → mirror publish → config handoff + gatekeeperCommand → pr_opened
- *     → activateCoder + activateReviewer; missing PRs emit needs_human
+ *     → activateReviewer; missing PRs emit needs_human
  *
  *   ┌─ CORE ─────────────────────────────────────────────────────────┐
  *   │ buildRunnerScript   Generates the runner shell script          │
@@ -156,8 +156,8 @@ export interface RunnerInput {
   gatekeeperCommand: string;
   /** One-line no-mistakes.intent push option for the local gate mirror. */
   gatekeeperMirrorIntent?: string;
-  /** Full invocation for creating the resumed coder and its comment watcher. */
-  activateCoder: string;
+  /** Deprecated; coder responding starts lazily only when review signals need it. */
+  activateCoder?: string;
   /** Full invocation prefix for emitting events, e.g. "node /x/cli.mjs emit -n <id>". */
   emit: string;
   /** Full invocation for starting the reviewer loop after a PR has been journaled. */
@@ -322,7 +322,6 @@ export function buildRunnerScript(input: RunnerInput): string {
     gatekeeperCommand,
     gatekeeperMirrorIntent,
     emit,
-    activateCoder,
     activateReviewer,
     ensurePrAutoclose = ":",
     gateLeaseAcquire,
@@ -447,7 +446,6 @@ if [ -n "\${pr_url:-}" ]; then
   fi
   ${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
   ${emit} pr_opened --field url="$pr_url"
-  ${activateCoder}
   ${activateReviewer}
 else
   ${emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"

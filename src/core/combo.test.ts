@@ -228,7 +228,7 @@ describe("buildRunnerScript", () => {
     expect(customBase).toContain("git merge-base HEAD 'origin/release-candidate'");
   });
 
-  it("sequences coder, gatekeeper, PR detection, and reviewer activation", () => {
+  it("sequences coder, gatekeeper, PR detection, and reviewer activation without eager coder responding", () => {
     const coder = script.indexOf("gnhf");
     const gatekeeper = script.indexOf("no-mistakes axi run");
     const pr = script.indexOf("gh pr list");
@@ -237,8 +237,8 @@ describe("buildRunnerScript", () => {
     expect(coder).toBeGreaterThan(-1);
     expect(gatekeeper).toBeGreaterThan(coder);
     expect(pr).toBeGreaterThan(gatekeeper);
-    expect(activateCoder).toBeGreaterThan(pr);
-    expect(activateReviewer).toBeGreaterThan(activateCoder);
+    expect(activateCoder).toBe(-1);
+    expect(activateReviewer).toBeGreaterThan(pr);
   });
 
   it("can guard the gatekeeper run with a branch-scoped gate lease", () => {
@@ -1522,7 +1522,6 @@ exit 130
     const prMissing = script.indexOf("reason=pr_missing");
     const prUrlBranch = script.indexOf('if [ -n "${pr_url:-}" ]');
     const prMissingElse = script.lastIndexOf("else");
-    const coder = script.indexOf("activate-coder");
     const reviewer = script.indexOf("activate-reviewer -n o-r-7");
     expect(prReady).toBe(-1);
     expect(prMissing).toBeGreaterThan(-1);
@@ -1531,11 +1530,10 @@ exit 130
     expect(prUrlBranch).toBeGreaterThan(-1);
     expect(autocloseLog).toBeGreaterThan(-1);
     expect(autoclose).toBeGreaterThan(prUrlBranch);
-    expect(autoclose).toBeLessThan(coder);
+    expect(autoclose).toBeLessThan(reviewer);
     expect(prMissing).toBeGreaterThan(prMissingElse);
-    expect(coder).toBeGreaterThan(prUrlBranch);
-    expect(coder).toBeLessThan(prMissingElse);
-    expect(reviewer).toBeGreaterThan(coder);
+    expect(script.indexOf("activate-coder")).toBe(-1);
+    expect(reviewer).toBeGreaterThan(prUrlBranch);
     expect(reviewer).toBeLessThan(prMissingElse);
   });
 

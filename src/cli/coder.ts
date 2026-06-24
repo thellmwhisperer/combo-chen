@@ -1,5 +1,5 @@
 /**
- * @overview Coder-response CLI helpers. ~190 lines, 7 exports, review and conflict routing.
+ * @overview Coder-response CLI helpers. ~240 lines, 7 exports, review and conflict routing.
  *
  *   READING GUIDE
  *   -------------
@@ -20,11 +20,11 @@
  *   activateCoder              Start coder responding mode.
  *   nudgeReviewComments        Route fresh review comments to the coder.
  *   buildPrConflictNudgePrompt Render deterministic conflict-recovery prompt.
- *   nudgePrConflict            Route a dirty/conflicting PR to coder responding.
+ *   nudgePrConflict            Lazily start/nudge coder responding for conflicts.
  *
  *   INTERNALS
  *   ---------
- *   worktreeHeadSha
+ *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow
  *
  * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate
@@ -33,7 +33,7 @@ import { readEvents } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { listWindowsArgs, newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildCoderRespondingResumeCommand,
   fetchReviewCommentSignals,
@@ -73,6 +73,47 @@ function worktreeHeadSha(deps: NudgeReviewCommentsDeps, combo: { id: string; wor
     throw new Error(`git rev-parse HEAD failed for ${combo.id}: ${result.stderr.trim() || "unknown error"}`);
   }
   return result.stdout.trim();
+}
+
+function hasUnroutedReviewComments(runDir: string, comments: { url: string }[]): boolean {
+  const routed = new Set(
+    readEvents(runDir)
+      .filter((event) => event.event === "review_comment" && typeof event["url"] === "string")
+      .map((event) => event["url"] as string),
+  );
+  return comments.some((comment) => !routed.has(comment.url));
+}
+
+function ensureCoderRespondingWindow(input: {
+  deps: ActivateCoderDeps;
+  combo: { id: string; tmuxSession: string };
+  runDir: string;
+  windowName: string;
+  resumeCommand: string;
+}): void {
+  const listed = input.deps.tmux(listWindowsArgs(input.combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${input.combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  if (windows.has(input.windowName)) return;
+
+  const artifact = readCoderThreadArtifact(input.runDir);
+  const created = input.deps.tmux(
+    newWindowArgs(
+      input.combo.tmuxSession,
+      input.windowName,
+      buildCoderRespondingResumeCommand(artifact, input.resumeCommand),
+    ),
+  );
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to start ${input.windowName}: ${created.stderr.trim() || "unknown error"}`,
+    );
+  }
 }
 
 // -- 2/3 CORE · activateCoder <- START HERE --
@@ -132,7 +173,17 @@ export function nudgeReviewComments(input: {
     const comments = fetchReviewCommentSignals(prUrl, deps.gh, ghApiCache, {
       externalCommentAgents: config.externalCommentAgents,
     });
-    const headSha = comments.length === 0 ? undefined : worktreeHeadSha(deps, combo);
+    const hasUnroutedComments = hasUnroutedReviewComments(runDir, comments);
+    if (hasUnroutedComments) {
+      ensureCoderRespondingWindow({
+        deps,
+        combo,
+        runDir,
+        windowName: config.coderRespondingWindowName,
+        resumeCommand: config.coderResumeCommand,
+      });
+    }
+    const headSha = hasUnroutedComments ? worktreeHeadSha(deps, combo) : undefined;
     const routed = routeReviewComments({
       runDir,
       tmuxSession: combo.tmuxSession,
@@ -179,6 +230,13 @@ export function nudgePrConflict(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+  ensureCoderRespondingWindow({
+    deps,
+    combo,
+    runDir,
+    windowName: config.coderRespondingWindowName,
+    resumeCommand: config.coderResumeCommand,
+  });
   const prompt = buildPrConflictNudgePrompt(conflict);
   for (const args of nudgeWindowArgs(combo.tmuxSession, config.coderRespondingWindowName, prompt)) {
     const result = deps.tmux(args);
