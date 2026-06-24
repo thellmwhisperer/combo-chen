@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~1700 lines, log-derived regressions.
+ *   and process shims for external services. ~1750 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -266,6 +266,60 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         expect.objectContaining({ args: ["return", "--force", combo.worktree] }),
       );
       expect(readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json")).worktree).toBe(combo.worktree);
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog).toContainEqual(expect.objectContaining({ args: ["kill-session", "-t", combo.tmuxSession] }));
+
+      passed = true;
+    } finally {
+      if (passed) {
+        rmSync(harness.root, { recursive: true, force: true });
+      } else {
+        process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+      }
+    }
+  });
+
+  it("auto-closes a GitHub-merged combo from a director tick without a manual closure command", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "pr_opened", "--field", `url=${prUrl}`], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_PR_STATE: "MERGED",
+        },
+      });
+
+      expect(tick.stdout).toContain(`reviewer: merged ${harness.env.E2E_MERGE_SHA} by e2e-maintainer`);
+      expect(tick.stdout).toContain(`closure: ${combo.id} closed merged PR ${harness.env.E2E_MERGE_SHA}`);
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).map((event) => event.event);
+      expect(events).toContain("merged");
+      expect(events).toContain("combo_closed");
+      expect(existsSync(combo.worktree)).toBe(false);
+      expect(run("git", ["branch", "--list", combo.branch], { cwd: harness.repo }).stdout.trim()).toBe("");
+
+      const treehouseLog = readJsonLines<LogEntryJson>(harness.logs.treehouse);
+      expect(treehouseLog).toContainEqual(
+        expect.objectContaining({ args: ["return", "--force", combo.worktree] }),
+      );
+      expect(run("treehouse", ["status"], { cwd: harness.repo, env: harness.env }).stdout).toContain("treehouse ok");
+      const status = run(process.execPath, [cliPath, "status", "--all"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      expect(status.stdout).toContain(combo.id);
+      expect(status.stdout).toContain("STOPPED");
 
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       expect(tmuxLog).toContainEqual(expect.objectContaining({ args: ["kill-session", "-t", combo.tmuxSession] }));

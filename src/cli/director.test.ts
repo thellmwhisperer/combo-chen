@@ -1,10 +1,10 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1350 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1740 lines, initial-gate retry, READY, conflict recovery, auto-closure, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at READY pure helpers    <- extracted current-head predicates.
- *   2. Then tickDirector tests        <- PR label sync, current-head READY, and gate routing.
+ *   2. Then tickDirector tests        <- PR label sync, current-head READY, auto-closure, and gate routing.
  *   3. Test harness helpers           <- combo fixture and fake deps.
  *
  *   MAIN FLOW
@@ -118,6 +118,8 @@ function fakeDeps(input: {
   git?: DirectorDeps["git"];
   sleep?: DirectorDeps["sleep"];
   tmux?: DirectorDeps["tmux"];
+  treehouse?: DirectorDeps["treehouse"];
+  noMistakes?: DirectorDeps["noMistakes"];
 }): { deps: DirectorDeps; calls: string[][]; out: string[] } {
   const calls: string[][] = [];
   const out: string[] = [];
@@ -142,6 +144,7 @@ function fakeDeps(input: {
         const fields = args.at(-1) ?? "";
         const base = {
           headRefOid: input.prHeadSha,
+          baseRefName: "main",
           state: input.prState ?? "OPEN",
           ...(input.mergeStateStatus !== undefined ? { mergeStateStatus: input.mergeStateStatus } : {}),
           ...(input.mergeable !== undefined ? { mergeable: input.mergeable } : {}),
@@ -221,6 +224,15 @@ function fakeDeps(input: {
         if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
           return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
         }
+        if (cwd === input.record.repoDir && args[0] === "fetch") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (cwd === input.record.repoDir && args[0] === "merge-base") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (cwd === input.record.repoDir && args[0] === "branch" && args[1] === "-D") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
         if (cwd === input.record.worktree && args[0] === "rev-parse" && args[1] === "HEAD") {
           return { status: 0, stdout: `${input.worktreeHeadSha ?? input.prHeadSha}\n`, stderr: "" };
         }
@@ -228,6 +240,18 @@ function fakeDeps(input: {
           return { status: 0, stdout: "", stderr: "" };
         }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+      }),
+    treehouse:
+      input.treehouse ??
+      ((args, cwd) => {
+        calls.push(["treehouse", `cwd=${cwd}`, ...args]);
+        return { status: 0, stdout: "", stderr: "" };
+      }),
+    noMistakes:
+      input.noMistakes ??
+      ((args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        return { status: 1, stdout: "", stderr: "No active run." };
       }),
     sleep: input.sleep ?? (() => Promise.resolve()),
   };
@@ -1330,7 +1354,7 @@ describe("tickDirector", () => {
       .toBe(false);
   });
 
-  it("stops post-PR routing when reviewer records merged closure pending", async () => {
+  it("auto-closes a merged PR after reviewer records closure pending", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
@@ -1367,11 +1391,97 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "review_comment")).toBe(false);
     expect(readEvents(runDir).some((event) => event.event === "gate_stale")).toBe(false);
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
-    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "combo_closed", source: "closure" }),
+    );
+    expect(calls).toContainEqual(["treehouse", `cwd=${record.repoDir}`, "return", "--force", record.worktree]);
+    expect(calls).toContainEqual(["git", `cwd=${record.repoDir}`, "branch", "-D", record.branch]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", record.tmuxSession]);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
     expect(out).toContain("reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7");
+    expect(out).toContain("closure: o-r-7 closed merged PR merge789 by maintainer; teardown complete");
     expect(out.some((line) => line.startsWith("director: watch "))).toBe(true);
     expect(out.some((line) => line === "director: tick complete for o-r-7")).toBe(false);
+  });
+
+  it("does not trigger closure convergence again once combo_closed is already journaled", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "merged", { sha: "merge789", by: "maintainer", source: "reviewer" });
+    appendEvent(runDir, "combo_closed", { source: "closure" });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "head456",
+      prState: "MERGED",
+      mergeSha: "merge789",
+      mergedBy: "maintainer",
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.some((call) => call[0] === "treehouse")).toBe(false);
+    expect(calls.some((call) => call[0] === "no-mistakes")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-session")).toBe(false);
+    expect(readEvents(runDir).filter((event) => event.event === "combo_closed")).toHaveLength(1);
+    expect(out).toContain("reviewer: already terminal at combo_closed");
+    expect(out).not.toContain("closure: o-r-7 already closed");
+  });
+
+  it("retries closure convergence on a later tick when no-mistakes stops blocking teardown", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    let noMistakesActive = true;
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "head456",
+      prState: "MERGED",
+      mergeSha: "merge789",
+      mergedBy: "maintainer",
+      noMistakes: (args, cwd) => {
+        calls.push(["no-mistakes", `cwd=${cwd}`, ...args]);
+        if (!noMistakesActive) return { status: 1, stdout: "", stderr: "No active run." };
+        return {
+          status: 0,
+          stdout: [
+            "run:",
+            "  branch: combo/issue-7",
+            "  status: running",
+            "  steps[1]{step,status,findings,duration_ms}:",
+            "    test,running,0,0",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "merged", sha: "merge789", source: "reviewer" }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
+    expect(calls.some((call) => call[0] === "treehouse")).toBe(false);
+    expect(out).toContain(
+      "closure: o-r-7 refused: no-mistakes active run remains for combo/issue-7 (no-mistakes running test)",
+    );
+
+    noMistakesActive = false;
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir).filter((event) => event.event === "merged")).toHaveLength(1);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "combo_closed", source: "closure" }),
+    );
+    expect(calls).toContainEqual(["treehouse", `cwd=${record.repoDir}`, "return", "--force", record.worktree]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", record.tmuxSession]);
   });
 
   it("starts a post-address gate only when an actionable nudge is followed by a new committed HEAD", async () => {
