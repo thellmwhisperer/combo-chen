@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1300 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1385 lines, initial-gate retry, READY, conflict recovery, and worker monitoring.
  *
  *   READING GUIDE
  *   -------------
@@ -17,10 +17,10 @@
  *
  *   INTERNALS
  *   ---------
- *   combo, event, fakeDeps, seedReadyCandidate
+ *   combo, event, fakeDeps, seedReadyCandidate, writeCoderThreadArtifact
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./director
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./director
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,6 +31,7 @@ import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
+import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import {
   gateStateAllowsReady,
   headStateAllowsReady,
@@ -41,6 +42,7 @@ import {
 
 // -- 1/2 HELPER · Fixtures --
 const ISSUE = "https://github.com/o/r/issues/7";
+const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
 
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
   const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
@@ -82,6 +84,17 @@ function seedReadyCandidate(input: {
   appendEvent(runDir, "gate_validated", { sha: input.gateSha ?? input.headSha });
   appendEvent(runDir, "lgtm", { sha: input.lgtmSha ?? input.headSha });
   return { record, runDir };
+}
+
+function writeCoderThreadArtifact(runDir: string): void {
+  writeFileSync(
+    join(runDir, CODER_THREAD_ARTIFACT),
+    `${JSON.stringify({
+      agent: "codex",
+      thread_id: CODEX_THREAD_ID,
+      source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+    })}\n`,
+  );
 }
 
 function fakeDeps(input: {
@@ -723,6 +736,7 @@ describe("tickDirector", () => {
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" });
+    writeCoderThreadArtifact(runDir);
     const { deps, calls, out } = fakeDeps({
       homeDir: h,
       record,
@@ -769,11 +783,12 @@ describe("tickDirector", () => {
     ]);
   });
 
-  it("retries the pr_conflict nudge when the coder-responding window is missing", async () => {
+  it("retries the pr_conflict nudge when coder-responding startup fails", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     appendEvent(runDir, "ready_for_merge", { sha: headSha, pr_url: "https://github.com/o/r/pull/7" });
+    writeCoderThreadArtifact(runDir);
 
     const firstTickDeps = fakeDeps({
       homeDir: h,
@@ -782,7 +797,7 @@ describe("tickDirector", () => {
       mergeStateStatus: "DIRTY",
       externalReviewComments: [],
       tmux: (args) => {
-        if (args[0] === "set-buffer" && args.some((a) => a.includes("Rebase the combo worktree"))) {
+        if (args[0] === "new-window" && args.includes("coder-responding")) {
           return { status: 1, stdout: "", stderr: "can't find window" };
         }
         return { status: 0, stdout: "", stderr: "" };
@@ -1238,6 +1253,7 @@ describe("tickDirector", () => {
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     appendEvent(runDir, "gate_status", { state: "idle", head_sha: oldSha });
+    writeCoderThreadArtifact(runDir);
     let revParseCalls = 0;
     const gitCalls: string[][] = [];
     const { deps, calls, out } = fakeDeps({

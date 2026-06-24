@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~1030 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~1050 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -17,10 +17,10 @@
  *
  *   INTERNALS
  *   ---------
- *   combo
+ *   combo, writeCoderThreadArtifact
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,runtime-ledger,state,work-plan}, ../infra/{config,config-snapshot}, ./reviewer
+ * @deps vitest, node:{fs,os,path}, ../core/{events,runtime-ledger,state,work-plan}, ../infra/{config,config-snapshot}, ../roles/coder, ./reviewer
  */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,6 +33,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { normalizeGitHubIssueWorkPlan, normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
+import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import {
   activateReviewer,
   canonicalLgtmShaForHead,
@@ -46,6 +47,8 @@ import {
 } from "./reviewer.js";
 
 // -- 1/4 HELPER · combo fixture --
+const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
+
 function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
   return {
     id: "o-r-7",
@@ -57,6 +60,17 @@ function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
     createdAt: new Date(0).toISOString(),
     ...overrides,
   };
+}
+
+function writeCoderThreadArtifact(runDir: string): void {
+  writeFileSync(
+    join(runDir, CODER_THREAD_ARTIFACT),
+    `${JSON.stringify({
+      agent: "codex",
+      thread_id: CODEX_THREAD_ID,
+      source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+    })}\n`,
+  );
 }
 // -/ 1/4
 
@@ -760,6 +774,7 @@ describe("tickReviewer", () => {
 
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    writeCoderThreadArtifact(runDir);
 
     await tickReviewer({
       deps: {
@@ -822,6 +837,15 @@ describe("tickReviewer", () => {
     expect(readEvents(runDir).some((event) => event.event === "lgtm")).toBe(false);
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
     expect(tmuxCalls).toEqual([
+      ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
+      [
+        "new-window",
+        "-t",
+        "combo-chen-o-r-7",
+        "-n",
+        "coder-responding",
+        `codex resume '${CODEX_THREAD_ID}'`,
+      ],
       expect.arrayContaining(["set-buffer"]),
       ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-coder-responding", "-t", "combo-chen-o-r-7:coder-responding"],
       ["send-keys", "-t", "combo-chen-o-r-7:coder-responding", "C-m"],

@@ -406,7 +406,6 @@ function buildInitialGateRetryScript(input: {
   gatekeeperMirrorIntent: string;
   headSha: string;
   emit: string;
-  activateCoder: string;
   activateReviewer: string;
   ensurePrAutoclose?: string;
   gateLeaseAcquire?: string;
@@ -474,7 +473,6 @@ function buildInitialGateRetryScript(input: {
       ],
     `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
     `  ${input.emit} pr_opened --field url="$pr_url"`,
-    `  ${input.activateCoder}`,
     `  ${input.activateReviewer}`,
     "else",
     `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
@@ -512,7 +510,6 @@ export function startInitialGateRetry(input: {
       gatekeeperMirrorIntent: renderedGatekeeper.pushIntent,
       headSha,
       emit: `${cli} emit -n ${shellQuote(combo.id)}`,
-      activateCoder: `${cli} activate-coder -n ${shellQuote(combo.id)}`,
       activateReviewer: `${cli} activate-reviewer -n ${shellQuote(combo.id)}`,
       gateLeaseAcquire: `${cli} gate-lease acquire -n ${shellQuote(combo.id)}`,
       gateLeaseRelease: `${cli} gate-lease release -n ${shellQuote(combo.id)}`,
