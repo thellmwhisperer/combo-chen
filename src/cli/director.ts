@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~700 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~740 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -11,7 +11,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   runInitialGateRetryIfNeeded -> inspectWorkerPanes -> wait for PR -> tickReviewer -> nudgeReviewComments
+ *   runInitialGateRetryIfNeeded -> inspectWorkerPanes -> wait for PR -> tickReviewer -> auto-closure or nudgeReviewComments
  *     -> runPostAddressGateIfNeeded -> route local PR-head sync recovery -> runReadyForMergeIfNeeded -> syncDirectorPrLabels
  *
  *   PUBLIC API
@@ -24,11 +24,11 @@
  *
  *   INTERNALS
  *   ---------
- *   syncDirectorPrLabels, runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
+ *   syncDirectorPrLabels, runClosureIfPending, runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
  *   retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
+ * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./closure, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
  */
 import { deriveStatus } from "../core/combo.js";
 import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
@@ -40,6 +40,7 @@ import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgePrConflict, nudgeReviewComments } from "./coder.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
+import { closeMergedCombo } from "./closure.js";
 import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./director-watch-status.js";
 import {
   latestGateStatus,
@@ -60,7 +61,9 @@ export interface DirectorDeps {
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  noMistakes: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   sleep: (ms: number) => Promise<void>;
 }
 // -/ 1/3
@@ -152,8 +155,25 @@ export async function tickDirector(input: {
   }
 
   await tickReviewer({ deps, home, comboId, ghApiCache });
-  const postReviewEvents = readEvents(runDir);
-  if (terminalReviewerEvent(postReviewEvents) || closurePendingReviewerEvent(postReviewEvents)) {
+  let postReviewEvents = readEvents(runDir);
+  if (terminalReviewerEvent(postReviewEvents)) {
+    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
+    emitTickComplete({
+      deps,
+      comboId,
+      cli,
+      runDir,
+      pollSeconds: config.limits.babysitPollSeconds,
+      readyRequiredChecks: config.readyRequiredChecks,
+      ambientCheckNames: config.externalCommentAgents,
+      events: postReviewEvents,
+      workerSummaries,
+    });
+    return;
+  }
+  if (closurePendingReviewerEvent(postReviewEvents)) {
+    await runClosureIfPending({ deps, home, comboId });
+    postReviewEvents = readEvents(runDir);
     syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
     emitTickComplete({
       deps,
@@ -238,7 +258,27 @@ export async function tickDirector(input: {
   });
 }
 
-// -- 3/3 HELPER · Initial gate retry and READY agreement --
+// -- 3/3 HELPER · Closure, initial gate retry, and READY agreement --
+async function runClosureIfPending(input: {
+  deps: DirectorDeps;
+  home: string;
+  comboId: string;
+}): Promise<void> {
+  try {
+    await closeMergedCombo({
+      deps: input.deps,
+      home: input.home,
+      comboId: input.comboId,
+    });
+  } catch (error) {
+    input.deps.out(
+      `director: closure convergence failed for ${input.comboId}: ${
+        error instanceof Error ? error.message : String(error)
+      }; will retry on next tick`,
+    );
+  }
+}
+
 function emitTickComplete(input: {
   deps: DirectorDeps;
   comboId: string;
