@@ -1285,6 +1285,76 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
   });
+
+  it("does not re-add working-gate from a retained idle gatekeeper window", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(join(combo.worktree, "published-after-gate.txt"), "published\n");
+      run("git", ["add", "published-after-gate.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: published after gate"], { cwd: combo.worktree });
+      const prHeadSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      expect(prHeadSha).not.toBe(publishedSha);
+
+      writeFileSync(
+        harness.env.E2E_GH_STATE!,
+        `${JSON.stringify({
+          prLabels: ["combo:stale"],
+          knownLabels: ["combo:working-gate", "combo:stale"],
+          failedMissingLabelAdd: false,
+        }, null, 2)}\n`,
+      );
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_started", []],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: prHeadSha,
+          E2E_PR_STATE: "OPEN",
+        },
+      });
+
+      expect(tick.stdout).toContain("waiting for current-head gate");
+      const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
+      expect(ghState.prLabels).toEqual(["combo:stale"]);
+
+      const ghLog = readJsonLines<LogEntryJson>(harness.logs.gh);
+      expect(ghLog).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            args: ["pr", "edit", prUrl, "--add-label", "combo:working-gate"],
+          }),
+        ]),
+      );
+
+      const labelEvents = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).filter(
+        (event) => event.event === "pr_labels_updated",
+      );
+      expect(labelEvents).toEqual([]);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
 });
 // -/ 2/3
 
