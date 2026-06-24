@@ -99,9 +99,10 @@ automatically. In both cases, combo-chen propagates the config in two phases:
    generated gate script copies `.no-mistakes.yaml` from the combo worktree
    into the no-mistakes daemon's active run worktree so the gate runner has it.
    It polls `no-mistakes status` to discover the daemon's worktree path and
-   retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
-   120, 1 s delay). The gate command waits for this copy to complete before
-   running so validation stays deterministic.
+    retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
+    120, 1 s delay). The gate runs in parallel with the config copy watcher,
+    but a successful gate that finishes before the config copy completes is
+    rejected so validation stays deterministic.
 
 Do not remove the tracked repo-level `.no-mistakes.yaml`; update it only when
 the shared validation commands intentionally change.

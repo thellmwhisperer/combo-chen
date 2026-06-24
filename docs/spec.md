@@ -206,8 +206,10 @@ from the combo worktree into the no-mistakes daemon's active run worktree so
 the gate runner reads it. The daemon copy polls `no-mistakes status` to
 discover the worktree path and retries up to
 `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default 120, 1 s delay).
-The gate command waits for this copy to complete before running. Both phases
-preserve content and mode and never overwrite an existing config. In
+The gate runs in parallel with the config copy watcher, but a successful
+gate result that finishes before the config copy completes is rejected so
+validation stays deterministic. Both phases preserve content and mode and
+never overwrite an existing config. In
 combo-chen, `.no-mistakes.yaml` is intentionally tracked as shared
 test/lint/build policy; user-local secrets and operator preferences stay in
 ignored config or environment outside that file.
@@ -685,6 +687,16 @@ projection only; the journal and GitHub checks remain the source of truth.
   do not drive the state machine.
 - Label updates are idempotent: a no-op when live labels already match the
   desired projection.
+
+### Label provisioning
+
+Combo PR labels are auto-provisioned on the target GitHub repo when they are
+missing. Each label carries a deterministic color and description. When
+`gh pr edit --add-label` fails because a label is not found on the repo, the
+sync loop creates the missing labels via `gh label create` with the configured
+metadata, then retries up to once per missing label with a short backoff.
+Provisioning failures are reported as best-effort label mutation errors; they
+do not block the director tick.
 
 ### Mutation journaling
 
