@@ -35,7 +35,9 @@ Hard rule: `reviewer != coder`.
    `initial_gate_retry_attempts` with `initial_gate_retry_backoff_seconds`
    delay; after exhausting retries it journals `needs_human reason=gate_failed`.
 4. After `pr_opened`, `director-watch` is the single observer. Reviewer and
-   coder responding mode are worker windows. Reviewer verdict codes drive
+   coder responding mode (created lazily only when review signals or
+   PR-conflict recovery need it; not on first-pass happy path) are worker
+   windows. Reviewer verdict codes drive
    deterministic routing: code 0 feeds the LGTM journal path, code 1 nudges
    coder responding, code 2 prompts the director, and code 3 journals
    `needs_human`. On each tick the director also updates the PR's GitHub
@@ -131,21 +133,29 @@ contract: deterministic overture launch runway,
 coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer with
 machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
-coder responding mode, single `director-watch` observation, frozen journal
+lazy coder responding mode (created only after review signals or PR-conflict
+recovery need it, not on first-pass PR-open happy path), single `director-watch`
+observation with compact per-tick operator status lines, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),
 merged-PR `reconcile` with merge-fact recording only (resource convergence
 deferred to `closure`), deterministic `closure` for post-merge local resource
 convergence, director prompt delivery for code-2 verdicts, no-mistakes config propagation,
-read-only forensics reports, coder safety validation (pinned gnhf with
-`--max-iterations`, `--stop-when`, stdin closed), `park`/`resume` for
-reboot-safe capsule handoff, the parallel capsule dashboard (`status`; actionable
-by default, `--all` for history, `--deep` for downstream probes, auto-reconcile
-+ tmux liveness), launch-time config snapshots for deterministic runtime behavior,
-a machine-readable runtime ledger for each combo capsule,
-branch-scoped gate leases for parallel capsules with stale recovery and heartbeat,
-promptable director window inside each combo capsule (non-polling contract, prompted by
-director-watch only for ambiguity or uncoded recovery), wave-based parallel scaling
-(start 2 capsules, then 3, then 4-6 with postmortem justification),
-current-head READY agreement with base-advance conflict detection, and live GitHub PR label projection with mutation journaling.
+read-only forensics reports with copy-ready Outcome blocks and markdown-only
+`--record-outcome` for posting dogfood outcomes to GitHub issues, coder safety
+validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),
+`park`/`resume` for reboot-safe capsule handoff, the parallel capsule dashboard
+(`status`; actionable by default, `--all` for history, `--deep` for downstream
+probes, auto-reconcile + tmux liveness), launch-time config snapshots for
+deterministic runtime behavior, a machine-readable runtime ledger for each combo
+capsule, branch-scoped gate leases for parallel capsules with stale recovery and
+heartbeat, promptable director window inside each combo capsule (non-polling
+contract, prompted by director-watch only for ambiguity or uncoded recovery),
+wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
+justification), current-head READY agreement with base-advance conflict
+detection, live GitHub PR label projection with mutation journaling,
+human-readable tmux topology (separate coder, journal, gatekeeper/live,
+gate-runner, and director-watch windows; raw event output never replaces the
+coder role), and opt-in runner progress status lines
+(`COMBO_CHEN_RUNNER_PROGRESS=1`).
 Deferred: preflight scoring, counterfactual
 automerge log, treehouse pools, and ACP role driving.
