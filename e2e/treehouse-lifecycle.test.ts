@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~900 lines, log-derived regressions.
+ *   and process shims for external services. ~950 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -69,6 +69,8 @@ interface HarnessOptions {
   activateNoMistakesOnAxiRun?: boolean;
   gatekeeperCommand?: string;
   externalCommentAgents?: string[];
+  readyRequiredChecks?: string[];
+  greenCheckNames?: string[];
   quoteNoMistakesRunId?: boolean;
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
@@ -510,6 +512,58 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("does not mark READY when a required external review status was skipped", () => {
+    const harness = prepareHarness({
+      externalCommentAgents: ["coderabbitai"],
+      readyRequiredChecks: ["CodeRabbit"],
+      greenCheckNames: ["CodeRabbit"],
+    });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+        ["lgtm", [`sha=${headSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_CODERABBIT_SKIPPED_STATUS: "1",
+        },
+      });
+
+      expect(tick.stdout).toContain("waiting for checks");
+      expect(tick.stdout).toContain("ready=[pr:yes gate:yes reviewer:yes checks:no ci:yes]");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events.some((event) => event.event === "ready_for_merge")).toBe(false);
+
+      const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
+      expect(ghState.prLabels).not.toContain("combo:external-review-green");
+      expect(ghState.prLabels).not.toContain("combo:ready");
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("routes a reviewer code 1 verdict even when retained worker panes are stalled", () => {
     const harness = prepareHarness({ workerStallTicks: 1 });
     let passed = false;
@@ -813,6 +867,8 @@ function prepareGitRepo(repo: string, origin: string): void {
 function writeRepoConfig(repo: string, options: HarnessOptions): void {
   const gatekeeperCommand = options.gatekeeperCommand ?? "true";
   const externalCommentAgents = options.externalCommentAgents ?? [];
+  const readyRequiredChecks = options.readyRequiredChecks ?? [];
+  const greenCheckNames = options.greenCheckNames ?? [];
   writeFileSync(
     join(repo, "combo-chen.toml"),
     [
@@ -841,6 +897,20 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
         : [
             "[external_comments]",
             `agents = ${JSON.stringify(externalCommentAgents)}`,
+            "",
+          ]),
+      ...(readyRequiredChecks.length === 0
+        ? []
+        : [
+            "[ready]",
+            `required_checks = ${JSON.stringify(readyRequiredChecks)}`,
+            "",
+          ]),
+      ...(greenCheckNames.length === 0
+        ? []
+        : [
+            "[pr_labels]",
+            `green_check_names = ${JSON.stringify(greenCheckNames)}`,
             "",
           ]),
       "[limits]",
