@@ -452,9 +452,11 @@ ignored config or environment outside that file.
   escalates the same way, except stalled coder responding mode is recovered
   first: the director kills and recreates the configured responder window,
   resumes the saved coder thread, replays the last routed review/conflict
-  prompt, and journals `worker_recovered`. After
-  `[monitor].worker_stall_recovery_attempts` recoveries for the same
-  worker/reason, the next unchanged-pane finding journals
+  prompt, and journals `worker_recovered`. Recovery failures (worker
+  mismatch or tmux/git errors) journal `worker_recovery_failed` (required
+  fields `worker`, `reason`, `attempt`); both events count toward the attempt
+  budget. After `[monitor].worker_stall_recovery_attempts` recoveries for the
+  same worker/reason, the next unchanged-pane finding journals
   `needs_human reason=worker_stalled`.
 - Attention surface: tmux window titles + the default parallel capsule
   dashboard (`combo-chen status`) always answer "which combos need a human RIGHT
