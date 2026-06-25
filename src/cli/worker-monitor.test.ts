@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~380 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~440 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE

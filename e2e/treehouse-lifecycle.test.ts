@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2050 lines, log-derived regressions.
+ *   and process shims for external services. ~2120 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
