@@ -132,7 +132,7 @@ export async function tickDirector(input: {
         findings: workerInspection.findings,
         events: readEvents(runDir),
         coderRespondingWindowName: config.coderRespondingWindowName,
-        maxAttempts: config.workerStallRecoveryAttempts,
+        maxAttempts: config.workerRecoveryAttempts,
       });
       const statusEvents = readEvents(runDir);
       if (recovered) {
