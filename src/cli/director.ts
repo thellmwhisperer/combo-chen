@@ -134,35 +134,25 @@ export async function tickDirector(input: {
       });
       const statusEvents = readEvents(runDir);
       if (recovered) {
-        emitTickComplete({
-          deps,
-          comboId,
-          cli,
-          runDir,
-          pollSeconds: config.limits.babysitPollSeconds,
-          readyRequiredChecks: config.readyRequiredChecks,
-          ambientCheckNames: config.externalCommentAgents,
-          events: statusEvents,
-          workerSummaries,
-        });
-        return;
+        events = statusEvents;
+      } else {
+        const prUrl = latestPrUrl(statusEvents);
+        if (prUrl === undefined) {
+          emitTickComplete({
+            deps,
+            comboId,
+            cli,
+            runDir,
+            pollSeconds: config.limits.babysitPollSeconds,
+            readyRequiredChecks: config.readyRequiredChecks,
+            ambientCheckNames: config.externalCommentAgents,
+            events: statusEvents,
+            workerSummaries,
+          });
+          return;
+        }
+        events = statusEvents;
       }
-      const prUrl = latestPrUrl(statusEvents);
-      if (prUrl === undefined) {
-        emitTickComplete({
-          deps,
-          comboId,
-          cli,
-          runDir,
-          pollSeconds: config.limits.babysitPollSeconds,
-          readyRequiredChecks: config.readyRequiredChecks,
-          ambientCheckNames: config.externalCommentAgents,
-          events: statusEvents,
-          workerSummaries,
-        });
-        return;
-      }
-      events = statusEvents;
     } else {
       events = readEvents(runDir);
     }
