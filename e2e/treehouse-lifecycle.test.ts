@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2000 lines, log-derived regressions.
+ *   and process shims for external services. ~2100 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -19,7 +19,7 @@
  *
  *   INTERNALS
  *   ---------
- *   command runner, temp repo/bootstrap helpers, fixture shim installer.
+ *   command runner, temp repo/bootstrap helpers, tmux-state helper, fixture shim installer.
  *
  * @exports none
  * @deps vitest, node:{child_process,fs,path,url}
@@ -108,6 +108,10 @@ interface JournalEventJson {
 interface LogEntryJson {
   cwd?: string;
   args: string[];
+}
+
+interface TmuxStateJson {
+  sessions: Record<string, { windows: Record<string, { panes: number }> }>;
 }
 
 function run(
@@ -213,6 +217,16 @@ function writeCoderThreadArtifact(runDir: string): void {
       source: ".gnhf/runs/e2e/iteration-1.jsonl",
     })}\n`,
   );
+}
+
+function setTmuxWindowPaneCount(harness: Harness, sessionName: string, windowName: string, paneCount: number): void {
+  const statePath = harness.env.E2E_TMUX_STATE;
+  if (statePath === undefined) throw new Error("E2E_TMUX_STATE missing");
+  const state = readJson<TmuxStateJson>(statePath);
+  const window = state.sessions[sessionName]?.windows[windowName];
+  expect(window).toBeDefined();
+  window!.panes = paneCount;
+  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
 }
 // -/ 1/3
 
@@ -1077,6 +1091,74 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           }),
         ]),
       );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("escalates a dead coder responding worker for a mergeable PR without restarting the initial runner", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "coder-responding", "true"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      setTmuxWindowPaneCount(harness, combo.tmuxSession, "coder-responding", 0);
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_MERGE_STATE_STATUS: "CLEAN",
+          E2E_MERGEABLE: "MERGEABLE",
+        },
+      });
+
+      expect(tick.stdout).toContain("director: worker coder-responding dead pane");
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "needs_human",
+            reason: "worker_dead",
+            worker: "coder-responding",
+            detail: "dead pane",
+          }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "worker_recovered" && event["reason"] === "worker_dead")).toBe(
+        false,
+      );
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const postTickWindowOps = tmuxLog.filter(
+        (entry) =>
+          (entry.args[0] === "kill-window" || entry.args[0] === "new-window") &&
+          entry.args.some((arg) => arg === "coder" || arg === `${combo.tmuxSession}:coder`),
+      );
+      expect(postTickWindowOps).toEqual([]);
 
       passed = true;
     } finally {

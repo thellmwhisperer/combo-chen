@@ -60,7 +60,7 @@ if (args[0] === "pr" && args[1] === "view") {
     process.stdout.write(`${process.env.E2E_HEAD_SHA || process.env.E2E_MERGE_SHA || "head"}\n`);
     process.exit(0);
   }
-  process.stdout.write(`${JSON.stringify({
+  const prView = {
     headRefOid: process.env.E2E_HEAD_SHA || process.env.E2E_MERGE_SHA || "head",
     state: process.env.E2E_PR_STATE || "MERGED",
     mergedAt: "2026-06-23T00:00:00.000Z",
@@ -69,7 +69,10 @@ if (args[0] === "pr" && args[1] === "view") {
     mergeCommit: { oid: process.env.E2E_MERGE_SHA || "merge" },
     labels: state.prLabels.map((name) => ({ name })),
     statusCheckRollup: statusCheckRollup(),
-  })}\n`);
+  };
+  if (process.env.E2E_MERGE_STATE_STATUS) prView.mergeStateStatus = process.env.E2E_MERGE_STATE_STATUS;
+  if (process.env.E2E_MERGEABLE) prView.mergeable = process.env.E2E_MERGEABLE;
+  process.stdout.write(`${JSON.stringify(prView)}\n`);
   process.exit(0);
 }
 
