@@ -65,6 +65,8 @@ describe("release docs", () => {
       expect(doc).toContain("live combo/session integration is owned by #72");
       expect(doc).toContain("U0 update contract bridge");
       expect(doc).toContain("ReadOnlyUpdatePlan");
+      expect(doc).toContain("detectActiveComboRuntime({ home, cli })");
+      expect(doc).toContain("`idle`, `active`, `stale`, or `error`");
       expect(doc).toContain("source checkouts and package-manager dev shims are non-auto-replaceable");
       expect(doc).toContain("U1: release resolver and latest/beta check flow");
       expect(doc).toContain("U2: download, checksum verification, and staging");

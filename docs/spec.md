@@ -581,6 +581,15 @@ parsing and looking up sha256sum-compatible `checksums.txt` entries,
 classifying obvious local install targets, recording active combo state, and
 assembling a `ReadOnlyUpdatePlan`.
 
+U72-A adds the internal active-runtime detector API at
+`src/core/active-runtime.ts`. `detectActiveComboRuntime({ home, cli })` scans
+only persisted combo state under `COMBO_CHEN_HOME/runs`: `combo.json`,
+`journal.jsonl`, and `runtime-ledger.json` with legacy fallback. It returns an
+`idle`, `active`, `stale`, or `error` status plus active combo, stale combo, and
+detection-error arrays. It does not prompt, run tmux/git/gh/no-mistakes
+commands, write journals, create ledgers, restart daemons, or change
+update/install targets.
+
 U0 does not download, extract, replace, restart, or mutate active combo
 capsules. It does not add passive update notices, archive staging, binary
 replacement, or live capsule restart behavior. This means source checkouts and
