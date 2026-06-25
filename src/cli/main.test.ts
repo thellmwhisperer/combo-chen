@@ -441,7 +441,7 @@ describe("command surface", () => {
 
   it("aborts update when active combo runtime exists and --yes is absent", async () => {
     const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
-    const unsafeComboId = "o-r-7\n$(touch .tmp/issue192-pwn)";
+    const unsafeComboId = "o-r-7\u061c\u200e\u200f\u2066\n$(touch .tmp/issue192-pwn)\u2069";
     const downloads: unknown[] = [];
     const replacements: unknown[] = [];
     const { deps, out } = fakeDeps({
@@ -531,6 +531,7 @@ describe("command surface", () => {
       "warning: active combo runtime detected: o-r-7 $(touch .tmp/issue192-pwn)(CODING)",
     ]);
     expect(out.every((line) => !line.includes("\n"))).toBe(true);
+    expect(out[1]).not.toMatch(/[\u061c\u200e\u200f\u2066-\u2069]/u);
   });
 
   it("aborts update when active runtime detection throws before staging", async () => {
