@@ -475,8 +475,8 @@ ignored config or environment outside that file.
     any missing `merged` event with `source: "closure"`, refuses resource
     teardown while no-mistakes still reports an active or awaiting run for the
     combo branch, returns the Treehouse worktree lease, deletes the local
-    branch, kills the tmux session, and records `combo_closed` with
-    `source: "closure"`. Existing `combo_closed` events are treated as
+    branch, records `combo_closed` with `source: "closure"`, and
+    kills the tmux session. Existing `combo_closed` events are treated as
     already converged. The reviewer/director-watch path also records the live
     merge fact and may trigger closure automatically. Reconcile can record a
     missing merge fact but defers resource convergence to closure.
