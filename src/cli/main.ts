@@ -291,7 +291,7 @@ export function createProgram(deps: Deps): Command {
     .command("update")
     .description("Update this combo-chen release archive from GitHub Releases")
     .option("--beta", "Include prerelease GitHub releases", false)
-    .option("-y, --yes", "Confirm replacement without prompting", false)
+    .option("-y, --yes", "Skip confirmation and active-runtime safety prompts", false)
     .action(async (options: { beta?: boolean; yes?: boolean }) => {
       const updateDeps: UpdateCommandDeps = {
         ...defaultUpdateCommandDeps({ gh: deps.gh, out: deps.out, env: deps.env }),
