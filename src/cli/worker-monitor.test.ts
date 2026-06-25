@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~310 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~340 lines, permission
  *   prompt, unchanged-pane stall/recovery deferral, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -142,7 +142,7 @@ describe("inspectWorkerPanes", () => {
     ).toBe(true);
   });
 
-  it("escalates immediately when gnhf is held after an unsuccessful terminal result", () => {
+  it("reports gnhf terminal failures as dead workers", () => {
     const { record, runDir } = combo();
     const { deps, out } = fakeDeps({
       coder: [
@@ -159,12 +159,38 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
         event: "needs_human",
-        reason: "worker_stalled",
+        reason: "worker_dead",
         worker: "coder",
         detail: "gnhf stopped without success",
       }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker coder gnhf stopped without success"));
+  });
+
+  it("returns recoverable dead-worker findings without journaling needs_human", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      coder: undefined,
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      recoverableDeadWorkers: ["coder"],
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(result.findings).toEqual([
+      {
+        worker: "coder",
+        reason: "worker_dead",
+        detail: "dead pane",
+        needsHumanRecorded: false,
+      },
+    ]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
   });
 
   it("does not count duplicate worker names twice in one tick", () => {

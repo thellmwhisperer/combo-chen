@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~810 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~880 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -38,7 +38,7 @@ import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
-import { nudgePrConflict, nudgeReviewComments, recoverStalledWorker } from "./coder.js";
+import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStalledWorker } from "./coder.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import { closeMergedCombo } from "./closure.js";
 import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./director-watch-status.js";
@@ -111,18 +111,20 @@ export async function tickDirector(input: {
   let workerSummaries: string[] = [];
   const workerWindows = workerWindowsForEvents(events, config.coderRespondingWindowName);
   if (workerWindows.length > 0) {
+    const prAlreadyOpened = latestPrUrl(events) !== undefined;
     const workerInspection = inspectWorkerPanes({
       deps,
       combo,
       runDir,
       workerWindows,
       stallTicks: config.workerStallTicks,
+      recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
       recoverableStalledWorkers: [config.coderRespondingWindowName],
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
     });
     workerSummaries = workerInspection.summaries;
     if (workerInspection.escalated) {
-      const recovered = recoverStalledWorkerFindings({
+      const recovered = routeWorkerRecoveryFindings({
         deps,
         home,
         comboId,
@@ -437,7 +439,7 @@ function workerRecoveryAttempts(events: ComboEvent[], worker: string, reason: st
   ).length;
 }
 
-function recoverStalledWorkerFindings(input: {
+function routeWorkerRecoveryFindings(input: {
   deps: DirectorDeps;
   home: string;
   comboId: string;
@@ -451,8 +453,6 @@ function recoverStalledWorkerFindings(input: {
   const actioned = new Set<string>();
   for (const finding of input.findings) {
     if (
-      finding.reason !== "worker_stalled" ||
-      finding.worker !== input.coderRespondingWindowName ||
       finding.needsHumanRecorded ||
       actioned.has(finding.worker)
     ) {
@@ -468,6 +468,46 @@ function recoverStalledWorkerFindings(input: {
         finding.reason,
         `recovery attempts exhausted after ${input.maxAttempts}; ${finding.detail}`,
       );
+      continue;
+    }
+    if (finding.reason === "worker_dead" && finding.worker === CODER_WINDOW) {
+      try {
+        const didRecover = recoverDeadCoder({
+          deps: input.deps,
+          home: input.home,
+          comboId: input.comboId,
+          recovery: {
+            worker: finding.worker,
+            reason: finding.reason,
+            detail: finding.detail,
+            attempt: attempts + 1,
+            maxAttempts: input.maxAttempts,
+          },
+        });
+        if (didRecover) {
+          resetWorkerSnapshot(input.runDir, finding.worker);
+          recovered = true;
+        } else {
+          appendEvent(input.runDir, "worker_recovery_failed", {
+            worker: finding.worker,
+            reason: finding.reason,
+            detail: "recovery skipped: worker did not match initial coder window",
+            attempt: attempts + 1,
+            max_attempts: input.maxAttempts,
+          });
+        }
+      } catch (error) {
+        appendEvent(input.runDir, "worker_recovery_failed", {
+          worker: finding.worker,
+          reason: finding.reason,
+          detail: `recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+          attempt: attempts + 1,
+          max_attempts: input.maxAttempts,
+        });
+      }
+      continue;
+    }
+    if (finding.reason !== "worker_stalled" || finding.worker !== input.coderRespondingWindowName) {
       continue;
     }
     try {

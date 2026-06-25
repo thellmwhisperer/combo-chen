@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1800 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and stall recovery.
+ * @overview Unit tests for director CLI helpers. ~2000 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -470,6 +470,154 @@ describe("tickDirector", () => {
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker coder unchanged pane for 2 ticks"));
+  });
+
+  it("restarts a dead pre-PR coder runner without journaling needs_human", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    const windows = new Set(["coder"]);
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
+    appendEvent(runDir, "coder_started", {});
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      env: { COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS: "2" },
+      tmux: (args) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: `${[...windows].join("\n")}\n`, stderr: "" };
+        }
+        if (args[0] === "list-panes") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "kill-window") {
+          windows.delete("coder");
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "new-window") {
+          windows.add(String(args.at(4) ?? ""));
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "worker_recovered",
+        reason: "worker_dead",
+        worker: "coder",
+        detail: "dead pane",
+        attempt: 1,
+        max_attempts: 2,
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        ["tmux", "kill-window", "-t", "combo-chen-o-r-7:coder"],
+        [
+          "tmux",
+          "new-window",
+          "-t",
+          "combo-chen-o-r-7",
+          "-n",
+          "coder",
+          `COMBO_CHEN_RUNNER_PROGRESS=1 sh '${join(runDir, "runner.sh").replaceAll("'", "'\\''")}'`,
+        ],
+      ]),
+    );
+    expect(out).toContain("director: restarted dead coder attempt 1/2");
+  });
+
+  it("escalates a dead pre-PR coder after the restart attempt budget is exhausted", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "worker_recovered", {
+      worker: "coder",
+      reason: "worker_dead",
+      detail: "dead pane",
+      attempt: 1,
+      max_attempts: 2,
+    });
+    appendEvent(runDir, "worker_recovered", {
+      worker: "coder",
+      reason: "worker_dead",
+      detail: "dead pane",
+      attempt: 2,
+      max_attempts: 2,
+    });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      env: { COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS: "2" },
+      tmux: (args) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: "coder\n", stderr: "" };
+        }
+        if (args[0] === "list-panes") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_dead",
+        worker: "coder",
+        detail: "recovery attempts exhausted after 2; dead pane",
+      }),
+    );
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+  });
+
+  it("escalates a dead post-PR coder responder without restarting the initial runner", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      mergeStateStatus: "CLEAN",
+      tmux: (args) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: "coder-responding\n", stderr: "" };
+        }
+        if (args[0] === "list-panes") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_dead",
+        worker: "coder-responding",
+        detail: "dead pane",
+      }),
+    );
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("coder"))).toBe(false);
   });
 
   it("inspects pre-PR gatekeeper panes and escalates unchanged GATING stalls", async () => {

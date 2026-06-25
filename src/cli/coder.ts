@@ -1,5 +1,5 @@
 /**
- * @overview Coder-response CLI helpers. ~370 lines, 9 exports, review, conflict, stall recovery, and PR-head sync routing.
+ * @overview Coder-response CLI helpers. ~430 lines, 10 exports, review, conflict, worker recovery, and PR-head sync routing.
  *
  *   READING GUIDE
  *   -------------
@@ -7,7 +7,8 @@
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
  *   3. Then nudgePrConflict           <- routes base-advanced and local PR-head sync conflicts.
  *   4. Then recoverStalledWorker      <- recreates stalled coder responding mode.
- *   5. Dependency interfaces          <- test seams for tmux/git/gh.
+ *   5. Then recoverDeadCoder          <- restarts the initial pre-PR runner.
+ *   6. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
@@ -24,19 +25,32 @@
  *   buildPrConflictNudgePrompt Render deterministic conflict/sync-recovery prompt.
  *   nudgePrConflict            Route a dirty/conflicting or out-of-sync PR to coder responding.
  *   recoverStalledWorker       Recreate coder responding and replay the last prompt.
+ *   recoverDeadCoder           Recreate the initial coder runner before a PR exists.
  *
  *   INTERNALS
  *   ---------
  *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow, latestRoutedCoderPrompt
  *
- * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StalledWorkerRecovery, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict, recoverStalledWorker
- * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate
+ * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StalledWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict, recoverStalledWorker, recoverDeadCoder
+ * @deps ../core/{combo,events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate, ./sessions
  */
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
+import { shellQuote } from "../core/combo.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { killWindowArgs, listWindowsArgs, newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import {
+  hasSessionArgs,
+  killWindowArgs,
+  listWindowsArgs,
+  newSessionArgs,
+  newWindowArgs,
+  nudgeWindowArgs,
+  type TmuxResult,
+} from "../infra/tmux.js";
 import {
   buildCoderRespondingResumeCommand,
   buildReviewNudgePrompt,
@@ -46,6 +60,7 @@ import {
   routeReviewComments,
 } from "../roles/coder-responding.js";
 import { latestPublishedGateSha, syncNoMistakesMirror } from "./gate.js";
+import { CODER_WINDOW, ensureWindowPresent, killWindowIfPresent } from "./sessions.js";
 
 // -- 1/3 HELPER · Dependency contracts --
 export interface ActivateCoderDeps {
@@ -75,6 +90,14 @@ export interface PrConflictNudge {
 export interface StalledWorkerRecovery {
   worker: string;
   reason: "worker_stalled";
+  detail: string;
+  attempt: number;
+  maxAttempts: number;
+}
+
+export interface DeadCoderRecovery {
+  worker: string;
+  reason: "worker_dead";
   detail: string;
   attempt: number;
   maxAttempts: number;
@@ -364,6 +387,43 @@ export function recoverStalledWorker(input: {
     max_attempts: recovery.maxAttempts,
   });
   deps.out(`director: recovered stalled ${recovery.worker} attempt ${recovery.attempt}/${recovery.maxAttempts}`);
+  return true;
+}
+
+export function recoverDeadCoder(input: {
+  deps: ActivateCoderDeps;
+  home: string;
+  comboId: string;
+  recovery: DeadCoderRecovery;
+}): boolean {
+  const { deps, home, comboId, recovery } = input;
+  if (recovery.worker !== CODER_WINDOW) return false;
+
+  const runDir = runDirFor(home, comboId);
+  const combo = readCombo(runDir);
+  const runnerPath = join(runDir, "runner.sh");
+  if (!existsSync(runnerPath)) {
+    throw new Error(`No runner script available to recover ${recovery.worker}`);
+  }
+  const command = `COMBO_CHEN_RUNNER_PROGRESS=1 sh ${shellQuote(runnerPath)}`;
+  const session = deps.tmux(hasSessionArgs(combo.tmuxSession));
+  if (session.status === 0) {
+    killWindowIfPresent(deps, combo, CODER_WINDOW);
+    ensureWindowPresent(deps, combo, CODER_WINDOW, command);
+  } else {
+    const created = deps.tmux(newSessionArgs(combo.tmuxSession, CODER_WINDOW, command));
+    if (created.status !== 0) {
+      throw new Error(`tmux failed to restart ${CODER_WINDOW}: ${created.stderr.trim() || "unknown error"}`);
+    }
+  }
+  appendEvent(runDir, "worker_recovered", {
+    worker: recovery.worker,
+    reason: recovery.reason,
+    detail: recovery.detail,
+    attempt: recovery.attempt,
+    max_attempts: recovery.maxAttempts,
+  });
+  deps.out(`director: restarted dead ${recovery.worker} attempt ${recovery.attempt}/${recovery.maxAttempts}`);
   return true;
 }
 // -/ 3/3
