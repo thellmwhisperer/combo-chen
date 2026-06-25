@@ -108,7 +108,7 @@ export interface ComboConfig {
   prLabelGreenCheckNames: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
-  /** Recovery attempts before a stalled or dead coder worker escalates. */
+  /** Recovery attempts before a stalled, permission-prompted, or dead coder worker escalates. */
   workerRecoveryAttempts: number;
   /** Regex sources used to detect interactive permission prompts in worker panes. */
   workerPermissionPromptPatterns: string[];
