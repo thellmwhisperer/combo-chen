@@ -484,7 +484,7 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      env: { COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS: "2" },
+      env: { COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS: "2" },
       tmux: (args) => {
         if (args[0] === "list-windows") {
           return { status: 0, stdout: `${[...windows].join("\n")}\n`, stderr: "" };
@@ -559,7 +559,7 @@ describe("tickDirector", () => {
       homeDir: h,
       record,
       prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      env: { COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS: "2" },
+      env: { COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS: "2" },
       tmux: (args) => {
         if (args[0] === "list-windows") {
           return { status: 0, stdout: "coder\n", stderr: "" };
@@ -669,7 +669,7 @@ describe("tickDirector", () => {
       prHeadSha: headSha,
       env: {
         COMBO_CHEN_WORKER_STALL_TICKS: "2",
-        COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS: "2",
+        COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS: "2",
       },
       tmux: (args) => {
         if (args[0] === "list-windows") {

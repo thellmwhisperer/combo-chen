@@ -63,7 +63,7 @@ describe("loadConfig", () => {
     expect(config.limits.watchFailureLimit).toBe(5);
     expect(config.limits.watchBackoffMaxSeconds).toBe(3600);
     expect(config.workerStallTicks).toBe(3);
-    expect(config.workerStallRecoveryAttempts).toBe(2);
+    expect(config.workerRecoveryAttempts).toBe(2);
     expect(config.workerPermissionPromptPatterns).toEqual(
       expect.arrayContaining([
         "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
@@ -572,24 +572,24 @@ describe("loadConfig", () => {
 
   it("loads the worker stall recovery budget from repo monitor config or env", () => {
     const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", "[monitor]\nworker_stall_recovery_attempts = 4\n");
+    writeToml(repoDir, "combo-chen.toml", "[monitor]\nworker_recovery_attempts = 4\n");
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
-    expect(repoConfig.workerStallRecoveryAttempts).toBe(4);
+    expect(repoConfig.workerRecoveryAttempts).toBe(4);
 
     const envConfig = loadConfig({
       repoDir,
       userConfigPath: join(tempDir(), "missing.toml"),
-      env: { COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS: "0" },
+      env: { COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS: "0" },
     });
-    expect(envConfig.workerStallRecoveryAttempts).toBe(0);
+    expect(envConfig.workerRecoveryAttempts).toBe(0);
 
     for (const value of ["-1", "1.5", '"nope"']) {
       const invalidRepoDir = tempDir();
-      writeToml(invalidRepoDir, "combo-chen.toml", `[monitor]\nworker_stall_recovery_attempts = ${value}\n`);
+      writeToml(invalidRepoDir, "combo-chen.toml", `[monitor]\nworker_recovery_attempts = ${value}\n`);
       expect(() =>
         loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
-      ).toThrow(/worker_stall_recovery_attempts/);
+      ).toThrow(/worker_recovery_attempts/);
     }
   });
 
