@@ -1,14 +1,13 @@
 /**
- * @overview Coder-response CLI helpers. ~430 lines, 10 exports, review, conflict, worker recovery, and PR-head sync routing.
+ * @overview Coder-response CLI helpers. ~375 lines, 9 exports, review, conflict, worker recovery, and PR-head sync routing.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at activateCoder         <- starts resumed coder worker.
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
  *   3. Then nudgePrConflict           <- routes base-advanced and local PR-head sync conflicts.
- *   4. Then recoverStalledWorker      <- recreates stalled coder responding mode.
- *   5. Then recoverDeadCoder          <- restarts the initial pre-PR runner.
- *   6. Dependency interfaces          <- test seams for tmux/git/gh.
+ *   4. Then recoverStalledWorker      <- recreates recoverable coder responding mode.
+ *   5. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
@@ -89,7 +88,7 @@ export interface PrConflictNudge {
 
 export interface StalledWorkerRecovery {
   worker: string;
-  reason: "worker_stalled";
+  reason: "worker_stalled" | "worker_permission_prompt";
   detail: string;
   attempt: number;
   maxAttempts: number;
@@ -386,7 +385,10 @@ export function recoverStalledWorker(input: {
     attempt: recovery.attempt,
     max_attempts: recovery.maxAttempts,
   });
-  deps.out(`director: recovered stalled ${recovery.worker} attempt ${recovery.attempt}/${recovery.maxAttempts}`);
+  const recoveredDetail = recovery.reason === "worker_stalled"
+    ? `recovered stalled ${recovery.worker}`
+    : `recovered ${recovery.worker} after ${recovery.reason}`;
+  deps.out(`director: ${recoveredDetail} attempt ${recovery.attempt}/${recovery.maxAttempts}`);
   return true;
 }
 

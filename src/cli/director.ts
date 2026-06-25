@@ -120,12 +120,15 @@ export async function tickDirector(input: {
       stallTicks: config.workerStallTicks,
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
       recoverableStalledWorkers: [config.coderRespondingWindowName],
+      recoverablePermissionPromptWorkers: config.workerPermissionPromptPolicy === "recreate-non-interactive"
+        ? [config.coderRespondingWindowName]
+        : [],
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
       permissionPromptPolicy: config.workerPermissionPromptPolicy,
     });
     workerSummaries = workerInspection.summaries;
     if (workerInspection.escalated) {
-      const recovered = routeWorkerRecoveryFindings({
+      const recovered = recoverWorkerFindings({
         deps,
         home,
         comboId,
@@ -440,7 +443,7 @@ function workerRecoveryAttempts(events: ComboEvent[], worker: string, reason: st
   ).length;
 }
 
-function routeWorkerRecoveryFindings(input: {
+function recoverWorkerFindings(input: {
   deps: DirectorDeps;
   home: string;
   comboId: string;
@@ -454,12 +457,14 @@ function routeWorkerRecoveryFindings(input: {
   const actioned = new Set<string>();
   for (const finding of input.findings) {
     if (
+      (finding.reason !== "worker_stalled" && finding.reason !== "worker_permission_prompt") ||
+      finding.worker !== input.coderRespondingWindowName ||
       finding.needsHumanRecorded ||
-      actioned.has(finding.worker)
+      actioned.has(`${finding.worker}:${finding.reason}`)
     ) {
       continue;
     }
-    actioned.add(finding.worker);
+    actioned.add(`${finding.worker}:${finding.reason}`);
     const attempts = workerRecoveryAttempts(input.events, finding.worker, finding.reason);
     if (attempts >= input.maxAttempts) {
       appendWorkerEscalation(
@@ -508,7 +513,10 @@ function routeWorkerRecoveryFindings(input: {
       }
       continue;
     }
-    if (finding.reason !== "worker_stalled" || finding.worker !== input.coderRespondingWindowName) {
+    if (
+      (finding.reason !== "worker_stalled" && finding.reason !== "worker_permission_prompt") ||
+      finding.worker !== input.coderRespondingWindowName
+    ) {
       continue;
     }
     try {

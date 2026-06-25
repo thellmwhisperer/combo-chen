@@ -452,14 +452,18 @@ ignored config or environment outside that file.
   `escalate`, which journals `needs_human` with
   `worker_permission_prompt`. Missing/dead panes journal `needs_human` with
   `worker_dead`. `worker_stalled` normally escalates the same way, except
-  stalled coder responding mode is recovered first: the director kills and
-  recreates the configured responder window, resumes the saved coder thread,
-  replays the last routed review/conflict prompt, and journals
-  `worker_recovered`. Recovery failures (worker mismatch or tmux/git errors)
-  journal `worker_recovery_failed` (required fields `worker`, `reason`,
-  `attempt`); both events count toward the attempt budget. After
-  `[monitor].worker_stall_recovery_attempts` recoveries for the same
-  worker/reason, the next unchanged-pane finding journals `needs_human`.
+  stalled coder responding mode is recovered first. When the permission policy
+  is `auto-approve-known-safe`, the monitor sends `y` + Enter to the matched
+  tmux window. When the policy is `recreate-non-interactive`, a
+  permission-prompted coder responding window uses the same bounded recovery
+  path as a stall: the director kills and recreates the configured responder
+  window, resumes the saved coder thread, replays the last routed
+  review/conflict prompt, and journals `worker_recovered`. Recovery failures
+  (worker mismatch or tmux/git errors) journal `worker_recovery_failed`
+  (required fields `worker`, `reason`, `attempt`); both events count toward
+  the attempt budget. After `[monitor].worker_stall_recovery_attempts`
+  recoveries for the same worker/reason, the next finding journals
+  `needs_human`.
 - Attention surface: tmux window titles + the default parallel capsule
   dashboard (`combo-chen status`) always answer "which combos need a human RIGHT
   NOW" (phase + needs_human flag) and show the active branch-scoped gate lease

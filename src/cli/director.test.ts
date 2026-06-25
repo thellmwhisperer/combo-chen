@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2000 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~1880 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -863,6 +863,88 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
     expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:reviewer", "y", "C-m"]);
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt auto-approved"));
+  });
+
+  it("recreates a permission-prompted coder responding worker until the recovery budget is exhausted", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const windows = new Set(["coder-responding"]);
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    writeCoderThreadArtifact(runDir);
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[monitor]",
+        "permission_prompt_policy = 'recreate-non-interactive'",
+        "worker_stall_recovery_attempts = 1",
+      ].join("\n"),
+    );
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "review_comment", {
+      author: "external-reviewer",
+      kind: "review_comment",
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+    });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      tmux: (args) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: `${[...windows].join("\n")}\n`, stderr: "" };
+        }
+        if (args[0] === "list-panes") {
+          const target = String(args.at(2) ?? "");
+          const window = target.split(":").at(1) ?? "";
+          return windows.has(window)
+            ? { status: 0, stdout: "0\n", stderr: "" }
+            : { status: 1, stdout: "", stderr: "missing window" };
+        }
+        if (args[0] === "capture-pane") {
+          return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+        }
+        if (args[0] === "kill-window") {
+          const target = String(args.at(2) ?? "");
+          const window = target.split(":").at(1) ?? "";
+          windows.delete(window);
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "new-window") {
+          windows.add(String(args.at(4) ?? ""));
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(1);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "worker_recovered",
+        reason: "worker_permission_prompt",
+        worker: "coder-responding",
+        attempt: 1,
+        max_attempts: 1,
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContain("director: recovered coder-responding after worker_permission_prompt attempt 1/1");
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(1);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "coder-responding",
+        detail: "recovery attempts exhausted after 1; permission prompt",
+      }),
+    );
   });
 
   it("passes configured permission prompt patterns into worker pane inspection", async () => {
