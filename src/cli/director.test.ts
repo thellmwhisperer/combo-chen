@@ -737,6 +737,50 @@ describe("tickDirector", () => {
     expect(out).toContain("director: recovered stalled coder-responding attempt 2/2");
   });
 
+  it("does not recycle coder-responding while an intent needs_human hold is active", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    writeCombo(runDir, record);
+    writeCoderThreadArtifact(runDir);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_validated", { sha: headSha });
+    appendEvent(runDir, "needs_human", {
+      reason: "intent_decision_required",
+      decision: "must_make_passive_update_cache_miss_time_bounded",
+      head_sha: headSha,
+      source: "director_hold",
+    });
+
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      externalReviewComments: [],
+      env: {
+        COMBO_CHEN_WORKER_STALL_TICKS: "2",
+      },
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\ncoder-responding\n", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+        if (args[0] === "capture-pane") return { status: 0, stdout: "waiting for coder responding...\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(out).toContain("director: worker recovery paused: needs_human intent_decision_required");
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("coder-responding")))
+      .toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "worker_recovered")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled"))
+      .toBe(false);
+  });
+
   it("keeps polling post-PR reviewer verdicts without treating retained coder and gatekeeper panes as active workers", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();

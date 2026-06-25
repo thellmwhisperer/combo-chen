@@ -25,7 +25,7 @@
  *   INTERNALS
  *   ---------
  *   syncDirectorPrLabels, runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
- *   worker recovery helpers, retry-count helpers, required READY check helpers, review-comment helpers
+ *   worker recovery helpers, human-hold helpers, retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./closure, ./coder, ./director-watch-status, ./gate, ./github, ./pr-labels, ./reviewer, ./sessions, ./worker-monitor
@@ -111,7 +111,12 @@ export async function tickDirector(input: {
   let events = readEvents(runDir);
   let workerSummaries: string[] = [];
   const workerWindows = workerWindowsForEvents(events, config.coderRespondingWindowName);
-  if (workerWindows.length > 0) {
+  const workerHoldReason = activeNonWorkerNeedsHumanReason(events);
+  if (workerWindows.length > 0 && workerHoldReason !== undefined) {
+    const summary = `worker recovery paused: needs_human ${workerHoldReason}`;
+    workerSummaries = [summary];
+    deps.out(`director: ${summary}`);
+  } else if (workerWindows.length > 0) {
     const prAlreadyOpened = latestPrUrl(events) !== undefined;
     const workerInspection = inspectWorkerPanes({
       deps,
@@ -202,6 +207,22 @@ export async function tickDirector(input: {
   if (closurePendingReviewerEvent(postReviewEvents)) {
     await runClosureIfPending({ deps, home, comboId });
     postReviewEvents = readEvents(runDir);
+    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
+    emitTickComplete({
+      deps,
+      comboId,
+      cli,
+      runDir,
+      pollSeconds: config.limits.babysitPollSeconds,
+      readyRequiredChecks: config.readyRequiredChecks,
+      ambientCheckNames: config.externalCommentAgents,
+      events: postReviewEvents,
+      workerSummaries,
+    });
+    return;
+  }
+  const postReviewHoldReason = activeNonWorkerNeedsHumanReason(postReviewEvents);
+  if (postReviewHoldReason !== undefined) {
     syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
     emitTickComplete({
       deps,
@@ -434,6 +455,27 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
     default:
       return [];
   }
+}
+
+const WORKER_NEEDS_HUMAN_REASONS = new Set(["worker_dead", "worker_permission_prompt", "worker_stalled"]);
+const NEEDS_HUMAN_CLEARING_EVENTS = new Set<ComboEvent["event"]>([
+  "coder_started",
+  "gate_started",
+  "pr_opened",
+  "ready_for_merge",
+  "stopped",
+  "combo_closed",
+]);
+
+function activeNonWorkerNeedsHumanReason(events: ComboEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (NEEDS_HUMAN_CLEARING_EVENTS.has(event.event)) return undefined;
+    if (event.event !== "needs_human") continue;
+    const reason = typeof event["reason"] === "string" ? event["reason"] : "needs_human";
+    return WORKER_NEEDS_HUMAN_REASONS.has(reason) ? undefined : reason;
+  }
+  return undefined;
 }
 
 function recoverWorkerFindings(input: {
