@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~915 lines,
+ * @overview Unit tests for config loading and command rendering. ~925 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -69,6 +69,7 @@ describe("loadConfig", () => {
         "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
       ]),
     );
+    expect(config.workerPermissionPromptPolicy).toBe("escalate");
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.coderCommand).toContain("npx -y gnhf@0.1.41");
@@ -622,6 +623,35 @@ describe("loadConfig", () => {
     expect(() =>
       loadConfig({ repoDir: emptyRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
     ).toThrow(/permission_prompt_patterns/);
+  });
+
+  it("loads the worker permission prompt policy from repo monitor config or env", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", '[monitor]\npermission_prompt_policy = "recreate-non-interactive"\n');
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.workerPermissionPromptPolicy).toBe("recreate-non-interactive");
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY: "auto-approve-known-safe" },
+    });
+    expect(envConfig.workerPermissionPromptPolicy).toBe("auto-approve-known-safe");
+
+    const invalidRepoDir = tempDir();
+    writeToml(invalidRepoDir, "combo-chen.toml", '[monitor]\npermission_prompt_policy = "approve-everything"\n');
+    expect(() =>
+      loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+    ).toThrow(/permission_prompt_policy/);
+
+    expect(() =>
+      loadConfig({
+        repoDir,
+        userConfigPath: join(tempDir(), "missing.toml"),
+        env: { COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY: "approve-everything" },
+      }),
+    ).toThrow(/permission_prompt_policy/);
   });
 
   it("loads the required run source branch from repo config or env", () => {

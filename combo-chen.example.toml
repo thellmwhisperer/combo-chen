@@ -152,11 +152,14 @@ command = "claude {prompt}"
 
 [monitor]
 # Environment overrides: COMBO_CHEN_WORKER_STALL_TICKS,
-# COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS,
-# COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS.
+# COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS,
+# COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS,
+# COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY.
 worker_stall_ticks = 3
-# Worker recovery attempts before escalating to needs_human.
-worker_recovery_attempts = 2
+# Stalled or permission-prompted coder-responding workers are recreated and
+# re-prompted this many times before needs_human is journaled.
+worker_stall_recovery_attempts = 2
+permission_prompt_policy = "escalate" # one of: escalate, auto-approve-known-safe, recreate-non-interactive
 permission_prompt_patterns = [
   '^\s*Do you want to (?:proceed|continue)\?\s*(?:\[[yn]/[yn]\])?\s*$',
   '^\s*(?:Allow|Approve|Confirm)\?\s*\[[yn]/[yn]\]\s*$',
