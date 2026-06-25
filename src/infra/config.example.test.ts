@@ -124,7 +124,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.reviewerLogins).toEqual(["claude"]);
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
     expect(config.coderRespondingWindowName).toBe("coder-responding");
-    expect(config.workerStallRecoveryAttempts).toBe(2);
+    expect(config.workerRecoveryAttempts).toBe(2);
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewNudgePrompt).toContain("Do not push");
