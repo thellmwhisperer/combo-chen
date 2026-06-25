@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~330 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~360 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -183,6 +183,33 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
     );
+  });
+
+  it("returns recoverable permission-prompt findings without journaling needs_human", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      "coder-responding": "Do you want to proceed? [y/N]\n",
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder-responding"],
+      recoverablePermissionPromptWorkers: ["coder-responding"],
+      permissionPromptPolicy: "recreate-non-interactive",
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(result.findings).toEqual([
+      {
+        worker: "coder-responding",
+        reason: "worker_permission_prompt",
+        detail: "permission prompt",
+        needsHumanRecorded: false,
+      },
+    ]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
   });
 
   it("uses the configured unchanged-pane threshold", () => {
