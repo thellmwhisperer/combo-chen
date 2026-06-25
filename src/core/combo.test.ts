@@ -32,6 +32,13 @@ function ev(event: ComboEvent["event"], extra: Record<string, unknown> = {}): Co
   return { t: new Date().toISOString(), event, ...extra };
 }
 
+function runnerSubprocessEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env = { ...process.env, ...extra };
+  // Direct runner subprocess tests assert quiet-by-default output; progress is opt-in.
+  delete env["COMBO_CHEN_RUNNER_PROGRESS"];
+  return env;
+}
+
 // -- 1/2 CORE · Phase derivation tests (deriveStatus) --
 
 
@@ -370,11 +377,10 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         TRACE_LOG: tracePath,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -446,11 +452,10 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         TRACE_LOG: tracePath,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -520,11 +525,10 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         TRACE_LOG: tracePath,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -603,11 +607,10 @@ exit 1
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -683,11 +686,10 @@ exit 1
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -777,11 +779,10 @@ exit 1
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -857,12 +858,11 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         GATEKEEPER_LOG: gatekeeperLog,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -965,12 +965,11 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         GATEKEEPER_LOG: gatekeeperLog,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -1068,12 +1067,11 @@ exit 0
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         GATEKEEPER_LOG: gatekeeperLog,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -1190,8 +1188,7 @@ fi
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         GATEKEEPER_LOG: gatekeeperLog,
         NO_MISTAKES_GATE: gatePath,
@@ -1201,7 +1198,7 @@ fi
         NO_MISTAKES_OTHER_RUN_DIR: join(dataDir, "worktrees", "dd1c02626404", otherRunId),
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -1346,12 +1343,11 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         GATEKEEPER_LOG: gatekeeperLog,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect(result.status).toBe(1);
@@ -1447,12 +1443,11 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         GH_LOG: join(dir, "gh.log"),
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
@@ -1547,11 +1542,10 @@ exit 130
 
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
-      env: {
-        ...process.env,
+      env: runnerSubprocessEnv({
         EVENTS_LOG: eventsPath,
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
+      }),
     });
     const headSha = spawnSync("git", ["rev-parse", "HEAD"], {
       cwd: worktree,
