@@ -196,8 +196,11 @@ GitHub (see §8d). Verdict code 1 routes to coder
 responding mode through the existing review-comment path; verdict code 2
 prompts the director via `director_prompted`; verdict code 3 journals
 `needs_human`. When the reviewer tick observes a GitHub `MERGED` PR, it
-records the merge fact, reports `closure_pending`, and stops the post-PR loop;
-resource convergence belongs to `combo-chen closure -n <combo-id>`.
+records the merge fact and the director auto-triggers `closure` convergence.
+The closure logic verifies the merge, teardowns local resources (worktree,
+branch, tmux), journals `combo_closed`, and is idempotent when closure already
+ran or is blocked (e.g. no-mistakes still active — the director retries on the
+next tick). The manual `combo-chen closure -n <combo-id>` remains as a fallback.
 
 If the source checkout has a repo-level `.no-mistakes.yaml`, combo-chen
 propagates it in two phases: first, it copies the file from the repo into the
@@ -319,12 +322,15 @@ ignored config or environment outside that file.
     `by`, optional `mergedAt`=GitHub PR merge timestamp, optional `source`).
     A `merged` event records the GitHub fact but is not resource convergence;
     until `combo_closed` appears, `status` reports the combo as
-    `closure_pending`. Closure verifies the merge commit is in the base
-    branch, returns the Treehouse worktree lease and removes the local branch, then journals
-    `combo_closed` (fields: optional `source`). The remote branch is left
-    alone by default.
-    When `source` is `"closure"`, the event was synthesized by the explicit
-    `combo-chen closure -n <combo-id>` convergence command. When `source` is
+    `closure_pending`. On merge detection, the director-watch loop
+    auto-triggers `closure`: it verifies the merge commit is in the base
+    branch, returns the Treehouse worktree lease and removes the local branch,
+    then journals `combo_closed` (fields: optional `source`). The remote branch
+    is left alone by default. The manual `combo-chen closure -n <combo-id>`
+    remains as a fallback.
+    When `source` is `"closure"`, the event was synthesized by the closure
+    convergence path (auto-triggered by director-watch or explicit
+    `combo-chen closure -n <combo-id>`). When `source` is
     `"reviewer"`, the event was observed live by the reviewer/director loop and
     is only a closure-pending signal. When `source` is
     `"reconcile"`, the event was synthesized from GitHub PR state during a
@@ -449,27 +455,31 @@ ignored config or environment outside that file.
   owner in a `GATE-LEASE` column when present.
   Before rendering, status quietly reconciles closed PRs into the human-salvage
   terminal state. For merged PRs it records the GitHub merge fact, then leaves
-  resources untouched and keeps the row visible as `closure_pending` until
-  `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
-  combo has no tmux session and is not parked, status journals `needs_human
-  reason=tmux_missing` so the row remains visible as stale. Parked combos are
-  exempt from this check because the missing session is expected. Terminal
-  historical rows are hidden unless the operator passes `status --all`.
+  resources untouched and keeps the row visible as `closure_pending` until the
+  director-watch loop (or a manual `combo-chen closure -n <combo-id>`) records
+  `combo_closed`. If a non-terminal combo has no tmux session and is not parked,
+  status journals `needs_human reason=tmux_missing` so the row remains visible
+  as stale. Parked combos are exempt from this check because the missing session
+  is expected. Terminal historical rows are hidden unless the operator passes
+  `status --all`.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
 -   `combo-chen closure -n <combo-id>` is the canonical merged happy-path
-    resource convergence command. It reads the persisted combo record,
-    runtime ledger (for the PR URL), and GitHub PR facts; it refuses teardown unless GitHub
-    reports `MERGED`; then it records any missing `merged` event with
-    `source: "closure"`, refuses resource teardown while no-mistakes still
-    reports an active or awaiting run for the combo branch, returns the
-    Treehouse worktree lease, deletes the local branch, kills the tmux session, and records `combo_closed`
-    with `source: "closure"`. Existing `combo_closed` events are treated as
-    already converged. Reviewer/director-watch only records the live merge fact
-    and reports the closure command to run; it does not run cleanup itself.
+    resource convergence command. The director-watch loop auto-triggers it on
+    merge detection; the manual command remains as a fallback. It reads the
+    persisted combo record, runtime ledger (for the PR URL), and GitHub PR
+    facts; it refuses teardown unless GitHub reports `MERGED`; then it records
+    any missing `merged` event with `source: "closure"`, refuses resource
+    teardown while no-mistakes still reports an active or awaiting run for the
+    combo branch, returns the Treehouse worktree lease, deletes the local
+    branch, kills the tmux session, and records `combo_closed` with
+    `source: "closure"`. Existing `combo_closed` events are treated as
+    already converged. The reviewer/director-watch path also records the live
+    merge fact and may trigger closure automatically. Reconcile can record a
+    missing merge fact but defers resource convergence to closure.
 -   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
     pass that compares every persisted
     combo journal against GitHub PR state. When `-n <combo-id>` is provided,
@@ -628,9 +638,10 @@ Recovery playbook:
 - Gate lease contention is same-branch contention. Resolve it by inspecting the
   `status` gate-lease column or clearing stale/conflicting ownership through the
   existing lease recovery path before retrying the gate.
-- Post-merge closure belongs to `combo-chen closure -n <combo-id>`. Watchers and
-  status may record the merge fact, but local resource removal waits for the
-  closure command.
+- Post-merge closure is auto-triggered by director-watch on merge detection.
+  The manual `combo-chen closure -n <combo-id>` remains as a fallback. Watchers
+  and status may record the merge fact, but the closure logic owns resource
+  convergence.
 
 Every future parallel run should capture postmortem metadata: wave size,
 combo ids, branches, PR URLs, gate lease wait/conflict counts, reviewer auth
