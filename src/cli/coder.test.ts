@@ -5,7 +5,7 @@
  *   -------------
  *   1. Start at activateCoder tests        <- resumed coder worker.
  *   2. Then nudgeReviewComments tests      <- mirror sync and comment routing.
- *   3. Then recoverStalledWorker tests     <- stale worker recreation.
+ *   3. Then recoverStuckWorker tests        <- stale worker recreation.
  *   4. Then recoverDeadCoder tests         <- initial coder runner restart.
  *   5. Test harness helpers                <- combo and thread artifact setup.
  *
@@ -34,7 +34,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { activateCoder, nudgeReviewComments, recoverDeadCoder, recoverStalledWorker } from "./coder.js";
+import { activateCoder, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
 
 // -- 1/3 HELPER · Test harness --
 const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
@@ -557,7 +557,7 @@ describe("nudgeReviewComments", () => {
   });
 });
 
-describe("recoverStalledWorker", () => {
+describe("recoverStuckWorker", () => {
   it("recreates coder responding and replays the latest routed review prompt", () => {
     const calls: string[][] = [];
     const out: string[] = [];
@@ -583,7 +583,7 @@ describe("recoverStalledWorker", () => {
       url: "https://github.com/o/r/pull/7#discussion_r1",
     });
 
-    const recovered = recoverStalledWorker({
+    const recovered = recoverStuckWorker({
       deps: {
         env: { COMBO_CHEN_HOME: home },
         out: (line) => out.push(line),
@@ -678,7 +678,7 @@ describe("recoverStalledWorker", () => {
       url: "",
     });
 
-    recoverStalledWorker({
+    recoverStuckWorker({
       deps: {
         env: { COMBO_CHEN_HOME: home },
         out: () => undefined,
@@ -724,7 +724,7 @@ describe("recoverStalledWorker", () => {
       url: "https://github.com/o/r/pull/7#discussion_r1",
     });
 
-    const recovered = recoverStalledWorker({
+    const recovered = recoverStuckWorker({
       deps: {
         env: { COMBO_CHEN_HOME: home },
         out: () => undefined,

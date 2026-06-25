@@ -38,7 +38,7 @@ import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
-import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStalledWorker } from "./coder.js";
+import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import { closeMergedCombo } from "./closure.js";
 import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./director-watch-status.js";
@@ -57,6 +57,7 @@ import {
   appendWorkerEscalation,
   inspectWorkerPanes,
   resetWorkerSnapshot,
+  workerRecoveryAttempts,
   type WorkerPaneFinding,
 } from "./worker-monitor.js";
 
@@ -435,15 +436,6 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
   }
 }
 
-function workerRecoveryAttempts(events: ComboEvent[], worker: string, reason: string): number {
-  return events.filter(
-    (event) =>
-      (event.event === "worker_recovered" || event.event === "worker_recovery_failed") &&
-      event["worker"] === worker &&
-      event["reason"] === reason,
-  ).length;
-}
-
 function recoverWorkerFindings(input: {
   deps: DirectorDeps;
   home: string;
@@ -520,7 +512,7 @@ function recoverWorkerFindings(input: {
       continue;
     }
     try {
-      const didRecover = recoverStalledWorker({
+      const didRecover = recoverStuckWorker({
         deps: input.deps,
         home: input.home,
         comboId: input.comboId,

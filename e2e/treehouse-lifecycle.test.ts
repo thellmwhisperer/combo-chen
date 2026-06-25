@@ -977,6 +977,98 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("recreates a permission-prompted coder responding worker before escalating needs_human", () => {
+    const harness = prepareHarness({ permissionPromptPolicy: "recreate-non-interactive" });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const reviewUrl = "https://github.com/o/r/pull/1#discussion_r1";
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+        [
+          "review_comment",
+          [
+            "author=coderabbitai[bot]",
+            "kind=review_comment",
+            `url=${reviewUrl}`,
+            `head_sha=${headSha}`,
+          ],
+        ],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "coder-responding", "true"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_TMUX_CAPTURE_CODER_RESPONDING: "Do you want to proceed? [y/N]\n",
+        },
+      });
+
+      expect(tick.stdout).toContain("director: recovered coder-responding after worker_permission_prompt");
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "worker_recovered",
+            worker: "coder-responding",
+            reason: "worker_permission_prompt",
+          }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "needs_human")).toBe(false);
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ args: ["kill-window", "-t", `${combo.tmuxSession}:coder-responding`] }),
+          expect.objectContaining({
+            args: [
+              "new-window",
+              "-t",
+              combo.tmuxSession,
+              "-n",
+              "coder-responding",
+              "true",
+            ],
+          }),
+          expect.objectContaining({
+            args: [
+              "paste-buffer",
+              "-d",
+              "-b",
+              `combo-chen-nudge-${combo.tmuxSession}-coder-responding`,
+              "-t",
+              `${combo.tmuxSession}:coder-responding`,
+            ],
+          }),
+        ]),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("recovers a stalled coder responding worker before escalating needs_human", () => {
     const harness = prepareHarness({ workerStallTicks: 2 });
     let passed = false;

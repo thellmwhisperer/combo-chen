@@ -30,14 +30,14 @@
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
  *   hasPermissionPrompt, autoApprovePermissionPrompt, workerRecoveryAttempts, hasEscalation
  *
- * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, inspectWorkerPanes
+ * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
  * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { appendEvent, readEvents } from "../core/events.js";
+import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import {
   DEFAULT_WORKER_RECOVERY_ATTEMPTS,
@@ -141,8 +141,8 @@ function autoApprovePermissionPrompt(
   };
 }
 
-function workerRecoveryAttempts(runDir: string, worker: string, reason: WorkerPaneReason): number {
-  return readEvents(runDir).filter(
+export function workerRecoveryAttempts(events: ComboEvent[], worker: string, reason: string): number {
+  return events.filter(
     (event) =>
       (event.event === "worker_recovered" || event.event === "worker_recovery_failed") &&
       event["worker"] === worker &&
@@ -288,7 +288,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     const pane = captured.stdout;
     if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
       if (permissionPromptPolicy === "auto-approve-known-safe") {
-        const attempts = workerRecoveryAttempts(runDir, worker, "worker_permission_prompt");
+        const attempts = workerRecoveryAttempts(readEvents(runDir), worker, "worker_permission_prompt");
         if (attempts >= autoApprovePermissionPromptMaxAttempts) {
           findings.push(recordFinding({
             runDir,
