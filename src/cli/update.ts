@@ -14,6 +14,7 @@
  *
  *   PUBLIC API
  *   ----------
+ *   GhCommandOptions          Optional process boundary controls for gh calls.
  *   UpdateCommandDeps          Injectable command boundary for tests and real CLI wiring.
  *   UpdateCommandOptions       Parsed command flags.
  *   defaultUpdateCommandDeps   Production adapters for the update command.
@@ -22,9 +23,10 @@
  *
  *   INTERNALS
  *   ---------
- *   fetchGitHubReleases, detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError,
+ *   displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
- * @exports UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
+ * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
  * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
  */
 import { spawnSync } from "node:child_process";
@@ -72,8 +74,12 @@ const UPDATE_DOWNLOAD_TIMEOUT_MS = (() => {
   return 60_000;
 })();
 
+export interface GhCommandOptions {
+  timeoutMs?: number;
+}
+
 export interface UpdateCommandDeps {
-  gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  gh: (args: string[], options?: GhCommandOptions) => { status: number; stdout: string; stderr: string };
   out: (line: string) => void;
   current: CurrentBuildMetadata;
   platform: string;
@@ -237,8 +243,11 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
 // -/ 2/3
 
 // -- 3/3 HELPER · GitHub release metadata + extraction adapters --
-export function fetchGitHubReleases(gh: UpdateCommandDeps["gh"]): GitHubReleaseMetadata[] {
-  const result = gh(["api", UPDATE_REPOSITORY_API_PATH]);
+export function fetchGitHubReleases(
+  gh: UpdateCommandDeps["gh"],
+  options?: GhCommandOptions,
+): GitHubReleaseMetadata[] {
+  const result = gh(["api", UPDATE_REPOSITORY_API_PATH], options);
   if (result.status !== 0) {
     throw new Error(`gh release query failed: ${commandError(result)}`);
   }

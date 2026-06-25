@@ -1,6 +1,6 @@
 /**
  * @overview CLI adapter for quiet passive update checks.
- *   ~185 lines, 9 exports, owns local cache I/O and command hook policy.
+ *   ~205 lines, 11 exports, owns local cache I/O, bounded lookup, and command hook policy.
  *
  *   READING GUIDE
  *   -------------
@@ -15,6 +15,8 @@
  *   PUBLIC API
  *   ----------
  *   PASSIVE_UPDATE_CACHE_FILE          Cache artifact name under COMBO_CHEN_HOME.
+ *   PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV  Env knob for bounding passive gh release lookups.
+ *   DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS Default passive gh lookup timeout.
  *   PassiveUpdateCliCacheEntry         Re-exported cache entry shape for CLI tests.
  *   PassiveUpdateCliDeps               Injectable CLI passive-check boundary.
  *   passiveUpdateCachePath             Resolve the cache file path.
@@ -26,9 +28,11 @@
  *
  *   INTERNALS
  *   ---------
- *   isPassiveUpdateCacheEntry, isRecord, optionalStringField, nodeErrorCode.
+ *   passiveUpdateLookupTimeoutMs, isPassiveUpdateCacheEntry, isRecord, optionalStringField, nodeErrorCode.
  *
- * @exports PASSIVE_UPDATE_CACHE_FILE, PassiveUpdateCliCacheEntry, PassiveUpdateCliDeps, passiveUpdateCachePath, defaultPassiveUpdateCommandDeps, readPassiveUpdateCache, writePassiveUpdateCache, shouldRunPassiveUpdateForCommand, runPassiveUpdateCheck
+ * @exports PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV, DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS,
+ *   PassiveUpdateCliCacheEntry, PassiveUpdateCliDeps, passiveUpdateCachePath, defaultPassiveUpdateCommandDeps,
+ *   readPassiveUpdateCache, writePassiveUpdateCache, shouldRunPassiveUpdateForCommand, runPassiveUpdateCheck
  * @deps node:{fs,path}, ../core/{passive-update,state,update-contract}, ../infra/release-metadata, ./update
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -43,18 +47,21 @@ import {
 import { comboHome } from "../core/state.js";
 import type { CurrentBuildMetadata } from "../core/update-contract.js";
 import { releaseMetadata } from "../infra/release-metadata.js";
-import { fetchGitHubReleases } from "./update.js";
+import { fetchGitHubReleases, type UpdateCommandDeps } from "./update.js";
 
 // -- 1/3 HELPER · CLI cache/dependency contract --
 export const PASSIVE_UPDATE_CACHE_FILE = "passive-update-cache.json";
+export const PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV = "COMBO_CHEN_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS";
+export const DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS = 60_000;
 
 export type PassiveUpdateCliCacheEntry = PassiveUpdateCacheEntry;
 
 export interface PassiveUpdateCliDeps {
   env: Record<string, string | undefined>;
-  gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  gh: UpdateCommandDeps["gh"];
   current: CurrentBuildMetadata;
   cachePath: string;
+  lookupTimeoutMs: number;
   now?: Date;
   ttlMs?: number;
   readFile: (path: string) => string;
@@ -75,6 +82,7 @@ export function defaultPassiveUpdateCommandDeps(input: {
     gh: input.gh,
     current: releaseMetadata,
     cachePath: passiveUpdateCachePath(comboHome(input.env)),
+    lookupTimeoutMs: passiveUpdateLookupTimeoutMs(input.env),
     readFile: (path) => readFileSync(path, "utf8"),
     writeFile: (path, data) => writeFileSync(path, data),
     mkdir: (path) => mkdirSync(path, { recursive: true }),
@@ -94,7 +102,7 @@ export async function runPassiveUpdateCheck(
       mkdir: deps.mkdir,
       writeFile: deps.writeFile,
     }),
-    fetchReleases: () => fetchGitHubReleases(deps.gh),
+    fetchReleases: () => fetchGitHubReleases(deps.gh, { timeoutMs: deps.lookupTimeoutMs }),
   };
   if (deps.now !== undefined) input.now = deps.now;
   if (deps.ttlMs !== undefined) input.ttlMs = deps.ttlMs;
@@ -154,6 +162,15 @@ export function writePassiveUpdateCache(
 ): void {
   deps.mkdir(dirname(path));
   deps.writeFile(path, `${JSON.stringify(entry, null, 2)}\n`);
+}
+
+function passiveUpdateLookupTimeoutMs(env: Record<string, string | undefined>): number {
+  const raw = env[PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV];
+  if (raw !== undefined) {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS;
 }
 
 function isPassiveUpdateCacheEntry(value: unknown): value is PassiveUpdateCliCacheEntry {
