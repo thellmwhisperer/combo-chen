@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7780 lines.
+ *   deps so tests run without a real terminal or network. ~7900 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -593,6 +593,132 @@ describe("command surface", () => {
     expect(out).toEqual([
       "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
       "warning: active combo runtime state is uncertain: 0 stale runs, 1 detection error",
+    ]);
+  });
+
+  it("warns and proceeds through active combo runtime when --yes is present", async () => {
+    const archiveBytes = Buffer.from("active runtime release archive bytes");
+    const archiveSha = createHash("sha256").update(archiveBytes).digest("hex");
+    const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
+    const stagingDir = "/updates/combo-chen-update-active-runtime";
+    const downloads: unknown[] = [];
+    const replacements: unknown[] = [];
+    const { deps, out } = fakeDeps({
+      gh: (args) => {
+        if (args[0] === "api" && args[1] === "repos/thellmwhisperer/combo-chen/releases?per_page=100") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                tag_name: "v1.2.1",
+                prerelease: false,
+                draft: false,
+                assets: [
+                  {
+                    name: assetName,
+                    browser_download_url: `https://downloads.example/${assetName}`,
+                  },
+                  {
+                    name: "checksums.txt",
+                    browser_download_url: "https://downloads.example/checksums.txt",
+                  },
+                ],
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+      },
+      update: {
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-23T09:00:00.000Z" },
+        installTargetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
+        platform: "linux",
+        arch: "x64",
+        activeRuntime: () => ({
+          status: "active",
+          active: true,
+          comboIds: ["o-r-7"],
+          inspectedRunDirs: ["/home/combo/runs/o-r-7"],
+          activeCombos: [
+            {
+              comboId: "o-r-7",
+              runDir: "/home/combo/runs/o-r-7",
+              phase: "REVIEWING",
+              needsHuman: false,
+              branch: "combo/issue-7",
+              worktree: "/repo/.worktrees/issue-7",
+              tmuxSession: "combo-chen-o-r-7",
+              repoDir: "/repo",
+              roleWindows: { coder: "coder", reviewer: "reviewer" },
+              createdAt: "2026-06-25T10:00:00.000Z",
+              updatedAt: "2026-06-25T10:05:00.000Z",
+              lastEvent: "pr_opened",
+            },
+          ],
+          staleCombos: [],
+          errors: [],
+        }),
+        makeStagingDir: () => stagingDir,
+        async download(request) {
+          downloads.push(request);
+          if (request.fileName === assetName) return archiveBytes;
+          if (request.fileName === "checksums.txt") return `${archiveSha}  ${assetName}\n`;
+          throw new Error(`unexpected download ${request.fileName}`);
+        },
+        async mkdir() {},
+        async writeFile() {},
+        async remove() {},
+        async extractArchive(input) {
+          return {
+            rootDir: `${input.destinationDir}/combo-chen-v1.2.1`,
+            executablePath: `${input.destinationDir}/combo-chen-v1.2.1/bin/combo-chen`,
+            files: [`${input.destinationDir}/combo-chen-v1.2.1/bin/combo-chen`],
+          };
+        },
+        replaceInstallTarget(input) {
+          replacements.push(input);
+          return {
+            targetPath: input.targetPath,
+            stagedExecutablePath: `${input.stagedArtifactRoot}/bin/combo-chen`,
+            installTarget: {
+              path: input.targetPath,
+              kind: "release_archive",
+              autoReplaceable: true,
+              reason: "release archive executable",
+            },
+            executableMode: 0o755,
+            replaced: true,
+          };
+        },
+      },
+    });
+
+    await exec(deps, ["update", "--yes"]);
+
+    expect(downloads).toEqual([
+      {
+        kind: "archive",
+        url: `https://downloads.example/${assetName}`,
+        fileName: assetName,
+      },
+      {
+        kind: "checksums",
+        url: "https://downloads.example/checksums.txt",
+        fileName: "checksums.txt",
+      },
+    ]);
+    expect(replacements).toEqual([
+      {
+        targetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
+        stagedArtifactRoot: `${stagingDir}/extracted/combo-chen-v1.2.1`,
+      },
+    ]);
+    expect(out).toEqual([
+      "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
+      "warning: active combo runtime detected: o-r-7(REVIEWING)",
+      `verified ${assetName} (${archiveSha})`,
+      "installed combo-chen 1.2.1 to /opt/combo-chen-v1.2.0/bin/combo-chen",
     ]);
   });
 
