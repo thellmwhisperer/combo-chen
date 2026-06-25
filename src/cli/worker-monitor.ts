@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~325 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~335 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -196,6 +196,7 @@ export interface WorkerPaneMonitorInput {
   stallTicks?: number;
   recoverableDeadWorkers?: string[];
   recoverableStalledWorkers?: string[];
+  recoverablePermissionPromptWorkers?: string[];
   permissionPromptPatterns?: string[];
   permissionPromptPolicy?: WorkerPermissionPromptPolicy;
 }
@@ -233,6 +234,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const snapshot = readSnapshot(runDir);
   const stallTicks = input.stallTicks ?? DEFAULT_STALL_TICKS;
   const recoverableStalledWorkers = new Set(input.recoverableStalledWorkers ?? []);
+  const recoverablePermissionPromptWorkers = new Set(input.recoverablePermissionPromptWorkers ?? []);
   const permissionPromptPatterns = compilePermissionPromptPatterns(
     input.permissionPromptPatterns ?? DEFAULT_PERMISSION_PROMPT_PATTERNS,
   );
@@ -289,12 +291,16 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
         escalated = true;
         continue;
       }
+      const deferNeedsHuman =
+        permissionPromptPolicy === "recreate-non-interactive" &&
+        recoverablePermissionPromptWorkers.has(worker);
       findings.push(recordFinding({
         runDir,
         deps,
         worker,
         reason: "worker_permission_prompt",
         detail: "permission prompt",
+        deferNeedsHuman,
       }));
       escalated = true;
       continue;
