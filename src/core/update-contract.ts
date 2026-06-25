@@ -1,5 +1,5 @@
 /**
- * @overview Read-only updater contract primitives shared by U1/U2/U3/U4 update slices.
+ * @overview Read-only updater contract primitives shared by U1/U2/U3/U72-B update slices.
  *   ~440 lines, 25 exports, pure release identity, asset/checksum/install selection, and comparison helpers.
  *
  *   READING GUIDE
@@ -9,7 +9,7 @@
  *   3. Then parseUpdateChecksums          <- checksums.txt parser and lookup.
  *   4. Then classifyInstallTarget         <- read-only local install classification.
  *   5. Then compareReleaseCandidate       <- current build versus candidate state.
- *   6. Skim exported types                <- U1/U2/U3/U4 shared contracts.
+ *   6. Skim exported types                <- U1/U2/U3/U72-B shared contracts.
  *
  *   MAIN FLOW
  *   ---------
@@ -40,7 +40,7 @@
  *   InstallTargetKind             Local install target class.
  *   InstallTargetClassificationInput Input facts for local install classification.
  *   InstallTargetClassification   Local install target facts.
- *   ActiveComboState              Future active capsule guard facts.
+ *   ActiveComboState              Active capsule guard facts for U72-B.
  *   ReadOnlyUpdatePlan            Aggregate update plan consumed by the active update command.
  *
  *   INTERNALS
@@ -166,13 +166,13 @@ export interface InstallTargetClassification {
   reason: string;
 }
 
-/** Active combo capsule facts reserved for the future U4 guard. */
+/** Active combo capsule facts consumed by the U72-B active-runtime guard. */
 export interface ActiveComboState {
   active: boolean;
   comboIds: string[];
 }
 
-/** Aggregate read-only update plan shared by U2, U3, and future resolver/guard slices. */
+/** Aggregate read-only update plan shared by U2, U3, and U72-B resolver/guard slices. */
 export interface ReadOnlyUpdatePlan {
   current: CurrentBuildMetadata;
   candidate?: ReleaseCandidate;

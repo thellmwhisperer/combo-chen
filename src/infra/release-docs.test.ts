@@ -52,7 +52,7 @@ describe("release docs", () => {
     }
   });
 
-  it("documents the active update command and live-session handoff", () => {
+  it("documents the active update command and active-runtime safety guard", () => {
     const readme = normalizeDoc(readDoc("README.md"));
     const spec = normalizeDoc(readDoc("docs/spec.md"));
 
