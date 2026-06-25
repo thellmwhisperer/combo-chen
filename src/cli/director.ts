@@ -28,7 +28,7 @@
  *   worker recovery helpers, retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
+ * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./closure, ./coder, ./director-watch-status, ./gate, ./github, ./pr-labels, ./reviewer, ./sessions, ./worker-monitor
  */
 import { deriveStatus } from "../core/combo.js";
 import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";

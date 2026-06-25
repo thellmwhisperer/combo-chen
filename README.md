@@ -434,8 +434,9 @@ Recovery playbook:
 
 - Parked combos: use `combo-chen resume -n <combo-id>` to reconstruct the next
   action from the journal and downstream state.
-- Pre-PR coder stalls: use `status --deep` or `forensics` to confirm the stall,
-  then resume or park the capsule; do not relaunch on the same branch.
+- Pre-PR coder dead/stalled: the director auto-restarts dead pre-PR coder
+  workers and stalled coder-responding windows up to the configured recovery
+  budget. After the budget is exhausted a `needs_human` event is journaled.
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
   rerun reviewer activation or prompt the reviewer without changing the coder
   branch.
@@ -531,8 +532,8 @@ capsule, branch-scoped gate leases for parallel capsules with stale recovery and
 heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
-justification), stalled coder-responding recovery with bounded retries before
-`needs_human` escalation, current-head READY agreement with base-advance conflict
+justification), pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
+stalled coder-responding recovery with bounded retries, current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (separate coder, journal, gatekeeper/live,
 gate-runner, and director-watch windows; raw event output never replaces the
