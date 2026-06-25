@@ -78,6 +78,21 @@ describe("release docs", () => {
     }
   });
 
+  it("documents quiet passive update checks, cache, and disable knob", () => {
+    const readme = normalizeDoc(readDoc("README.md"));
+    const spec = normalizeDoc(readDoc("docs/spec.md"));
+
+    for (const doc of [readme, spec]) {
+      expect(doc).toContain("passive update checks");
+      expect(doc).toContain("passive-update-cache.json");
+      expect(doc).toContain("24 hours");
+      expect(doc).toContain("COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS");
+      expect(doc).toContain("quiet");
+      expect(doc).toContain("JSON/JSONL");
+      expect(doc).toContain("never fail the command being run");
+    }
+  });
+
   it("documents forensics JSON output and outcome posting as separate command forms", () => {
     const readme = readDoc("README.md");
 

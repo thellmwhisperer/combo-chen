@@ -30,6 +30,7 @@
  *   │ reviewer-tick         Poll loop: merge, close, LGTM, re-review │
  *   │ events                Journal JSONL read (no follow in tests)  │
  *   │ update                Active self-update command wiring         │
+ *   │ passive update        Quiet pre-action cache check              │
  *   │ park                  reboot handoff + non-terminal tmux stop  │
  *   │ stop                  kill-session + journal stopped event     │
  *   │ resolvePollMs         Env variable resolution                  │
@@ -37,8 +38,8 @@
  *   └────────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{child_process,crypto,fs,os,path}, ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan},
- *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./gate, ./main
+ * @deps vitest, node:{child_process,crypto,fs,os,path}, ../core/{combo,events,gate-lease,passive-update,runtime-ledger,state,work-plan},
+ *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./gate, ./main, ./passive-update
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -51,6 +52,7 @@ import { describe, expect, it, vi } from "vitest";
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { acquireGateLease } from "../core/gate-lease.js";
+import { PASSIVE_UPDATE_DISABLE_ENV } from "../core/passive-update.js";
 import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import { listCombos, runDirFor, writeCombo } from "../core/state.js";
 import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
@@ -61,6 +63,7 @@ import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
 import { GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW } from "./gate.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
+import { PASSIVE_UPDATE_CACHE_FILE } from "./passive-update.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
 function home(): string {
@@ -83,8 +86,9 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
   const calls: string[][] = [];
   const out: string[] = [];
   const sessions = new Set<string>();
+  const { env: envOverride, update: updateOverride, ...restOverrides } = overrides;
   const deps: Deps = {
-    env: {},
+    env: { [PASSIVE_UPDATE_DISABLE_ENV]: "1", ...envOverride },
     out: (line) => out.push(line),
     tmux: (args) => {
       calls.push(["tmux", ...args]);
@@ -143,10 +147,10 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
       return Promise.resolve();
     },
     issueExists: () => true,
-    ...overrides,
+    ...restOverrides,
     update: {
       activeRuntime: idleActiveRuntime,
-      ...overrides.update,
+      ...updateOverride,
     },
   };
   return { deps, calls, out };
@@ -233,6 +237,69 @@ describe("command surface", () => {
         "update",
       ].sort(),
     );
+  });
+
+  it("runs passive update checks before public commands without polluting JSONL output", async () => {
+    const root = home();
+    const runDir = runDirFor(root, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repo",
+      worktree: "/worktree",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-7",
+      createdAt: "2026-06-25T12:00:00.000Z",
+    });
+    const event = appendEvent(runDir, "combo_created", { issue_url: ISSUE });
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: root, [PASSIVE_UPDATE_DISABLE_ENV]: "0" },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        if (args[0] === "api" && args[1] === "repos/thellmwhisperer/combo-chen/releases?per_page=100") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([{ tag_name: "v0.0.1", prerelease: false, draft: false, assets: [] }]),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["events", "-n", "o-r-7"]);
+
+    expect(out).toEqual([JSON.stringify(event)]);
+    expect(calls).toContainEqual(["gh", "api", "repos/thellmwhisperer/combo-chen/releases?per_page=100"]);
+    expect(existsSync(join(root, PASSIVE_UPDATE_CACHE_FILE))).toBe(true);
+  });
+
+  it("does not let passive release lookup failures break public commands", async () => {
+    const root = home();
+    const runDir = runDirFor(root, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repo",
+      worktree: "/worktree",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-7",
+      createdAt: "2026-06-25T12:00:00.000Z",
+    });
+    const event = appendEvent(runDir, "combo_created", { issue_url: ISSUE });
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: root, [PASSIVE_UPDATE_DISABLE_ENV]: "0" },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return { status: 1, stdout: "", stderr: "offline" };
+      },
+    });
+
+    await exec(deps, ["events", "-n", "o-r-7"]);
+
+    expect(out).toEqual([JSON.stringify(event)]);
+    expect(calls).toContainEqual(["gh", "api", "repos/thellmwhisperer/combo-chen/releases?per_page=100"]);
+    expect(existsSync(join(root, PASSIVE_UPDATE_CACHE_FILE))).toBe(false);
   });
 
   it("wires update --yes through idle runtime detection, release resolution, staging, and replacement", async () => {
