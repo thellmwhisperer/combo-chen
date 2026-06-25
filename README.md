@@ -317,6 +317,14 @@ platform asset selection, sha256sum-compatible checksum lookup, obvious install
 target classification, active combo state, and the aggregate
 `ReadOnlyUpdatePlan`.
 
+U72-A adds the internal detector API at `src/core/active-runtime.ts`.
+`detectActiveComboRuntime({ home, cli })` scans only persisted combo state under
+`COMBO_CHEN_HOME/runs`: `combo.json`, `journal.jsonl`, and
+`runtime-ledger.json` with legacy fallback. It returns `idle`, `active`,
+`stale`, or `error` plus active combo, stale combo, and detection-error arrays.
+It does not prompt, run tmux/git/gh/no-mistakes commands, write journals, create
+ledgers, restart daemons, or change update/install targets.
+
 U1 (`src/core/update-resolver.ts`) implements the release resolver and
 latest/beta check flow.  It consumes GitHub Releases metadata plus current build
 metadata, ignores prereleases in stable mode, includes prereleases in beta mode,
