@@ -580,10 +580,12 @@ persists a summary cache at
 `~/.combo-chen/passive-update-cache.json`). The default TTL is 24 hours for the
 same current build and release mode. Setting
 `COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS=1` disables cache reads, GitHub
-release lookups, and cache writes for passive checks. Cache misses, malformed
-cache files, cache write failures, and network or GitHub errors are swallowed
-and never fail the command being run. Passive checks are quiet and do not write
-stdout or stderr, preserving JSON/JSONL command output.
+release lookups, and cache writes for passive checks. Cache-miss GitHub release
+lookups are bounded by `COMBO_CHEN_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS` (default
+60000). Cache misses, malformed cache files, cache write failures, and network
+or GitHub errors are swallowed and never fail the command being run. Passive
+checks are quiet and do not write stdout or stderr, preserving JSON/JSONL
+command output.
 
 ### U0 update contract bridge
 

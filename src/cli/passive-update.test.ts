@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the passive update CLI cache adapter and command hook policy.
- *   ~95 lines, no exports, pins local cache JSON behavior outside the pure core.
+ *   ~120 lines, no exports, pins local cache JSON behavior outside the pure core.
  *
  *   READING GUIDE
  *   -------------
@@ -28,9 +28,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS,
   PASSIVE_UPDATE_CACHE_FILE,
+  PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV,
+  defaultPassiveUpdateCommandDeps,
   passiveUpdateCachePath,
   readPassiveUpdateCache,
+  runPassiveUpdateCheck,
   shouldRunPassiveUpdateForCommand,
   writePassiveUpdateCache,
   type PassiveUpdateCliCacheEntry,
@@ -78,6 +82,53 @@ describe("passive update CLI cache", () => {
 
     writeFileSync(path, `${JSON.stringify({ schemaVersion: 1, checkedAt: 42 })}\n`);
     expect(readPassiveUpdateCache(path)).toBeUndefined();
+  });
+
+  it("passes a bounded timeout to passive cache-miss release lookups", async () => {
+    const calls: unknown[] = [];
+    const missing = Object.assign(new Error("missing"), { code: "ENOENT" });
+
+    const result = await runPassiveUpdateCheck({
+      env: {},
+      current: { version: "1.0.0", commit: "abc1234", date: "2026-06-25T12:00:00.000Z" },
+      cachePath: "/combo/passive-update-cache.json",
+      lookupTimeoutMs: 1234,
+      readFile: () => {
+        throw missing;
+      },
+      writeFile: () => {},
+      mkdir: () => {},
+      gh: (args, options) => {
+        calls.push({ args, options });
+        return { status: 1, stdout: "", stderr: "timed out" };
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "lookup_failed",
+      quiet: true,
+      reason: "gh release query failed: timed out",
+    });
+    expect(calls).toEqual([
+      {
+        args: ["api", "repos/thellmwhisperer/combo-chen/releases?per_page=100"],
+        options: { timeoutMs: 1234 },
+      },
+    ]);
+  });
+
+  it("loads the passive lookup timeout from env with the default fallback", () => {
+    const configured = defaultPassiveUpdateCommandDeps({
+      env: { [PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV]: "2500" },
+      gh: () => ({ status: 0, stdout: "[]", stderr: "" }),
+    });
+    const fallback = defaultPassiveUpdateCommandDeps({
+      env: { [PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV]: "0" },
+      gh: () => ({ status: 0, stdout: "[]", stderr: "" }),
+    });
+
+    expect(configured.lookupTimeoutMs).toBe(2500);
+    expect(fallback.lookupTimeoutMs).toBe(DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS);
   });
 });
 

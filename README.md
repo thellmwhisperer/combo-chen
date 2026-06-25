@@ -315,10 +315,12 @@ only records a local summary in
 `$COMBO_CHEN_HOME/passive-update-cache.json` (default
 `~/.combo-chen/passive-update-cache.json`). Fresh cache entries are reused for
 24 hours. Set `COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS=1` to skip the cache and
-release lookup entirely. Cache misses, malformed cache files, cache write
-failures, and network or GitHub errors are ignored and never fail the command
-being run. Passive checks are quiet: they do not write stdout or stderr, so
-JSON/JSONL command output stays machine-readable.
+release lookup entirely. Cache-miss GitHub release lookups are bounded by
+`COMBO_CHEN_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS` (default 60000). Cache misses,
+malformed cache files, cache write failures, and network or GitHub errors are
+ignored and never fail the command being run. Passive checks are quiet: they do
+not write stdout or stderr, so JSON/JSONL command output stays
+machine-readable.
 
 ## U0 update contract bridge and updater slices
 

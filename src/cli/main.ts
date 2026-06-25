@@ -146,7 +146,7 @@ export interface Deps {
   tmux: (args: string[]) => TmuxResult;
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
-  gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  gh: UpdateCommandDeps["gh"];
   noMistakes: (args: string[], cwd: string) => CommandResult;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
@@ -175,9 +175,13 @@ export function defaultDeps(): Deps {
         stderr: result.stderr ?? result.error?.message ?? "",
       };
     },
-    gh: (args) => {
-      const result = spawnSync("gh", args, { encoding: "utf8" });
-      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    gh: (args, options) => {
+      const result = spawnSync("gh", args, {
+        encoding: "utf8",
+        ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+      });
+      const stderr = (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr };
     },
     noMistakes: (args, cwd) => {
       const result = spawnSync("no-mistakes", args, { cwd, encoding: "utf8" });
