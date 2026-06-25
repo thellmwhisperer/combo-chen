@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~1800 lines, log-derived regressions.
+ *   and process shims for external services. ~2000 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -1015,7 +1015,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
-  it("escalates when gnhf reaches an unsuccessful terminal hold before PR opens", () => {
+  it("restarts the coder runner when gnhf reaches an unsuccessful terminal hold before PR opens", () => {
     const harness = prepareHarness();
     let passed = false;
 
@@ -1045,19 +1045,38 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       });
 
       expect(tick.stdout).toContain("director: worker coder gnhf stopped without success");
+      expect(tick.stdout).toContain("director: restarted dead coder attempt 1/2");
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
       expect(events).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            event: "needs_human",
-            reason: "worker_stalled",
+            event: "worker_recovered",
+            reason: "worker_dead",
             worker: "coder",
+            detail: "gnhf stopped without success",
           }),
         ]),
       );
-      expect(events.find((event) => event.event === "needs_human" && event["worker"] === "coder")).toMatchObject({
-        detail: expect.stringContaining("gnhf stopped without success"),
-      });
+      expect(events.some((event) => event.event === "needs_human" && event["worker"] === "coder")).toBe(false);
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog).toContainEqual(
+        expect.objectContaining({ args: ["kill-window", "-t", `${combo.tmuxSession}:coder`] }),
+      );
+      expect(tmuxLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            args: [
+              "new-window",
+              "-t",
+              combo.tmuxSession,
+              "-n",
+              "coder",
+              expect.stringContaining("runner.sh"),
+            ],
+          }),
+        ]),
+      );
 
       passed = true;
     } finally {
