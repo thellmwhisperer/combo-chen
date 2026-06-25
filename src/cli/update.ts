@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~390 lines, 4 exports, wires release resolution, active-runtime safety, verified staging, and installer replacement.
+ *   ~430 lines, 4 exports, wires release resolution, active-runtime safety, verified staging, and installer replacement.
  *
  *   READING GUIDE
  *   -------------
@@ -21,7 +21,7 @@
  *
  *   INTERNALS
  *   ---------
- *   fetchGitHubReleases, activeRuntimeWarning, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   fetchGitHubReleases, detectActiveRuntimeForUpdate, activeRuntimeWarning, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand
  * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
@@ -181,7 +181,7 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
   enforceActiveRuntimeSafety({
-    detection: options.deps.activeRuntime(),
+    detection: detectActiveRuntimeForUpdate(options.deps.activeRuntime),
     yes: options.yes,
     out: options.deps.out,
   });
@@ -266,6 +266,27 @@ function enforceActiveRuntimeSafety(input: {
   input.out(warning);
   if (!input.yes) {
     throw new Error(activeRuntimeConfirmationError(input.detection));
+  }
+}
+
+function detectActiveRuntimeForUpdate(activeRuntime: UpdateCommandDeps["activeRuntime"]): ActiveComboRuntimeDetection {
+  try {
+    return activeRuntime();
+  } catch (error) {
+    return {
+      status: "error",
+      active: false,
+      comboIds: [],
+      inspectedRunDirs: [],
+      activeCombos: [],
+      staleCombos: [],
+      errors: [
+        {
+          reason: "runtime_state_unreadable",
+          message: errorMessage(error),
+        },
+      ],
+    };
   }
 }
 
