@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for quiet passive update checks.
- *   ~200 lines, no exports, pins disable, cache TTL, refresh, and failure fallback behavior.
+ *   ~220 lines, no exports, pins disable, cache TTL, refresh, and failure fallback behavior.
  *
  *   READING GUIDE
  *   -------------
@@ -192,6 +192,30 @@ describe("checkPassiveUpdate", () => {
       },
     });
     expect(writeCache).not.toHaveBeenCalled();
+  });
+
+  it("keeps a checked result quiet when cache writing fails", async () => {
+    const result = await checkPassiveUpdate({
+      current,
+      now: new Date("2026-06-25T12:00:00.000Z"),
+      readCache: () => undefined,
+      writeCache: () => {
+        throw new Error("read-only cache directory");
+      },
+      fetchReleases: () => [release("v1.1.0")],
+    });
+
+    expect(result).toMatchObject({
+      status: "checked",
+      quiet: true,
+      cacheWriteFailed: true,
+      reason: "read-only cache directory",
+      summary: {
+        planStatus: "update_available",
+        latestVersion: "1.1.0",
+        updateAvailable: true,
+      },
+    });
   });
 });
 // -/ 1/1

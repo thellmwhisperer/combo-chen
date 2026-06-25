@@ -87,6 +87,8 @@ describe("release docs", () => {
       expect(doc).toContain("passive-update-cache.json");
       expect(doc).toContain("24 hours");
       expect(doc).toContain("COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS");
+      expect(doc).toContain("COMBO_CHEN_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS");
+      expect(doc).toContain("default 60000");
       expect(doc).toContain("quiet");
       expect(doc).toContain("JSON/JSONL");
       expect(doc).toContain("never fail the command being run");
