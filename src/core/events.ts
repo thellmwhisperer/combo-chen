@@ -73,6 +73,7 @@ export const EVENT_TYPES = {
   pr_autoclose_failed: { required: ["exit_code", "url"] },
   needs_human: { required: ["reason"] },
   worker_recovered: { required: ["worker", "reason", "attempt"] },
+  worker_recovery_failed: { required: ["worker", "reason", "attempt"] },
   director_prompted: { required: ["reason", "target"] },
   external_review_requested: { required: ["sha", "command", "pr_url"] },
   review_comment: { required: ["author", "kind", "url"] },
