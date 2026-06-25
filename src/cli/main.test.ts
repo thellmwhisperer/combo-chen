@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~7433 lines.
+ *   deps so tests run without a real terminal or network. ~7780 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -522,6 +522,77 @@ describe("command surface", () => {
     expect(out).toEqual([
       "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
       "warning: active combo runtime detected: o-r-7(CODING)",
+    ]);
+  });
+
+  it("aborts update when active runtime detection throws before staging", async () => {
+    const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
+    const downloads: unknown[] = [];
+    const replacements: unknown[] = [];
+    const { deps, out } = fakeDeps({
+      gh: (args) => {
+        if (args[0] === "api" && args[1] === "repos/thellmwhisperer/combo-chen/releases?per_page=100") {
+          return {
+            status: 0,
+            stdout: JSON.stringify([
+              {
+                tag_name: "v1.2.1",
+                prerelease: false,
+                draft: false,
+                assets: [
+                  {
+                    name: assetName,
+                    browser_download_url: `https://downloads.example/${assetName}`,
+                  },
+                  {
+                    name: "checksums.txt",
+                    browser_download_url: "https://downloads.example/checksums.txt",
+                  },
+                ],
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+      },
+      update: {
+        current: { version: "1.2.0", commit: "abc1234", date: "2026-06-23T09:00:00.000Z" },
+        installTargetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
+        platform: "linux",
+        arch: "x64",
+        activeRuntime: () => {
+          throw new Error("permission denied while reading runtime state");
+        },
+        makeStagingDir: () => {
+          throw new Error("staging should not start when runtime detection is uncertain");
+        },
+        async download(request) {
+          downloads.push(request);
+          throw new Error("download should not run when runtime detection is uncertain");
+        },
+        async mkdir() {},
+        async writeFile() {},
+        async remove() {},
+        async extractArchive() {
+          throw new Error("extractArchive should not run when runtime detection is uncertain");
+        },
+        replaceInstallTarget(input) {
+          replacements.push(input);
+          throw new Error("replacement should not run when runtime detection is uncertain");
+        },
+      },
+    });
+
+    await expect(exec(deps, ["update"])).rejects.toThrow(
+      "active combo runtime state could not be verified; rerun with -y/--yes to update anyway",
+    );
+
+    expect(downloads).toEqual([]);
+    expect(replacements).toEqual([]);
+    expect(out).toEqual([
+      "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
+      "warning: active combo runtime state is uncertain: 0 stale runs, 1 detection error",
     ]);
   });
 
