@@ -650,6 +650,10 @@ Recovery playbook:
 - Pre-PR coder stalls are diagnosed with `status --deep`, `forensics`, and pane
   health signals. Resume or park the same capsule; do not launch a replacement
   on the same branch.
+- Worker permission prompts: the `[monitor].permission_prompt_policy` knob
+  (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
+  interactive prompts are auto-approved, trigger coder-responding recreation, or
+  escalate to `needs_human`. Default is `escalate`.
 - Reviewer auth failures are configuration/auth problems. Restore the configured
   reviewer GitHub login and rerun reviewer activation or prompt the reviewer;
   do not mark the review current by hand.
