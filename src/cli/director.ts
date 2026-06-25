@@ -442,7 +442,7 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
 function workerRecoveryAttempts(events: ComboEvent[], worker: string, reason: string): number {
   return events.filter(
     (event) =>
-      event.event === "worker_recovered" &&
+      (event.event === "worker_recovered" || event.event === "worker_recovery_failed") &&
       event["worker"] === worker &&
       event["reason"] === reason,
   ).length;
@@ -497,13 +497,13 @@ function recoverStalledWorkerFindings(input: {
       resetWorkerSnapshot(input.runDir, finding.worker);
       recovered = true;
     } catch (error) {
-      appendWorkerEscalation(
-        input.runDir,
-        input.deps,
-        finding.worker,
-        finding.reason,
-        `recovery failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      appendEvent(input.runDir, "worker_recovery_failed", {
+        worker: finding.worker,
+        reason: finding.reason,
+        detail: `recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+        attempt: attempts + 1,
+        max_attempts: input.maxAttempts,
+      });
     }
   }
   return recovered;
