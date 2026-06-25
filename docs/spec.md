@@ -446,9 +446,16 @@ ignored config or environment outside that file.
 - Every director tick inspects active worker panes (`coder`, `reviewer`,
   `gatekeeper`, and coder responding mode). A permission prompt matching
   `[monitor].permission_prompt_patterns`, missing/dead pane, or
-  `[monitor].worker_stall_ticks` unchanged captures for the same worker
-  journals `needs_human` with `worker_permission_prompt`, `worker_dead`, or
-  `worker_stalled`.
+  `[monitor].worker_stall_ticks` unchanged captures for the same worker is a
+  hard worker finding. Permission prompts and dead panes journal `needs_human`
+  with `worker_permission_prompt` or `worker_dead`. `worker_stalled` normally
+  escalates the same way, except stalled coder responding mode is recovered
+  first: the director kills and recreates the configured responder window,
+  resumes the saved coder thread, replays the last routed review/conflict
+  prompt, and journals `worker_recovered`. After
+  `[monitor].worker_stall_recovery_attempts` recoveries for the same
+  worker/reason, the next unchanged-pane finding journals
+  `needs_human reason=worker_stalled`.
 - Attention surface: tmux window titles + the default parallel capsule
   dashboard (`combo-chen status`) always answer "which combos need a human RIGHT
   NOW" (phase + needs_human flag) and show the active branch-scoped gate lease

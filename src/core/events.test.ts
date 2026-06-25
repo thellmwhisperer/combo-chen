@@ -69,6 +69,7 @@ describe("event schema", () => {
         "pr_labels_updated",
         "pr_autoclose_failed",
         "needs_human",
+        "worker_recovered",
         "director_prompted",
         "external_review_requested",
         "review_comment",
@@ -92,6 +93,7 @@ describe("event schema", () => {
     expect(EVENT_TYPES.combo_created.required).toEqual(["issue_url"]);
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
+    expect(EVENT_TYPES.worker_recovered.required).toEqual(["worker", "reason", "attempt"]);
     expect(EVENT_TYPES.director_prompted.required).toEqual(["reason", "target"]);
     expect(EVENT_TYPES.coder_failed.required).toEqual(["exit_code", "has_new_commits"]);
     expect(EVENT_TYPES.address_done.required).toEqual(["head_sha"]);

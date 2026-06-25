@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~740 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~790 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -24,21 +24,22 @@
  *
  *   INTERNALS
  *   ---------
- *   syncDirectorPrLabels, runClosureIfPending, runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
- *   retry-count helpers, required READY check helpers, review-comment helpers
+ *   syncDirectorPrLabels, runInitialGateRetryIfNeeded, runReadyForMergeIfNeeded, workerWindowsForEvents,
+ *   worker recovery helpers, retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./closure, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
+ * @deps ../core/{events,gh-api,state}, ../infra/{config,config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
  */
 import { deriveStatus } from "../core/combo.js";
 import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
+import { DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS } from "../infra/config.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
-import { nudgePrConflict, nudgeReviewComments } from "./coder.js";
+import { nudgePrConflict, nudgeReviewComments, recoverStalledWorker } from "./coder.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
 import { closeMergedCombo } from "./closure.js";
 import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./director-watch-status.js";
@@ -53,7 +54,12 @@ import { blockingReadyMergeState, parsePrView } from "./github.js";
 import { syncComboPrLabels } from "./pr-labels.js";
 import { closurePendingReviewerEvent, livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
 import { CODER_WINDOW, REVIEWER_WINDOW } from "./sessions.js";
-import { inspectWorkerPanes } from "./worker-monitor.js";
+import {
+  appendWorkerEscalation,
+  inspectWorkerPanes,
+  resetWorkerSnapshot,
+  type WorkerPaneFinding,
+} from "./worker-monitor.js";
 
 // -- 1/3 HELPER · Dependency contract --
 export interface DirectorDeps {
@@ -112,11 +118,36 @@ export async function tickDirector(input: {
       runDir,
       workerWindows,
       stallTicks: config.workerStallTicks,
+      recoverableStalledWorkers: [config.coderRespondingWindowName],
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
     });
     workerSummaries = workerInspection.summaries;
     if (workerInspection.escalated) {
+      const recovered = recoverStalledWorkerFindings({
+        deps,
+        home,
+        comboId,
+        runDir,
+        findings: workerInspection.findings,
+        events: readEvents(runDir),
+        coderRespondingWindowName: config.coderRespondingWindowName,
+        maxAttempts: config.workerStallRecoveryAttempts ?? DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS,
+      });
       const statusEvents = readEvents(runDir);
+      if (recovered) {
+        emitTickComplete({
+          deps,
+          comboId,
+          cli,
+          runDir,
+          pollSeconds: config.limits.babysitPollSeconds,
+          readyRequiredChecks: config.readyRequiredChecks,
+          ambientCheckNames: config.externalCommentAgents,
+          events: statusEvents,
+          workerSummaries,
+        });
+        return;
+      }
       const prUrl = latestPrUrl(statusEvents);
       if (prUrl === undefined) {
         emitTickComplete({
@@ -406,6 +437,76 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
     default:
       return [];
   }
+}
+
+function workerRecoveryAttempts(events: ComboEvent[], worker: string, reason: string): number {
+  return events.filter(
+    (event) =>
+      event.event === "worker_recovered" &&
+      event["worker"] === worker &&
+      event["reason"] === reason,
+  ).length;
+}
+
+function recoverStalledWorkerFindings(input: {
+  deps: DirectorDeps;
+  home: string;
+  comboId: string;
+  runDir: string;
+  findings: WorkerPaneFinding[];
+  events: ComboEvent[];
+  coderRespondingWindowName: string;
+  maxAttempts: number;
+}): boolean {
+  let recovered = false;
+  const actioned = new Set<string>();
+  for (const finding of input.findings) {
+    if (
+      finding.reason !== "worker_stalled" ||
+      finding.worker !== input.coderRespondingWindowName ||
+      finding.needsHumanRecorded ||
+      actioned.has(finding.worker)
+    ) {
+      continue;
+    }
+    actioned.add(finding.worker);
+    const attempts = workerRecoveryAttempts(input.events, finding.worker, finding.reason);
+    if (attempts >= input.maxAttempts) {
+      appendWorkerEscalation(
+        input.runDir,
+        input.deps,
+        finding.worker,
+        finding.reason,
+        `recovery attempts exhausted after ${input.maxAttempts}; ${finding.detail}`,
+      );
+      continue;
+    }
+    try {
+      recoverStalledWorker({
+        deps: input.deps,
+        home: input.home,
+        comboId: input.comboId,
+        recovery: {
+          worker: finding.worker,
+          reason: finding.reason,
+          detail: finding.detail,
+          attempt: attempts + 1,
+          maxAttempts: input.maxAttempts,
+        },
+      });
+      resetWorkerSnapshot(input.runDir, finding.worker);
+      recovered = true;
+    } catch (error) {
+      appendWorkerEscalation(
+        input.runDir,
+        input.deps,
+        finding.worker,
+        finding.reason,
+        `recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return recovered;
 }
 
 interface InitialGateRetryState {

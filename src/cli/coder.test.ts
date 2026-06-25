@@ -1,11 +1,12 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~473 lines, activate and nudge flows.
+ * @overview Unit tests for coder-response CLI helpers. ~710 lines, activate, nudge, and recovery flows.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at activateCoder tests        <- resumed coder worker.
  *   2. Then nudgeReviewComments tests      <- mirror sync and comment routing.
- *   3. Test harness helpers                <- combo and thread artifact setup.
+ *   3. Then recoverStalledWorker tests     <- stale worker recreation.
+ *   4. Test harness helpers                <- combo and thread artifact setup.
  *
  *   MAIN FLOW
  *   ---------
@@ -32,7 +33,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { activateCoder, nudgeReviewComments } from "./coder.js";
+import { activateCoder, nudgeReviewComments, recoverStalledWorker } from "./coder.js";
 
 // -- 1/3 HELPER · Test harness --
 const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
@@ -552,6 +553,160 @@ describe("nudgeReviewComments", () => {
     });
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-2"]);
     expect(calls.some((call) => call.includes("https://github.com/o/r/pull/7#issuecomment-1"))).toBe(false);
+  });
+});
+
+describe("recoverStalledWorker", () => {
+  it("recreates coder responding and replays the latest routed review prompt", () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[coder_responding]",
+        'review_nudge_prompt = "Please address {url}"',
+        'window_name = "sitter"',
+        "",
+      ].join("\n"),
+    );
+    writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "review_comment", {
+      author: "external-reviewer",
+      kind: "review_comment",
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+    });
+
+    const recovered = recoverStalledWorker({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "reviewer\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      recovery: {
+        worker: "sitter",
+        reason: "worker_stalled",
+        detail: "unchanged pane for 2 ticks",
+        attempt: 1,
+        maxAttempts: 2,
+      },
+    });
+
+    expect(recovered).toBe(true);
+    expect(calls).toEqual([
+      ["tmux", "kill-window", "-t", "combo-chen-owned-session:sitter"],
+      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
+      [
+        "tmux",
+        "new-window",
+        "-t",
+        "combo-chen-owned-session",
+        "-n",
+        "sitter",
+        `codex resume '${CODEX_THREAD_ID}'`,
+      ],
+      [
+        "tmux",
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "Please address 'https://github.com/o/r/pull/7#discussion_r1'",
+      ],
+      [
+        "tmux",
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "-t",
+        "combo-chen-owned-session:sitter",
+      ],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
+    ]);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "worker_recovered",
+        worker: "sitter",
+        reason: "worker_stalled",
+        attempt: 1,
+        max_attempts: 2,
+      }),
+    );
+    expect(out).toEqual(["director: recovered stalled sitter attempt 1/2"]);
+  });
+
+  it("replays hostile review prompt text as one tmux buffer argument", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+    const hostileUrl = "-leading'`whoami`$(touch nope)\nsecond line";
+
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[coder_responding]",
+        'review_nudge_prompt = "Please address {url}"',
+        'window_name = "sitter"',
+        "",
+      ].join("\n"),
+    );
+    writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
+    appendEvent(runDir, "review_comment", {
+      author: "external-reviewer",
+      kind: "review_comment",
+      url: hostileUrl,
+    });
+    appendEvent(runDir, "review_comment", {
+      author: "",
+      kind: "review_comment",
+      url: "",
+    });
+
+    recoverStalledWorker({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "reviewer\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      recovery: {
+        worker: "sitter",
+        reason: "worker_stalled",
+        detail: "unchanged pane for 2 ticks",
+        attempt: 1,
+        maxAttempts: 2,
+      },
+    });
+
+    const setBufferCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "set-buffer");
+    expect(setBufferCalls).toHaveLength(1);
+    expect(setBufferCalls[0]).toHaveLength(5);
+    expect(setBufferCalls[0]?.[4]).toContain("-leading");
+    expect(setBufferCalls[0]?.[4]).toContain("`whoami`");
+    expect(setBufferCalls[0]?.[4]).toContain("$(touch nope)");
+    expect(setBufferCalls[0]?.[4]).toContain("second line");
   });
 });
 // -/ 3/3
