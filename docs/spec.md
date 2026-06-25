@@ -450,11 +450,14 @@ ignored config or environment outside that file.
   `auto-approve-known-safe`, or `recreate-non-interactive`; env override
   `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`). The conservative default is
   `escalate`, which journals `needs_human` with
-  `worker_permission_prompt`. Missing/dead panes journal `needs_human` with
-  `worker_dead`. `worker_stalled` normally escalates the same way, except
-  stalled coder responding mode is recovered first. When the permission policy
-  is `auto-approve-known-safe`, the monitor sends `y` + Enter to the matched
-  tmux window. When the policy is `recreate-non-interactive`, a
+  `worker_permission_prompt`. Before `pr_opened`, dead `coder` workers are
+  recovered first: the director restarts the persisted runner and journals
+  `worker_recovered reason=worker_dead`. After a PR is open, dead workers
+  journal `needs_human reason=worker_dead`. `worker_stalled` normally
+  escalates the same way, except stalled coder responding mode is recovered
+  first. When the permission policy is `auto-approve-known-safe`, the monitor
+  sends `y` + Enter to the matched tmux window. When the policy is
+  `recreate-non-interactive`, a
   permission-prompted coder responding window uses the same bounded recovery
   path as a stall: the director kills and recreates the configured responder
   window, resumes the saved coder thread, replays the last routed

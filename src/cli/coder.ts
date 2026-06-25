@@ -7,12 +7,13 @@
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
  *   3. Then nudgePrConflict           <- routes base-advanced and local PR-head sync conflicts.
  *   4. Then recoverStalledWorker      <- recreates recoverable coder responding mode.
- *   5. Dependency interfaces          <- test seams for tmux/git/gh.
+ *   5. Then recoverDeadCoder          <- restarts the initial pre-PR runner.
+ *   6. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
  *   activateCoder -> tmux worker; nudgeReviewComments/nudgePrConflict -> coder responding prompt
- *     -> recoverStalledWorker -> restart same worker with latest prompt
+ *     -> recoverStalledWorker/recoverDeadCoder -> restart the right worker path
  *
  *   PUBLIC API
  *   ----------
