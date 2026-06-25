@@ -316,7 +316,7 @@ function activeRuntimeSummary(detection: ActiveComboRuntimeDetection): string {
 }
 
 function displayRuntimeToken(value: string): string {
-  const singleLine = value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  const singleLine = value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]+/g, " ").trim();
   return singleLine.length > 0 ? singleLine : "unknown";
 }
 
