@@ -531,7 +531,8 @@ capsule, branch-scoped gate leases for parallel capsules with stale recovery and
 heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
-justification), current-head READY agreement with base-advance conflict
+justification), stalled coder-responding recovery with bounded retries before
+`needs_human` escalation, current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (separate coder, journal, gatekeeper/live,
 gate-runner, and director-watch windows; raw event output never replaces the
