@@ -121,6 +121,7 @@ export async function tickDirector(input: {
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
       recoverableStalledWorkers: [config.coderRespondingWindowName],
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
+      permissionPromptPolicy: config.workerPermissionPromptPolicy,
     });
     workerSummaries = workerInspection.summaries;
     if (workerInspection.escalated) {

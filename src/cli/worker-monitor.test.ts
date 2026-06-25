@@ -1,6 +1,6 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~340 lines, permission
- *   prompt, unchanged-pane stall/recovery deferral, and dead-pane escalation.
+ * @overview Unit tests for worker pane monitoring. ~330 lines, permission
+ *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
  *   -------------
@@ -49,13 +49,16 @@ function combo(): { record: ComboRecord; runDir: string } {
   return { record, runDir };
 }
 
-function fakeDeps(panes: Record<string, string | undefined>): { deps: WorkerMonitorDeps; out: string[] } {
+function fakeDeps(panes: Record<string, string | undefined>): { deps: WorkerMonitorDeps; out: string[]; calls: string[][] } {
   const out: string[] = [];
+  const calls: string[][] = [];
   return {
     out,
+    calls,
     deps: {
       out: (line) => out.push(line),
       tmux: (args) => {
+        calls.push(args);
         if (args[0] === "list-windows") {
           return { status: 0, stdout: `${Object.keys(panes).join("\n")}\n`, stderr: "" };
         }
@@ -94,6 +97,60 @@ describe("inspectWorkerPanes", () => {
       expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
+  });
+
+  it("auto-approves a known-safe permission prompt without escalating", () => {
+    const { record, runDir } = combo();
+    const { deps, out, calls } = fakeDeps({
+      reviewer: "Do you want to proceed? [y/N]\n",
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      permissionPromptPolicy: "auto-approve-known-safe",
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:reviewer", "y", "C-m"]);
+    expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt auto-approved"));
+  });
+
+  it("escalates a permission prompt when auto-approval fails", () => {
+    const { record, runDir } = combo();
+    const out: string[] = [];
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+        if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+        if (args[0] === "send-keys") return { status: 1, stdout: "", stderr: "blocked target" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      permissionPromptPolicy: "auto-approve-known-safe",
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+        detail: "permission prompt auto-approve failed: blocked target",
+      }),
+    );
+    expect(out).toContainEqual(expect.stringContaining("permission prompt auto-approve failed"));
   });
 
   it("does not treat ordinary review prose about permission prompts as an interactive prompt", () => {

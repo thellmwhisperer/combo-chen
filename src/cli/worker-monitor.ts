@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~310 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~325 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -28,7 +28,7 @@
  *   INTERNALS
  *   ---------
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
- *   hasPermissionPrompt, hasEscalation
+ *   hasPermissionPrompt, autoApprovePermissionPrompt, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, inspectWorkerPanes
  * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
@@ -39,7 +39,10 @@ import { join } from "node:path";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
-import { DEFAULT_PERMISSION_PROMPT_PATTERNS } from "../infra/config.js";
+import {
+  DEFAULT_PERMISSION_PROMPT_PATTERNS,
+  type WorkerPermissionPromptPolicy,
+} from "../infra/config.js";
 import {
   captureWindowArgs,
   hasSessionArgs,
@@ -124,6 +127,19 @@ function hasGnhfTerminalFailure(pane: string): boolean {
   return /"success"\s*:\s*false/.test(pane) && /gnhf\s+again\s+to\s+resume/i.test(pane);
 }
 
+function autoApprovePermissionPrompt(
+  deps: WorkerMonitorDeps,
+  combo: ComboRecord,
+  worker: string,
+): { recovered: true } | { recovered: false; detail: string } {
+  const result = deps.tmux(["send-keys", "-t", `${combo.tmuxSession}:${worker}`, "y", "C-m"]);
+  if (result.status === 0) return { recovered: true };
+  return {
+    recovered: false,
+    detail: result.stderr.trim() || result.stdout.trim() || "tmux send-keys failed",
+  };
+}
+
 function hasEscalation(runDir: string, reason: string, worker: string): boolean {
   return readEvents(runDir).some(
     (event) =>
@@ -181,6 +197,7 @@ export interface WorkerPaneMonitorInput {
   recoverableDeadWorkers?: string[];
   recoverableStalledWorkers?: string[];
   permissionPromptPatterns?: string[];
+  permissionPromptPolicy?: WorkerPermissionPromptPolicy;
 }
 
 export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneInspection {
@@ -219,6 +236,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const permissionPromptPatterns = compilePermissionPromptPatterns(
     input.permissionPromptPatterns ?? DEFAULT_PERMISSION_PROMPT_PATTERNS,
   );
+  const permissionPromptPolicy = input.permissionPromptPolicy ?? "escalate";
   let escalated = false;
 
   for (const worker of new Set(input.workerWindows)) {
@@ -254,6 +272,23 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
 
     const pane = captured.stdout;
     if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
+      if (permissionPromptPolicy === "auto-approve-known-safe") {
+        const recovery = autoApprovePermissionPrompt(deps, combo, worker);
+        if (recovery.recovered) {
+          summaries.push(`worker ${worker}: permission_prompt=auto-approved`);
+          deps.out(`director: worker ${worker} permission prompt auto-approved`);
+          continue;
+        }
+        findings.push(recordFinding({
+          runDir,
+          deps,
+          worker,
+          reason: "worker_permission_prompt",
+          detail: `permission prompt auto-approve failed: ${recovery.detail}`,
+        }));
+        escalated = true;
+        continue;
+      }
       findings.push(recordFinding({
         runDir,
         deps,

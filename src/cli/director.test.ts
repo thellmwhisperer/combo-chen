@@ -836,6 +836,35 @@ describe("tickDirector", () => {
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
   });
 
+  it("auto-approves a reviewer permission prompt when configured", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      "[monitor]\npermission_prompt_policy = 'auto-approve-known-safe'\n",
+    );
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+    });
+    deps.tmux = (args) => {
+      calls.push(["tmux", ...args]);
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+      if (args[0] === "send-keys") return { status: 0, stdout: "", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:reviewer", "y", "C-m"]);
+    expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt auto-approved"));
+  });
+
   it("passes configured permission prompt patterns into worker pane inspection", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
