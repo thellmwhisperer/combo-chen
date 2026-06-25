@@ -1168,6 +1168,95 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("holds a dirty PR on an intent decision instead of recycling coder responding", () => {
+    const harness = prepareHarness({ workerStallTicks: 2 });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const decision =
+        "must_passive_update_cache_miss_be_time_bounded_or_background_before_review_continues";
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+        [
+          "needs_human",
+          [
+            "reason=intent_decision_required",
+            `decision=${decision}`,
+            `head_sha=${headSha}`,
+            "source=director_hold",
+          ],
+        ],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "coder-responding", "true"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      const tickEnv = {
+        ...harness.env,
+        E2E_HEAD_SHA: headSha,
+        E2E_PR_STATE: "OPEN",
+        E2E_MERGE_STATE_STATUS: "DIRTY",
+        E2E_TMUX_CAPTURE_CODER_RESPONDING: "waiting for coder responding...\n",
+      };
+      run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+      const held = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+
+      expect(held.stdout).toContain("director: worker recovery paused: needs_human intent_decision_required");
+      expect(held.stdout).toContain("action=\"needs human: intent_decision_required\"");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "needs_human",
+            reason: "intent_decision_required",
+            decision,
+          }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "worker_recovered" && event["worker"] === "coder-responding")).toBe(
+        false,
+      );
+      expect(events.some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled")).toBe(false);
+      expect(events.some((event) => event.event === "pr_conflict")).toBe(false);
+      expect(events.some((event) => event.event === "ready_for_merge")).toBe(false);
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const coderRespondingRecoveryOps = tmuxLog.filter(
+        (entry) =>
+          (entry.args[0] === "kill-window" || entry.args[0] === "new-window" || entry.args[0] === "paste-buffer") &&
+          entry.args.some((arg) => arg.includes("coder-responding")),
+      );
+      expect(coderRespondingRecoveryOps).toEqual([
+        expect.objectContaining({ args: ["new-window", "-t", combo.tmuxSession, "-n", "coder-responding", "true"] }),
+      ]);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("restarts the coder runner when gnhf reaches an unsuccessful terminal hold before PR opens", () => {
     const harness = prepareHarness();
     let passed = false;
