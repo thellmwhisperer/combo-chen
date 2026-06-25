@@ -32,7 +32,13 @@ function uniq(values) {
 
 function statusCheckRollup() {
   const rollup = [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" }];
-  if (process.env.E2E_CODERABBIT_SKIPPED_STATUS === "1") {
+  if (process.env.E2E_CODERABBIT_SUCCESS_STATUS === "1") {
+    rollup.push({
+      __typename: "StatusContext",
+      context: "CodeRabbit",
+      state: "SUCCESS",
+    });
+  } else if (process.env.E2E_CODERABBIT_SKIPPED_STATUS === "1") {
     rollup.push({
       __typename: "StatusContext",
       context: "CodeRabbit",
