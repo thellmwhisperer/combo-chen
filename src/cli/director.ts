@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~790 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~810 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -28,13 +28,12 @@
  *   worker recovery helpers, retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config,config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
+ * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./gate, ./github, ./pr-labels, ./reviewer, ./coder, ./worker-monitor
  */
 import { deriveStatus } from "../core/combo.js";
 import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
-import { DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS } from "../infra/config.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
@@ -131,7 +130,7 @@ export async function tickDirector(input: {
         findings: workerInspection.findings,
         events: readEvents(runDir),
         coderRespondingWindowName: config.coderRespondingWindowName,
-        maxAttempts: config.workerStallRecoveryAttempts ?? DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS,
+        maxAttempts: config.workerStallRecoveryAttempts,
       });
       const statusEvents = readEvents(runDir);
       if (recovered) {
@@ -482,7 +481,7 @@ function recoverStalledWorkerFindings(input: {
       continue;
     }
     try {
-      recoverStalledWorker({
+      const didRecover = recoverStalledWorker({
         deps: input.deps,
         home: input.home,
         comboId: input.comboId,
@@ -494,8 +493,18 @@ function recoverStalledWorkerFindings(input: {
           maxAttempts: input.maxAttempts,
         },
       });
-      resetWorkerSnapshot(input.runDir, finding.worker);
-      recovered = true;
+      if (didRecover) {
+        resetWorkerSnapshot(input.runDir, finding.worker);
+        recovered = true;
+      } else {
+        appendEvent(input.runDir, "worker_recovery_failed", {
+          worker: finding.worker,
+          reason: finding.reason,
+          detail: "recovery skipped: worker did not match configured coder responding window",
+          attempt: attempts + 1,
+          max_attempts: input.maxAttempts,
+        });
+      }
     } catch (error) {
       appendEvent(input.runDir, "worker_recovery_failed", {
         worker: finding.worker,
