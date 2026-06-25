@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~790 lines, 15 exports.
+ *   Repo wins on policy, user wins on local setup. ~800 lines, 16 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -29,10 +29,11 @@
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
  *   │ pickNonEmptyString, pickStringArray, normalize*Aliases,         │
  *   │ DEFAULTS, PLACEHOLDER, gnhf safety predicates                   │
- *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
+ *   │ ComboConfigError, ComboRoles, ComboLimits,                     │
+ *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -60,6 +61,11 @@ export interface ComboLimits {
   watchFailureLimit: number;
   watchBackoffMaxSeconds: number;
 }
+
+export type WorkerPermissionPromptPolicy =
+  | "auto-approve-known-safe"
+  | "recreate-non-interactive"
+  | "escalate";
 
 export interface ComboConfig {
   roles: ComboRoles;
@@ -106,6 +112,8 @@ export interface ComboConfig {
   workerRecoveryAttempts: number;
   /** Regex sources used to detect interactive permission prompts in worker panes. */
   workerPermissionPromptPatterns: string[];
+  /** Recovery policy for known interactive permission prompts in worker panes. */
+  workerPermissionPromptPolicy: WorkerPermissionPromptPolicy;
   /** Required source checkout branch for `combo-chen run`. */
   sourceBranch: string;
 }
@@ -143,6 +151,11 @@ export const DEFAULT_PERMISSION_PROMPT_PATTERNS = [
   "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
   "^\\s*(?:Allow|Approve|Confirm)\\?\\s*\\[[yn]/[yn]\\]\\s*$",
   "^\\s*(?:Press|Type)\\s+(?:y|yes)\\s+to\\s+(?:continue|proceed|confirm)\\.?\\s*$",
+];
+const WORKER_PERMISSION_PROMPT_POLICIES: WorkerPermissionPromptPolicy[] = [
+  "auto-approve-known-safe",
+  "recreate-non-interactive",
+  "escalate",
 ];
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
@@ -207,6 +220,7 @@ const DEFAULTS = {
     worker_stall_ticks: 3,
     worker_recovery_attempts: DEFAULT_WORKER_RECOVERY_ATTEMPTS,
     permission_prompt_patterns: DEFAULT_PERMISSION_PROMPT_PATTERNS,
+    permission_prompt_policy: "escalate",
   },
   run: {
     source_branch: "main",
@@ -331,6 +345,16 @@ function pickNonEmptyStringArray(value: unknown, description: string): string[] 
     throw new ComboConfigError(`${description} must contain at least one string`);
   }
   return values;
+}
+
+function pickWorkerPermissionPromptPolicy(value: unknown, description: string): WorkerPermissionPromptPolicy {
+  const policy = pickNonEmptyString(value, description);
+  if (!WORKER_PERMISSION_PROMPT_POLICIES.includes(policy as WorkerPermissionPromptPolicy)) {
+    throw new ComboConfigError(
+      `${description} must be one of ${WORKER_PERMISSION_PROMPT_POLICIES.join(", ")}`,
+    );
+  }
+  return policy as WorkerPermissionPromptPolicy;
 }
 
 function parseEnvStringArray(value: string, description: string): string[] {
@@ -589,6 +613,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "monitor.permission_prompt_patterns",
     );
   }
+  if (env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY"] !== undefined) {
+    monitorTable["permission_prompt_policy"] = env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY"];
+  }
   if (env["COMBO_CHEN_READY_REQUIRED_CHECKS"] !== undefined) {
     readyTable["required_checks"] = parseEnvStringArray(
       env["COMBO_CHEN_READY_REQUIRED_CHECKS"],
@@ -769,6 +796,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "[monitor]",
     ),
     workerPermissionPromptPatterns: [...workerPermissionPromptPatterns],
+    workerPermissionPromptPolicy: pickWorkerPermissionPromptPolicy(
+      monitorTable["permission_prompt_policy"],
+      "monitor.permission_prompt_policy",
+    ),
     sourceBranch: pickNonEmptyString(runTable["source_branch"], "run.source_branch"),
   };
 }
