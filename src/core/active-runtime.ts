@@ -234,8 +234,8 @@ function finish(state: MutableDetectionState): ActiveComboRuntimeDetection {
 }
 
 function statusFor(state: MutableDetectionState): ActiveComboRuntimeDetectionStatus {
-  if (state.errors.length > 0) return "error";
   if (state.activeCombos.length > 0) return "active";
+  if (state.errors.length > 0) return "error";
   if (state.staleCombos.length > 0) return "stale";
   return "idle";
 }
