@@ -443,21 +443,25 @@ ignored config or environment outside that file.
 - v0 drives interactive agents with tmux `send-keys` after readiness checks
   via `capture-pane`; state reading relies on hard signals (`gh`, events),
   pane scraping is health-check only.
-- Every director tick inspects active worker panes (`coder`, `reviewer`,
-  `gatekeeper`, and coder responding mode). A permission prompt matching
-  `[monitor].permission_prompt_patterns`, missing/dead pane, or
-  `[monitor].worker_stall_ticks` unchanged captures for the same worker is a
-  hard worker finding. Permission prompts and dead panes journal `needs_human`
-  with `worker_permission_prompt` or `worker_dead`. `worker_stalled` normally
-  escalates the same way, except stalled coder responding mode is recovered
-  first: the director kills and recreates the configured responder window,
-  resumes the saved coder thread, replays the last routed review/conflict
-  prompt, and journals `worker_recovered`. Recovery failures (worker
-  mismatch or tmux/git errors) journal `worker_recovery_failed` (required
-  fields `worker`, `reason`, `attempt`); both events count toward the attempt
-  budget. After `[monitor].worker_stall_recovery_attempts` recoveries for the
-  same worker/reason, the next unchanged-pane finding journals
-  `needs_human reason=worker_stalled`.
+- Every director tick inspects active worker panes (`coder` before a PR,
+  `gatekeeper` during gating, then `reviewer` and coder responding mode after a
+  PR opens). A permission prompt matching `[monitor].permission_prompt_patterns`,
+  missing/dead pane, gnhf terminal failure, or `[monitor].worker_stall_ticks`
+  unchanged captures for the same worker is a hard worker finding. Permission
+  prompts journal `needs_human reason=worker_permission_prompt`. Dead initial
+  coder workers before `pr_opened` are recovered first: the director kills and
+  recreates the `coder` window, re-runs the persisted `runner.sh`, and journals
+  `worker_recovered reason=worker_dead`. Once a PR is in play, dead workers
+  journal `needs_human reason=worker_dead`; the director does not blindly
+  restart a coder against a live PR. `worker_stalled` normally escalates the
+  same way, except stalled coder responding mode is recovered first: the
+  director kills and recreates the configured responder window, resumes the
+  saved coder thread, replays the last routed review/conflict prompt, and
+  journals `worker_recovered`. Recovery failures (worker mismatch or tmux/git
+  errors) journal `worker_recovery_failed` (required fields `worker`, `reason`,
+  `attempt`); both events count toward the attempt budget. After
+  `[monitor].worker_stall_recovery_attempts` recoveries for the same
+  worker/reason, the next finding journals `needs_human` for that reason.
 - Attention surface: tmux window titles + the default parallel capsule
   dashboard (`combo-chen status`) always answer "which combos need a human RIGHT
   NOW" (phase + needs_human flag) and show the active branch-scoped gate lease

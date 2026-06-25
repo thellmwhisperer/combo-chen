@@ -1,12 +1,13 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~750 lines, activate, nudge, and recovery flows.
+ * @overview Unit tests for coder-response CLI helpers. ~800 lines, activate, nudge, and recovery flows.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at activateCoder tests        <- resumed coder worker.
  *   2. Then nudgeReviewComments tests      <- mirror sync and comment routing.
  *   3. Then recoverStalledWorker tests     <- stale worker recreation.
- *   4. Test harness helpers                <- combo and thread artifact setup.
+ *   4. Then recoverDeadCoder tests         <- initial coder runner restart.
+ *   5. Test harness helpers                <- combo and thread artifact setup.
  *
  *   MAIN FLOW
  *   ---------
@@ -23,7 +24,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./coder
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -33,7 +34,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
-import { activateCoder, nudgeReviewComments, recoverStalledWorker } from "./coder.js";
+import { activateCoder, nudgeReviewComments, recoverDeadCoder, recoverStalledWorker } from "./coder.js";
 
 // -- 1/3 HELPER · Test harness --
 const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
@@ -746,6 +747,49 @@ describe("recoverStalledWorker", () => {
     expect(recovered).toBe(false);
     expect(calls).toEqual([]);
     expect(readEvents(runDir).some((event) => event.event === "worker_recovered")).toBe(false);
+  });
+});
+
+describe("recoverDeadCoder", () => {
+  it("quotes hostile runner paths as one tmux command", () => {
+    const calls: string[][] = [];
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-home-root-"));
+    const home = join(root, "home ' `whoami` $(touch nope)\nsecond");
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+    mkdirSync(home, { recursive: true });
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
+
+    recoverDeadCoder({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
+          if (args[0] === "list-windows") return { status: 0, stdout: "\n", stderr: "" };
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      recovery: {
+        worker: "coder",
+        reason: "worker_dead",
+        detail: "dead pane",
+        attempt: 1,
+        maxAttempts: 2,
+      },
+    });
+
+    const newWindow = calls.find((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindow).toHaveLength(7);
+    const command = newWindow?.at(-1) ?? "";
+    expect(command).toContain("'\\''");
+    expect(command).toContain("`whoami`");
+    expect(command).toContain("$(touch nope)");
+    expect(command).toContain("\nsecond");
   });
 });
 // -/ 3/3
