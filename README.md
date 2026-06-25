@@ -440,7 +440,8 @@ Recovery playbook:
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
   interactive prompts are auto-approved, trigger coder-responding recreation, or
-  escalate to `needs_human`. Default is `escalate`.
+  escalate to `needs_human`. Auto-approve and recreate attempts share the
+  configured worker recovery budget. Default is `escalate`.
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
   rerun reviewer activation or prompt the reviewer without changing the coder
   branch.

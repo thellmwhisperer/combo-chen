@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~335 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~360 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -28,7 +28,7 @@
  *   INTERNALS
  *   ---------
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
- *   hasPermissionPrompt, autoApprovePermissionPrompt, hasEscalation
+ *   hasPermissionPrompt, autoApprovePermissionPrompt, workerRecoveryAttempts, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, inspectWorkerPanes
  * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
@@ -40,6 +40,7 @@ import { join } from "node:path";
 import { appendEvent, readEvents } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import {
+  DEFAULT_WORKER_RECOVERY_ATTEMPTS,
   DEFAULT_PERMISSION_PROMPT_PATTERNS,
   type WorkerPermissionPromptPolicy,
 } from "../infra/config.js";
@@ -140,6 +141,15 @@ function autoApprovePermissionPrompt(
   };
 }
 
+function workerRecoveryAttempts(runDir: string, worker: string, reason: WorkerPaneReason): number {
+  return readEvents(runDir).filter(
+    (event) =>
+      (event.event === "worker_recovered" || event.event === "worker_recovery_failed") &&
+      event["worker"] === worker &&
+      event["reason"] === reason,
+  ).length;
+}
+
 function hasEscalation(runDir: string, reason: string, worker: string): boolean {
   return readEvents(runDir).some(
     (event) =>
@@ -197,6 +207,7 @@ export interface WorkerPaneMonitorInput {
   recoverableDeadWorkers?: string[];
   recoverableStalledWorkers?: string[];
   recoverablePermissionPromptWorkers?: string[];
+  autoApprovePermissionPromptMaxAttempts?: number;
   permissionPromptPatterns?: string[];
   permissionPromptPolicy?: WorkerPermissionPromptPolicy;
 }
@@ -235,6 +246,8 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const stallTicks = input.stallTicks ?? DEFAULT_STALL_TICKS;
   const recoverableStalledWorkers = new Set(input.recoverableStalledWorkers ?? []);
   const recoverablePermissionPromptWorkers = new Set(input.recoverablePermissionPromptWorkers ?? []);
+  const autoApprovePermissionPromptMaxAttempts =
+    input.autoApprovePermissionPromptMaxAttempts ?? DEFAULT_WORKER_RECOVERY_ATTEMPTS;
   const permissionPromptPatterns = compilePermissionPromptPatterns(
     input.permissionPromptPatterns ?? DEFAULT_PERMISSION_PROMPT_PATTERNS,
   );
@@ -275,10 +288,33 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     const pane = captured.stdout;
     if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
       if (permissionPromptPolicy === "auto-approve-known-safe") {
+        const attempts = workerRecoveryAttempts(runDir, worker, "worker_permission_prompt");
+        if (attempts >= autoApprovePermissionPromptMaxAttempts) {
+          findings.push(recordFinding({
+            runDir,
+            deps,
+            worker,
+            reason: "worker_permission_prompt",
+            detail: `recovery attempts exhausted after ${autoApprovePermissionPromptMaxAttempts}; permission prompt`,
+          }));
+          escalated = true;
+          continue;
+        }
         const recovery = autoApprovePermissionPrompt(deps, combo, worker);
         if (recovery.recovered) {
-          summaries.push(`worker ${worker}: permission_prompt=auto-approved`);
-          deps.out(`director: worker ${worker} permission prompt auto-approved`);
+          appendEvent(runDir, "worker_recovered", {
+            worker,
+            reason: "worker_permission_prompt",
+            detail: "permission prompt auto-approved",
+            attempt: attempts + 1,
+            max_attempts: autoApprovePermissionPromptMaxAttempts,
+          });
+          summaries.push(
+            `worker ${worker}: permission_prompt=auto-approved attempt=${attempts + 1}/${autoApprovePermissionPromptMaxAttempts}`,
+          );
+          deps.out(
+            `director: worker ${worker} permission prompt auto-approved attempt ${attempts + 1}/${autoApprovePermissionPromptMaxAttempts}`,
+          );
           continue;
         }
         findings.push(recordFinding({

@@ -123,6 +123,7 @@ export async function tickDirector(input: {
       recoverablePermissionPromptWorkers: config.workerPermissionPromptPolicy === "recreate-non-interactive"
         ? [config.coderRespondingWindowName]
         : [],
+      autoApprovePermissionPromptMaxAttempts: config.workerRecoveryAttempts,
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
       permissionPromptPolicy: config.workerPermissionPromptPolicy,
     });

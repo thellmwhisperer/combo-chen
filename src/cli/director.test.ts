@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2080 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~2120 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -863,6 +863,46 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
     expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:reviewer", "y", "C-m"]);
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt auto-approved"));
+  });
+
+  it("escalates a persistent auto-approved reviewer prompt after the configured recovery budget", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[monitor]",
+        "permission_prompt_policy = 'auto-approve-known-safe'",
+        "worker_recovery_attempts = 1",
+      ].join("\n"),
+    );
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+    });
+    deps.tmux = (args) => {
+      calls.push(["tmux", ...args]);
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+      if (args[0] === "send-keys") return { status: 0, stdout: "", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys")).toHaveLength(1);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+        detail: "recovery attempts exhausted after 1; permission prompt",
+      }),
+    );
   });
 
   it("recreates a permission-prompted coder responding worker until the recovery budget is exhausted", async () => {

@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~440 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~480 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -136,6 +136,46 @@ describe("inspectWorkerPanes", () => {
 
     expect(result.escalated).toBe(false);
     expect(calls).toContainEqual(["send-keys", "-t", `${record.tmuxSession}:reviewer`, "y", "C-m"]);
+  });
+
+  it("escalates a persistent auto-approved prompt after the recovery budget is exhausted", () => {
+    const { record, runDir } = combo();
+    const { deps, calls } = fakeDeps({
+      reviewer: "Do you want to proceed? [y/N]\n",
+    });
+    const input = {
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      permissionPromptPolicy: "auto-approve-known-safe" as const,
+      autoApprovePermissionPromptMaxAttempts: 1,
+    };
+
+    expect(inspectWorkerPanes(input).escalated).toBe(false);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "worker_recovered",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+        detail: "permission prompt auto-approved",
+        attempt: 1,
+        max_attempts: 1,
+      }),
+    );
+
+    const result = inspectWorkerPanes(input);
+
+    expect(result.escalated).toBe(true);
+    expect(calls.filter((call) => call[0] === "send-keys")).toHaveLength(1);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+        detail: "recovery attempts exhausted after 1; permission prompt",
+      }),
+    );
   });
 
   it("escalates a permission prompt when auto-approval fails", () => {
