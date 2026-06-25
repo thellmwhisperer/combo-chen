@@ -148,6 +148,37 @@ describe("detectActiveComboRuntime", () => {
     ]);
   });
 
+  it("reports active status when one run dir is active and another has errors", () => {
+    const base = home();
+
+    const activeRunDir = writeRun(base, combo({ id: "good-combo" }));
+    appendEvent(activeRunDir, "combo_created", { issue_url: "https://github.com/o/r/issues/7" });
+    appendEvent(activeRunDir, "gate_started", {});
+
+    const brokenRunDir = join(base, "runs", "bad-combo");
+    mkdirSync(brokenRunDir, { recursive: true });
+    writeFileSync(join(brokenRunDir, "combo.json"), "{not json");
+
+    const result = detectActiveComboRuntime({ home: base });
+
+    expect(result.status).toBe("active");
+    expect(result.active).toBe(true);
+    expect(result.activeCombos).toEqual([
+      expect.objectContaining({
+        comboId: "good-combo",
+        phase: "GATING",
+        runDir: activeRunDir,
+      }),
+    ]);
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        comboId: "bad-combo",
+        runDir: brokenRunDir,
+        reason: "malformed_combo_record",
+      }),
+    ]);
+  });
+
   it("returns detection errors for malformed runtime ledgers instead of trusting partial state", () => {
     const base = home();
     const runDir = writeRun(base);
