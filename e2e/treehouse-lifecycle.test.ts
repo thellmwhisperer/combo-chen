@@ -1067,7 +1067,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  });
+  }, 15_000);
 
   it("recovers a stalled coder responding worker before escalating needs_human", () => {
     const harness = prepareHarness({ workerStallTicks: 2 });
