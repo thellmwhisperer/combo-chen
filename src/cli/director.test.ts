@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~1740 lines, initial-gate retry, READY, conflict recovery, auto-closure, and worker monitoring.
+ * @overview Unit tests for director CLI helpers. ~1800 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and stall recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -499,6 +499,94 @@ describe("tickDirector", () => {
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "gatekeeper" }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker gatekeeper unchanged pane for 2 ticks"));
+  });
+
+  it("recovers stalled coder responding until the configured attempt budget is exhausted", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const windows = new Set(["coder-responding"]);
+    writeCombo(runDir, record);
+    writeCoderThreadArtifact(runDir);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "review_comment", {
+      author: "external-reviewer",
+      kind: "review_comment",
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+    });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      env: {
+        COMBO_CHEN_WORKER_STALL_TICKS: "2",
+        COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS: "2",
+      },
+      tmux: (args) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: `${[...windows].join("\n")}\n`, stderr: "" };
+        }
+        if (args[0] === "list-panes") {
+          const target = String(args.at(2) ?? "");
+          const window = target.split(":").at(1) ?? "";
+          return windows.has(window)
+            ? { status: 0, stdout: "0\n", stderr: "" }
+            : { status: 1, stdout: "", stderr: "missing window" };
+        }
+        if (args[0] === "capture-pane") {
+          return { status: 0, stdout: "waiting for coder responding\n", stderr: "" };
+        }
+        if (args[0] === "kill-window") {
+          const target = String(args.at(2) ?? "");
+          const window = target.split(":").at(1) ?? "";
+          windows.delete(window);
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "new-window") {
+          windows.add(String(args.at(4) ?? ""));
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(0);
+    expect(readEvents(runDir).filter((event) => event.event === "worker_recovered")).toHaveLength(0);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(1);
+    expect(readEvents(runDir).filter((event) => event.event === "worker_recovered")).toHaveLength(1);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(1);
+    expect(readEvents(runDir).filter((event) => event.event === "worker_recovered")).toHaveLength(1);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(2);
+    expect(readEvents(runDir).filter((event) => event.event === "worker_recovered")).toHaveLength(2);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(2);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_stalled",
+        worker: "coder-responding",
+        detail: "recovery attempts exhausted after 2; unchanged pane for 2 ticks",
+      }),
+    );
+    expect(out).toContain("director: recovered stalled coder-responding attempt 1/2");
+    expect(out).toContain("director: recovered stalled coder-responding attempt 2/2");
   });
 
   it("keeps polling post-PR reviewer verdicts without treating retained coder and gatekeeper panes as active workers", async () => {
