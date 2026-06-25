@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~710 lines, activate, nudge, and recovery flows.
+ * @overview Unit tests for coder-response CLI helpers. ~750 lines, activate, nudge, and recovery flows.
  *
  *   READING GUIDE
  *   -------------
@@ -707,6 +707,45 @@ describe("recoverStalledWorker", () => {
     expect(setBufferCalls[0]?.[4]).toContain("`whoami`");
     expect(setBufferCalls[0]?.[4]).toContain("$(touch nope)");
     expect(setBufferCalls[0]?.[4]).toContain("second line");
+  });
+
+  it("does not touch tmux when asked to recover a different worker", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+
+    writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
+    appendEvent(runDir, "review_comment", {
+      author: "external-reviewer",
+      kind: "review_comment",
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+    });
+
+    const recovered = recoverStalledWorker({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      recovery: {
+        worker: "reviewer",
+        reason: "worker_stalled",
+        detail: "unchanged pane for 2 ticks",
+        attempt: 1,
+        maxAttempts: 2,
+      },
+    });
+
+    expect(recovered).toBe(false);
+    expect(calls).toEqual([]);
+    expect(readEvents(runDir).some((event) => event.event === "worker_recovered")).toBe(false);
   });
 });
 // -/ 3/3
