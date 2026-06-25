@@ -6,14 +6,14 @@
  *   1. Start at activateCoder         <- starts resumed coder worker.
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
  *   3. Then nudgePrConflict           <- routes base-advanced and local PR-head sync conflicts.
- *   4. Then recoverStalledWorker      <- recreates recoverable coder responding mode.
+ *   4. Then recoverStuckWorker         <- recreates recoverable coder responding mode.
  *   5. Then recoverDeadCoder          <- restarts the initial pre-PR runner.
  *   6. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
  *   activateCoder -> tmux worker; nudgeReviewComments/nudgePrConflict -> coder responding prompt
- *     -> recoverStalledWorker/recoverDeadCoder -> restart the right worker path
+ *     -> recoverStuckWorker/recoverDeadCoder -> restart the right worker path
  *
  *   PUBLIC API
  *   ----------
@@ -24,14 +24,14 @@
  *   nudgeReviewComments        Route fresh review comments to the coder.
  *   buildPrConflictNudgePrompt Render deterministic conflict/sync-recovery prompt.
  *   nudgePrConflict            Route a dirty/conflicting or out-of-sync PR to coder responding.
- *   recoverStalledWorker       Recreate coder responding and replay the last prompt.
+ *   recoverStuckWorker         Recreate coder responding and replay the last prompt.
  *   recoverDeadCoder           Recreate the initial coder runner before a PR exists.
  *
  *   INTERNALS
  *   ---------
  *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow, latestRoutedCoderPrompt
  *
- * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StalledWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict, recoverStalledWorker, recoverDeadCoder
+ * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StuckWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict, recoverStuckWorker, recoverDeadCoder
  * @deps ../core/{combo,events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate, ./sessions
  */
 import { existsSync } from "node:fs";
@@ -87,7 +87,7 @@ export interface PrConflictNudge {
   localSha?: string;
 }
 
-export interface StalledWorkerRecovery {
+export interface StuckWorkerRecovery {
   worker: string;
   reason: "worker_stalled" | "worker_permission_prompt";
   detail: string;
@@ -344,11 +344,11 @@ export function nudgePrConflict(input: {
   deps.out(`nudged pr_conflict ${conflict.prUrl}`);
 }
 
-export function recoverStalledWorker(input: {
+export function recoverStuckWorker(input: {
   deps: ActivateCoderDeps;
   home: string;
   comboId: string;
-  recovery: StalledWorkerRecovery;
+  recovery: StuckWorkerRecovery;
 }): boolean {
   const { deps, home, comboId, recovery } = input;
   const runDir = runDirFor(home, comboId);
