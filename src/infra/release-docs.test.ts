@@ -62,7 +62,9 @@ describe("release docs", () => {
       expect(doc).toContain("downloads the selected archive and checksums.txt");
       expect(doc).toContain("verifies the checksum before extraction");
       expect(doc).toContain("reports failures before replacement");
-      expect(doc).toContain("live combo/session integration is owned by #72");
+      expect(doc).toContain("checks persisted active combo runtime state");
+      expect(doc).toContain("requires `-y/--yes`");
+      expect(doc).toContain("aborts before staging");
       expect(doc).toContain("U0 update contract bridge");
       expect(doc).toContain("ReadOnlyUpdatePlan");
       expect(doc).toContain("detectActiveComboRuntime({ home, cli })");
@@ -71,7 +73,8 @@ describe("release docs", () => {
       expect(doc).toContain("U1: release resolver and latest/beta check flow");
       expect(doc).toContain("U2: download, checksum verification, and staging");
       expect(doc).toContain("U3: install target and atomic replacement");
-      expect(doc).toContain("U4: live combo/session integration owned by #72");
+      expect(doc).toContain("U72-B: active-runtime safety prompts and yes flag policy");
+      expect(doc).toContain("U72-C: post-update daemon and runner refresh");
     }
   });
 

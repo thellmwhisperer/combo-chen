@@ -303,9 +303,11 @@ atomic replacement primitive. Checksum, download, and extraction failures are
 explicit: the command reports failures before replacement and leaves the
 previous installation intact.
 Unsupported source checkouts and package-manager dev shims fail with useful
-non-auto-replaceable errors. The live combo/session integration is owned by
-#72; the active update command does not restart daemons, inspect running
-capsules, or apply passive update notices.
+non-auto-replaceable errors. When a newer candidate exists, the command checks
+persisted active combo runtime state. Active or uncertain runtime state prints a
+concise warning and requires `-y/--yes`; without it, the update aborts before
+staging. The command does not restart daemons, refresh live runners, or apply
+passive update notices.
 
 ## U0 update contract bridge and updater slices
 
@@ -360,9 +362,11 @@ Completed updater slices:
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
 
-Remaining follow-up slices:
+Follow-up #72 slices:
 
-- U4: live combo/session integration owned by #72.
+- U72-B: active-runtime safety prompts and yes flag policy.
+- U72-C: post-update daemon and runner refresh.
+- U72-D: passive update notices and cache.
 
 ## Commands
 

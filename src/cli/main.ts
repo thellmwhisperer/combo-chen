@@ -294,7 +294,7 @@ export function createProgram(deps: Deps): Command {
     .option("-y, --yes", "Confirm replacement without prompting", false)
     .action(async (options: { beta?: boolean; yes?: boolean }) => {
       const updateDeps: UpdateCommandDeps = {
-        ...defaultUpdateCommandDeps({ gh: deps.gh, out: deps.out }),
+        ...defaultUpdateCommandDeps({ gh: deps.gh, out: deps.out, env: deps.env }),
         ...deps.update,
       };
       await runUpdateCommand({

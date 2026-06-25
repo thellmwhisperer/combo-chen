@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~350 lines, 4 exports, wires release resolution, verified staging, and installer replacement.
+ *   ~390 lines, 4 exports, wires release resolution, active-runtime safety, verified staging, and installer replacement.
  *
  *   READING GUIDE
  *   -------------
@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   gh releases -> read-only plan -> download/checksum/stage -> guarded replacement -> user output
+ *   gh releases -> read-only plan -> active-runtime guard -> download/checksum/stage -> guarded replacement -> user output
  *
  *   PUBLIC API
  *   ----------
@@ -21,16 +21,21 @@
  *
  *   INTERNALS
  *   ---------
- *   fetchGitHubReleases, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   fetchGitHubReleases, activeRuntimeWarning, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand
- * @deps node:{child_process,fs,os,path}, ../core/{update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
+ * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  detectActiveComboRuntime,
+  type ActiveComboRuntimeDetection,
+} from "../core/active-runtime.js";
+import { comboHome } from "../core/state.js";
 import {
   classifyInstallTarget,
   type CurrentBuildMetadata,
@@ -80,6 +85,7 @@ export interface UpdateCommandDeps {
   remove: (path: string) => Promise<void> | void;
   extractArchive: (input: UpdateExtractionInput) => Promise<UpdateExtractionResult> | UpdateExtractionResult;
   replaceInstallTarget: (input: InstallReplacementInput) => InstallReplacementResult;
+  activeRuntime: () => ActiveComboRuntimeDetection;
 }
 
 export interface UpdateCommandOptions {
@@ -92,6 +98,7 @@ export function defaultUpdateCommandDeps(input: {
   gh: UpdateCommandDeps["gh"];
   out: UpdateCommandDeps["out"];
   argv1?: string;
+  env?: Record<string, string | undefined>;
 }): UpdateCommandDeps {
   return {
     gh: input.gh,
@@ -119,6 +126,11 @@ export function defaultUpdateCommandDeps(input: {
     },
     extractArchive: defaultExtractArchive,
     replaceInstallTarget: (replacement) => replaceInstallTargetFromStagedArtifact(replacement),
+    activeRuntime: () =>
+      detectActiveComboRuntime({
+        home: comboHome(input.env ?? process.env),
+        cli: input.argv1 ?? process.argv[1],
+      }),
   };
 }
 // -/ 1/3
@@ -168,6 +180,11 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
 
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
+  enforceActiveRuntimeSafety({
+    detection: options.deps.activeRuntime(),
+    yes: options.yes,
+    out: options.deps.out,
+  });
   if (!options.yes) {
     throw new Error(`confirmation required; rerun with -y/--yes to install ${candidateVersion}`);
   }
@@ -236,6 +253,48 @@ function fetchGitHubReleases(gh: UpdateCommandDeps["gh"]): GitHubReleaseMetadata
     throw new Error("gh release query returned invalid JSON: expected an array");
   }
   return parsed.map(parseRelease);
+}
+
+function enforceActiveRuntimeSafety(input: {
+  detection: ActiveComboRuntimeDetection;
+  yes: boolean;
+  out: UpdateCommandDeps["out"];
+}): void {
+  const warning = activeRuntimeWarning(input.detection);
+  if (warning === undefined) return;
+
+  input.out(warning);
+  if (!input.yes) {
+    throw new Error(activeRuntimeConfirmationError(input.detection));
+  }
+}
+
+function activeRuntimeWarning(detection: ActiveComboRuntimeDetection): string | undefined {
+  if (detection.status === "active") {
+    return `warning: active combo runtime detected: ${activeRuntimeSummary(detection)}`;
+  }
+  if (detection.status === "error" || detection.status === "stale") {
+    const staleCount = detection.staleCombos.length;
+    const errorCount = detection.errors.length;
+    const staleText = `${staleCount} stale run${staleCount === 1 ? "" : "s"}`;
+    const errorText = `${errorCount} detection error${errorCount === 1 ? "" : "s"}`;
+    return `warning: active combo runtime state is uncertain: ${staleText}, ${errorText}`;
+  }
+  return undefined;
+}
+
+function activeRuntimeSummary(detection: ActiveComboRuntimeDetection): string {
+  const activeCombos = detection.activeCombos.map((combo) => `${combo.comboId}(${combo.phase})`);
+  if (activeCombos.length > 0) return activeCombos.join(", ");
+  if (detection.comboIds.length > 0) return detection.comboIds.join(", ");
+  return "unknown";
+}
+
+function activeRuntimeConfirmationError(detection: ActiveComboRuntimeDetection): string {
+  if (detection.status === "active") {
+    return "active combo runtime detected; rerun with -y/--yes to update anyway";
+  }
+  return "active combo runtime state could not be verified; rerun with -y/--yes to update anyway";
 }
 
 function parseRelease(value: unknown): GitHubReleaseMetadata {
