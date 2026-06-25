@@ -456,9 +456,14 @@ function recoverWorkerFindings(input: {
   let recovered = false;
   const actioned = new Set<string>();
   for (const finding of input.findings) {
+    const isStalledOrPrompt = (finding.reason === "worker_stalled" ||
+      finding.reason === "worker_permission_prompt") &&
+      finding.worker === input.coderRespondingWindowName;
+    const isDeadCoder = finding.reason === "worker_dead" &&
+      finding.worker === CODER_WINDOW;
+
     if (
-      (finding.reason !== "worker_stalled" && finding.reason !== "worker_permission_prompt") ||
-      finding.worker !== input.coderRespondingWindowName ||
+      (!isStalledOrPrompt && !isDeadCoder) ||
       finding.needsHumanRecorded ||
       actioned.has(`${finding.worker}:${finding.reason}`)
     ) {
@@ -476,7 +481,7 @@ function recoverWorkerFindings(input: {
       );
       continue;
     }
-    if (finding.reason === "worker_dead" && finding.worker === CODER_WINDOW) {
+    if (finding.reason === "worker_dead") {
       try {
         const didRecover = recoverDeadCoder({
           deps: input.deps,
@@ -511,12 +516,6 @@ function recoverWorkerFindings(input: {
           max_attempts: input.maxAttempts,
         });
       }
-      continue;
-    }
-    if (
-      (finding.reason !== "worker_stalled" && finding.reason !== "worker_permission_prompt") ||
-      finding.worker !== input.coderRespondingWindowName
-    ) {
       continue;
     }
     try {
