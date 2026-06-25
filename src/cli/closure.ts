@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   combo id -> runtime ledger PR URL -> gh pr view MERGED -> merged event -> no-mistakes idle -> teardown -> tmux kill -> combo_closed
+ *   combo id -> runtime ledger PR URL -> gh pr view MERGED -> merged event -> no-mistakes idle -> teardown -> combo_closed -> tmux kill
  *
  *   PUBLIC API
  *   ----------
@@ -126,6 +126,8 @@ export async function closeMergedCombo(input: {
     return;
   }
 
+  appendEvent(runDir, "combo_closed", { source: "closure" });
+
   let session: KillComboSessionResult;
   try {
     session = killComboSession(input.deps, combo);
@@ -137,7 +139,6 @@ export async function closeMergedCombo(input: {
     session = "already_missing";
   }
 
-  appendEvent(runDir, "combo_closed", { source: "closure" });
   input.deps.out(
     `closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; ` +
       `${closureCompletion(teardown, session)}`,
