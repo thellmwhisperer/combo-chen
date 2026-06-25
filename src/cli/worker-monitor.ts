@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~280 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~310 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -178,6 +178,7 @@ export interface WorkerPaneMonitorInput {
   runDir: string;
   workerWindows: string[];
   stallTicks?: number;
+  recoverableDeadWorkers?: string[];
   recoverableStalledWorkers?: string[];
   permissionPromptPatterns?: string[];
 }
@@ -186,6 +187,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const { deps, combo, runDir } = input;
   const summaries: string[] = [];
   const findings: WorkerPaneFinding[] = [];
+  const recoverableDeadWorkers = new Set(input.recoverableDeadWorkers ?? []);
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) {
     const detail = listed.stderr.trim() || "tmux list-windows failed";
@@ -197,7 +199,14 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
     const deadDetail = session.stderr.trim() || detail;
     for (const worker of new Set(input.workerWindows)) {
-      findings.push(recordFinding({ runDir, deps, worker, reason: "worker_dead", detail: deadDetail }));
+      findings.push(recordFinding({
+        runDir,
+        deps,
+        worker,
+        reason: "worker_dead",
+        detail: deadDetail,
+        deferNeedsHuman: recoverableDeadWorkers.has(worker),
+      }));
     }
     summaries.push(`workers unavailable: ${deadDetail}`);
     return { escalated: true, summaries, findings };
@@ -217,7 +226,14 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
 
     const panePids = deps.tmux(listPanesArgs(combo.tmuxSession, worker));
     if (panePids.status !== 0 || panePids.stdout.trim() === "") {
-      findings.push(recordFinding({ runDir, deps, worker, reason: "worker_dead", detail: "dead pane" }));
+      findings.push(recordFinding({
+        runDir,
+        deps,
+        worker,
+        reason: "worker_dead",
+        detail: "dead pane",
+        deferNeedsHuman: recoverableDeadWorkers.has(worker),
+      }));
       escalated = true;
       continue;
     }
@@ -230,6 +246,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
         worker,
         reason: "worker_dead",
         detail: captured.stderr.trim() || "capture failed",
+        deferNeedsHuman: recoverableDeadWorkers.has(worker),
       }));
       escalated = true;
       continue;
@@ -253,8 +270,9 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
         runDir,
         deps,
         worker,
-        reason: "worker_stalled",
+        reason: "worker_dead",
         detail: "gnhf stopped without success",
+        deferNeedsHuman: recoverableDeadWorkers.has(worker),
       }));
       escalated = true;
       continue;
