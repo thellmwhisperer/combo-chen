@@ -235,7 +235,7 @@ describe("command surface", () => {
     );
   });
 
-  it("wires update --yes through release resolution, staging, and replacement", async () => {
+  it("wires update --yes through idle runtime detection, release resolution, staging, and replacement", async () => {
     const archiveBytes = Buffer.from("release archive bytes");
     const archiveSha = createHash("sha256").update(archiveBytes).digest("hex");
     const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
@@ -244,6 +244,7 @@ describe("command surface", () => {
     const extracts: unknown[] = [];
     const writes = new Map<string, string>();
     const replacements: unknown[] = [];
+    let detectionCalls = 0;
     const { deps, calls, out } = fakeDeps({
       gh: (args) => {
         calls.push(["gh", ...args]);
@@ -277,6 +278,10 @@ describe("command surface", () => {
         installTargetPath: "/opt/combo-chen-v1.2.0/bin/combo-chen",
         platform: "linux",
         arch: "x64",
+        activeRuntime: () => {
+          detectionCalls += 1;
+          return idleActiveRuntime();
+        },
         makeStagingDir: () => stagingDir,
         async download(request) {
           downloads.push(request);
@@ -317,6 +322,7 @@ describe("command surface", () => {
 
     await exec(deps, ["update", "--yes"]);
 
+    expect(detectionCalls).toBe(1);
     expect(calls).toContainEqual(["gh", "api", "repos/thellmwhisperer/combo-chen/releases?per_page=100"]);
     expect(downloads).toEqual([
       {
@@ -435,6 +441,7 @@ describe("command surface", () => {
 
   it("aborts update when active combo runtime exists and --yes is absent", async () => {
     const assetName = "combo-chen-v1.2.1-linux-x64.tar.gz";
+    const unsafeComboId = "o-r-7\n$(touch .tmp/issue192-pwn)";
     const downloads: unknown[] = [];
     const replacements: unknown[] = [];
     const { deps, out } = fakeDeps({
@@ -472,11 +479,11 @@ describe("command surface", () => {
         activeRuntime: () => ({
           status: "active",
           active: true,
-          comboIds: ["o-r-7"],
+          comboIds: [unsafeComboId],
           inspectedRunDirs: ["/home/combo/runs/o-r-7"],
           activeCombos: [
             {
-              comboId: "o-r-7",
+              comboId: unsafeComboId,
               runDir: "/home/combo/runs/o-r-7",
               phase: "CODING",
               needsHuman: false,
@@ -521,8 +528,9 @@ describe("command surface", () => {
     expect(replacements).toEqual([]);
     expect(out).toEqual([
       "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
-      "warning: active combo runtime detected: o-r-7(CODING)",
+      "warning: active combo runtime detected: o-r-7 $(touch .tmp/issue192-pwn)(CODING)",
     ]);
+    expect(out.every((line) => !line.includes("\n"))).toBe(true);
   });
 
   it("aborts update when active runtime detection throws before staging", async () => {

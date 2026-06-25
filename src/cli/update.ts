@@ -21,7 +21,7 @@
  *
  *   INTERNALS
  *   ---------
- *   fetchGitHubReleases, detectActiveRuntimeForUpdate, activeRuntimeWarning, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   fetchGitHubReleases, detectActiveRuntimeForUpdate, activeRuntimeWarning, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand
  * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
@@ -305,10 +305,19 @@ function activeRuntimeWarning(detection: ActiveComboRuntimeDetection): string | 
 }
 
 function activeRuntimeSummary(detection: ActiveComboRuntimeDetection): string {
-  const activeCombos = detection.activeCombos.map((combo) => `${combo.comboId}(${combo.phase})`);
+  const activeCombos = detection.activeCombos.map(
+    (combo) => `${displayRuntimeToken(combo.comboId)}(${displayRuntimeToken(combo.phase)})`,
+  );
   if (activeCombos.length > 0) return activeCombos.join(", ");
-  if (detection.comboIds.length > 0) return detection.comboIds.join(", ");
+  if (detection.comboIds.length > 0) {
+    return detection.comboIds.map((comboId) => displayRuntimeToken(comboId)).join(", ");
+  }
   return "unknown";
+}
+
+function displayRuntimeToken(value: string): string {
+  const singleLine = value.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+  return singleLine.length > 0 ? singleLine : "unknown";
 }
 
 function activeRuntimeConfirmationError(detection: ActiveComboRuntimeDetection): string {
