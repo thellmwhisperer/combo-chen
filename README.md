@@ -437,6 +437,10 @@ Recovery playbook:
 - Pre-PR coder dead/stalled: the director auto-restarts dead pre-PR coder
   workers and stalled coder-responding windows up to the configured recovery
   budget. After the budget is exhausted a `needs_human` event is journaled.
+- Worker permission prompts: the `[monitor].permission_prompt_policy` knob
+  (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
+  interactive prompts are auto-approved, trigger coder-responding recreation, or
+  escalate to `needs_human`. Default is `escalate`.
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
   rerun reviewer activation or prompt the reviewer without changing the coder
   branch.
@@ -533,7 +537,7 @@ heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
 justification), pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
-stalled coder-responding recovery with bounded retries, current-head READY agreement with base-advance conflict
+stalled coder-responding recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (separate coder, journal, gatekeeper/live,
 gate-runner, and director-watch windows; raw event output never replaces the
