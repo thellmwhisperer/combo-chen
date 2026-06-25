@@ -60,7 +60,7 @@ Hard rule: `reviewer != coder`.
    on its next tick and auto-triggers `closure` convergence: it verifies
    GitHub reports MERGED, records any missing `merged` event, refuses
    teardown while no-mistakes is active, returns the Treehouse worktree lease,
-   removes the branch, kills the tmux session, and journals `combo_closed`.
+   removes the branch, journals `combo_closed`, and kills the tmux session.
    The manual `combo-chen closure -n <combo-id>` remains as a fallback.
    The reviewer and director-watch report the closure command to run when
    `combo_closed` is already journaled. Reconcile can record a
