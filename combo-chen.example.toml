@@ -152,8 +152,12 @@ command = "claude {prompt}"
 
 [monitor]
 # Environment overrides: COMBO_CHEN_WORKER_STALL_TICKS,
+# COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS,
 # COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS.
 worker_stall_ticks = 3
+# Stalled coder-responding workers are recreated and re-prompted this many
+# times before needs_human reason=worker_stalled is journaled.
+worker_stall_recovery_attempts = 2
 permission_prompt_patterns = [
   '^\s*Do you want to (?:proceed|continue)\?\s*(?:\[[yn]/[yn]\])?\s*$',
   '^\s*(?:Allow|Approve|Confirm)\?\s*\[[yn]/[yn]\]\s*$',
