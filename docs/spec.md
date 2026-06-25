@@ -461,7 +461,7 @@ ignored config or environment outside that file.
   review/conflict prompt, and journals `worker_recovered`. Recovery failures
   (worker mismatch or tmux/git errors) journal `worker_recovery_failed`
   (required fields `worker`, `reason`, `attempt`); both events count toward
-  the attempt budget. After `[monitor].worker_stall_recovery_attempts`
+  the attempt budget. After `[monitor].worker_recovery_attempts`
   recoveries for the same worker/reason, the next finding journals
   `needs_human`.
 - Attention surface: tmux window titles + the default parallel capsule

@@ -878,7 +878,7 @@ describe("tickDirector", () => {
       [
         "[monitor]",
         "permission_prompt_policy = 'recreate-non-interactive'",
-        "worker_stall_recovery_attempts = 1",
+        "worker_recovery_attempts = 1",
       ].join("\n"),
     );
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
