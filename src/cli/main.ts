@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1081 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1100 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,director,gatekeeper},
- *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./pr-labels, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./passive-update, ./pr-labels, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -109,6 +109,12 @@ import {
   renderOvertureChecklist,
 } from "./overture.js";
 import { parkCombo } from "./park.js";
+import {
+  defaultPassiveUpdateCommandDeps,
+  runPassiveUpdateCheck,
+  shouldRunPassiveUpdateForCommand,
+  type PassiveUpdateCliDeps,
+} from "./passive-update.js";
 import { syncComboPrLabels } from "./pr-labels.js";
 import { reconcileCombos } from "./reconcile.js";
 import { resumeCombo } from "./resume.js";
@@ -145,6 +151,7 @@ export interface Deps {
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
   update?: Partial<UpdateCommandDeps>;
+  passiveUpdate?: Partial<PassiveUpdateCliDeps>;
 }
 
 export function defaultDeps(): Deps {
@@ -286,6 +293,17 @@ export function createProgram(deps: Deps): Command {
   program.exitOverride();
   program.description("The parallel capsule director for autonomous work-item → PR pipelines.");
   program.version(formatReleaseMetadata(releaseMetadata), "-v, --version", "Print release build metadata");
+  program.hook("preAction", async (_program, actionCommand) => {
+    if (!shouldRunPassiveUpdateForCommand(actionCommand.name())) return;
+    try {
+      await runPassiveUpdateCheck({
+        ...defaultPassiveUpdateCommandDeps({ env: deps.env, gh: deps.gh }),
+        ...deps.passiveUpdate,
+      });
+    } catch {
+      // Passive update checks must never affect the command they shadow.
+    }
+  });
 
   program
     .command("update")

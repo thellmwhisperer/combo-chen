@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~430 lines, 4 exports, wires release resolution, active-runtime safety, verified staging, and installer replacement.
+ *   ~430 lines, 5 exports, wires release resolution, active-runtime safety, verified staging, and installer replacement.
  *
  *   READING GUIDE
  *   -------------
@@ -18,12 +18,13 @@
  *   UpdateCommandOptions       Parsed command flags.
  *   defaultUpdateCommandDeps   Production adapters for the update command.
  *   runUpdateCommand           Active self-update command implementation.
+ *   fetchGitHubReleases        Shared GitHub Releases metadata adapter.
  *
  *   INTERNALS
  *   ---------
  *   fetchGitHubReleases, detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
- * @exports UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand
+ * @exports UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
  * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
  */
 import { spawnSync } from "node:child_process";
@@ -236,7 +237,7 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
 // -/ 2/3
 
 // -- 3/3 HELPER · GitHub release metadata + extraction adapters --
-function fetchGitHubReleases(gh: UpdateCommandDeps["gh"]): GitHubReleaseMetadata[] {
+export function fetchGitHubReleases(gh: UpdateCommandDeps["gh"]): GitHubReleaseMetadata[] {
   const result = gh(["api", UPDATE_REPOSITORY_API_PATH]);
   if (result.status !== 0) {
     throw new Error(`gh release query failed: ${commandError(result)}`);

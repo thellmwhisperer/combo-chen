@@ -309,6 +309,17 @@ concise warning and requires `-y/--yes`; without it, the update aborts before
 staging. The command does not restart daemons, refresh live runners, or apply
 passive update notices.
 
+Normal public CLI commands also run quiet passive update checks. The check
+reuses the same GitHub Releases resolution contract as `combo-chen update`, but
+only records a local summary in
+`$COMBO_CHEN_HOME/passive-update-cache.json` (default
+`~/.combo-chen/passive-update-cache.json`). Fresh cache entries are reused for
+24 hours. Set `COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS=1` to skip the cache and
+release lookup entirely. Cache misses, malformed cache files, cache write
+failures, and network or GitHub errors are ignored and never fail the command
+being run. Passive checks are quiet: they do not write stdout or stderr, so
+JSON/JSONL command output stays machine-readable.
+
 ## U0 update contract bridge and updater slices
 
 U0, U1, U2, and U3 together span the updater contract from release identity

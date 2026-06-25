@@ -573,6 +573,18 @@ uncertain runtime state prints a concise warning and requires `-y/--yes`;
 without it, the update aborts before staging. The command does not restart
 daemons, refresh live runners, or apply passive update notices.
 
+Normal public CLI commands also run quiet passive update checks. The check uses
+the same GitHub Releases resolution contract as the active updater, but it only
+persists a summary cache at
+`$COMBO_CHEN_HOME/passive-update-cache.json` (default
+`~/.combo-chen/passive-update-cache.json`). The default TTL is 24 hours for the
+same current build and release mode. Setting
+`COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS=1` disables cache reads, GitHub
+release lookups, and cache writes for passive checks. Cache misses, malformed
+cache files, cache write failures, and network or GitHub errors are swallowed
+and never fail the command being run. Passive checks are quiet and do not write
+stdout or stderr, preserving JSON/JSONL command output.
+
 ### U0 update contract bridge
 
 U0 is the read-only update contract bridge between release production and the
