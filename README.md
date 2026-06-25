@@ -53,8 +53,10 @@ combo-chen makes the process explicit.
    (`combo:working-coder`, `combo:working-reviewer`, `combo:working-gate`,
    `combo:lgtm`, `combo:external-review-green`, `combo:ready`, `combo:stale`,
    `combo:conflict`), leaving a visible path through the workflow timeline.
-10. After the human merges the PR, `combo-chen closure -n <combo-id>` converges
-   local resources deterministically.
+10. After the human merges the PR, the director-watch loop detects the merge
+    and auto-triggers `closure` to converge local resources deterministically.
+    The manual `combo-chen closure -n <combo-id>` remains available as a
+    fallback.
 
 The human still owns the merge.
 
@@ -86,7 +88,7 @@ combo-chen run (--issue <url> | --plan <file>)
 ready_for_merge
     |
     v
-human merge -> combo-chen closure -n <combo-id>
+human merge -> director-watch auto-closure -> combo_closed
 ```
 
 ## What Makes It Different
@@ -390,13 +392,16 @@ consume it automatically.
   GitHub and gatekeeper state. Its table includes active branch-scoped gate
   lease owners when no-mistakes is reserved by combos. Before rendering, `status`
   quietly closes closed-PR salvage cases. For merged PRs it records the merge
-  fact, leaves resources untouched, and keeps the row visible as `closure_pending` until
-  `combo-chen closure -n <combo-id>` records `combo_closed`. If a non-terminal
+  fact, leaves resources untouched, and keeps the row visible as
+  `closure_pending` until the director-watch loop (or a manual
+  `combo-chen closure -n <combo-id>`) records `combo_closed`. If a non-terminal
   combo no longer has its tmux session, status journals `tmux_missing` so it is
   shown as needing human attention instead of looking supervised.
 - `combo-chen closure -n <combo-id>` is the canonical merged happy-path cleanup
-  command. Reviewer/director-watch and status can record or report the merge
-  fact, but they leave resource convergence to closure.
+  command. The director-watch loop auto-triggers closure on merge detection;
+  the manual command remains as a fallback. Reviewer/director-watch and status
+  can record or report the merge fact, but the closure logic owns resource
+  convergence.
 - `park` writes a local handoff and stops tmux without making the combo
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream
@@ -436,9 +441,10 @@ Recovery playbook:
   branch.
 - Gate lease contention: for same-branch conflicts, inspect the lease owner in
   `status`, then resolve stale/conflicting ownership before retrying the gate.
-- Post-merge closure: run `combo-chen closure -n <combo-id>` after GitHub reports
-  `MERGED`; status/reviewer may record the merge fact but do not return the
-  Treehouse lease or delete local resources.
+- Post-merge closure: director-watch auto-triggers `closure`
+  after GitHub reports `MERGED`; the manual `combo-chen closure -n <combo-id>`
+  remains as a fallback. Status/reviewer may record the merge fact, but the
+  closure logic owns resource convergence.
 
 Future parallel runs should leave postmortem metadata: wave size, combo ids,
 branches, PRs, gate-lease waits/conflicts, recovery commands used, final
@@ -512,7 +518,8 @@ observation with compact per-tick operator status lines, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),
 merged-PR `reconcile` with merge-fact recording only (resource convergence
 deferred to `closure`), deterministic `closure` for post-merge local resource
-convergence, director prompt delivery for code-2 verdicts, no-mistakes config propagation,
+convergence with director-watch auto-trigger on merge detection, director prompt
+delivery for code-2 verdicts, no-mistakes config propagation,
 read-only forensics reports with copy-ready Outcome blocks and markdown-only
 `--record-outcome` for posting dogfood outcomes to GitHub issues, coder safety
 validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),

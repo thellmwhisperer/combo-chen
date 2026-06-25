@@ -56,13 +56,14 @@ Hard rule: `reviewer != coder`.
     that SHA. If GitHub later reports an open READY PR as dirty or conflicting
     after the base advances, the director journals `pr_conflict`, invalidates
     READY back to REVIEWING, and nudges coder responding to rebase.
-8. After the human merges the PR, `combo-chen closure -n <combo-id>`
-   deterministically converges the combo's local resources: it verifies
+8. After the human merges the PR, the director-watch loop detects the merge
+   on its next tick and auto-triggers `closure` convergence: it verifies
    GitHub reports MERGED, records any missing `merged` event, refuses
    teardown while no-mistakes is active, returns the Treehouse worktree lease,
-   removes the branch, kills the tmux session, and journals `combo_closed`. The reviewer and
-   director-watch only record the merge fact and report the closure command
-   to run; they do not perform cleanup themselves. Reconcile can record a
+   removes the branch, kills the tmux session, and journals `combo_closed`.
+   The manual `combo-chen closure -n <combo-id>` remains as a fallback.
+   The reviewer and director-watch report the closure command to run when
+   `combo_closed` is already journaled. Reconcile can record a
    missing merge fact but similarly defers resource convergence to closure.
 
 Rate limits and transient GitHub/git/tmux errors are operational events. Log a
@@ -139,8 +140,9 @@ recovery need it, not on first-pass PR-open happy path), single `director-watch`
 observation with compact per-tick operator status lines, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),
 merged-PR `reconcile` with merge-fact recording only (resource convergence
-deferred to `closure`), deterministic `closure` for post-merge local resource
-convergence, director prompt delivery for code-2 verdicts, no-mistakes config propagation,
+deferred to `closure`), deterministic `closure` with director-watch auto-trigger
+for post-merge local resource convergence, director prompt delivery for code-2
+verdicts, no-mistakes config propagation,
 read-only forensics reports with copy-ready Outcome blocks and markdown-only
 `--record-outcome` for posting dogfood outcomes to GitHub issues, coder safety
 validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),
