@@ -1,16 +1,18 @@
 /**
- * @overview Coder-response CLI helpers. ~220 lines, 7 exports, review, conflict, and PR-head sync routing.
+ * @overview Coder-response CLI helpers. ~370 lines, 9 exports, review, conflict, stall recovery, and PR-head sync routing.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at activateCoder         <- starts resumed coder worker.
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
  *   3. Then nudgePrConflict           <- routes base-advanced and local PR-head sync conflicts.
- *   4. Dependency interfaces          <- test seams for tmux/git/gh.
+ *   4. Then recoverStalledWorker      <- recreates stalled coder responding mode.
+ *   5. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
  *   activateCoder -> tmux worker; nudgeReviewComments/nudgePrConflict -> coder responding prompt
+ *     -> recoverStalledWorker -> restart same worker with latest prompt
  *
  *   PUBLIC API
  *   ----------
@@ -21,21 +23,23 @@
  *   nudgeReviewComments        Route fresh review comments to the coder.
  *   buildPrConflictNudgePrompt Render deterministic conflict/sync-recovery prompt.
  *   nudgePrConflict            Route a dirty/conflicting or out-of-sync PR to coder responding.
+ *   recoverStalledWorker       Recreate coder responding and replay the last prompt.
  *
  *   INTERNALS
  *   ---------
- *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow
+ *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow, latestRoutedCoderPrompt
  *
- * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict
+ * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StalledWorkerRecovery, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict, recoverStalledWorker
  * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate
  */
-import { readEvents } from "../core/events.js";
+import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { listWindowsArgs, newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { killWindowArgs, listWindowsArgs, newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildCoderRespondingResumeCommand,
+  buildReviewNudgePrompt,
   fetchReviewCommentSignals,
   latestPrUrl,
   readCoderThreadArtifact,
@@ -66,6 +70,14 @@ export interface PrConflictNudge {
   baseRef?: string;
   publishedSha?: string;
   localSha?: string;
+}
+
+export interface StalledWorkerRecovery {
+  worker: string;
+  reason: "worker_stalled";
+  detail: string;
+  attempt: number;
+  maxAttempts: number;
 }
 // -/ 1/3
 
@@ -124,6 +136,42 @@ function reviewCommentHeadSha(
   events: ReturnType<typeof readEvents>,
 ): string {
   return latestPublishedGateSha(events) ?? worktreeHeadSha(deps, combo);
+}
+
+function stringField(event: ComboEvent, field: string): string | undefined {
+  const value = event[field];
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+function latestRoutedCoderPrompt(events: ComboEvent[], reviewNudgePrompt: string): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "review_comment") {
+      const author = stringField(event, "author");
+      const kind = stringField(event, "kind");
+      const url = stringField(event, "url");
+      if (author !== undefined && kind !== undefined && url !== undefined) {
+        return buildReviewNudgePrompt({ author, kind, url }, reviewNudgePrompt);
+      }
+    }
+    if (event.event === "pr_conflict") {
+      const prUrl = stringField(event, "pr_url");
+      const headSha = stringField(event, "sha");
+      const mergeState = stringField(event, "merge_state");
+      if (prUrl !== undefined && headSha !== undefined && mergeState !== undefined) {
+        return buildPrConflictNudgePrompt({
+          prUrl,
+          headSha,
+          mergeState,
+          ...(stringField(event, "mergeable") !== undefined ? { mergeable: stringField(event, "mergeable") } : {}),
+          ...(stringField(event, "base_ref") !== undefined ? { baseRef: stringField(event, "base_ref") } : {}),
+          ...(stringField(event, "published_sha") !== undefined ? { publishedSha: stringField(event, "published_sha") } : {}),
+          ...(stringField(event, "local_sha") !== undefined ? { localSha: stringField(event, "local_sha") } : {}),
+        });
+      }
+    }
+  }
+  return undefined;
 }
 
 // -- 2/3 CORE · activateCoder <- START HERE --
@@ -271,5 +319,51 @@ export function nudgePrConflict(input: {
     }
   }
   deps.out(`nudged pr_conflict ${conflict.prUrl}`);
+}
+
+export function recoverStalledWorker(input: {
+  deps: ActivateCoderDeps;
+  home: string;
+  comboId: string;
+  recovery: StalledWorkerRecovery;
+}): boolean {
+  const { deps, home, comboId, recovery } = input;
+  const runDir = runDirFor(home, comboId);
+  const combo = readCombo(runDir);
+  const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
+  if (recovery.worker !== config.coderRespondingWindowName) return false;
+
+  const prompt = latestRoutedCoderPrompt(readEvents(runDir), config.reviewNudgePrompt);
+  if (prompt === undefined) {
+    throw new Error(`No routed coder prompt available to recover ${recovery.worker}`);
+  }
+  readCoderThreadArtifact(runDir);
+
+  const killed = deps.tmux(killWindowArgs(combo.tmuxSession, config.coderRespondingWindowName));
+  if (killed.status !== 0) {
+    throw new Error(`tmux failed to kill ${config.coderRespondingWindowName}: ${killed.stderr.trim() || "unknown error"}`);
+  }
+  ensureCoderRespondingWindow({
+    deps,
+    combo,
+    runDir,
+    windowName: config.coderRespondingWindowName,
+    resumeCommand: config.coderResumeCommand,
+  });
+  for (const args of nudgeWindowArgs(combo.tmuxSession, config.coderRespondingWindowName, prompt)) {
+    const result = deps.tmux(args);
+    if (result.status !== 0) {
+      throw new Error(`tmux stalled-worker recovery nudge failed: ${result.stderr.trim() || "unknown error"}`);
+    }
+  }
+  appendEvent(runDir, "worker_recovered", {
+    worker: recovery.worker,
+    reason: recovery.reason,
+    detail: recovery.detail,
+    attempt: recovery.attempt,
+    max_attempts: recovery.maxAttempts,
+  });
+  deps.out(`director: recovered stalled ${recovery.worker} attempt ${recovery.attempt}/${recovery.maxAttempts}`);
+  return true;
 }
 // -/ 3/3

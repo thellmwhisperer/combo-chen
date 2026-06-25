@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~750 lines, 14 exports.
+ *   Repo wins on policy, user wins on local setup. ~790 lines, 15 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -23,6 +23,7 @@
  *   │ renderCommand             Substitute {placeholders} with safe vals │
  *   │ defaultUserConfigPath     XDG-aware path to user config.toml      │
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
+ *   │ DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS Fallback recovery budget    │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
@@ -31,7 +32,7 @@
  *   │ ComboConfigError, ComboRoles, ComboLimits, ComboConfig          │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -101,6 +102,8 @@ export interface ComboConfig {
   prLabelGreenCheckNames: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
+  /** Recovery attempts before a stalled coder responding worker escalates. */
+  workerStallRecoveryAttempts: number;
   /** Regex sources used to detect interactive permission prompts in worker panes. */
   workerPermissionPromptPatterns: string[];
   /** Required source checkout branch for `combo-chen run`. */
@@ -120,6 +123,7 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROMPT = "";
+export const DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS = 2;
 export const DEFAULT_CODER_STOP_WHEN =
   "Every acceptance criterion stated in the work item is met and the full test suite is green. " +
   "If the work item lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
@@ -201,6 +205,7 @@ const DEFAULTS = {
   },
   monitor: {
     worker_stall_ticks: 3,
+    worker_stall_recovery_attempts: DEFAULT_WORKER_STALL_RECOVERY_ATTEMPTS,
     permission_prompt_patterns: DEFAULT_PERMISSION_PROMPT_PATTERNS,
   },
   run: {
@@ -574,6 +579,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (env["COMBO_CHEN_WORKER_STALL_TICKS"] !== undefined) {
     monitorTable["worker_stall_ticks"] = env["COMBO_CHEN_WORKER_STALL_TICKS"];
   }
+  if (env["COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS"] !== undefined) {
+    monitorTable["worker_stall_recovery_attempts"] =
+      env["COMBO_CHEN_WORKER_STALL_RECOVERY_ATTEMPTS"];
+  }
   if (env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS"] !== undefined) {
     monitorTable["permission_prompt_patterns"] = parseEnvStringArray(
       env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS"],
@@ -751,6 +760,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       monitorTable,
       "worker_stall_ticks",
       DEFAULTS.monitor.worker_stall_ticks,
+      "[monitor]",
+    ),
+    workerStallRecoveryAttempts: pickNonNegativeInteger(
+      monitorTable,
+      "worker_stall_recovery_attempts",
+      DEFAULTS.monitor.worker_stall_recovery_attempts,
       "[monitor]",
     ),
     workerPermissionPromptPatterns: [...workerPermissionPromptPatterns],

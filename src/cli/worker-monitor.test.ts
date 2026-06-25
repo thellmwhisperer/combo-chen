@@ -1,6 +1,6 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~150 lines, permission
- *   prompt, unchanged-pane stall, and dead-pane escalation.
+ * @overview Unit tests for worker pane monitoring. ~310 lines, permission
+ *   prompt, unchanged-pane stall/recovery deferral, and dead-pane escalation.
  *
  *   READING GUIDE
  *   -------------
@@ -198,6 +198,43 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "reviewer" }),
     );
+  });
+
+  it("returns recoverable stalled-worker findings without journaling needs_human", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      "coder-responding": "waiting for coder responding...\n",
+    });
+
+    expect(
+      inspectWorkerPanes({
+        deps,
+        combo: record,
+        runDir,
+        workerWindows: ["coder-responding"],
+        recoverableStalledWorkers: ["coder-responding"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder-responding"],
+      recoverableStalledWorkers: ["coder-responding"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(result.findings).toEqual([
+      {
+        worker: "coder-responding",
+        reason: "worker_stalled",
+        detail: "unchanged pane for 2 ticks",
+        needsHumanRecorded: false,
+      },
+    ]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
   });
 
   it("emits needs_human when a worker window has no live pane pid", () => {
