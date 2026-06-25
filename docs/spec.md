@@ -456,8 +456,10 @@ ignored config or environment outside that file.
   journal `needs_human reason=worker_dead`. `worker_stalled` normally
   escalates the same way, except stalled coder responding mode is recovered
   first. When the permission policy is `auto-approve-known-safe`, the monitor
-  sends `y` + Enter to the matched tmux window. When the policy is
-  `recreate-non-interactive`, a
+  sends `y` + Enter to the matched tmux window and journals
+  `worker_recovered reason=worker_permission_prompt`; persistent prompts count
+  toward `[monitor].worker_recovery_attempts` before escalating. When the
+  policy is `recreate-non-interactive`, a
   permission-prompted coder responding window uses the same bounded recovery
   path as a stall: the director kills and recreates the configured responder
   window, resumes the saved coder thread, replays the last routed
