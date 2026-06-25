@@ -21,7 +21,7 @@
  *
  *   INTERNALS
  *   ---------
- *   fetchGitHubReleases, detectActiveRuntimeForUpdate, activeRuntimeWarning, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   fetchGitHubReleases, detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand
  * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
