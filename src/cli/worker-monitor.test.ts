@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~360 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~380 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -117,6 +117,25 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
     expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:reviewer", "y", "C-m"]);
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt auto-approved"));
+  });
+
+  it("keeps auto-approval target in argv when the tmux session contains shell metacharacters", () => {
+    const { record, runDir } = combo();
+    record.tmuxSession = "--combo-chen-'\"`$(printf pwn)\n";
+    const { deps, calls } = fakeDeps({
+      reviewer: "Do you want to proceed? [y/N]\n",
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      permissionPromptPolicy: "auto-approve-known-safe",
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(calls).toContainEqual(["send-keys", "-t", `${record.tmuxSession}:reviewer`, "y", "C-m"]);
   });
 
   it("escalates a permission prompt when auto-approval fails", () => {

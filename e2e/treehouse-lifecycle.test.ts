@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2100 lines, log-derived regressions.
+ *   and process shims for external services. ~2050 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -82,6 +82,7 @@ interface HarnessOptions {
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
   workerStallTicks?: number;
+  permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
 }
 
 interface ComboRecordJson {
@@ -920,6 +921,52 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       expect(tmuxLog).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder-responding`, "C-m"] }),
+        ]),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("auto-approves a known worker permission prompt before escalating needs_human", () => {
+    const harness = prepareHarness({ permissionPromptPolicy: "auto-approve-known-safe" });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "pr_opened", "--field", `url=${prUrl}`], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "reviewer", "true"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_TMUX_CAPTURE_REVIEWER: "Do you want to proceed? [y/N]\n",
+        },
+      });
+
+      expect(tick.stdout).toContain("director: worker reviewer permission prompt auto-approved");
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events.some((event) => event.event === "needs_human")).toBe(false);
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:reviewer`, "y", "C-m"] }),
         ]),
       );
 
@@ -1949,6 +1996,14 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
   const externalReviewCommands = options.externalReviewCommands ?? [];
   const readyRequiredChecks = options.readyRequiredChecks ?? [];
   const greenCheckNames = options.greenCheckNames ?? [];
+  const monitorLines = [
+    ...(options.workerStallTicks === undefined
+      ? []
+      : [`worker_stall_ticks = ${options.workerStallTicks}`]),
+    ...(options.permissionPromptPolicy === undefined
+      ? []
+      : [`permission_prompt_policy = ${JSON.stringify(options.permissionPromptPolicy)}`]),
+  ];
   writeFileSync(
     join(repo, "combo-chen.toml"),
     [
@@ -2014,11 +2069,11 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
       "watch_failure_limit = 1",
       "watch_backoff_max_seconds = 1",
       "",
-      ...(options.workerStallTicks === undefined
+      ...(monitorLines.length === 0
         ? []
         : [
             "[monitor]",
-            `worker_stall_ticks = ${options.workerStallTicks}`,
+            ...monitorLines,
             "",
           ]),
       "",
