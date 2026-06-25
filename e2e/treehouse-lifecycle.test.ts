@@ -77,6 +77,7 @@ interface HarnessOptions {
   readyRequiredChecks?: string[];
   greenCheckNames?: string[];
   reviewerLogins?: string[];
+  externalReviewCommands?: string[];
   quoteNoMistakesRunId?: boolean;
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
@@ -702,6 +703,97 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
       expect(ghState.prLabels).not.toContain("combo:external-review-green");
       expect(ghState.prLabels).not.toContain("combo:ready");
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("requests CodeRabbit after reviewer LGTM and waits for the required check", () => {
+    const harness = prepareHarness({
+      externalCommentAgents: ["coderabbitai"],
+      externalReviewCommands: ["@coderabbitai review"],
+      readyRequiredChecks: ["CodeRabbit"],
+    });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const firstTickEnv = {
+        ...harness.env,
+        E2E_HEAD_SHA: headSha,
+        E2E_PR_STATE: "OPEN",
+        E2E_REVIEWER_CODE0_LOGIN: "e2e-reviewer",
+      };
+      const firstTick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: firstTickEnv,
+      });
+
+      expect(firstTick.stdout).toContain(`reviewer: lgtm current at ${headSha}`);
+      expect(firstTick.stdout).toContain(`director: requested external review @coderabbitai review at ${headSha}`);
+      expect(firstTick.stdout).toContain("ready=[pr:yes gate:yes reviewer:yes checks:no ci:yes]");
+
+      let events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "lgtm", sha: headSha }),
+          expect.objectContaining({
+            event: "external_review_requested",
+            sha: headSha,
+            command: "@coderabbitai review",
+            pr_url: prUrl,
+          }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "ready_for_merge")).toBe(false);
+
+      const firstCommentCalls = readJsonLines<LogEntryJson>(harness.logs.gh).filter(
+        (entry) => entry.args[0] === "pr" && entry.args[1] === "comment",
+      );
+      expect(firstCommentCalls).toHaveLength(1);
+      expect(firstCommentCalls[0]).toMatchObject({
+        args: ["pr", "comment", prUrl, "--body", expect.stringContaining("@coderabbitai review")],
+      });
+      expect(firstCommentCalls[0]?.args.at(-1)).toContain(headSha);
+
+      const secondTick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...firstTickEnv,
+          E2E_CODERABBIT_SUCCESS_STATUS: "1",
+        },
+      });
+
+      expect(secondTick.stdout).toContain(`director: ready_for_merge ${headSha}`);
+      events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "ready_for_merge", sha: headSha, pr_url: prUrl }),
+        ]),
+      );
+
+      const allCommentCalls = readJsonLines<LogEntryJson>(harness.logs.gh).filter(
+        (entry) => entry.args[0] === "pr" && entry.args[1] === "comment",
+      );
+      expect(allCommentCalls).toHaveLength(1);
 
       passed = true;
     } finally {
@@ -1753,6 +1845,7 @@ function prepareGitRepo(repo: string, origin: string): void {
 function writeRepoConfig(repo: string, options: HarnessOptions): void {
   const gatekeeperCommand = options.gatekeeperCommand ?? "true";
   const externalCommentAgents = options.externalCommentAgents ?? [];
+  const externalReviewCommands = options.externalReviewCommands ?? [];
   const readyRequiredChecks = options.readyRequiredChecks ?? [];
   const greenCheckNames = options.greenCheckNames ?? [];
   writeFileSync(
@@ -1790,6 +1883,13 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
         : [
             "[external_comments]",
             `agents = ${JSON.stringify(externalCommentAgents)}`,
+            "",
+          ]),
+      ...(externalReviewCommands.length === 0
+        ? []
+        : [
+            "[external_review]",
+            `commands = ${JSON.stringify(externalReviewCommands)}`,
             "",
           ]),
       ...(readyRequiredChecks.length === 0
