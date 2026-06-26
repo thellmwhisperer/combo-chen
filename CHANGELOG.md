@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
+
 ## [0.0.61](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.60...combo-chen-v0.0.61) (2026-06-24)
 
 
