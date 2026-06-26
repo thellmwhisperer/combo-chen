@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~490 lines, 6 exports, wires release resolution, active-runtime safety, verified staging, install replacement, and refresh reporting.
+ *   ~505 lines, 6 exports, wires release resolution, active-runtime safety, verified staging, install replacement, and refresh reporting.
  *
  *   READING GUIDE
  *   -------------
@@ -24,7 +24,7 @@
  *   INTERNALS
  *   ---------
  *   detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError,
- *   reportPostUpdateRefresh, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   reportPostUpdateRefresh, postUpdateDaemonRefreshTimeoutMs, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
  * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}, ./update-refresh
@@ -77,6 +77,8 @@ const UPDATE_DOWNLOAD_TIMEOUT_MS = (() => {
   }
   return 60_000;
 })();
+const POST_UPDATE_DAEMON_REFRESH_TIMEOUT_ENV = "COMBO_CHEN_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS";
+const DEFAULT_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS = 30_000;
 
 export interface GhCommandOptions {
   timeoutMs?: number;
@@ -147,11 +149,15 @@ export function defaultUpdateCommandDeps(input: {
       refreshPostUpdateLocalState({
         detection,
         noMistakes: (args) => {
-          const result = spawnSync("no-mistakes", args, { encoding: "utf8" });
+          const result = spawnSync("no-mistakes", args, {
+            encoding: "utf8",
+            timeout: postUpdateDaemonRefreshTimeoutMs(input.env ?? process.env),
+          });
+          const stderr = (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
           return {
             status: result.status ?? 1,
             stdout: result.stdout ?? "",
-            stderr: result.stderr ?? result.error?.message ?? "",
+            stderr,
           };
         },
       }),
@@ -258,7 +264,7 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
   }
   options.deps.out(`installed combo-chen ${candidateVersion} to ${replacement.targetPath}`);
   reportPostUpdateRefresh({
-    detection: runtimeDetection,
+    detection: detectActiveRuntimeForUpdate(options.deps.activeRuntime),
     deps: options.deps,
   });
 }
@@ -376,6 +382,15 @@ function activeRuntimeConfirmationError(detection: ActiveComboRuntimeDetection):
     return "active combo runtime detected; rerun with -y/--yes to update anyway";
   }
   return "active combo runtime state could not be verified; rerun with -y/--yes to update anyway";
+}
+
+function postUpdateDaemonRefreshTimeoutMs(env: Record<string, string | undefined>): number {
+  const raw = env[POST_UPDATE_DAEMON_REFRESH_TIMEOUT_ENV];
+  if (raw !== undefined) {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS;
 }
 
 function parseRelease(value: unknown): GitHubReleaseMetadata {
