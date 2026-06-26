@@ -24,10 +24,10 @@
  *   INTERNALS
  *   ---------
  *   detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError,
- *   reportPostUpdateRefresh, postUpdateDaemonRefreshTimeoutMs, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   reportPostUpdateRefresh, postUpdateDaemonRefreshTimeoutMs, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
- * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}, ./update-refresh
+ * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}, ./{display,update-refresh}
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -66,6 +66,7 @@ import {
   refreshPostUpdateLocalState,
   type PostUpdateRefreshResult,
 } from "./update-refresh.js";
+import { formatComboList } from "./display.js";
 
 // -- 1/3 HELPER · command dependency contract --
 const UPDATE_REPOSITORY_API_PATH = "repos/thellmwhisperer/combo-chen/releases?per_page=100";
@@ -347,7 +348,7 @@ function reportPostUpdateRefresh(input: {
 
 function activeRuntimeWarning(detection: ActiveComboRuntimeDetection): string | undefined {
   if (detection.status === "active") {
-    return `warning: active combo runtime detected: ${activeRuntimeSummary(detection)}`;
+    return `warning: active combo runtime detected: ${formatComboList(detection, true)}`;
   }
   if (detection.status === "error" || detection.status === "stale") {
     const staleCount = detection.staleCombos.length;
@@ -357,24 +358,6 @@ function activeRuntimeWarning(detection: ActiveComboRuntimeDetection): string | 
     return `warning: active combo runtime state is uncertain: ${staleText}, ${errorText}`;
   }
   return undefined;
-}
-
-function activeRuntimeSummary(detection: ActiveComboRuntimeDetection): string {
-  const activeCombos = detection.activeCombos.map(
-    (combo) => `${displayRuntimeToken(combo.comboId)}(${displayRuntimeToken(combo.phase)})`,
-  );
-  if (activeCombos.length > 0) return activeCombos.join(", ");
-  if (detection.comboIds.length > 0) {
-    return detection.comboIds.map((comboId) => displayRuntimeToken(comboId)).join(", ");
-  }
-  return "unknown";
-}
-
-function displayRuntimeToken(value: string): string {
-  const singleLine = value
-    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, " ")
-    .trim();
-  return singleLine.length > 0 ? singleLine : "unknown";
 }
 
 function activeRuntimeConfirmationError(detection: ActiveComboRuntimeDetection): string {
