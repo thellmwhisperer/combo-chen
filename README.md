@@ -205,6 +205,7 @@ files, pipes, redirects, semicolons, or cleanup commands to publish a review.
 Only comments or reviews authored by `[reviewer].logins` can satisfy the
 SHA-pinned reviewer LGTM gate and have their machine-readable verdict blocks
 accepted for routing; by default this is the active reviewer agent name.
+Verdict code 0 also requires a `lgtm @ <sha>` pin in the review body.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
 present with exact `SUCCESS`; by default this includes `CodeRabbit`, and a
 skipped CodeRabbit review is not a READY success. These external checks are not

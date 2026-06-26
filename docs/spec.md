@@ -251,7 +251,9 @@ ignored config or environment outside that file.
 
   Verdict codes route deterministically without model interpretation:
   - **0** (`OK, current-head LGTM`): treated as a current-head LGTM signal;
-    journals `lgtm` (required field `sha`) for that head SHA.
+    journals `lgtm` (required field `sha`) for that head SHA. The body must
+    also contain a `lgtm @ <sha>` pin matching the current head for code 0 to
+    be accepted.
   - **1** (`mechanical fix required`): routes to coder responding mode
     through the existing review-comment nudge path.
   - **2** (`ambiguous or intent-sensitive`): prompts the director via the
