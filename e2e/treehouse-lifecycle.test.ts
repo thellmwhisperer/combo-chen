@@ -891,7 +891,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
-  it("accepts current-head reviewer code 0 even when GitHub author differs from reviewer.logins", () => {
+  it("ignores current-head reviewer code 0 when GitHub author differs from reviewer.logins", () => {
     const harness = prepareHarness({ reviewerLogins: ["trusted-reviewer"] });
     let passed = false;
 
@@ -922,11 +922,11 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         },
       });
 
-      expect(tick.stdout).toContain(`reviewer: lgtm current at ${headSha}`);
-      expect(tick.stdout).toContain("ready=[pr:yes gate:yes reviewer:yes");
+      expect(tick.stdout).toContain(`reviewer: no pinned lgtm for ${combo.id}`);
+      expect(tick.stdout).toContain("ready=[pr:yes gate:yes reviewer:no");
 
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
-      expect(events).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
+      expect(events.some((event) => event.event === "lgtm" && event["sha"] === headSha)).toBe(false);
       expect(events.some((event) => event.event === "needs_human")).toBe(false);
 
       passed = true;

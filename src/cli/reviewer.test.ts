@@ -715,7 +715,7 @@ describe("tickReviewer", () => {
     expect(out).toEqual(["reviewer: no pinned lgtm for o-r-7"]);
   });
 
-  it("accepts current-head reviewer verdict code 0 regardless of GitHub author", async () => {
+  it("ignores current-head reviewer verdict code 0 from untrusted GitHub authors", async () => {
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
@@ -776,9 +776,9 @@ describe("tickReviewer", () => {
       comboId: record.id,
     });
 
-    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
+    expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened"]);
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(out).toEqual([`reviewer: lgtm current at ${headSha}`]);
+    expect(out).toEqual(["reviewer: no pinned lgtm for o-r-7"]);
   });
 
   it("treats reviewer verdict code 0 as a current-head LGTM signal", async () => {
