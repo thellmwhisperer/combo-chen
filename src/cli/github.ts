@@ -157,6 +157,11 @@ function lgtmPinFromBody(body: string): string | undefined {
   return undefined;
 }
 
+function lgtmPinMatchesHead(body: string, currentHeadSha: string): boolean {
+  const pin = lgtmPinFromBody(body);
+  return pin !== undefined && currentHeadSha.toLowerCase().startsWith(pin.toLowerCase());
+}
+
 function loginFromItem(entry: object): string | undefined {
   const user = (entry as { user?: unknown }).user;
   if (typeof user !== "object" || user === null) return undefined;
@@ -237,6 +242,7 @@ function reviewerVerdictFromBody(body: string, currentHeadSha: string): Reviewer
 
   if (headSha === undefined || code === undefined) return undefined;
   if (headSha.toLowerCase() !== currentHeadSha.toLowerCase()) return undefined;
+  if (code === 0 && !lgtmPinMatchesHead(body, currentHeadSha)) return undefined;
   return { headSha: currentHeadSha, code };
 }
 

@@ -327,14 +327,12 @@ describe("closeMergedCombo", () => {
     ]);
   });
 
-  it("completes closure with logged session kill failure when tmux kill fails", async () => {
+  it("leaves closure pending without combo_closed when tmux kill fails", async () => {
     const h = home();
     const { runDir } = writeTestCombo(h);
-    let comboClosedBeforeSessionKill = false;
     const { deps, calls, out } = fakeDeps({
       tmux: (args) => {
         calls.push(["tmux", ...args]);
-        comboClosedBeforeSessionKill = readEvents(runDir).some((event) => event.event === "combo_closed");
         return { status: 1, stdout: "", stderr: "tmux: server unavailable" };
       },
     });
@@ -344,12 +342,10 @@ describe("closeMergedCombo", () => {
     expect(readEvents(runDir)).toMatchObject([
       { event: "pr_opened" },
       { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
-      { event: "combo_closed", source: "closure" },
     ]);
-    expect(comboClosedBeforeSessionKill).toBe(true);
+    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
     expect(out).toEqual([
-      "closure: o-r-7 session kill failed: tmux kill-session failed for \"combo-chen-o-r-7\": tmux: server unavailable",
-      "closure: o-r-7 closed merged PR merge777 by maintainer; already converged: tmux session already gone",
+      "closure: o-r-7 session kill pending: tmux kill-session failed for \"combo-chen-o-r-7\": tmux: server unavailable",
     ]);
   });
 });

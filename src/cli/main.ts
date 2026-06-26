@@ -527,13 +527,16 @@ export function createProgram(deps: Deps): Command {
         }
       } catch (error) {
         const killed = deps.tmux(killSessionArgs(session));
+        let rollbackError: string | undefined;
         if (killed.status !== 0) {
-          throw new Error(
-            `tmux rollback failed for "${session}": ${killed.stderr.trim() || "unknown error"}`,
-          );
+          rollbackError =
+            `tmux rollback failed for "${session}": ${killed.stderr.trim() || "unknown error"}`;
         }
         rmSync(runDir, { recursive: true, force: true });
         rollbackTreehouseLaunch(deps, combo);
+        if (rollbackError !== undefined) {
+          throw new Error(`${error instanceof Error ? error.message : String(error)}; ${rollbackError}`);
+        }
         throw error;
       }
 

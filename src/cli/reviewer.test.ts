@@ -781,7 +781,57 @@ describe("tickReviewer", () => {
     expect(out).toEqual(["reviewer: no pinned lgtm for o-r-7"]);
   });
 
-  it("treats reviewer verdict code 0 as a current-head LGTM signal", async () => {
+  it("treats reviewer verdict code 0 with a matching pin as a current-head LGTM signal", async () => {
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    const headSha = "def4560def4560def4560def4560def4560def45";
+
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    await tickReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: () => ({ status: 0, stdout: "", stderr: "" }),
+        git: () => ({ status: 0, stdout: "", stderr: "" }),
+        gh: (args) => {
+          if (args[0] === "pr") {
+            return { status: 0, stdout: JSON.stringify({ headRefOid: headSha, state: "OPEN" }), stderr: "" };
+          }
+          if (args.join(" ").includes("issues/7/comments")) {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  body: [`lgtm @ ${headSha}`, "", "combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join(
+                    "\n",
+                  ),
+                  user: { login: "claude" },
+                  created_at: "2026-06-11T00:00:00Z",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          if (args.join(" ").includes("pulls/7/reviews")) {
+            return { status: 0, stdout: "[]", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+        },
+        sleep: () => Promise.resolve(),
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
+    expect(out).toEqual([`reviewer: lgtm current at ${headSha}`]);
+  });
+
+  it("does not treat reviewer verdict code 0 without a matching pin as LGTM", async () => {
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
@@ -825,8 +875,8 @@ describe("tickReviewer", () => {
       comboId: record.id,
     });
 
-    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
-    expect(out).toEqual([`reviewer: lgtm current at ${headSha}`]);
+    expect(readEvents(runDir).some((event) => event.event === "lgtm")).toBe(false);
+    expect(out).toEqual(["reviewer: no pinned lgtm for o-r-7"]);
   });
 
   it("routes reviewer verdict code 1 to coder responding", async () => {

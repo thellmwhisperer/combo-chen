@@ -3906,7 +3906,7 @@ exit 0
     ]);
   });
 
-  it("does not delete run state or worktree when journal-window rollback cannot kill tmux", async () => {
+  it("cleans run state and treehouse lease even when tmux rollback kill fails", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const { deps, calls } = fakeDeps({
@@ -3925,15 +3925,19 @@ exit 0
     });
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
-      /tmux rollback failed.*server busy/,
+      /journal.*window failed.*tmux rollback failed.*server busy/,
     );
 
     const runDir = runDirFor(h, "o-r-7");
-    expect(existsSync(join(runDir, "combo.json"))).toBe(true);
+    expect(existsSync(join(runDir, "combo.json"))).toBe(false);
     const killIndex = calls.findIndex((call) => call[0] === "tmux" && call[1] === "kill-session");
     expect(killIndex).toBeGreaterThan(-1);
-    expect(calls.some((call) => call[0] === "git" && call.includes("remove"))).toBe(false);
-    expect(calls.some((call) => call[0] === "git" && call.includes("-D"))).toBe(false);
+    const treehouseReturnIndex = calls.findIndex(
+      (call) => call[0] === "treehouse" && call.includes("return"),
+    );
+    const branchDeleteIndex = calls.findIndex((call) => call[0] === "git" && call.includes("-D"));
+    expect(treehouseReturnIndex).toBeGreaterThan(killIndex);
+    expect(branchDeleteIndex).toBeGreaterThan(treehouseReturnIndex);
   });
 
   it("rolls back run state after killing tmux when journal-window setup fails", async () => {
