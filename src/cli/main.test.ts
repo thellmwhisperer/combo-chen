@@ -39,7 +39,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,crypto,fs,os,path}, ../core/{combo,events,gate-lease,passive-update,runtime-ledger,state,work-plan},
- *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./gate, ./main, ./passive-update
+ *   ../infra/{config,config-snapshot,release-metadata}, ../roles/{coder,gatekeeper}, ./gate, ./main, ./passive-update, ./update-refresh
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -64,6 +64,7 @@ import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.j
 import { GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW } from "./gate.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 import { PASSIVE_UPDATE_CACHE_FILE } from "./passive-update.js";
+import { refreshPostUpdateLocalState } from "./update-refresh.js";
 
 // -- 1/4 HELPER · Test harness: home, fakeDeps, seedCodexGnhfRun --
 function home(): string {
@@ -150,6 +151,14 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
     ...restOverrides,
     update: {
       activeRuntime: idleActiveRuntime,
+      postUpdateRefresh: (detection) =>
+        refreshPostUpdateLocalState({
+          detection,
+          noMistakes: (args) => {
+            calls.push(["no-mistakes", ...args]);
+            return { status: 0, stdout: "daemon: running\n", stderr: "" };
+          },
+        }),
       ...updateOverride,
     },
   };
@@ -421,6 +430,7 @@ describe("command surface", () => {
       "update available: combo-chen 1.2.0 -> 1.2.1 (stable)",
       `verified ${assetName} (${archiveSha})`,
       "installed combo-chen 1.2.1 to /opt/combo-chen-v1.2.0/bin/combo-chen",
+      "post-update refresh: no active combo runtime detected; no daemon or runner refresh needed",
     ]);
   });
 
@@ -795,6 +805,9 @@ describe("command surface", () => {
       "warning: active combo runtime detected: o-r-7(REVIEWING)",
       `verified ${assetName} (${archiveSha})`,
       "installed combo-chen 1.2.1 to /opt/combo-chen-v1.2.0/bin/combo-chen",
+      "post-update refresh: no-mistakes daemon refreshed with no-mistakes daemon start",
+      "post-update refresh: live combo runners unchanged: o-r-7",
+      "post-update refresh: manual runner refresh remains human-controlled; use combo-chen park -n <combo-id> then combo-chen resume -n <combo-id>",
     ]);
   });
 
@@ -918,6 +931,7 @@ describe("command surface", () => {
       "warning: active combo runtime state is uncertain: 0 stale runs, 1 detection error",
       `verified ${assetName} (${archiveSha})`,
       "installed combo-chen 1.2.1 to /opt/combo-chen-v1.2.0/bin/combo-chen",
+      "post-update refresh: runtime state uncertain (0 stale runs, 1 detection error); no daemon or runner refresh attempted",
     ]);
   });
 
@@ -1048,6 +1062,7 @@ describe("command surface", () => {
       "update available: combo-chen 1.2.0 -> 1.3.0-beta.2 (beta)",
       `verified ${betaAssetName} (${archiveSha})`,
       "installed combo-chen 1.3.0-beta.2 to /opt/combo-chen-v1.2.0/bin/combo-chen",
+      "post-update refresh: no active combo runtime detected; no daemon or runner refresh needed",
     ]);
   });
 

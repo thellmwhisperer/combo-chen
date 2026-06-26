@@ -570,8 +570,34 @@ Unsupported source checkouts and package-manager dev shims fail before staging
 with useful non-auto-replaceable errors. When a newer candidate exists, the
 active update command checks persisted active combo runtime state. Active or
 uncertain runtime state prints a concise warning and requires `-y/--yes`;
-without it, the update aborts before staging. The command does not restart
-daemons, refresh live runners, or apply passive update notices.
+without it, the update aborts before staging.
+
+After a successful replacement, the command performs a deterministic
+post-update refresh pass. Idle runtime detection is an explicit no-op:
+combo-chen reports that no daemon or runner refresh was needed. Active runtime
+detection refreshes the managed no-mistakes daemon service with
+`no-mistakes daemon start`, then reports the live combo ids whose runners were
+left unchanged. Live combo tmux windows are not restarted automatically:
+existing runner scripts, director-watch loops, gatekeepers, reviewers, and
+coder responders remain under human control. The manual runner recovery path is
+to park and resume the selected combo:
+
+```bash
+combo-chen park -n <combo-id>
+combo-chen resume -n <combo-id>
+```
+
+Uncertain runtime detection (`stale` or `error`) is also an explicit no-op for
+refresh: combo-chen reports the stale/error counts and does not touch daemon or
+runner state. A failed daemon refresh is reported after the successful
+replacement; the installed target remains replaced, is not rolled back or
+rewritten, and the output names the manual daemon recovery command:
+
+```bash
+no-mistakes daemon start
+```
+
+The active update command does not apply passive update notices.
 
 Normal public CLI commands also run quiet passive update checks. The check uses
 the same GitHub Releases resolution contract as the active updater, but it only
@@ -645,11 +671,11 @@ Completed updater slices:
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
 - U72-D: quiet passive update checks with local cache, TTL, and env disable knob. (Landed: `checkPassiveUpdate`, `runPassiveUpdateCheck`.)
+- U72-C: post-update daemon and runner refresh. (Landed: `refreshPostUpdateLocalState`.)
 
 Follow-up #72 slices:
 
 - U72-B: active-runtime safety prompts and yes flag policy.
-- U72-C: post-update daemon and runner refresh.
 
 ## 8b. Parallelize-first operating contract
 
