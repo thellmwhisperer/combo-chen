@@ -6,6 +6,52 @@
 
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
 
+## [0.0.62](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.61...combo-chen-v0.0.62) (2026-06-26)
+
+
+### Features
+
+* add treehouse-backed combo lifecycle ([559e72c](https://github.com/thellmwhisperer/combo-chen/commit/559e72c6ef13d1d4488cc49fc38b0eff59b4149e))
+* **config:** Added the issue [#217](https://github.com/thellmwhisperer/combo-chen/issues/217) permission-prompt policy configuration contract as a tested, documented prerequisite slice. ([b348ac7](https://github.com/thellmwhisperer/combo-chen/commit/b348ac7569410fa1d53bb769e3831ff2503431d0))
+* **passive-update:** Added the passive update core contract with cache/TTL/env-disable/error-fallback behavior and focused tests, leaving CLI integration for the next slice. ([10636dc](https://github.com/thellmwhisperer/combo-chen/commit/10636dc34525e5dba85031f8dae611a1ae5bddb6))
+* **passive-update:** Completed issue [#191](https://github.com/thellmwhisperer/combo-chen/issues/191) by wiring quiet passive update checks into normal CLI commands with a local cache, disable knob, tests, docs, and full green validation. ([f45c19b](https://github.com/thellmwhisperer/combo-chen/commit/f45c19b7877b6ef1747951772ee5c5a6e8c041bb))
+* **runtime:** Implemented a read-only active combo runtime detector for issue [#190](https://github.com/thellmwhisperer/combo-chen/issues/190), with focused tests and docs, while leaving full stop false because bare `pnpm test` is still affected by inherited `COMBO_CHEN_RUNNER_PROGRESS=1`. ([1717ee5](https://github.com/thellmwhisperer/combo-chen/commit/1717ee50b3b7632218a4e989399b9317de8c6f8f))
+* **worker-recovery:** Implemented issue [#215](https://github.com/thellmwhisperer/combo-chen/issues/215) end to end: stalled coder-responding workers now recover first with bounded retries, and the full validation suite is green. ([2ba4278](https://github.com/thellmwhisperer/combo-chen/commit/2ba427853adb12fe719bcc04329494f30b4c178a))
+
+
+### Bug Fixes
+
+* block stale local post-address gates ([ba9cf5d](https://github.com/thellmwhisperer/combo-chen/commit/ba9cf5de8bf65f3ee7587fed7ac13eabf0c0cf75))
+* close merged combos on resume ([61b6560](https://github.com/thellmwhisperer/combo-chen/commit/61b65601ad662518757c49478a142e6c85b892c6))
+* **closure:** Implemented the director-watch auto-closure path for merged PRs, with unit/e2e coverage and validation green under the normal quiet-runner environment. ([115ccc3](https://github.com/thellmwhisperer/combo-chen/commit/115ccc317604e236abdbc2bbbc758398f9950db7))
+* **closure:** journal closed before session kill ([f748783](https://github.com/thellmwhisperer/combo-chen/commit/f748783a0c98139c326df3a88a9a202a44f3b5cd))
+* **closure:** persist close before tmux reap ([461f19b](https://github.com/thellmwhisperer/combo-chen/commit/461f19b84975ef473fa89b3d89cefc6fe735deef))
+* **director:** cover dogfood recovery regressions ([0d659ce](https://github.com/thellmwhisperer/combo-chen/commit/0d659cecfe4633f21cc00e38c558af71b0406d3e))
+* **director:** hold intent decisions before worker recovery ([b477d9b](https://github.com/thellmwhisperer/combo-chen/commit/b477d9bc01e63d5588fea807e87c5eaf98806539))
+* **director:** treat skipped external review as not green ([21f8777](https://github.com/thellmwhisperer/combo-chen/commit/21f877702aed85abbe74116c1b3362e9709d2832))
+* fall back when treehouse is unavailable ([ceab989](https://github.com/thellmwhisperer/combo-chen/commit/ceab9893d23fc9408c5bcda8aa203c1ec30580b6))
+* **gate:** stop attach when gate script finishes ([f5c0553](https://github.com/thellmwhisperer/combo-chen/commit/f5c0553fd4cb58ca5e184351b0d214544229ddeb))
+* harden treehouse gate edge cases ([4f7d4ee](https://github.com/thellmwhisperer/combo-chen/commit/4f7d4ee0f8d7f21527a5f56f624da5e7a01fedda))
+* invalidate labels for local gate heads ([a6246c1](https://github.com/thellmwhisperer/combo-chen/commit/a6246c1fd2f4620cacc252908f8d6938977e3615))
+* keep reviewer routing alive after worker stalls ([4686363](https://github.com/thellmwhisperer/combo-chen/commit/4686363b82c201062acfea07cb88eb738bb89194))
+* **labels:** ignore retained idle gatekeeper panes ([39c9e47](https://github.com/thellmwhisperer/combo-chen/commit/39c9e47920b5160037c8d9841cb7859cadc663bc))
+* **labels:** keep coder owner after failed stale gate ([caafc59](https://github.com/thellmwhisperer/combo-chen/commit/caafc5922096dea44d45f04acde4c7b5691834c6))
+* **passive-update:** bound release lookup ([5c13446](https://github.com/thellmwhisperer/combo-chen/commit/5c13446195f1c2011ac6e194ff54036186dd8d47))
+* reject skipped external review checks ([a2a3ebf](https://github.com/thellmwhisperer/combo-chen/commit/a2a3ebf972b80302c57fba08f1c274e55056160f))
+* **reviewer:** harden lgtm and closure recovery ([78bb03d](https://github.com/thellmwhisperer/combo-chen/commit/78bb03d8a60708ff19f925f329a6f7b9ff6ea232))
+* **reviewer:** trust verdict authors ([8431bb5](https://github.com/thellmwhisperer/combo-chen/commit/8431bb589341be56478d2999c525f9e294370e7c))
+* stabilize treehouse e2e recovery ([37ec213](https://github.com/thellmwhisperer/combo-chen/commit/37ec213c233955da6fa5eb2bbae127334cbb427b))
+* suppress worker labels once ready ([dddb287](https://github.com/thellmwhisperer/combo-chen/commit/dddb287466403cb77fc5a49f6a2c12849f49e980))
+* **tmux:** show rich panes on gate restart ([12ce8e9](https://github.com/thellmwhisperer/combo-chen/commit/12ce8e90b1bbc1a336a544cc628320bf946e5034))
+* **update:** Completed the remaining [#192](https://github.com/thellmwhisperer/combo-chen/issues/192) idle-runtime coverage and fixed active-runtime warning line injection, with the full validation suite green. ([d6575ba](https://github.com/thellmwhisperer/combo-chen/commit/d6575ba56e93f09995c4a1eaac78e99ed07366ba))
+* **update:** Normalized thrown active-runtime detection failures into the deterministic uncertain-runtime update guard and pinned the fail-closed behavior with a red/green CLI regression. ([4b6a3ba](https://github.com/thellmwhisperer/combo-chen/commit/4b6a3ba258871e3c0b458517523eec70905bcb41))
+* **update:** sanitize full bidi controls ([3c20e42](https://github.com/thellmwhisperer/combo-chen/commit/3c20e422d75ca480df217bbcdd49a157b298cf5e))
+* **worker-monitor:** Implemented the smallest runtime recovery slice for issue [#217](https://github.com/thellmwhisperer/combo-chen/issues/217): known permission prompts can now be auto-approved without escalating when configured. ([b43c80e](https://github.com/thellmwhisperer/combo-chen/commit/b43c80e87a83d8259443a3b705f520112ba28204))
+* **worker-recovery:** bound auto-approve prompts ([e1ffe31](https://github.com/thellmwhisperer/combo-chen/commit/e1ffe31c03992a0a246e737646c5d2b12e8ccc84))
+* **worker-recovery:** honor recovery router result ([0fbb10f](https://github.com/thellmwhisperer/combo-chen/commit/0fbb10f976fb62e6eb463b876f183f5f6f69cb4c))
+* **worker-recovery:** Implemented the first [#218](https://github.com/thellmwhisperer/combo-chen/issues/218) slice: pre-PR `worker_dead` coder failures now restart the persisted runner instead of escalating, with bounded attempts and tests. ([41ecc15](https://github.com/thellmwhisperer/combo-chen/commit/41ecc155858c5645db0923da79a5e26e78c5bcbd))
+* **worker-recovery:** Rebased issue [#217](https://github.com/thellmwhisperer/combo-chen/issues/217) onto the integration branch and routed `recreate-non-interactive` permission prompts through bounded coder-responding recovery. ([2819814](https://github.com/thellmwhisperer/combo-chen/commit/28198143039f3b06e815fc69f5d9c8d4c093d533))
+
 ## [0.0.61](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.60...combo-chen-v0.0.61) (2026-06-24)
 
 
