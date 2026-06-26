@@ -49,6 +49,25 @@ function statusCheckRollup() {
   return rollup;
 }
 
+function prComments() {
+  if (process.env.E2E_CODERABBIT_SKIPPED_COMMENT === "1") {
+    return [{
+      author: { login: "coderabbitai[bot]" },
+      body: [
+        "<!-- This is an auto-generated comment: skip review by coderabbit.ai -->",
+        "",
+        "> [!IMPORTANT]",
+        "> ## Review skipped",
+        ">",
+        "> Auto reviews are disabled on this repository. To trigger a single review, invoke the `@coderabbitai review` command.",
+      ].join("\n"),
+      createdAt: "2026-06-23T21:55:40Z",
+      url: "https://github.com/o/r/pull/1#issuecomment-skipped",
+    }];
+  }
+  return [];
+}
+
 if (args[0] === "pr" && args[1] === "list") {
   process.stdout.write(`${process.env.E2E_PR_URL || "https://github.com/o/r/pull/1"}\n`);
   process.exit(0);
@@ -69,6 +88,7 @@ if (args[0] === "pr" && args[1] === "view") {
     mergeCommit: { oid: process.env.E2E_MERGE_SHA || "merge" },
     labels: state.prLabels.map((name) => ({ name })),
     statusCheckRollup: statusCheckRollup(),
+    comments: prComments(),
   };
   if (process.env.E2E_MERGE_STATE_STATUS) prView.mergeStateStatus = process.env.E2E_MERGE_STATE_STATUS;
   if (process.env.E2E_MERGEABLE) prView.mergeable = process.env.E2E_MERGEABLE;
