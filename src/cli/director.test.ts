@@ -1384,7 +1384,9 @@ describe("tickDirector", () => {
       ],
       externalReviewComments: [
         {
-          body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join("\n"),
+          body: [`lgtm @ ${headSha}`, "", "combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join(
+            "\n",
+          ),
           submittedAt: "2026-06-15T00:00:00Z",
         },
       ],

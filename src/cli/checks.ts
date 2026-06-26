@@ -51,7 +51,7 @@ function lowerString(value: unknown): string | undefined {
 
 function checkSignalIsReviewSkipped(item: Record<string, unknown>): boolean {
   return [item["description"], item["summary"], item["title"], item["text"]].some((value) =>
-    lowerString(value)?.includes("review skipped"),
+    EXTERNAL_REVIEW_SKIPPED_PATTERN.test(lowerString(value) ?? ""),
   );
 }
 

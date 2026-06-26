@@ -94,8 +94,10 @@ describe("GitHub check readiness helpers", () => {
 
   it("does not accept skipped review statuses as required READY checks", () => {
     const skippedReview = statusContext("CodeRabbit", "SUCCESS", "Review skipped");
+    const limitReachedReview = statusContext("CodeRabbit", "SUCCESS", "Review limit reached");
 
     expect(requiredChecksSucceeded([checkRun("unit", "SUCCESS"), skippedReview], ["CodeRabbit"])).toBe(false);
+    expect(requiredChecksSucceeded([checkRun("unit", "SUCCESS"), limitReachedReview], ["CodeRabbit"])).toBe(false);
     expect(checkRollupSucceeded([skippedReview], { requiredCheckNames: ["CodeRabbit"] })).toBe(false);
   });
 

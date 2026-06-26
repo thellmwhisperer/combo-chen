@@ -126,18 +126,18 @@ export async function closeMergedCombo(input: {
     return;
   }
 
-  appendEvent(runDir, "combo_closed", { source: "closure" });
-
   let session: KillComboSessionResult;
   try {
     session = killComboSession(input.deps, combo);
   } catch (error) {
     input.deps.out(
-      `closure: ${combo.id} session kill failed: ` +
+      `closure: ${combo.id} session kill pending: ` +
         `${error instanceof Error ? error.message : String(error)}`,
     );
-    session = "already_missing";
+    return;
   }
+
+  appendEvent(runDir, "combo_closed", { source: "closure" });
 
   input.deps.out(
     `closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; ` +

@@ -422,6 +422,71 @@ describe("cli GitHub helpers", () => {
     });
   });
 
+  it("requires an explicit current-head lgtm pin for reviewer verdict code 0", () => {
+    const headSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const gh = (args: string[]) => {
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join("\n"),
+              created_at: "2026-06-11T00:00:00Z",
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: [`lgtm @ ${headSha}`, "", "combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join(
+                "\n",
+              ),
+              submitted_at: "2026-06-11T00:01:00Z",
+              user: { login: "claude" },
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha)).toEqual({
+      headSha,
+      code: 0,
+      author: "claude",
+    });
+  });
+
+  it("rejects reviewer verdict code 0 when the body lacks a current-head lgtm pin", () => {
+    const headSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
+    const gh = (args: string[]) => {
+      if (args.join(" ").includes("issues/7/comments")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            {
+              body: ["combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join("\n"),
+              created_at: "2026-06-11T00:00:00Z",
+              user: { login: "claude" },
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args.join(" ").includes("pulls/7/reviews")) {
+        return { status: 0, stdout: "[]", stderr: "" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+    };
+
+    expect(latestGitHubReviewerVerdict(gh, "https://github.com/o/r/pull/7", headSha)).toBeUndefined();
+  });
+
   it("rejects stale, malformed, and duplicate reviewer verdict blocks", () => {
     const headSha = "73f80173a96fc2d70af0972c6ee936cc59ad5f19";
     const staleSha = "9af80173a96fc2d70af0972c6ee936cc59ad5f19";
