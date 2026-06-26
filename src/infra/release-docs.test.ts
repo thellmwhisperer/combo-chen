@@ -65,6 +65,11 @@ describe("release docs", () => {
       expect(doc).toContain("checks persisted active combo runtime state");
       expect(doc).toContain("requires `-y/--yes`");
       expect(doc).toContain("aborts before staging");
+      expect(doc).toContain("post-update refresh");
+      expect(doc).toContain("no-mistakes daemon start");
+      expect(doc).toContain("combo-chen park -n <combo-id>");
+      expect(doc).toContain("combo-chen resume -n <combo-id>");
+      expect(doc).toContain("installed target remains replaced");
       expect(doc).toContain("U0 update contract bridge");
       expect(doc).toContain("ReadOnlyUpdatePlan");
       expect(doc).toContain("detectActiveComboRuntime({ home, cli })");

@@ -306,8 +306,31 @@ Unsupported source checkouts and package-manager dev shims fail with useful
 non-auto-replaceable errors. When a newer candidate exists, the command checks
 persisted active combo runtime state. Active or uncertain runtime state prints a
 concise warning and requires `-y/--yes`; without it, the update aborts before
-staging. The command does not restart daemons, refresh live runners, or apply
-passive update notices.
+staging.
+
+After a successful replacement, the command performs an explicit post-update
+refresh pass. If no active combo runtime is detected, it reports that no daemon
+or runner refresh was needed. If live combos are detected, it runs
+`no-mistakes daemon start` to refresh the managed no-mistakes daemon service
+without restarting live combo tmux windows. Existing combo runners,
+director-watch loops, gatekeepers, and reviewers remain under human control;
+when an operator intentionally wants a live runner to pick up the new install,
+park and resume that combo:
+
+```bash
+combo-chen park -n <combo-id>
+combo-chen resume -n <combo-id>
+```
+
+If runtime state is uncertain, combo-chen reports the uncertainty and skips
+automatic daemon and runner refresh. If the daemon refresh fails, the installed
+target remains replaced and the command prints the manual recovery command:
+
+```bash
+no-mistakes daemon start
+```
+
+The active update command does not apply passive update notices.
 
 Normal public CLI commands also run quiet passive update checks. The check
 reuses the same GitHub Releases resolution contract as `combo-chen update`, but
@@ -375,11 +398,11 @@ Completed updater slices:
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
 - U72-D: quiet passive update checks with local cache, TTL, and env disable knob. (Landed: `checkPassiveUpdate`, `runPassiveUpdateCheck`.)
+- U72-C: post-update daemon and runner refresh. (Landed: `refreshPostUpdateLocalState`.)
 
 Follow-up #72 slices:
 
 - U72-B: active-runtime safety prompts and yes flag policy.
-- U72-C: post-update daemon and runner refresh.
 
 ## Commands
 

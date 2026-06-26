@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~450 lines, 6 exports, wires release resolution, active-runtime safety, verified staging, and installer replacement.
+ *   ~490 lines, 6 exports, wires release resolution, active-runtime safety, verified staging, install replacement, and refresh reporting.
  *
  *   READING GUIDE
  *   -------------
@@ -24,10 +24,10 @@
  *   INTERNALS
  *   ---------
  *   detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError,
- *   displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   reportPostUpdateRefresh, displayRuntimeToken, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
- * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}
+ * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}, ./update-refresh
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -62,6 +62,10 @@ import {
 } from "../core/update-staging.js";
 import { RELEASE_CHECKSUMS_FILE } from "../infra/release-artifacts.js";
 import { releaseMetadata } from "../infra/release-metadata.js";
+import {
+  refreshPostUpdateLocalState,
+  type PostUpdateRefreshResult,
+} from "./update-refresh.js";
 
 // -- 1/3 HELPER · command dependency contract --
 const UPDATE_REPOSITORY_API_PATH = "repos/thellmwhisperer/combo-chen/releases?per_page=100";
@@ -93,6 +97,7 @@ export interface UpdateCommandDeps {
   extractArchive: (input: UpdateExtractionInput) => Promise<UpdateExtractionResult> | UpdateExtractionResult;
   replaceInstallTarget: (input: InstallReplacementInput) => InstallReplacementResult;
   activeRuntime: () => ActiveComboRuntimeDetection;
+  postUpdateRefresh: (detection: ActiveComboRuntimeDetection) => PostUpdateRefreshResult;
 }
 
 export interface UpdateCommandOptions {
@@ -137,6 +142,18 @@ export function defaultUpdateCommandDeps(input: {
       detectActiveComboRuntime({
         home: comboHome(input.env ?? process.env),
         cli: input.argv1 ?? process.argv[1],
+      }),
+    postUpdateRefresh: (detection) =>
+      refreshPostUpdateLocalState({
+        detection,
+        noMistakes: (args) => {
+          const result = spawnSync("no-mistakes", args, { encoding: "utf8" });
+          return {
+            status: result.status ?? 1,
+            stdout: result.stdout ?? "",
+            stderr: result.stderr ?? result.error?.message ?? "",
+          };
+        },
       }),
   };
 }
@@ -187,8 +204,9 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
 
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
+  const runtimeDetection = detectActiveRuntimeForUpdate(options.deps.activeRuntime);
   enforceActiveRuntimeSafety({
-    detection: detectActiveRuntimeForUpdate(options.deps.activeRuntime),
+    detection: runtimeDetection,
     yes: options.yes,
     out: options.deps.out,
   });
@@ -239,6 +257,10 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
     }
   }
   options.deps.out(`installed combo-chen ${candidateVersion} to ${replacement.targetPath}`);
+  reportPostUpdateRefresh({
+    detection: runtimeDetection,
+    deps: options.deps,
+  });
 }
 // -/ 2/3
 
@@ -298,6 +320,23 @@ function detectActiveRuntimeForUpdate(activeRuntime: UpdateCommandDeps["activeRu
       ],
     };
   }
+}
+
+function reportPostUpdateRefresh(input: {
+  detection: ActiveComboRuntimeDetection;
+  deps: Pick<UpdateCommandDeps, "out" | "postUpdateRefresh">;
+}): void {
+  let result: PostUpdateRefreshResult;
+  try {
+    result = input.deps.postUpdateRefresh(input.detection);
+  } catch (error) {
+    result = {
+      ok: false,
+      attemptedDaemonRefresh: false,
+      lines: [`post-update refresh failed: ${errorMessage(error)}`],
+    };
+  }
+  for (const line of result.lines) input.deps.out(line);
 }
 
 function activeRuntimeWarning(detection: ActiveComboRuntimeDetection): string | undefined {
