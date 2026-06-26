@@ -726,6 +726,80 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("treats a successful CodeRabbit check as not green when the PR comment says review skipped", () => {
+    const harness = prepareHarness({
+      externalCommentAgents: ["coderabbitai"],
+      externalReviewCommands: ["@coderabbitai review"],
+      readyRequiredChecks: ["CodeRabbit"],
+      greenCheckNames: ["CodeRabbit"],
+    });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${headSha}`]],
+        ["gate_validated", [`sha=${headSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_REVIEWER_CODE0_LOGIN: "e2e-reviewer",
+          E2E_CODERABBIT_SUCCESS_STATUS: "1",
+          E2E_CODERABBIT_SKIPPED_COMMENT: "1",
+        },
+      });
+
+      expect(tick.stdout).toContain(`reviewer: lgtm current at ${headSha}`);
+      expect(tick.stdout).toContain(`director: requested external review @coderabbitai review at ${headSha}`);
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "lgtm", sha: headSha }),
+          expect.objectContaining({
+            event: "external_review_requested",
+            sha: headSha,
+            command: "@coderabbitai review",
+            pr_url: prUrl,
+          }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "ready_for_merge")).toBe(false);
+
+      const commentCalls = readJsonLines<LogEntryJson>(harness.logs.gh).filter(
+        (entry) => entry.args[0] === "pr" && entry.args[1] === "comment",
+      );
+      expect(commentCalls).toHaveLength(1);
+      expect(commentCalls[0]).toMatchObject({
+        args: ["pr", "comment", prUrl, "--body", expect.stringContaining("@coderabbitai review")],
+      });
+
+      const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
+      expect(ghState.prLabels).not.toContain("combo:external-review-green");
+      expect(ghState.prLabels).not.toContain("combo:ready");
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("requests CodeRabbit after reviewer LGTM and waits for the required check", () => {
     const harness = prepareHarness({
       externalCommentAgents: ["coderabbitai"],

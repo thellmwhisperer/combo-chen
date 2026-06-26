@@ -147,6 +147,40 @@ describe("buildDirectorWatchStatusLine", () => {
     expect(line).toContain("ready=[pr:yes gate:yes reviewer:yes checks:yes ci:yes]");
   });
 
+  it("prints required checks as not ready when a configured external agent says review skipped", () => {
+    const now = new Date("2026-06-22T12:00:00.000Z");
+    const line = buildDirectorWatchStatusLine({
+      comboId: "o-r-7",
+      cli: "node dist/cli.mjs",
+      now,
+      pollSeconds: 30,
+      readyRequiredChecks: ["ExternalReview"],
+      ambientCheckNames: ["external-reviewer"],
+      events: [
+        event("pr_opened", "2026-06-22T11:50:00.000Z", {
+          url: "https://github.com/o/r/pull/7",
+        }),
+        event("gate_validated", "2026-06-22T11:55:00.000Z", { sha: HEAD }),
+        event("lgtm", "2026-06-22T11:56:00.000Z", { sha: HEAD }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: successfulRollup(),
+        comments: [
+          {
+            author: { login: "external-reviewer[bot]" },
+            body: "Review skipped: rate limited.",
+          },
+        ],
+        polledAt: now,
+      },
+      workerSummaries: [],
+    });
+
+    expect(line).toContain("ready=[pr:yes gate:yes reviewer:yes checks:no ci:yes]");
+  });
+
   it("keeps degraded PR state unknown instead of routing to terminal waiting", () => {
     const now = new Date("2026-06-22T12:00:00.000Z");
     const line = buildDirectorWatchStatusLine({

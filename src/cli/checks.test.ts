@@ -24,7 +24,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
+import {
+  checkRollupSucceeded,
+  externalReviewSkippedByConfiguredAgent,
+  requiredChecksSucceeded,
+} from "./checks.js";
 
 // -- 1/1 CORE · READY check helper tests <- START HERE --
 function checkRun(name: string, conclusion: string): unknown {
@@ -93,6 +97,42 @@ describe("GitHub check readiness helpers", () => {
 
     expect(requiredChecksSucceeded([checkRun("unit", "SUCCESS"), skippedReview], ["CodeRabbit"])).toBe(false);
     expect(checkRollupSucceeded([skippedReview], { requiredCheckNames: ["CodeRabbit"] })).toBe(false);
+  });
+
+  it("detects skipped external reviews only from configured comment agents", () => {
+    expect(
+      externalReviewSkippedByConfiguredAgent(
+        [
+          {
+            author: { login: "coderabbitai[bot]" },
+            body: "## Review skipped\nAuto reviews are disabled. Use @coderabbitai review.",
+          },
+        ],
+        ["coderabbitai"],
+      ),
+    ).toBe(true);
+    expect(
+      externalReviewSkippedByConfiguredAgent(
+        [
+          {
+            user: { login: "random-user" },
+            body: "Review skipped: rate limited.",
+          },
+        ],
+        ["coderabbitai"],
+      ),
+    ).toBe(false);
+    expect(
+      externalReviewSkippedByConfiguredAgent(
+        [
+          {
+            author: { login: "coderabbitai[bot]" },
+            body: "Review complete. No issues found.",
+          },
+        ],
+        ["coderabbitai"],
+      ),
+    ).toBe(false);
   });
 });
 // -/ 1/1

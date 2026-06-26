@@ -33,6 +33,7 @@ import {
   checkNameMatchesAny,
   checkRollupSucceeded,
   checkSignalIsSuccess,
+  externalReviewSkippedByConfiguredAgent,
   requiredChecksSucceeded,
 } from "./checks.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
@@ -100,6 +101,7 @@ export interface ComboPrLabelProjectionInput {
     headSha: string;
     mergeStateStatus?: string;
     statusCheckRollup?: unknown[];
+    comments?: unknown[];
   };
   activity?: {
     coderRespondingActive?: boolean;
@@ -145,7 +147,7 @@ export interface SyncComboPrLabelsResult {
 }
 
 const COMBO_PR_LABEL_SET = new Set<string>(COMBO_PR_LABELS);
-const PR_LABEL_VIEW_FIELDS = "headRefOid,state,mergeStateStatus,statusCheckRollup,labels";
+const PR_LABEL_VIEW_FIELDS = "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels";
 
 export function isComboPrLabel(label: string): label is ComboPrLabel {
   return COMBO_PR_LABEL_SET.has(label);
@@ -170,11 +172,15 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
 
   const localGateHeadMismatch = hasLocalGateHeadDifferentFromPrHead(input.events, headSha);
   const lgtmCurrent = !localGateHeadMismatch && shaMatchesHead(livePinnedLgtmSha(input.events), headSha);
+  const externalReviewSkipped = externalReviewSkippedByConfiguredAgent(
+    input.pr.comments,
+    input.ambientCheckNames ?? [],
+  );
   const greenCheckSucceeded = namedCheckSucceeded(
     input.pr.statusCheckRollup,
     configuredGreenCheckNames(input),
-  ) && !localGateHeadMismatch;
-  const readyCurrent = !localGateHeadMismatch && currentReadyAgreement(input, lgtmCurrent);
+  ) && !externalReviewSkipped && !localGateHeadMismatch;
+  const readyCurrent = !externalReviewSkipped && !localGateHeadMismatch && currentReadyAgreement(input, lgtmCurrent);
   const stale = localGateHeadMismatch || hasStaleCurrentHeadSignal(input.events, headSha);
   const workLabel = currentWorkLabel(input.events, headSha, input.activity);
 
@@ -542,6 +548,7 @@ function fetchComboPrLabelView(
   const state = record["state"];
   const mergeStateStatus = record["mergeStateStatus"];
   const statusCheckRollup = record["statusCheckRollup"];
+  const comments = record["comments"];
   return {
     pr: {
       headSha: headRefOid,
@@ -552,6 +559,7 @@ function fetchComboPrLabelView(
         ? { mergeStateStatus }
         : {}),
       ...(Array.isArray(statusCheckRollup) ? { statusCheckRollup } : {}),
+      ...(Array.isArray(comments) ? { comments } : {}),
     },
     labels: labelNames(record["labels"]),
   };

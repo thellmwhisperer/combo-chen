@@ -323,6 +323,7 @@ export interface PrView {
   mergeable?: string;
   mergeSha?: string;
   statusCheckRollup?: unknown[];
+  comments?: unknown[];
 }
 
 const READY_BLOCKING_MERGE_STATES = new Set(["DIRTY", "CONFLICTING"]);
@@ -365,12 +366,16 @@ export function parsePrView(stdout: string): PrView {
     const mergeable = (parsed as { mergeable?: unknown }).mergeable;
     const mergeCommit = (parsed as { mergeCommit?: unknown }).mergeCommit;
     const statusCheckRollup = (parsed as { statusCheckRollup?: unknown }).statusCheckRollup;
+    const comments = (parsed as { comments?: unknown }).comments;
     const view: PrView = {
       headSha: (parsed as { headRefOid: string }).headRefOid,
       state: typeof state === "string" && state.length > 0 ? state : "OPEN",
     };
     if (Array.isArray(statusCheckRollup)) {
       view.statusCheckRollup = statusCheckRollup;
+    }
+    if (Array.isArray(comments)) {
+      view.comments = comments;
     }
     if (typeof baseRefName === "string" && baseRefName.length > 0) {
       view.baseRefName = baseRefName;
