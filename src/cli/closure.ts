@@ -60,7 +60,8 @@ export async function closeMergedCombo(input: {
   const events = readEvents(runDir);
 
   if (terminalReviewerEvent(events)) {
-    input.deps.out(`closure: ${combo.id} already closed`);
+    const session = reapClosedComboSession(input.deps, combo);
+    input.deps.out(`closure: ${combo.id} already closed; ${closedSessionCompletion(session)}`);
     return;
   }
 
@@ -126,6 +127,8 @@ export async function closeMergedCombo(input: {
     return;
   }
 
+  appendEvent(runDir, "combo_closed", { source: "closure" });
+
   let session: KillComboSessionResult;
   try {
     session = killComboSession(input.deps, combo);
@@ -136,8 +139,6 @@ export async function closeMergedCombo(input: {
     );
     return;
   }
-
-  appendEvent(runDir, "combo_closed", { source: "closure" });
 
   input.deps.out(
     `closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; ` +
@@ -178,6 +179,19 @@ function activeNoMistakesConflict(deps: ClosureDeps, combo: ComboRecord): string
   } catch {
     return undefined;
   }
+}
+
+function reapClosedComboSession(deps: ClosureDeps, combo: ComboRecord): KillComboSessionResult | Error {
+  try {
+    return killComboSession(deps, combo);
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+function closedSessionCompletion(session: KillComboSessionResult | Error): string {
+  if (session instanceof Error) return `session kill pending: ${session.message}`;
+  return session === "already_missing" ? "tmux session already gone" : "tmux session killed";
 }
 
 function closureCompletion(
