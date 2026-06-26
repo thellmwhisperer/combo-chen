@@ -313,10 +313,11 @@ After a successful replacement, the command performs an explicit post-update
 refresh pass. If no active combo runtime is detected, it reports that no daemon
 or runner refresh was needed. If live combos are detected, it runs
 `no-mistakes daemon start` to refresh the managed no-mistakes daemon service
-without restarting live combo tmux windows. Existing combo runners,
-director-watch loops, gatekeepers, and reviewers remain under human control;
-when an operator intentionally wants a live runner to pick up the new install,
-park and resume that combo:
+without restarting live combo tmux windows. The daemon refresh attempt is
+bounded by `COMBO_CHEN_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS` (default 30000).
+Existing combo runners, director-watch loops, gatekeepers, and reviewers remain
+under human control; when an operator intentionally wants a live runner to pick
+up the new install, park and resume that combo:
 
 ```bash
 combo-chen park -n <combo-id>
