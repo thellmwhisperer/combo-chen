@@ -4,7 +4,7 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at fetchIssueDetails     <- issue title/body for runner PR intent.
- *   2. Then reviewer signal parsers   <- legacy LGTM pins may be author-filtered; verdict blocks are content contracts.
+ *   2. Then reviewer signal parsers   <- LGTM pins and verdict blocks may be author-filtered.
  *   3. Then parsePrView              <- normalized PR state for reviewer tick.
  *   4. Finish at fetchForensicsGithubFacts <- read-only report enrichment.
  *
@@ -243,10 +243,10 @@ function reviewerVerdictFromBody(body: string, currentHeadSha: string): Reviewer
 function reviewerVerdictsFromItems(
   entries: unknown[],
   currentHeadSha: string,
+  options: LatestReviewerSignalOptions = {},
 ): TimedReviewerVerdict[] {
   const verdicts: TimedReviewerVerdict[] = [];
-  for (const entry of entries) {
-    if (typeof entry !== "object" || entry === null) continue;
+  for (const entry of validReviewerEntries(entries, options)) {
     const body = (entry as { body?: unknown }).body;
     if (typeof body !== "string") continue;
     const verdict = reviewerVerdictFromBody(body, currentHeadSha);
@@ -287,7 +287,7 @@ export function latestGitHubReviewerVerdict(
   prUrl: string,
   currentHeadSha: string,
   cache?: GhApiCache,
-  _options: LatestReviewerSignalOptions = {},
+  options: LatestReviewerSignalOptions = {},
 ): ReviewerVerdict | undefined {
   const ref = parseGitHubPullRequestUrl(prUrl);
   if (!ref) return undefined;
@@ -303,8 +303,8 @@ export function latestGitHubReviewerVerdict(
     cache,
   );
   const verdicts = [
-    ...reviewerVerdictsFromItems(comments, currentHeadSha),
-    ...reviewerVerdictsFromItems(reviews, currentHeadSha),
+    ...reviewerVerdictsFromItems(comments, currentHeadSha, options),
+    ...reviewerVerdictsFromItems(reviews, currentHeadSha, options),
   ];
   verdicts.sort((a, b) => a.t - b.t);
   const latest = verdicts.at(-1);

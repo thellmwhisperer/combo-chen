@@ -227,7 +227,9 @@ export async function tickReviewer(input: {
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
   try {
-    const reviewerVerdict = latestGitHubReviewerVerdict(deps.gh, prUrl, headSha, ghApiCache);
+    const reviewerVerdict = latestGitHubReviewerVerdict(deps.gh, prUrl, headSha, ghApiCache, {
+      allowedAuthors: config.reviewerLogins,
+    });
     if (reviewerVerdict?.code === 0 && !hasJournaledLgtm(events, headSha)) {
       appendEvent(runDir, "lgtm", { sha: headSha });
       events = readEvents(runDir);
