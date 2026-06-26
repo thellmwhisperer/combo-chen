@@ -67,6 +67,7 @@ describe("release docs", () => {
       expect(doc).toContain("aborts before staging");
       expect(doc).toContain("post-update refresh");
       expect(doc).toContain("no-mistakes daemon start");
+      expect(doc).toContain("COMBO_CHEN_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS");
       expect(doc).toContain("combo-chen park -n <combo-id>");
       expect(doc).toContain("combo-chen resume -n <combo-id>");
       expect(doc).toContain("installed target remains replaced");

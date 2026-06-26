@@ -579,10 +579,12 @@ post-update refresh pass. Idle runtime detection is an explicit no-op:
 combo-chen reports that no daemon or runner refresh was needed. Active runtime
 detection refreshes the managed no-mistakes daemon service with
 `no-mistakes daemon start`, then reports the live combo ids whose runners were
-left unchanged. Live combo tmux windows are not restarted automatically:
-existing runner scripts, director-watch loops, gatekeepers, reviewers, and
-coder responders remain under human control. The manual runner recovery path is
-to park and resume the selected combo:
+left unchanged. The daemon refresh attempt is bounded by
+`COMBO_CHEN_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS` (default 30000). Live combo
+tmux windows are not restarted automatically: existing runner scripts,
+director-watch loops, gatekeepers, reviewers, and coder responders remain under
+human control. The manual runner recovery path is to park and resume the
+selected combo:
 
 ```bash
 combo-chen park -n <combo-id>
