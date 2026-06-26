@@ -23,7 +23,7 @@
  */
 import { deriveStatus, type ComboStatus } from "../core/combo.js";
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
-import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
+import { checkRollupSucceeded, externalReviewSkippedByConfiguredAgent, requiredChecksSucceeded } from "./checks.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -34,6 +34,7 @@ export interface DirectorWatchPrSnapshot {
   mergeStateStatus?: string;
   mergeable?: string;
   statusCheckRollup?: unknown[];
+  comments?: unknown[];
   polledAt?: Date;
   error?: string;
 }
@@ -152,12 +153,17 @@ function readinessFacts(input: DirectorWatchStatusLineInput): ReadinessFacts {
   const rollup = input.pr?.statusCheckRollup;
   const requiredCheckNames = input.readyRequiredChecks ?? [];
   const ambientCheckNames = input.ambientCheckNames ?? [];
+  const externalReviewSkipped = externalReviewSkippedByConfiguredAgent(input.pr?.comments, ambientCheckNames);
 
   return {
     pr: prReadyState(prState),
     gate: headSha === undefined ? "unknown" : gateReady(input.events, headSha) ? "yes" : "no",
     reviewer: headSha === undefined ? "unknown" : shaMatchesHead(livePinnedLgtmSha(input.events), headSha) ? "yes" : "no",
-    checks: rollup === undefined ? "unknown" : requiredChecksSucceeded(rollup, requiredCheckNames) ? "yes" : "no",
+    checks: rollup === undefined
+      ? "unknown"
+      : !externalReviewSkipped && requiredChecksSucceeded(rollup, requiredCheckNames)
+        ? "yes"
+        : "no",
     ci: rollup === undefined
       ? "unknown"
       : checkRollupSucceeded(rollup, { requiredCheckNames, ambientCheckNames })

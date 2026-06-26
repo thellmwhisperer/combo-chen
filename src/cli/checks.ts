@@ -1,6 +1,6 @@
 /**
  * @overview GitHub check-rollup helpers for CI and configured READY checks.
- *   ~120 lines, 6 exports, provider-name matching without provider-specific logic.
+ *   ~150 lines, provider-name matching without provider-specific logic.
  *
  *   READING GUIDE
  *   -------------
@@ -20,18 +20,22 @@
  *   checkSignalIsSuccess      Exact SUCCESS predicate for required READY checks.
  *   checkRollupSucceeded      True when normal CI checks pass or only required checks remain.
  *   requiredChecksSucceeded   True when every configured READY check succeeds.
+ *   externalReviewSkippedByConfiguredAgent
+ *                             True when a configured external reviewer says review skipped.
  *
  *   INTERNALS
  *   ---------
- *   isRecord, upperString, checkSignalIsReviewSkipped, checkLabels
+ *   isRecord, upperString, checkSignalIsReviewSkipped, checkLabels, comment helpers
  *
- * @exports checkName, checkNameMatchesAny, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded
+ * @exports checkName, checkNameMatchesAny, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, externalReviewSkippedByConfiguredAgent
  * @deps none
  */
 
 // -- 1/2 HELPER · Scalar readers and status predicates --
 const SUCCESSFUL_CHECK_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
+const EXTERNAL_REVIEW_SKIPPED_PATTERN =
+  /\b(review\s+limit\s+reached|review\s+skipped|couldn'?t start this review|rate[-\s]?limit(?:ed)?)\b/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -57,6 +61,35 @@ function checkLabels(item: unknown): string[] {
   const app = item["app"];
   if (isRecord(app)) parts.push(app["name"], app["slug"]);
   return parts.filter((part): part is string => typeof part === "string");
+}
+
+function configuredAgents(agents: string[]): string[] {
+  return agents.map((agent) => agent.trim().toLowerCase()).filter((agent) => agent.length > 0);
+}
+
+function commentAuthorLogin(comment: Record<string, unknown>): string | undefined {
+  for (const key of ["author", "user"]) {
+    const author = comment[key];
+    if (!isRecord(author)) continue;
+    const login = author["login"];
+    if (typeof login === "string" && login.trim() !== "") return login.trim().toLowerCase();
+  }
+  return undefined;
+}
+
+function commentBody(comment: Record<string, unknown>): string | undefined {
+  const body = comment["body"];
+  return typeof body === "string" && body.trim() !== "" ? body : undefined;
+}
+
+function authorMatchesConfiguredAgent(login: string, agents: string[]): boolean {
+  return agents.some(
+    (agent) =>
+      login === agent ||
+      login === `${agent}[bot]` ||
+      login.startsWith(`${agent}-`) ||
+      login.startsWith(`${agent}_`),
+  );
 }
 
 export function checkName(item: unknown): string {
@@ -112,5 +145,24 @@ export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredC
   return required.every((name) =>
     rollup.some((item) => checkNameMatchesAny(item, [name]) && checkSignalIsSuccess(item)),
   );
+}
+
+export function externalReviewSkippedByConfiguredAgent(
+  comments: unknown[] | undefined,
+  externalCommentAgents: string[],
+): boolean {
+  const agents = configuredAgents(externalCommentAgents);
+  if (comments === undefined || comments.length === 0 || agents.length === 0) return false;
+  return comments.some((comment) => {
+    if (!isRecord(comment)) return false;
+    const login = commentAuthorLogin(comment);
+    const body = commentBody(comment);
+    return (
+      login !== undefined &&
+      body !== undefined &&
+      authorMatchesConfiguredAgent(login, agents) &&
+      EXTERNAL_REVIEW_SKIPPED_PATTERN.test(body)
+    );
+  });
 }
 // -/ 2/2

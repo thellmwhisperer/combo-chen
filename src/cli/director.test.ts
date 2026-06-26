@@ -107,6 +107,7 @@ function fakeDeps(input: {
   externalReviewComments?: Array<{ body: string; commitSha?: string; submittedAt?: string }>;
   externalCommentLogin?: string;
   issueComments?: unknown[];
+  prComments?: unknown[];
   prLabels?: unknown[];
   prState?: string;
   mergeStateStatus?: string;
@@ -159,10 +160,12 @@ function fakeDeps(input: {
               ? {
                   ...base,
                   statusCheckRollup: input.rollup ?? successfulRollup(),
+                  ...(fields.includes("comments") ? { comments: input.prComments ?? [] } : {}),
                   ...(fields.includes("labels") ? { labels: livePrLabels } : {}),
                 }
               : {
                   ...base,
+                  ...(fields.includes("comments") ? { comments: input.prComments ?? [] } : {}),
                   ...(fields.includes("labels") ? { labels: livePrLabels } : {}),
                 },
           ),
@@ -1419,6 +1422,55 @@ describe("tickDirector", () => {
     expect(
       calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment"),
     ).toHaveLength(1);
+  });
+
+  it("does not emit READY when the required external check is SUCCESS but its PR comment says review skipped", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      [
+        "[ready]",
+        'required_checks = ["CodeRabbit"]',
+        "",
+        "[external_review]",
+        'commands = ["@coderabbitai review"]',
+        "",
+        "[external_comments]",
+        'agents = ["coderabbitai"]',
+      ].join("\n"),
+    );
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      rollup: [
+        { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        { __typename: "StatusContext", context: "CodeRabbit", state: "SUCCESS" },
+      ],
+      prComments: [
+        {
+          author: { login: "coderabbitai[bot]" },
+          body: "## Review skipped\nAuto reviews are disabled. Invoke @coderabbitai review.",
+        },
+      ],
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "external_review_requested",
+        sha: headSha,
+        command: "@coderabbitai review",
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
+    expect(
+      calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment"),
+    ).toHaveLength(1);
+    expect(out).toContain(`director: requested external review @coderabbitai review at ${headSha}`);
   });
 
   it("emits READY without an external clean comment when configured required checks pass", async () => {

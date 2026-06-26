@@ -39,7 +39,7 @@ import { listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
-import { checkRollupSucceeded, requiredChecksSucceeded } from "./checks.js";
+import { checkRollupSucceeded, externalReviewSkippedByConfiguredAgent, requiredChecksSucceeded } from "./checks.js";
 import { closeMergedCombo } from "./closure.js";
 import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./director-watch-status.js";
 import {
@@ -363,7 +363,13 @@ function directorWatchPrSnapshot(
   prUrl: string,
   polledAt: Date,
 ): DirectorWatchPrSnapshot {
-  const result = deps.gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergeStateStatus,mergeable,statusCheckRollup"]);
+  const result = deps.gh([
+    "pr",
+    "view",
+    prUrl,
+    "--json",
+    "headRefOid,state,mergeStateStatus,mergeable,statusCheckRollup,comments",
+  ]);
   if (result.status !== 0) {
     return {
       state: "unknown",
@@ -379,6 +385,7 @@ function directorWatchPrSnapshot(
       mergeStateStatus: pr.mergeStateStatus,
       mergeable: pr.mergeable,
       statusCheckRollup: pr.statusCheckRollup,
+      comments: pr.comments,
       polledAt,
     };
   } catch (error) {
@@ -832,7 +839,7 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
     "view",
     prUrl,
     "--json",
-    "headRefOid,state,baseRefName,mergeStateStatus,mergeable,statusCheckRollup",
+    "headRefOid,state,baseRefName,mergeStateStatus,mergeable,statusCheckRollup,comments",
   ]);
   if (pr.status !== 0) {
     deps.out(`director: gh pr view failed for ${comboId} (status ${pr.status}): ${pr.stderr.trim() || "unknown error"}`);
@@ -889,7 +896,10 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   if (!headStateAllowsReady(events, prView)) return;
   if (!reviewStateAllowsReady(events, headSha)) return;
   if (!checkRollupSucceeded(prView.statusCheckRollup, { requiredCheckNames: config.readyRequiredChecks, ambientCheckNames: config.externalCommentAgents })) return;
-  if (!requiredChecksSucceeded(prView.statusCheckRollup, config.readyRequiredChecks)) {
+  if (
+    externalReviewSkippedByConfiguredAgent(prView.comments, config.externalCommentAgents) ||
+    !requiredChecksSucceeded(prView.statusCheckRollup, config.readyRequiredChecks)
+  ) {
     requestExternalReviewsIfNeeded({
       deps,
       runDir,

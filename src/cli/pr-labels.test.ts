@@ -148,6 +148,33 @@ describe("combo PR label projection", () => {
     ).toEqual(["combo:lgtm", "combo:external-review-green", "combo:ready"]);
   });
 
+  it("does not project provider green or READY when a configured external agent says review skipped", () => {
+    expect(
+      labels({
+        events: [
+          event("pr_opened", { url: PR_URL }),
+          event("gate_validated", { sha: HEAD }),
+          event("lgtm", { sha: HEAD }),
+          event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+        ],
+        pr: {
+          state: "OPEN",
+          headSha: HEAD,
+          statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "SUCCESS")],
+          comments: [
+            {
+              author: { login: "coderabbitai[bot]" },
+              body: "## Review skipped\nAuto reviews are disabled. Invoke @coderabbitai review.",
+            },
+          ],
+        },
+        requiredCheckNames: ["CodeRabbit"],
+        ambientCheckNames: ["coderabbitai"],
+        greenCheckNames: ["CodeRabbit"],
+      }),
+    ).toEqual(["combo:lgtm"]);
+  });
+
   it("uses explicit configured green check names for the provider green label", () => {
     expect(
       labels({
@@ -400,11 +427,11 @@ describe("combo PR label projection", () => {
       remove: ["combo:ready"],
     });
     expect(calls).toEqual([
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
       ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
       ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
     ]);
     expect(readEvents(dir)).toHaveLength(2);
     expect(readEvents(dir)[0]).toMatchObject({
@@ -475,7 +502,7 @@ describe("combo PR label projection", () => {
     expect(result.changed).toBe(true);
     expect(addAttempts).toBe(3);
     expect(calls).toEqual([
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
       ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
       [
         "label",
@@ -503,7 +530,7 @@ describe("combo PR label projection", () => {
         "o/r",
       ],
       ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
     ]);
     expect(readEvents(dir)).toHaveLength(1);
     expect(readEvents(dir)[0]).toMatchObject({
@@ -555,9 +582,9 @@ describe("combo PR label projection", () => {
     ).toThrow("add failed");
 
     expect(calls).toEqual([
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
       ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
       ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
     ]);
     expect(readEvents(dir)).toHaveLength(1);
@@ -601,7 +628,7 @@ describe("combo PR label projection", () => {
     expect(result.changed).toBe(false);
     expect(result.diff).toEqual({ add: [], remove: [] });
     expect(calls).toEqual([
-      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,labels"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
     ]);
     expect(readEvents(dir)).toEqual([]);
   });
