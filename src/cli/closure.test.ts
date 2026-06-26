@@ -203,8 +203,8 @@ describe("closeMergedCombo", () => {
     await closeMergedCombo({ deps, home: h, comboId: "o-r-7" });
 
     expect(readEvents(runDir).filter((event) => event.event === "merged")).toHaveLength(1);
-    expect(calls).toEqual([]);
-    expect(out).toEqual(["closure: o-r-7 already closed"]);
+    expect(calls).toEqual([["tmux", "kill-session", "-t", "combo-chen-o-r-7"]]);
+    expect(out).toEqual(["closure: o-r-7 already closed; tmux session killed"]);
   });
 
   it("closes a merged combo when local resources are already gone", async () => {
@@ -327,12 +327,14 @@ describe("closeMergedCombo", () => {
     ]);
   });
 
-  it("leaves closure pending without combo_closed when tmux kill fails", async () => {
+  it("persists combo_closed before tmux kill and retries session reaping later", async () => {
     const h = home();
     const { runDir } = writeTestCombo(h);
+    let tmuxFails = true;
     const { deps, calls, out } = fakeDeps({
       tmux: (args) => {
         calls.push(["tmux", ...args]);
+        if (!tmuxFails) return { status: 0, stdout: "", stderr: "" };
         return { status: 1, stdout: "", stderr: "tmux: server unavailable" };
       },
     });
@@ -342,11 +344,21 @@ describe("closeMergedCombo", () => {
     expect(readEvents(runDir)).toMatchObject([
       { event: "pr_opened" },
       { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+      { event: "combo_closed", source: "closure" },
     ]);
-    expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
     expect(out).toEqual([
       "closure: o-r-7 session kill pending: tmux kill-session failed for \"combo-chen-o-r-7\": tmux: server unavailable",
     ]);
+
+    calls.length = 0;
+    out.length = 0;
+    tmuxFails = false;
+
+    await closeMergedCombo({ deps, home: h, comboId: "o-r-7" });
+
+    expect(readEvents(runDir).filter((event) => event.event === "combo_closed")).toHaveLength(1);
+    expect(calls).toEqual([["tmux", "kill-session", "-t", "combo-chen-o-r-7"]]);
+    expect(out).toEqual(["closure: o-r-7 already closed; tmux session killed"]);
   });
 });
 // -/ 2/2
