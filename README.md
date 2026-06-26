@@ -374,12 +374,12 @@ Completed updater slices:
 - U1: release resolver and latest/beta check flow. (Landed: `resolveLatestReleaseCandidate`, `resolveReadOnlyUpdatePlan`.)
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
+- U72-D: quiet passive update checks with local cache, TTL, and env disable knob. (Landed: `checkPassiveUpdate`, `runPassiveUpdateCheck`.)
 
 Follow-up #72 slices:
 
 - U72-B: active-runtime safety prompts and yes flag policy.
 - U72-C: post-update daemon and runner refresh.
-- U72-D: passive update notices and cache.
 
 ## Commands
 
@@ -504,10 +504,14 @@ Important files:
 - `work-plan.md`: normalized work-plan artifact; the canonical source of work-item intent for reviewer, gatekeeper, and forensics.
 - `park-handoff.md`: local summary created by `park`.
 
-Shared cross-combo state lives under
-`~/.combo-chen/gate-leases.lock/<encoded-branch>/lease.json`. Each branch gets
-its own atomic lease directory, so different branches can gate concurrently
-while the same branch remains single-owner.
+Shared cross-combo state lives under:
+
+- `~/.combo-chen/gate-leases.lock/<encoded-branch>/lease.json` — each branch
+  gets its own atomic lease directory, so different branches can gate
+  concurrently while the same branch remains single-owner.
+- `~/.combo-chen/passive-update-cache.json` — quiet passive update check
+  cache; written by normal public CLI commands and reused for 24 hours.
+  Set `COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS=1` to skip it entirely.
 
 Do not hand-edit `journal.jsonl`. Use `combo-chen emit` only when a real-world
 fact happened and the journal missed it.

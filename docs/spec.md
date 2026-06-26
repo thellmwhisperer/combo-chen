@@ -644,12 +644,12 @@ Completed updater slices:
 - U1: release resolver and latest/beta check flow. (Landed: `resolveLatestReleaseCandidate`, `resolveReadOnlyUpdatePlan`.)
 - U2: download, checksum verification, and staging.
 - U3: install target and atomic replacement. (Landed: `replaceInstallTargetFromStagedArtifact`.)
+- U72-D: quiet passive update checks with local cache, TTL, and env disable knob. (Landed: `checkPassiveUpdate`, `runPassiveUpdateCheck`.)
 
 Follow-up #72 slices:
 
 - U72-B: active-runtime safety prompts and yes flag policy.
 - U72-C: post-update daemon and runner refresh.
-- U72-D: passive update notices and cache.
 
 ## 8b. Parallelize-first operating contract
 
