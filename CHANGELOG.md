@@ -5,6 +5,7 @@
 ### Features
 
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
+* **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 
 ## [0.0.62](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.61...combo-chen-v0.0.62) (2026-06-26)
 
