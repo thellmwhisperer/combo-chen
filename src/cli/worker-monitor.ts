@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~360 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~400 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -28,7 +28,8 @@
  *   INTERNALS
  *   ---------
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
- *   hasPermissionPrompt, autoApprovePermissionPrompt, workerRecoveryAttempts, hasEscalation
+ *   hasPermissionPrompt, autoApprovePermissionPrompt, workerRecoveryAttempts,
+ *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
  * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
@@ -150,6 +151,19 @@ export function workerRecoveryAttempts(events: ComboEvent[], worker: string, rea
   ).length;
 }
 
+function latestInitialCoderTerminalOutcome(events: ComboEvent[]): "coder_done" | "coder_failed" | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "coder_done" || event.event === "coder_failed") return event.event;
+    if (event.event === "coder_started") return undefined;
+  }
+  return undefined;
+}
+
+function terminalOutcomeSummary(worker: string, outcome: "coder_done" | "coder_failed"): string {
+  return `worker ${worker}: terminal_outcome=${outcome}`;
+}
+
 function hasEscalation(runDir: string, reason: string, worker: string): boolean {
   return readEvents(runDir).some(
     (event) =>
@@ -216,6 +230,8 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const { deps, combo, runDir } = input;
   const summaries: string[] = [];
   const findings: WorkerPaneFinding[] = [];
+  const events = readEvents(runDir);
+  const initialCoderOutcome = latestInitialCoderTerminalOutcome(events);
   const recoverableDeadWorkers = new Set(input.recoverableDeadWorkers ?? []);
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) {
@@ -228,6 +244,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
     const deadDetail = session.stderr.trim() || detail;
     for (const worker of new Set(input.workerWindows)) {
+      if (worker === "coder" && initialCoderOutcome !== undefined) {
+        const summary = terminalOutcomeSummary(worker, initialCoderOutcome);
+        summaries.push(summary);
+        deps.out(`director: ${summary}`);
+        continue;
+      }
       findings.push(recordFinding({
         runDir,
         deps,
@@ -236,6 +258,9 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
         detail: deadDetail,
         deferNeedsHuman: recoverableDeadWorkers.has(worker),
       }));
+    }
+    if (findings.length === 0) {
+      return { escalated: false, summaries, findings };
     }
     summaries.push(`workers unavailable: ${deadDetail}`);
     return { escalated: true, summaries, findings };
@@ -256,6 +281,11 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
 
   for (const worker of new Set(input.workerWindows)) {
     if (!active.has(worker)) continue;
+
+    if (worker === "coder" && initialCoderOutcome !== undefined) {
+      summaries.push(terminalOutcomeSummary(worker, initialCoderOutcome));
+      continue;
+    }
 
     const panePids = deps.tmux(listPanesArgs(combo.tmuxSession, worker));
     if (panePids.status !== 0 || panePids.stdout.trim() === "") {

@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2120 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~2250 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -535,6 +535,34 @@ describe("tickDirector", () => {
       ]),
     );
     expect(out).toContain("director: restarted dead coder attempt 1/2");
+  });
+
+  it("does not recover the initial coder after coder_done is journaled", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_done", {});
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      env: { COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS: "2" },
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir).some((event) => event.event === "worker_recovered")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
   });
 
   it("escalates a dead pre-PR coder after the restart attempt budget is exhausted", async () => {
