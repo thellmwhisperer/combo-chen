@@ -101,6 +101,7 @@ interface RuntimeLedgerJson {
   comboId: string;
   prUrl?: string;
   worktree: string;
+  roleWindows: Record<string, string>;
 }
 
 interface JournalEventJson {
@@ -341,6 +342,94 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       expect(tmuxLog).toContainEqual(expect.objectContaining({ args: ["kill-session", "-t", combo.tmuxSession] }));
+
+      passed = true;
+    } finally {
+      if (passed) {
+        rmSync(harness.root, { recursive: true, force: true });
+      } else {
+        process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+      }
+    }
+  });
+
+  it("exposes the persistent role-window topology through launch and open-PR resume", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, launch, runDir } = launchPlanCombo(harness);
+      expect(launch.stdout).toContain(
+        "topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · director-watch=director-watch · coder-response=coder",
+      );
+
+      let ledger = readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json"));
+      expect(ledger.roleWindows).toMatchObject({
+        coder: "coder",
+        journal: "journal",
+        director: "director",
+        gatekeeper: "gatekeeper",
+        directorWatch: "director-watch",
+      });
+      expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
+      expect(ledger.roleWindows).not.toHaveProperty("reviewerWatch");
+
+      let tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      expect(Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows).sort()).toEqual([
+        "coder",
+        "director",
+        "director-watch",
+        "gatekeeper",
+        "journal",
+      ]);
+
+      const prUrl = "https://github.com/o/r/pull/1";
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "pr_opened", "--field", `url=${prUrl}`], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      for (const windowName of ["journal", "director", "gatekeeper", "director-watch"]) {
+        run("tmux", ["kill-window", "-t", `${combo.tmuxSession}:${windowName}`], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const resume = run(process.execPath, [cliPath, "resume", "-n", combo.id], {
+        cwd: harness.repo,
+        env: { ...harness.env, E2E_PR_STATE: "OPEN" },
+      });
+      expect(resume.stdout).toContain("resume: PR ready for reviewer");
+
+      tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      expect(Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows).sort()).toEqual([
+        "coder",
+        "director",
+        "director-watch",
+        "gatekeeper",
+        "journal",
+        "reviewer",
+      ]);
+
+      ledger = readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json"));
+      expect(ledger.prUrl).toBe(prUrl);
+      expect(ledger.roleWindows).toMatchObject({
+        coder: "coder",
+        journal: "journal",
+        director: "director",
+        gatekeeper: "gatekeeper",
+        reviewer: "reviewer",
+        directorWatch: "director-watch",
+      });
+      expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
+      expect(ledger.roleWindows).not.toHaveProperty("reviewerWatch");
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const newWindowNames = tmuxLog
+        .filter((entry) => entry.args[0] === "new-window")
+        .map((entry) => entry.args[entry.args.indexOf("-n") + 1]);
+      expect(newWindowNames).not.toContain("gate-runner");
+      expect(newWindowNames).not.toContain("reviewer-watch");
 
       passed = true;
     } finally {
