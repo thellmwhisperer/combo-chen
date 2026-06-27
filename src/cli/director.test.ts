@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2250 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~2310 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------

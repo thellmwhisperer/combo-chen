@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~400 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~410 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *

@@ -459,8 +459,13 @@ ignored config or environment outside that file.
   `auto-approve-known-safe`, or `recreate-non-interactive`; env override
   `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`). The conservative default is
   `escalate`, which journals `needs_human` with
-  `worker_permission_prompt`. Before `pr_opened`, dead `coder` workers are
-  recovered first: the director restarts the persisted runner and journals
+  `worker_permission_prompt`. Before classifying a dead-looking `coder`
+  pane, the monitor checks the journal for a prior terminal coder outcome
+  (`coder_done` or `coder_failed`). When `coder_done` is already journaled,
+  a dead or missing pane is treated as a clean completion — no escalation,
+  no recovery. When `coder_failed` is journaled, a dead pane still escalates
+  normally. Before `pr_opened`, dead `coder` workers are recovered first:
+  the director restarts the persisted runner and journals
   `worker_recovered reason=worker_dead`. After a PR is open, dead workers
   journal `needs_human reason=worker_dead`. `worker_stalled` normally
   escalates the same way, except stalled coder responding mode is recovered
