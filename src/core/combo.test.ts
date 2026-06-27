@@ -1428,6 +1428,11 @@ if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
   exit 0
 fi
 if [ "$1" = "axi" ]; then
+  config_wait=0
+  while [ "$config_wait" -lt 5 ] && [ ! -f "$NO_MISTAKES_RUN_DIR/.no-mistakes.yaml" ]; do
+    config_wait=$((config_wait + 1))
+    sleep 1
+  done
   test -f "$NO_MISTAKES_RUN_DIR/.no-mistakes.yaml"
   test ! -f "$NO_MISTAKES_OTHER_RUN_DIR/.no-mistakes.yaml"
   exit 0
