@@ -152,7 +152,7 @@ Do not hand-emit `merged` or `combo_closed` as a substitute for post-merge clean
 | `coder_started` (no fields) | CODING | the coder is running but `coder_started` never landed. |
 | `gate_started` (no fields) | GATING | the gate is live but unjournaled. **Extra side-effect:** recreates the gatekeeper tmux window. |
 | `pr_opened --field url=<prUrl>` | REVIEWING | the gate opened the PR out of band (manual `axi run`, human-resolved gate) so `pr_opened` is missing and `activate-reviewer`/`director-watch` refuse to start. The single most common revive. |
-| `coder_done` (no fields) | (no phase move) | the coder finished but the thread was never captured. **Extra side-effect:** persists `coder-thread.json`, which responding mode needs to resume. |
+| `coder_done` (no fields) | GATING | the coder finished but the thread was never captured. **Extra side-effect:** persists `coder-thread.json`, which responding mode needs to resume. |
 | `address_done --field head_sha=<sha>` | READY → REVIEWING | an addressing commit landed but the combo is stuck in READY. |
 | `gate_stale` / `lgtm_stale --field old_sha=<a> --field new_sha=<b>` | READY → REVIEWING | HEAD moved past a stale validation/LGTM and READY never reopened. |
 | `ready_for_merge --field sha=<sha> --field pr_url=<url>` | READY | every current-head signal agrees but the terminal READY event is missing. Verify all four signals first; do not shortcut the contract. |
