@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~560 lines, 9 exports, 1 critical function.
+ *   ~640 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -21,7 +21,7 @@
  *     → tmux executes it
  *
  *   runner.sh lifecycle (what buildRunnerScript generates):
- *     fetch/rebase baseRef → coder_started → coderCommand →
+ *     fetch/rebase baseRef → snapshot existing gnhf iteration files → coder_started → coderCommand →
  *       coder_done (success) | coder_failed + exit $code (failure/log failure, exit sanitized)
  *     → gate_started → optional gate lease → mirror publish → config handoff + gatekeeperCommand → pr_opened
  *     → activateReviewer; missing PRs emit needs_human
@@ -68,6 +68,12 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
       case "coder_started":
         phase = "CODING";
         needsHuman = false;
+        break;
+      case "coder_done":
+        if (phase === "SETUP" || phase === "CODING") {
+          phase = "GATING";
+          needsHuman = false;
+        }
         break;
       case "gate_started":
         phase = "GATING";
@@ -378,6 +384,7 @@ fi`;
 set -u
 coder_status="$(dirname "$0")/coder.exit"
 coder_start_marker="$(dirname "$0")/coder-started.$$"
+gnhf_iteration_snapshot="$(dirname "$0")/gnhf-iterations.$$"
 gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
 rebase_log="$(dirname "$0")/rebase.log"
@@ -387,11 +394,52 @@ runner_status() {
     printf '%s\\n' "$1"
   fi
 }
+gnhf_snapshot_iterations() {
+  rm -f "$gnhf_iteration_snapshot"
+  if [ ! -d .gnhf/runs ]; then
+    : > "$gnhf_iteration_snapshot"
+    return 0
+  fi
+  node - "$gnhf_iteration_snapshot" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const snapshotPath = process.argv[2];
+const runsDir = path.join(process.cwd(), ".gnhf", "runs");
+
+function* walk(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      yield* walk(entryPath);
+    } else {
+      yield entryPath;
+    }
+  }
+}
+
+try {
+  const rows = [];
+  for (const file of walk(runsDir)) {
+    const name = path.basename(file);
+    if (!name.startsWith("iteration-") || !name.endsWith(".jsonl")) continue;
+    const stat = fs.statSync(file);
+    rows.push(JSON.stringify({ path: path.resolve(file), size: stat.size }));
+  }
+  fs.writeFileSync(snapshotPath, rows.join("\\n") + (rows.length > 0 ? "\\n" : ""));
+} catch {
+  process.exit(1);
+}
+NODE
+  if [ "$?" -ne 0 ]; then
+    rm -f "$gnhf_iteration_snapshot"
+  fi
+}
 gnhf_stop_condition_met() {
   if [ ! -d .gnhf/runs ]; then
     return 1
   fi
-  node - "$coder_start_marker" <<'NODE'
+  node - "$coder_start_marker" "$gnhf_iteration_snapshot" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 
@@ -403,6 +451,19 @@ try {
 }
 
 const runsDir = path.join(process.cwd(), ".gnhf", "runs");
+const preRunSizes = new Map();
+
+try {
+  const snapshot = fs.readFileSync(process.argv[3], "utf8");
+  for (const line of snapshot.split(/\\r?\\n/)) {
+    if (line.trim() === "") continue;
+    const row = JSON.parse(line);
+    if (typeof row?.path !== "string" || typeof row?.size !== "number") process.exit(1);
+    preRunSizes.set(path.resolve(row.path), row.size);
+  }
+} catch {
+  process.exit(1);
+}
 
 function* walk(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -431,8 +492,19 @@ try {
   for (const file of walk(runsDir)) {
     const name = path.basename(file);
     if (!name.startsWith("iteration-") || !name.endsWith(".jsonl")) continue;
-    if (fs.statSync(file).mtimeMs < markerMs) continue;
-    const lines = fs.readFileSync(file, "utf8").split(/\\r?\\n/);
+    const resolved = path.resolve(file);
+    const stat = fs.statSync(file);
+    const priorSize = preRunSizes.get(resolved);
+    const content = fs.readFileSync(file);
+    let resultText;
+    if (priorSize !== undefined) {
+      if (stat.size <= priorSize) continue;
+      resultText = content.subarray(priorSize).toString("utf8");
+    } else {
+      if (stat.mtimeMs < markerMs) continue;
+      resultText = content.toString("utf8");
+    }
+    const lines = resultText.split(/\\r?\\n/);
     for (const line of lines) {
       if (line.trim() === "") continue;
       if (isStopConditionResult(line)) process.exit(0);
@@ -463,8 +535,9 @@ coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 ${runnerStatus("starting coder")}
 ${emit} coder_started
 
-rm -f "$coder_status" "$coder_start_marker"
+rm -f "$coder_status" "$coder_start_marker" "$gnhf_iteration_snapshot"
 : > "$coder_start_marker"
+gnhf_snapshot_iterations
 (
   coder_code=0
   ${coderCommand} || coder_code=$?
@@ -480,7 +553,7 @@ if [ "$code" -ne 0 ] && gnhf_stop_condition_met; then
   ${runnerStatus("coder stop condition met; starting gatekeeper")}
   code=0
 fi
-rm -f "$coder_start_marker"
+rm -f "$coder_start_marker" "$gnhf_iteration_snapshot"
 
 if [ "$code" -eq 0 ]; then
   ${emit} coder_done
