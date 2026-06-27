@@ -2156,6 +2156,53 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     } finally {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+
+  it("does not flag the coder as stalled when gnhf log shows recent activity", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      // Emit coder_started so the worker-monitor knows the coder is live
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "coder_started"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      // Create a fake gnhf.log with recent mtime so gnhf looks alive
+      const gnhfRunsDir = join(combo.worktree, ".gnhf", "runs", "e2e-ghnf-alive");
+      mkdirSync(gnhfRunsDir, { recursive: true });
+      writeFileSync(join(gnhfRunsDir, 'gnhf.log'), '{"event":"iteration:start","iteration":3}\n');
+
+      // Pane content that looks like an unchanged gnhf spinner
+      const gnhfPane = [
+        "22:00:00  ·  15.2M in  ·  45K out  ·  0 commits",
+        "iteration 3  working...",
+      ].join("\n");
+
+      const tickEnv = { ...harness.env, E2E_TMUX_CAPTURE_CODER: gnhfPane };
+
+      // Three ticks with unchanged pane — normally would trigger worker_stalled
+      for (let i = 0; i < 3; i += 1) {
+        const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+          cwd: harness.repo,
+          env: tickEnv,
+        });
+        if (i === 2) {
+          expect(tick.stdout).toContain("gnhf is actively progressing");
+          expect(tick.stdout).not.toContain("worker_stalled");
+        }
+      }
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events.some((e) => e.event === 'needs_human' && e['reason'] === 'worker_stalled')).toBe(false);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
     }
   });
 });
