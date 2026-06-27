@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~470 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~430 lines, detects permission prompts, (fix(coder): Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules.)
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -183,17 +183,9 @@ function latestInitialCoderTerminalOutcome(
 }
 
 function hasCoderResponsePromptAfter(events: ComboEvent[], index: number): boolean {
-  let hasUnresolved = false;
-  for (let i = index + 1; i < events.length; i += 1) {
-    const event = events[i]!;
-    if (event.event === "review_comment" || event.event === "pr_conflict") {
-      hasUnresolved = true;
-    }
-    if (event.event === "lgtm") {
-      hasUnresolved = false;
-    }
-  }
-  return hasUnresolved;
+  return events
+    .slice(index + 1)
+    .some((event) => event.event === "review_comment" || event.event === "pr_conflict"); (fix(coder): Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules.)
 }
 
 function terminalOutcomeSummary(worker: string, outcome: "coder_done" | "coder_failed"): string {
