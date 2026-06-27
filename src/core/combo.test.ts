@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1800 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1900 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -52,7 +52,10 @@ describe("deriveStatus", () => {
     const events = [ev("combo_created", { issue_url: "x" }), ev("coder_started")];
     expect(deriveStatus(events).phase).toBe("CODING");
 
-    events.push(ev("coder_done"), ev("gate_started"));
+    events.push(ev("coder_done"));
+    expect(deriveStatus(events).phase).toBe("GATING");
+
+    events.push(ev("gate_started"));
     expect(deriveStatus(events).phase).toBe("GATING");
 
     events.push(ev("pr_opened", { url: "https://github.com/o/r/pull/9" }));
@@ -830,6 +833,94 @@ not json
 {"type":"item.completed","item":{"id":"wrong-stop","type":"agent_message","text":"{\\"success\\":true,\\"should_fully_stop\\":\\"true\\"}"}}
 
 JSONL
+exit 42
+`,
+    );
+    chmodSync(fakeCoder, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then printf 'head-sha\\n'; exit 0; fi
+if [ "$1" = "rev-list" ]; then printf '0\\n'; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...runnerSubprocessEnv({
+          EVENTS_LOG: eventsPath,
+          PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        }),
+        COMBO_CHEN_RUNNER_PROGRESS: "1",
+      },
+    });
+
+    expect(result.status).toBe(42);
+    expect(result.stdout).toContain("runner: coder failed with exit 42; stopping runner");
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "coder_started",
+      [
+        "coder_failed",
+        "--field exit_code=42",
+        "--field has_new_commits=false",
+        "--field base_sha=head-sha",
+        "--field head_sha=head-sha",
+        "--field new_commit_count=0",
+      ].join(" "),
+    ]);
+  });
+
+  it("ignores pre-existing gnhf success artifacts even if their timestamp changes during the current coder run", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(join(worktree, ".gnhf", "runs", "old-run"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const staleArtifact = join(worktree, ".gnhf", "runs", "old-run", "iteration-1.jsonl");
+    writeFileSync(
+      staleArtifact,
+      [
+        '{"type":"item.completed","item":{"id":"old","type":"agent_message","text":"{\\"success\\":true,\\"should_fully_stop\\":true}"}}',
+        "",
+      ].join("\n"),
+    );
+
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeCoder = join(bin, "fake-gnhf");
+    writeFileSync(
+      fakeCoder,
+      `#!/bin/sh
+touch .gnhf/runs/old-run/iteration-1.jsonl
 exit 42
 `,
     );
