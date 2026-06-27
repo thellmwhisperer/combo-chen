@@ -85,6 +85,13 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
       "-F",
       "#{pane_index}",
     ]);
+    expect(listPanesArgs("s", "rower", "#{pane_dead}")).toEqual([
+      "list-panes",
+      "-t",
+      "s:rower",
+      "-F",
+      "#{pane_dead}",
+    ]);
     expect(captureWindowArgs("s", "rower")).toEqual(["capture-pane", "-p", "-t", "s:rower"]);
     expect(renameWindowArgs("s", "rower", "rower:RUNNING")).toEqual([
       "rename-window",

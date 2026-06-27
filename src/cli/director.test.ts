@@ -955,6 +955,9 @@ describe("tickDirector", () => {
       if (args[0] === "list-windows") {
         return { status: 0, stdout: "coder\nreviewer\ngatekeeper\ncoder-responding\n", stderr: "" };
       }
+      if (args[0] === "list-panes" && args.includes("#{pane_dead}")) {
+        return { status: 0, stdout: "0\n", stderr: "" };
+      }
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
       if (args[0] === "capture-pane") return { status: 0, stdout: "idle pane\n", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
@@ -979,7 +982,14 @@ describe("tickDirector", () => {
       "combo-chen-o-r-7:coder",
       "C-m",
     ]);
-    expect(calls.some((call) => call[1] === "list-panes" && call.includes("combo-chen-o-r-7:coder"))).toBe(false);
+    expect(calls).toContainEqual([
+      "tmux",
+      "list-panes",
+      "-t",
+      "combo-chen-o-r-7:coder",
+      "-F",
+      "#{pane_dead}",
+    ]);
     expect(calls.some((call) => call.includes("combo-chen-o-r-7:gatekeeper"))).toBe(false);
     expect(out).toContain("nudged https://github.com/o/r/pull/7#pullrequestreview-1");
   });

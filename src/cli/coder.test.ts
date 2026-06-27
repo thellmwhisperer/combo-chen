@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~890 lines, activate, nudge, and recovery flows.
+ * @overview Unit tests for coder-response CLI helpers. ~930 lines, activate, nudge, and recovery flows.
  *
  *   READING GUIDE
  *   -------------
@@ -250,6 +250,111 @@ describe("nudgeReviewComments", () => {
         "-F",
         "#{window_name}",
       ],
+      [
+        "tmux",
+        "new-window",
+        "-t",
+        "combo-chen-owned-session",
+        "-n",
+        "coder",
+        `codex resume '${CODEX_THREAD_ID}'`,
+      ],
+      [
+        "tmux",
+        "set-buffer",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
+        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#issuecomment-1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
+      ],
+      [
+        "tmux",
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
+        "-t",
+        "combo-chen-owned-session:coder",
+      ],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
+    ]);
+    expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
+  });
+
+  it("recreates a retained coder window whose only pane is dead before nudging review comments", () => {
+    const calls: string[][] = [];
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+
+    writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    nudgeReviewComments({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: (line) => out.push(line),
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "coder\n", stderr: "" };
+          }
+          if (args[0] === "list-panes") {
+            return { status: 0, stdout: "1\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+        git: (args, cwd) => {
+          calls.push(["git", `cwd=${cwd}`, ...args]);
+          if (args[0] === "remote" && args[1] === "get-url" && args[2] === "no-mistakes") {
+            return { status: 2, stdout: "", stderr: "No such remote 'no-mistakes'" };
+          }
+          if (args[0] === "rev-parse" && args[1] === "HEAD") {
+            return { status: 0, stdout: "abc123\n", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        gh: (args) => {
+          const endpoint = args.at(-1);
+          if (endpoint === "repos/o/r/issues/7/comments") {
+            return {
+              status: 0,
+              stdout: JSON.stringify([
+                {
+                  html_url: "https://github.com/o/r/pull/7#issuecomment-1",
+                  user: { login: "external-reviewer" },
+                  body: "Please handle this.",
+                },
+              ]),
+              stderr: "",
+            };
+          }
+          return { status: 0, stdout: "[]", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+    });
+
+    expect(calls.filter((call) => call[0] === "tmux")).toEqual([
+      [
+        "tmux",
+        "list-windows",
+        "-t",
+        "combo-chen-owned-session",
+        "-F",
+        "#{window_name}",
+      ],
+      [
+        "tmux",
+        "list-panes",
+        "-t",
+        "combo-chen-owned-session:coder",
+        "-F",
+        "#{pane_dead}",
+      ],
+      ["tmux", "kill-window", "-t", "combo-chen-owned-session:coder"],
       [
         "tmux",
         "new-window",
