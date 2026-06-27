@@ -1,6 +1,6 @@
 /**
  * @overview Shared display helpers for sanitizing combo tokens and formatting active combo lists.
- *   ~30 lines, 2 exports, keeps bidirectional-char stripping and fallback logic in one place.
+ *   ~45 lines, 2 exports, keeps bidirectional-char stripping and fallback logic in one place.
  *
  *   READING GUIDE
  *   -------------

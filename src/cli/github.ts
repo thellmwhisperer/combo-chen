@@ -1,5 +1,5 @@
 /**
- * @overview GitHub CLI parsing helpers. ~565 lines, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers. ~580 lines, gh JSON normalization.
  *
  *   READING GUIDE
  *   -------------
