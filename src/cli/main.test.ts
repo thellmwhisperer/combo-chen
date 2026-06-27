@@ -4854,7 +4854,7 @@ describe("resume", () => {
       .filter((call) => call[0] === "new-window")
       .map((call) => call[4]);
     expect(newWindowNames).toEqual(
-      expect.arrayContaining(["journal", "director", "reviewer", "director-watch"]), (fix(resume): Restored missing journal role recovery for existing tmux sessions during resume, with regression coverage and full validation green.)
+      expect.arrayContaining(["journal", "director", "gatekeeper", "reviewer", "director-watch"]), (fix(resume): Restored the persistent gatekeeper window during open-PR resume and added built-CLI e2e topology coverage for launch/resume.)
     );
     expect(readEvents(dir)).toEqual(initialEvents);
     expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
