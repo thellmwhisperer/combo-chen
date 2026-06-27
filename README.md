@@ -219,6 +219,9 @@ external review bots whose checks are listed under `[ready]`.
 `combo:external-review-green` status label.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
 filtered for bookkeeping/noise and otherwise routed to coder responding mode.
+Comments from these agents that indicate a skipped or rate-limited review
+(such as "review skipped", "review limit reached", or "rate limited") block
+READY even when the corresponding check status reports SUCCESS.
 
 ## Agent CLI Policy
 

@@ -309,7 +309,10 @@ ignored config or environment outside that file.
 - External agent comments are routed as review input for the coder. Configure
   their comment/noise filters with `[external_comments].agents`; clean or
   rate-limited external comments do not approve the PR and do not affect READY
-  except through their configured GitHub check/status result.
+  except through their configured GitHub check/status result. Comments that
+  indicate a skipped or rate-limited review (e.g. "review skipped", "review
+  limit reached", "couldn't start this review", "rate limited") block READY
+  even when the corresponding check status is SUCCESS.
 - If no-mistakes dies after publishing and journals `gate_failed` with
   `reason=daemon_dead`, while GitHub reports the current PR head check rollup
   as successful, the director may reconcile stale local gate evidence by
@@ -498,8 +501,9 @@ ignored config or environment outside that file.
     teardown while no-mistakes still reports an active or awaiting run for the
     combo branch, returns the Treehouse worktree lease, deletes the local
     branch, records `combo_closed` with `source: "closure"`, and
-    kills the tmux session. Existing `combo_closed` events are treated as
-    already converged. The reviewer/director-watch path also records the live
+kills the tmux session. An existing `combo_closed` event skips the merge
+recording and resource teardown, but the closure still reaps the tmux session
+when it is alive. The reviewer/director-watch path also records the live
     merge fact and may trigger closure automatically. Reconcile can record a
     missing merge fact but defers resource convergence to closure.
 -   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
