@@ -22,7 +22,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./worker-monitor
  */
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -588,6 +588,43 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir).filter((event) => event.event === "needs_human" && event["worker"] === "reviewer"))
       .toHaveLength(1);
     expect(out).toContainEqual(expect.stringContaining("worker reviewer no such session"));
+  });
+
+  it("does not flag the coder as stalled when gnhf is actively progressing", () => {
+    const { record, runDir } = combo();
+    // Create a fake gnhf.log with recent mtime so gnhf looks alive
+    const gnhfRunsDir = join(record.worktree, ".gnhf", "runs", "implement-github-iss-test");
+    mkdirSync(gnhfRunsDir, { recursive: true });
+    writeFileSync(join(gnhfRunsDir, "gnhf.log"), '{"event":"iteration:start","iteration":3}\n');
+
+    const out: string[] = [];
+    const unchangedPane = "gnhf v0.1.41\niteration 3\nspinner...";
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "12345", stderr: "" };
+        if (args[0] === "capture-pane") return { status: 0, stdout: unchangedPane, stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    // First tick: unchanged for 1 tick, under threshold
+    const r1 = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"] });
+    expect(r1.escalated).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("unchanged_ticks=1"));
+
+    // Second tick: unchanged for 2 ticks
+    const r2 = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"] });
+    expect(r2.escalated).toBe(false);
+
+    // Third tick: unchanged for 3 ticks = stall threshold, BUT gnhf is alive
+    const r3 = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"] });
+    expect(r3.escalated).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("gnhf is actively progressing"));
+    expect(out).not.toContainEqual(expect.stringContaining("worker_stalled"));
+    const events = readEvents(runDir);
+    expect(events.filter((e) => e.event === "needs_human" && e["reason"] === "worker_stalled")).toHaveLength(0);
   });
 });
 // -/ 1/1
