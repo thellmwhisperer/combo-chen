@@ -487,9 +487,13 @@ Recovery playbook:
 
 - Parked combos: use `combo-chen resume -n <combo-id>` to reconstruct the next
   action from the journal and downstream state.
-- Pre-PR coder dead/stalled: the director auto-restarts dead pre-PR coder
-  workers and stalled coder-responding windows up to the configured recovery
-  budget. After the budget is exhausted a `needs_human` event is journaled.
+- Pre-PR coder dead/stalled: the monitor first checks for a journaled
+  `coder_done` or `coder_failed` event before classifying a dead pane.
+  A prior `coder_done` means clean completion — no recovery runs.
+  When no terminal outcome is journaled, the director auto-restarts dead
+  pre-PR coder workers and stalled coder-responding windows up to the
+  configured recovery budget. After the budget is exhausted a `needs_human`
+  event is journaled.
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
   interactive prompts are auto-approved, trigger coder-responding recreation, or
