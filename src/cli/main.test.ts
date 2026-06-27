@@ -4847,7 +4847,7 @@ describe("resume", () => {
       .filter((call) => call[0] === "new-window")
       .map((call) => call[4]);
     expect(newWindowNames).toEqual(
-      expect.arrayContaining(["journal", "director", "reviewer", "director-watch"]),
+      expect.arrayContaining(["journal", "director", "gatekeeper", "reviewer", "director-watch"]),
     );
     expect(readEvents(dir)).toEqual(initialEvents);
     expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);

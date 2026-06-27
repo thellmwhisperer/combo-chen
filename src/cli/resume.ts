@@ -277,6 +277,10 @@ export async function resumeCombo(input: {
 
   if (state.kind === "reviewer_ready") {
     const recreated = ensureComboSession({ deps, combo, home, cli });
+    ensureGatekeeperWindow(deps, combo, {
+      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+    });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(`resume: ${PR_READY_FOR_REVIEWER}${recreated ? " (recreated tmux session)" : ""}`);
     return;
@@ -349,6 +353,10 @@ export async function resumeCombo(input: {
 
   if (state.kind === "pr_exists") {
     const recreated = ensureComboSession({ deps, combo, home, cli });
+    ensureGatekeeperWindow(deps, combo, {
+      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+    });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(
       `resume: PR exists at ${state.prUrl}; reviewer/director monitoring ensured` +
