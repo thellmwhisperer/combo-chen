@@ -522,7 +522,7 @@ export function createProgram(deps: Deps): Command {
           `director=${DIRECTOR_WINDOW}`,
           `gatekeeper=${GATEKEEPER_WINDOW}`,
           `director-watch=${DIRECTOR_WATCH_WINDOW}`,
-          "coder-responding=lazy",
+          `coder-response=${config.coderRespondingWindowName}`,
         ].join(" · "),
       );
       deps.out(`   journal: tmux attach -t ${session}  ·  combo-chen events --follow -n ${id}`);

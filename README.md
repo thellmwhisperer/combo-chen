@@ -232,11 +232,14 @@ The default Codex coder path is gnhf-managed: combo-chen runs pinned `gnhf` with
 `--meteor-frequency 0`, and `--current-branch`. gnhf 0.1.41 does not expose a
 generic Codex CLI profile/flag pass-through, so Codex terminal flags are not
 part of the normal coder command. Coder responding mode resumes the captured
-thread with the configured resume command (default `codex resume {thread_id}`).
+thread with the configured resume command (default `codex resume {thread_id}`)
+through the persistent `coder` tmux window.
 The recommended `codex --profile sitter --no-alt-screen resume {thread_id}`
 keeps tmux scrollback visible and the session resumable/auditable without
 changing the underlying default. Custom `resume_command` templates remain
-supported for local wrappers or other agents.
+supported for local wrappers or other agents, and
+`[coder_responding].window_name` remains as a compatibility bridge for older
+capsules that still need a separate response window.
 
 If combo-chen later adds a direct noninteractive Codex runner, it must keep
 `-C {worktree}` explicit, use an autonomous isolated sandbox such as
@@ -498,12 +501,13 @@ Recovery playbook:
   `coder_done` or `coder_failed` event before classifying a dead pane.
   A prior `coder_done` means clean completion — no recovery runs.
   When no terminal outcome is journaled, the director auto-restarts dead
-  pre-PR coder workers and stalled coder-responding windows up to the
-  configured recovery budget. After the budget is exhausted a `needs_human`
-  event is journaled.
+  pre-PR coder workers and stalled coder-response surfaces (the default
+  `coder` window or a configured compatibility window) up to the configured
+  recovery budget. After the budget is exhausted a `needs_human` event is
+  journaled.
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
-  interactive prompts are auto-approved, trigger coder-responding recreation, or
+  interactive prompts are auto-approved, trigger coder-response recreation, or
   escalate to `needs_human`. Auto-approve and recreate attempts share the
   configured worker recovery budget. Default is `escalate`.
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then

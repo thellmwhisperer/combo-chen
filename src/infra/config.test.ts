@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~925 lines,
+ * @overview Unit tests for config loading and command rendering. ~945 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -99,7 +99,7 @@ describe("loadConfig", () => {
     expect(config.reviewNudgePrompt).toContain("Do not push");
     expect(config.reviewNudgePrompt).toContain("Leave committed local changes");
     expect(config.reviewNudgePrompt).toContain("gatekeeper/no-mistakes");
-    expect(config.coderRespondingWindowName).toBe("coder-responding");
+    expect(config.coderRespondingWindowName).toBe("coder");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");

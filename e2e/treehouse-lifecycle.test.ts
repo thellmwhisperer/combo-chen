@@ -79,6 +79,7 @@ interface HarnessOptions {
   greenCheckNames?: string[];
   reviewerLogins?: string[];
   externalReviewCommands?: string[];
+  coderRespondingWindowName?: string;
   quoteNoMistakesRunId?: boolean;
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
@@ -658,12 +659,12 @@ describe("treehouse-backed combo lifecycle e2e", () => {
               "paste-buffer",
               "-d",
               "-b",
-              `combo-chen-nudge-${combo.tmuxSession}-coder-responding`,
+              `combo-chen-nudge-${combo.tmuxSession}-coder`,
               "-t",
-              `${combo.tmuxSession}:coder-responding`,
+              `${combo.tmuxSession}:coder`,
             ],
           }),
-          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder-responding`, "C-m"] }),
+          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder`, "C-m"] }),
         ]),
       );
 
@@ -995,7 +996,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       expect(tmuxLog).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder-responding`, "C-m"] }),
+          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder`, "C-m"] }),
         ]),
       );
 
@@ -1053,7 +1054,10 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   });
 
   it("recreates a permission-prompted coder responding worker before escalating needs_human", () => {
-    const harness = prepareHarness({ permissionPromptPolicy: "recreate-non-interactive" });
+    const harness = prepareHarness({
+      permissionPromptPolicy: "recreate-non-interactive",
+      coderRespondingWindowName: "coder-responding",
+    });
     let passed = false;
 
     try {
@@ -1145,7 +1149,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   }, 15_000);
 
   it("recovers a stalled coder responding worker before escalating needs_human", () => {
-    const harness = prepareHarness({ workerStallTicks: 2 });
+    const harness = prepareHarness({ workerStallTicks: 2, coderRespondingWindowName: "coder-responding" });
     let passed = false;
 
     try {
@@ -1244,7 +1248,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   });
 
   it("holds a dirty PR on an intent decision instead of recycling coder responding", () => {
-    const harness = prepareHarness({ workerStallTicks: 2 });
+    const harness = prepareHarness({ workerStallTicks: 2, coderRespondingWindowName: "coder-responding" });
     let passed = false;
 
     try {
@@ -1403,7 +1407,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   });
 
   it("escalates a dead coder responding worker for a mergeable PR without restarting the initial runner", () => {
-    const harness = prepareHarness();
+    const harness = prepareHarness({ coderRespondingWindowName: "coder-responding" });
     let passed = false;
 
     try {
@@ -2575,6 +2579,13 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
         : [
             "[pr_labels]",
             `green_check_names = ${JSON.stringify(greenCheckNames)}`,
+            "",
+          ]),
+      ...(options.coderRespondingWindowName === undefined
+        ? []
+        : [
+            "[coder_responding]",
+            `window_name = ${JSON.stringify(options.coderRespondingWindowName)}`,
             "",
           ]),
       "[limits]",

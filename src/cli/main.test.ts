@@ -2268,7 +2268,7 @@ describe("attach", () => {
 });
 
 describe("activate-coder", () => {
-  it("uses OSS-friendly default coder responding worker", async () => {
+  it("uses the persistent coder window as the default coder responding worker", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const dir = runDirFor(h, "o-r-7");
@@ -2295,7 +2295,8 @@ describe("activate-coder", () => {
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows).toHaveLength(1);
-    expect(newWindows[0]).toContain("coder-responding");
+    expect(newWindows[0]).toContain("coder");
+    expect(newWindows[0]).not.toContain("coder-responding");
     expect(out.join("\n")).toContain("coder responding active for o-r-7");
   });
 
@@ -3705,7 +3706,7 @@ describe("run", () => {
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
     expect(out).toContain(
-      "   topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · director-watch=director-watch · coder-responding=lazy",
+      "   topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · director-watch=director-watch · coder-response=coder",
     );
     const initialWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(calls.find((call) => call[0] === "tmux" && call[1] === "new-session")).toEqual([

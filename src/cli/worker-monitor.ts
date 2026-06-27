@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~410 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~430 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -169,13 +169,23 @@ export function workerRecoveryAttempts(events: ComboEvent[], worker: string, rea
   ).length;
 }
 
-function latestInitialCoderTerminalOutcome(events: ComboEvent[]): "coder_done" | "coder_failed" | undefined {
+function latestInitialCoderTerminalOutcome(
+  events: ComboEvent[],
+): { outcome: "coder_done" | "coder_failed"; index: number } | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
-    if (event.event === "coder_done" || event.event === "coder_failed") return event.event;
+    if (event.event === "coder_done" || event.event === "coder_failed") {
+      return { outcome: event.event, index: i };
+    }
     if (event.event === "coder_started") return undefined;
   }
   return undefined;
+}
+
+function hasCoderResponsePromptAfter(events: ComboEvent[], index: number): boolean {
+  return events
+    .slice(index + 1)
+    .some((event) => event.event === "review_comment" || event.event === "pr_conflict");
 }
 
 function terminalOutcomeSummary(worker: string, outcome: "coder_done" | "coder_failed"): string {
@@ -263,8 +273,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
     const deadDetail = session.stderr.trim() || detail;
     for (const worker of new Set(input.workerWindows)) {
-      if (worker === "coder" && initialCoderOutcome === "coder_done") {
-        const summary = terminalOutcomeSummary(worker, initialCoderOutcome);
+      if (
+        worker === "coder" &&
+        initialCoderOutcome?.outcome === "coder_done" &&
+        !hasCoderResponsePromptAfter(events, initialCoderOutcome.index)
+      ) {
+        const summary = terminalOutcomeSummary(worker, initialCoderOutcome.outcome);
         summaries.push(summary);
         deps.out(`director: ${summary}`);
         continue;
@@ -301,8 +315,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   for (const worker of new Set(input.workerWindows)) {
     if (!active.has(worker)) continue;
 
-    if (worker === "coder" && initialCoderOutcome === "coder_done") {
-      summaries.push(terminalOutcomeSummary(worker, initialCoderOutcome));
+    if (
+      worker === "coder" &&
+      initialCoderOutcome?.outcome === "coder_done" &&
+      !hasCoderResponsePromptAfter(events, initialCoderOutcome.index)
+    ) {
+      summaries.push(terminalOutcomeSummary(worker, initialCoderOutcome.outcome));
       continue;
     }
 
