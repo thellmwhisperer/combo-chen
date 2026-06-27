@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~480 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~500 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -27,7 +27,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { readEvents } from "../core/events.js";
+import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
 import { inspectWorkerPanes, type WorkerMonitorDeps } from "./worker-monitor.js";
 
@@ -308,6 +308,56 @@ describe("inspectWorkerPanes", () => {
       }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker coder gnhf stopped without success"));
+  });
+
+  it("trusts journaled coder completion over a dead-looking initial pane", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_done", {});
+    const { deps, calls } = fakeDeps({
+      coder: undefined,
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      recoverableDeadWorkers: ["coder"],
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.findings).toEqual([]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(calls.some((call) => call[0] === "list-panes")).toBe(false);
+  });
+
+  it("trusts journaled coder completion when the tmux session is already gone", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_done", {});
+    const out: string[] = [];
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 1, stdout: "", stderr: "no session" };
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "no session" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      recoverableDeadWorkers: ["coder"],
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.findings).toEqual([]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContain("director: worker coder: terminal_outcome=coder_done");
   });
 
   it("returns recoverable dead-worker findings without journaling needs_human", () => {
