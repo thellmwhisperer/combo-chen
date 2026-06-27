@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~210 lines, 13 exports, attach/recovery and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~200 lines, 13 exports, attach/recovery and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -133,9 +133,12 @@ export function ensureComboSession(input: {
   cli: string;
 }): boolean {
   const { deps, combo, home, cli } = input;
-  if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0) return false;
-
   const command = `COMBO_CHEN_HOME=${shellQuote(home)} ${cli} events --follow -n ${shellQuote(combo.id)}`;
+  if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0) {
+    ensureWindowPresent(deps, combo, JOURNAL_WINDOW, command);
+    return false;
+  }
+
   const created = deps.tmux(newSessionArgs(combo.tmuxSession, JOURNAL_WINDOW, command));
   if (created.status !== 0) {
     throw new Error(

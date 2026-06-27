@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for tmux session helpers. ~215 lines, attach selection, session recovery, and cleanup.
+ * @overview Unit tests for tmux session helpers. ~260 lines, attach selection, session recovery, and cleanup.
  *
  *   READING GUIDE
  *   -------------
@@ -139,6 +139,40 @@ describe("ensureComboSession", () => {
         "new-session",
         "-d",
         "-s",
+        "combo-chen-o-r-7",
+        "-n",
+        JOURNAL_WINDOW,
+        "COMBO_CHEN_HOME='/combo-home' node cli.mjs events --follow -n 'o-r-7'",
+      ],
+    ]);
+  });
+
+  it("restores the journal role when the session exists but the window is missing", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    expect(
+      ensureComboSession({
+        deps: {
+          tmux: (args) => {
+            calls.push(args);
+            if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
+            if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
+            return { status: 0, stdout: "", stderr: "" };
+          },
+        },
+        combo: record,
+        home: "/combo-home",
+        cli: "node cli.mjs",
+      }),
+    ).toBe(false);
+
+    expect(calls).toEqual([
+      ["has-session", "-t", "combo-chen-o-r-7"],
+      ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
+      [
+        "new-window",
+        "-t",
         "combo-chen-o-r-7",
         "-n",
         JOURNAL_WINDOW,

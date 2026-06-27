@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~8290 lines.
+ *   deps so tests run without a real terminal or network. ~8315 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -4780,6 +4780,75 @@ describe("resume", () => {
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
     expect(newWindows.some((call) => call.includes("director-watch"))).toBe(true);
+    expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
+  });
+
+  it("recreates missing persistent role windows on resume without fabricating journal state", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const prUrl = "https://github.com/o/r/pull/7";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    const initialEvents = readEvents(dir);
+    const tmuxCalls: string[][] = [];
+    const windows = new Set(["coder"]);
+
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        tmuxCalls.push(args);
+        if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: `${Array.from(windows).join("\n")}\n`, stderr: "" };
+        }
+        if (args[0] === "new-window") {
+          const windowName = args[4];
+          if (windowName !== undefined) windows.add(windowName);
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "kill-window") {
+          const target = args.at(-1) ?? "";
+          windows.delete(target.split(":").at(-1) ?? target);
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              state: "OPEN",
+              statusCheckRollup: [],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 0, stdout: "[]", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    expect(tmuxCalls.some((call) => call[0] === "new-session")).toBe(false);
+    const newWindowNames = tmuxCalls
+      .filter((call) => call[0] === "new-window")
+      .map((call) => call[4]);
+    expect(newWindowNames).toEqual(
+      expect.arrayContaining(["journal", "director", "reviewer", "director-watch"]),
+    );
+    expect(readEvents(dir)).toEqual(initialEvents);
     expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
   });
 
