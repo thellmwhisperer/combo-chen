@@ -404,25 +404,24 @@ ignored config or environment outside that file.
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo: windows for coder, journal, gatekeeper, gate-runner,
-  director, and any interactive agent roles (reviewer, coder responding mode).
-  The gate-runner window is reserved for generated initial retry and
-  post-address gate scripts. The gatekeeper window is reserved for the live
-  no-mistakes attach UI: it resolves the branch's no-mistakes run id from the
-  local no-mistakes state, then attaches to that run, so simultaneous combos
-  cannot render each other's run. On `gate_started` the emit handler recreates
-  the gatekeeper window so the live role window is visible when no-mistakes
-  becomes active. The coder window streams live coder stdout/stderr; combo
-  launch enables concise `runner:` progress lines there for deterministic
-  rebase, gate, and PR-detection steps around the coder stream. The journal
-  window tails `combo-chen events --follow` so raw event output never
-  replaces the coder role. After PR open,
-  one `director-watch` window runs the polling loop and renders one routine
-  per-tick operator status line (combo id, phase age, PR state/head,
-  last journal event age, GitHub poll timing, worker counters, gate
-  and reviewer pins, READY checklist, and the current pending action);
-  reviewer and coder responding mode are worker windows, not independent
-  babysitters.
+- One tmux session per combo uses the fixed tmux role topology: coder,
+  journal, director, gatekeeper, and reviewer. The `director-watch` window is
+  the deliberate polling exception: it owns deterministic polling and per-tick
+  status so the promptable `director` window stays interactive and non-polling.
+  The gatekeeper window is the live no-mistakes surface: it resolves the
+  branch's no-mistakes run id from local no-mistakes state, then attaches to
+  that run so simultaneous combos cannot render each other's run. On
+  `gate_started` the emit handler recreates the gatekeeper window so the live
+  role window is visible when no-mistakes becomes active. The coder window
+  streams live coder stdout/stderr; combo launch enables concise `runner:`
+  progress lines there for deterministic rebase, gate, and PR-detection steps
+  around the coder stream. The coder-response target defaults to the
+  persistent coder window; `[coder_responding].window_name` remains only as a
+  compatibility bridge for older capsules that need a separate response
+  surface. The journal window tails `combo-chen events --follow` so raw event
+  output never replaces the coder role. After PR open, the reviewer and
+  coder-response surfaces are worker prompts routed by the director-watch loop,
+  not independent babysitters.
 - The journal is an append-only JSONL spine per combo run. Each combo run
   directory also contains `combo.json` (combo identity),
   `runtime-ledger.json` (machine-readable capsule resources, written at launch
