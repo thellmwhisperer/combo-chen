@@ -454,11 +454,15 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
     ])];
   }
 
-  switch (deriveStatus(events).phase) {
+  const status = deriveStatus(events);
+  switch (status.phase) {
     case "CODING":
       return [CODER_WINDOW];
     case "GATING":
       return [GATEKEEPER_WINDOW];
+    case "STALLED":
+      if (status.reason === "coder_failed") return [CODER_WINDOW];
+      return [];
     default:
       return [];
   }

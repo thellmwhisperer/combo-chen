@@ -244,7 +244,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
     const deadDetail = session.stderr.trim() || detail;
     for (const worker of new Set(input.workerWindows)) {
-      if (worker === "coder" && initialCoderOutcome !== undefined) {
+      if (worker === "coder" && initialCoderOutcome === "coder_done") {
         const summary = terminalOutcomeSummary(worker, initialCoderOutcome);
         summaries.push(summary);
         deps.out(`director: ${summary}`);
@@ -282,7 +282,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   for (const worker of new Set(input.workerWindows)) {
     if (!active.has(worker)) continue;
 
-    if (worker === "coder" && initialCoderOutcome !== undefined) {
+    if (worker === "coder" && initialCoderOutcome === "coder_done") {
       summaries.push(terminalOutcomeSummary(worker, initialCoderOutcome));
       continue;
     }
