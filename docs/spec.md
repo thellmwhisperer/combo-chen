@@ -501,10 +501,10 @@ ignored config or environment outside that file.
     teardown while no-mistakes still reports an active or awaiting run for the
     combo branch, returns the Treehouse worktree lease, deletes the local
     branch, records `combo_closed` with `source: "closure"`, and
-kills the tmux session. An existing `combo_closed` event skips the merge
-recording and resource teardown, but the closure still reaps the tmux session
-when it is alive. The reviewer/director-watch path also records the live
-    merge fact and may trigger closure automatically. Reconcile can record a
+    kills the tmux session. An existing `combo_closed` event skips the merge
+    recording and resource teardown, but the closure still reaps the tmux
+    session when it is alive. The reviewer/director-watch path also records
+    the live merge fact and may trigger closure automatically. Reconcile can record a
     missing merge fact but defers resource convergence to closure.
 -   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
     pass that compares every persisted
