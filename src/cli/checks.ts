@@ -1,6 +1,6 @@
 /**
  * @overview GitHub check-rollup helpers for CI and configured READY checks.
- *   ~150 lines, provider-name matching without provider-specific logic.
+ *   ~165 lines, 7 exports, provider-name matching without provider-specific logic.
  *
  *   READING GUIDE
  *   -------------

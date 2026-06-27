@@ -1,5 +1,5 @@
 /**
- * @overview Deterministic post-merge closure for one combo. ~200 lines,
+ * @overview Deterministic post-merge closure for one combo. ~215 lines,
  *   GitHub-confirmed merged teardown and terminal journaling.
  *
  *   READING GUIDE
