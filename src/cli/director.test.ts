@@ -606,7 +606,7 @@ describe("tickDirector", () => {
         (call) =>
           call[0] === "tmux" &&
           call[1] === "list-panes" &&
-          call.at(-1) === "combo-chen-o-r-7:coder",
+          call.at(-1) === `${record.tmuxSession}:coder`,
       ),
     ).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
