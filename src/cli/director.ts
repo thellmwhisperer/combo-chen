@@ -124,6 +124,7 @@ export async function tickDirector(input: {
       runDir,
       workerWindows,
       stallTicks: config.workerStallTicks,
+      coderGnhfProgressMaxAgeMs: config.coderGnhfProgressMaxAgeMs,
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
       recoverableStalledWorkers: [config.coderRespondingWindowName],
       recoverablePermissionPromptWorkers: config.workerPermissionPromptPolicy === "recreate-non-interactive"

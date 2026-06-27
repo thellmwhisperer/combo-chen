@@ -83,17 +83,6 @@ type WorkerSnapshot = Record<string, WorkerSnapshotEntry>;
 
 const SNAPSHOT_FILE = "worker-panes.json";
 const DEFAULT_STALL_TICKS = 3;
-const CODER_GNHF_PROGRESS_MAX_AGE_MS_DEFAULT = 10 * 60 * 1000; // 10 minutes
-
-function gnhfProgressMaxAgeMs(): number {
-  const env = process.env.COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS;
-  if (env !== undefined) {
-    const parsed = Number.parseInt(env, 10);
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
-  }
-  return CODER_GNHF_PROGRESS_MAX_AGE_MS_DEFAULT;
-}
-
 function coderGnhfProgressAge(worktree: string): number | undefined {
   const runsDir = join(worktree, ".gnhf", "runs");
   if (!existsSync(runsDir)) return undefined;
@@ -247,6 +236,7 @@ export interface WorkerPaneMonitorInput {
   runDir: string;
   workerWindows: string[];
   stallTicks?: number;
+  coderGnhfProgressMaxAgeMs?: number;
   recoverableDeadWorkers?: string[];
   recoverableStalledWorkers?: string[];
   recoverablePermissionPromptWorkers?: string[];
@@ -429,7 +419,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       // real activity.
       const isCoder = worker === "coder";
       const gnhfAlive = isCoder && combo.worktree
-        ? (coderGnhfProgressAge(combo.worktree) ?? Infinity) < gnhfProgressMaxAgeMs()
+        ? (coderGnhfProgressAge(combo.worktree) ?? Infinity) < (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
         : false;
       if (isCoder && gnhfAlive) {
         summaries.push(
