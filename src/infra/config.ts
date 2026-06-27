@@ -114,6 +114,8 @@ export interface ComboConfig {
   workerPermissionPromptPatterns: string[];
   /** Recovery policy for known interactive permission prompts in worker panes. */
   workerPermissionPromptPolicy: WorkerPermissionPromptPolicy;
+  /** Max age of the gnhf.log mtime (ms) to consider the coder actively progressing. */
+  coderGnhfProgressMaxAgeMs: number;
   /** Required source checkout branch for `combo-chen run`. */
   sourceBranch: string;
 }
@@ -221,6 +223,7 @@ const DEFAULTS = {
     worker_recovery_attempts: DEFAULT_WORKER_RECOVERY_ATTEMPTS,
     permission_prompt_patterns: DEFAULT_PERMISSION_PROMPT_PATTERNS,
     permission_prompt_policy: "escalate",
+    coder_gnhf_progress_max_age_ms: 10 * 60 * 1000,
   },
   run: {
     source_branch: "main",
@@ -615,6 +618,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   }
   if (env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY"] !== undefined) {
     monitorTable["permission_prompt_policy"] = env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY"];
+    if (env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"] !== undefined) {
+      monitorTable["coder_gnhf_progress_max_age_ms"] = env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"];
+    }
   }
   if (env["COMBO_CHEN_READY_REQUIRED_CHECKS"] !== undefined) {
     readyTable["required_checks"] = parseEnvStringArray(
@@ -799,6 +805,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     workerPermissionPromptPolicy: pickWorkerPermissionPromptPolicy(
       monitorTable["permission_prompt_policy"],
       "monitor.permission_prompt_policy",
+    ),
+    coderGnhfProgressMaxAgeMs: pickPositiveInteger(
+      monitorTable,
+      "coder_gnhf_progress_max_age_ms",
+      DEFAULTS.monitor.coder_gnhf_progress_max_age_ms,
+      "[monitor]",
     ),
     sourceBranch: pickNonEmptyString(runTable["source_branch"], "run.source_branch"),
   };
