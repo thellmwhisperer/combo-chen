@@ -272,6 +272,16 @@ describe("buildRunnerScript", () => {
     expect(template).toContain("__GATEKEEPER_RUN_SCRIPT__");
   });
 
+  it("fails fast when worktree entry or coder lifecycle emits fail", () => {
+    const template = readFileSync(new URL("./runner-template.sh", import.meta.url), "utf8");
+
+    expect(template).toContain("cd __WORKTREE__ || {");
+    expect(template).toContain("__EMIT__ coder_started || exit 1");
+    expect(template).toContain("  __EMIT__ coder_done || exit 1");
+    expect(template).toContain("  __EMIT__ coder_failed --field exit_code=$code");
+    expect(template).toContain('|| exit "$code"');
+  });
+
   it("can guard the gatekeeper run with a branch-scoped gate lease", () => {
     const leased = buildRunnerScript({
       combo,
