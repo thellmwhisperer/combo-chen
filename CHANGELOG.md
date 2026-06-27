@@ -8,6 +8,16 @@
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 
+## [0.0.64](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.63...combo-chen-v0.0.64) (2026-06-27)
+
+
+### Bug Fixes
+
+* **runner:** fail fast on lifecycle setup errors ([758a7ac](https://github.com/thellmwhisperer/combo-chen/commit/758a7ac9dbff66de3fd329bb982dae64a86eb1f5))
+* **runner:** harden coder outcome handoff ([d8962bd](https://github.com/thellmwhisperer/combo-chen/commit/d8962bd55f95f3e250815e936d7cf65dbaf9eb86))
+* **runner:** Implemented the remaining runner outcome slice for issue [#234](https://github.com/thellmwhisperer/combo-chen/issues/234): clean gnhf stop-condition completion now journals `coder_done` even after a nonzero TUI exit, while real failures still journal `coder_failed`. ([35f827f](https://github.com/thellmwhisperer/combo-chen/commit/35f827ff0a895a96b109befb6c5e7042a14bb72a))
+* **worker-monitor:** Implemented the worker-monitor slice that trusts explicit coder terminal journal outcomes before classifying the initial coder pane/session as dead. ([8085ba0](https://github.com/thellmwhisperer/combo-chen/commit/8085ba072483d792d7f9c101be69796ede7dc34e))
+
 ## [0.0.63](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.62...combo-chen-v0.0.63) (2026-06-27)
 
 
