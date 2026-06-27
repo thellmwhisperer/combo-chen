@@ -106,11 +106,15 @@ rebase failure journals
 transition the combo immediately to `STALLED`.
 
 A terminal coder failure (non-zero exit) journals `coder_failed` (required
-fields: `exit_code`, `has_new_commits`). An empty or non-numeric exit code
-is sanitized to 1 before journaling. The runner captures the git HEAD
-before and after the coder run: `base_sha`, `head_sha`, and
-`new_commit_count` quantify what — if anything — the coder committed before
-failing. `coder_failed` transitions the combo immediately to `STALLED`.
+fields: `exit_code`, `has_new_commits`). The one exception is the Codex/gnhf
+path: if a fresh gnhf iteration result reports `success: true` and
+`should_fully_stop: true`, the runner treats a non-zero TUI exit as clean
+`coder_done` so operator Ctrl+C after "stop condition met" is not mistaken for
+a crashed coder. An empty or non-numeric exit code is sanitized to 1 before
+journaling. The runner captures the git HEAD before and after the coder run:
+`base_sha`, `head_sha`, and `new_commit_count` quantify what — if anything —
+the coder committed before failing. `coder_failed` transitions the combo
+immediately to `STALLED`.
 
 When no-mistakes detects that the gate requires approval (the
 `outcome: awaiting_approval` pattern in its output), the runner emits
