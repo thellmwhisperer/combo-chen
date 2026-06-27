@@ -522,7 +522,7 @@ export function createProgram(deps: Deps): Command {
           `journal=${JOURNAL_WINDOW}`,
           `director=${DIRECTOR_WINDOW}`,
           `gatekeeper=${GATEKEEPER_WINDOW}`,
-          `reviewer=${REVIEWER_WINDOW}(on-pr-open)`,
+ (fix(topology): Stopped new combo runtime ledgers and launch output from advertising legacy gate-runner/reviewer-watch windows as active topology resources.)
           `director-watch=${DIRECTOR_WATCH_WINDOW}`,
           `coder-response=${config.coderRespondingWindowName}`,
         ].join(" · "),
