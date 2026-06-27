@@ -86,9 +86,7 @@ function authorMatchesConfiguredAgent(login: string, agents: string[]): boolean 
   return agents.some(
     (agent) =>
       login === agent ||
-      login === `${agent}[bot]` ||
-      login.startsWith(`${agent}-`) ||
-      login.startsWith(`${agent}_`),
+      login === `${agent}[bot]`,
   );
 }
 
