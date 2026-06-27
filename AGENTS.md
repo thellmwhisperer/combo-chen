@@ -159,9 +159,11 @@ stalled coder-responding recovery with bounded retries,
 configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries,
 current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
-human-readable tmux topology (separate coder, journal, gatekeeper/live,
-gate-runner, and director-watch windows; raw event output never replaces the
-coder role), and opt-in runner progress status lines
+human-readable tmux topology (fixed tmux role topology: coder, journal,
+director, gatekeeper, and reviewer; director-watch remains a deliberate
+polling exception; coder-response target defaults to the persistent coder
+window; raw event output never replaces the coder role), and opt-in runner
+progress status lines
 (`COMBO_CHEN_RUNNER_PROGRESS=1`), and mandatory Treehouse-backed worktree
 leases.
 Deferred: preflight scoring, counterfactual

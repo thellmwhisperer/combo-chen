@@ -98,7 +98,10 @@ human merge -> director-watch auto-closure -> combo_closed
 - **A journal, not vibes.** Every run has `journal.jsonl`. Status is derived
   from events, not from terminal scrollback or agent memory.
 - **Fixed role boundaries.** Coder, gatekeeper, reviewer, director, and human
-  are separate roles. The reviewer cannot be the coder.
+  are separate roles. The reviewer cannot be the coder. The fixed tmux role
+  topology is coder, journal, director, gatekeeper, and reviewer;
+  `director-watch` is a deliberate polling exception, and the coder-response
+  target defaults to the persistent coder window.
 - **Publish boundary.** Coders leave local commits. The gatekeeper is the normal
   publisher.
 - **Visible PR state.** GitHub labels track the live combo workflow
@@ -612,9 +615,11 @@ wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
 justification), explicit coder terminal outcomes (`coder_done` trust over dead-looking panes) before worker recovery, pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
 stalled coder-responding recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
-human-readable tmux topology (separate coder, journal, gatekeeper/live,
-gate-runner, and director-watch windows; raw event output never replaces the
-coder role), and opt-in runner progress status lines
+human-readable tmux topology (fixed tmux role topology: coder, journal,
+director, gatekeeper, and reviewer; director-watch remains a deliberate
+polling exception; coder-response target defaults to the persistent coder
+window; raw event output never replaces the coder role), and opt-in runner
+progress status lines
 (`COMBO_CHEN_RUNNER_PROGRESS=1`).
 
 Deferred: preflight scoring, counterfactual automerge logs, and ACP role driving.

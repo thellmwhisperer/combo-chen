@@ -1,5 +1,5 @@
 /**
- * @overview Contract tests for public release, update, and command documentation.
+ * @overview Contract tests for public release, update, topology, and command documentation.
  *
  *   READING GUIDE
  *   -------------
@@ -98,6 +98,20 @@ describe("release docs", () => {
       expect(doc).toContain("quiet");
       expect(doc).toContain("JSON/JSONL");
       expect(doc).toContain("never fail the command being run");
+    }
+  });
+
+  it("documents the fixed role topology without advertising removed windows", () => {
+    const readme = normalizeDoc(readDoc("README.md"));
+    const spec = normalizeDoc(readDoc("docs/spec.md"));
+
+    for (const doc of [readme, spec]) {
+      expect(doc).toContain("fixed tmux role topology");
+      expect(doc).toContain("coder, journal, director, gatekeeper, and reviewer");
+      expect(doc).toContain("director-watch");
+      expect(doc).toContain("deliberate polling exception");
+      expect(doc).toContain("coder-response target defaults to the persistent coder window");
+      expect(doc).not.toContain("gate-runner");
     }
   });
 
