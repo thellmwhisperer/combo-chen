@@ -149,7 +149,10 @@ process.exit(1);
 NODE
 }
 
-cd __WORKTREE__
+cd __WORKTREE__ || {
+  printf '%s\n' "runner: failed to enter worktree" >&2
+  exit 1
+}
 __RUNNER_STATUS_SYNC__
 __BASE_FETCH__
 if ! git rebase __BASE_REF__ >> "$rebase_log" 2>&1; then
@@ -159,7 +162,7 @@ fi
 coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 __RUNNER_STATUS_STARTING_CODER__
-__EMIT__ coder_started
+__EMIT__ coder_started || exit 1
 
 rm -f "$coder_status" "$coder_start_marker" "$gnhf_iteration_snapshot"
 : > "$coder_start_marker"
@@ -182,7 +185,7 @@ fi
 rm -f "$coder_start_marker" "$gnhf_iteration_snapshot"
 
 if [ "$code" -eq 0 ]; then
-  __EMIT__ coder_done
+  __EMIT__ coder_done || exit 1
 else
   if [ "$runner_progress" = "1" ]; then
     printf '%s\n' "runner: coder failed with exit $code; stopping runner"
@@ -200,7 +203,7 @@ else
   else
     has_new_commits=false
   fi
-  __EMIT__ coder_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$coder_base_sha --field head_sha=$coder_head_sha --field new_commit_count=$new_commit_count
+  __EMIT__ coder_failed --field exit_code=$code --field has_new_commits=$has_new_commits --field base_sha=$coder_base_sha --field head_sha=$coder_head_sha --field new_commit_count=$new_commit_count || exit "$code"
   exit $code
 fi
 
