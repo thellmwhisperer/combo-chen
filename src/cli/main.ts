@@ -92,7 +92,6 @@ import { analyzeForensicsCombo, renderForensicsMarkdown, renderForensicsOutcomeM
 import {
   ensureGatekeeperWindow,
   GATEKEEPER_WINDOW,
-  GATE_RUNNER_WINDOW,
   NO_MISTAKES_CONFIG_FILE,
   propagateNoMistakesConfig,
   refreshGatekeeperWindow,
@@ -425,7 +424,6 @@ export function createProgram(deps: Deps): Command {
               journal: JOURNAL_WINDOW,
               director: DIRECTOR_WINDOW,
               gatekeeper: GATEKEEPER_WINDOW,
-              gateRunner: GATE_RUNNER_WINDOW,
               directorWatch: DIRECTOR_WATCH_WINDOW,
             },
             promptTargets: {
@@ -521,8 +519,8 @@ export function createProgram(deps: Deps): Command {
         [
           `   topology: coder=${CODER_WINDOW}`,
           `journal=${JOURNAL_WINDOW}`,
-          `gate-live=${GATEKEEPER_WINDOW}`,
-          `gate-runner=${GATE_RUNNER_WINDOW}`,
+          `director=${DIRECTOR_WINDOW}`,
+          `gatekeeper=${GATEKEEPER_WINDOW}`,
           `director-watch=${DIRECTOR_WATCH_WINDOW}`,
           "coder-responding=lazy",
         ].join(" · "),
@@ -868,7 +866,6 @@ export function createProgram(deps: Deps): Command {
             coder: CODER_WINDOW,
             director: DIRECTOR_WINDOW,
             gatekeeper: GATEKEEPER_WINDOW,
-            gateRunner: GATE_RUNNER_WINDOW,
             directorWatch: DIRECTOR_WATCH_WINDOW,
           },
         });

@@ -61,7 +61,7 @@ import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from ".
 import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
-import { GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW } from "./gate.js";
+import { GATEKEEPER_WINDOW } from "./gate.js";
 import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
 import { PASSIVE_UPDATE_CACHE_FILE } from "./passive-update.js";
 import { refreshPostUpdateLocalState } from "./update-refresh.js";
@@ -3544,7 +3544,6 @@ describe("run", () => {
         journal: "journal",
         director: "director",
         gatekeeper: "gatekeeper",
-        gateRunner: GATE_RUNNER_WINDOW,
         directorWatch: "director-watch",
       },
       logs: {
@@ -3567,6 +3566,7 @@ describe("run", () => {
     expect(ledger.commands.eventsFollow).toContain("events --follow -n 'o-r-7'");
     expect(ledger.commands.attach).toContain("attach -n 'o-r-7'");
     expect(ledger.prUrl).toBeUndefined();
+    expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
     expect(existsSync(join(runDir, CONFIG_SNAPSHOT_FILE))).toBe(true);
     expect(readConfigSnapshot(runDir).roles).toMatchObject({
       coder: "codex",
@@ -3705,7 +3705,7 @@ describe("run", () => {
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
     expect(out).toContain(
-      `   topology: coder=coder · journal=journal · gate-live=gatekeeper · gate-runner=${GATE_RUNNER_WINDOW} · director-watch=director-watch · coder-responding=lazy`,
+      "   topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · director-watch=director-watch · coder-responding=lazy",
     );
     const initialWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(calls.find((call) => call[0] === "tmux" && call[1] === "new-session")).toEqual([
@@ -3827,7 +3827,6 @@ describe("run", () => {
       roleWindows: {
         coder: "coder",
         gatekeeper: "gatekeeper",
-        gateRunner: GATE_RUNNER_WINDOW,
         directorWatch: "director-watch",
       },
       workItem: {
@@ -3839,6 +3838,7 @@ describe("run", () => {
         workPlan: join(runDir, "work-plan.md"),
       },
     });
+    expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
     expect(ledger.commands.resume).toContain(`resume -n '${combo!.id}'`);
 
     const artifact = readFileSync(join(runDir, "work-plan.md"), "utf8");
