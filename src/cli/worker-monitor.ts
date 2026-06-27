@@ -35,7 +35,7 @@
  * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
@@ -83,6 +83,26 @@ type WorkerSnapshot = Record<string, WorkerSnapshotEntry>;
 
 const SNAPSHOT_FILE = "worker-panes.json";
 const DEFAULT_STALL_TICKS = 3;
+const CODER_GNHF_PROGRESS_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+
+function coderGnhfProgressAge(worktree: string): number | undefined {
+  const runsDir = join(worktree, ".gnhf", "runs");
+  if (!existsSync(runsDir)) return undefined;
+  let newest = 0;
+  try {
+    for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const logPath = join(runsDir, entry.name, "gnhf.log");
+      if (!existsSync(logPath)) continue;
+      const mtimeMs = statSync(logPath).mtimeMs;
+      if (mtimeMs > newest) newest = mtimeMs;
+    }
+  } catch {
+    return undefined;
+  }
+  if (newest === 0) return undefined;
+  return Date.now() - newest;
+}
 
 function snapshotPath(runDir: string): string {
   return join(runDir, SNAPSHOT_FILE);
@@ -394,6 +414,20 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}`);
 
     if (unchangedTicks >= stallTicks) {
+      // Before flagging a coder as stalled, check if gnhf is alive and
+      // progressing. The gnhf spinner while codex reasons makes the pane
+      // appear unchanged, but gnhf.log written by the orchestrator shows
+      // real activity.
+      const isCoder = worker === "coder";
+      const gnhfAlive = isCoder && combo.worktree
+        ? (coderGnhfProgressAge(combo.worktree) ?? Infinity) < CODER_GNHF_PROGRESS_MAX_AGE_MS
+        : false;
+      if (isCoder && gnhfAlive) {
+        summaries.push(
+          `worker ${worker}: unchanged_ticks=${unchangedTicks} but gnhf is actively progressing, not stalled`,
+        );
+        continue;
+      }
       findings.push(recordFinding({
         runDir,
         deps,
