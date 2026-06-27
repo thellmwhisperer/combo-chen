@@ -4,6 +4,7 @@
 
 ### Features
 
+* **coder:** Explicit coder terminal outcome contract prevents clean gnhf stop-condition completions from being mistaken for dead coder panes. Fixes [#234](https://github.com/thellmwhisperer/combo-chen/issues/234).
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 
