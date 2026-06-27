@@ -284,6 +284,66 @@ describe("gatekeeper runtime config snapshots", () => {
     expect(gatekeeperWindowCommand).toContain('wait "$combo_chen_gate_script_pid"');
   });
 
+  it("passes initial gate retry intent without embedding shell-interpretable issue text", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const record = combo({ repoDir, worktree: join(repoDir, ".worktrees", "issue-7") });
+    const issueBody = [
+      "Backtick: `printf raw-backtick`",
+      "Dollar command: $(printf raw-dollar)",
+      'Double quote: "quoted"',
+      "Single quote: 'quoted'",
+      "Final newline boundary.",
+    ].join("\n");
+
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
+
+    startInitialGateRetry({
+      deps: {
+        env: {},
+        out: () => undefined,
+        gh: () => ({
+          status: 0,
+          stdout: JSON.stringify({ title: "Shell-sensitive intent", body: issueBody }),
+          stderr: "",
+        }),
+        git: (args) => {
+          if (args.join(" ") === "rev-parse HEAD") {
+            return { status: 0, stdout: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n", stderr: "" };
+          }
+          if (args.join(" ") === "status --porcelain") {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        tmux: () => ({ status: 0, stdout: "", stderr: "" }),
+      },
+      combo: record,
+      runDir,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    const script = readFileSync(join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh"), "utf8");
+
+    expect(script).toContain("COMBO_CHEN_GATEKEEPER_INTENT_B64=");
+    expect(script).toContain('node -e \'process.stdout.write(Buffer.from(process.env.COMBO_CHEN_GATEKEEPER_INTENT_B64 || "", "base64").toString("utf8"))\'');
+    expect(script).toContain('--intent "$(COMBO_CHEN_GATEKEEPER_INTENT_B64=');
+    expect(script).not.toContain("`printf raw-backtick`");
+    expect(script).not.toContain("$(printf raw-dollar)");
+    expect(script).not.toContain('Double quote: "quoted"');
+    expect(script).not.toContain("Single quote: 'quoted'");
+    expect(script).not.toContain("Final newline boundary.");
+
+    const encoded = /COMBO_CHEN_GATEKEEPER_INTENT_B64='([^']+)'/.exec(script)?.[1];
+    expect(encoded).toBeDefined();
+    const decoded = Buffer.from(encoded!, "base64").toString("utf8");
+    expect(decoded).toContain("Backtick: `printf raw-backtick`");
+    expect(decoded).toContain("Dollar command: $(printf raw-dollar)");
+    expect(decoded).toContain('Double quote: "quoted"');
+    expect(decoded).toContain("Single quote: 'quoted'");
+    expect(decoded).toContain("Final newline boundary.");
+  });
+
   it("uses the launch gatekeeper command for post-address gates after repo TOML changes", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));

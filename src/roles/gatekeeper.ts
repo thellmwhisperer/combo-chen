@@ -30,8 +30,9 @@
  *   │ parseAxiOutcome            Extract TOON "outcome:" line from raw text  │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
  *   │ visiblePrBodyMarkdown, escapeRegExp, shell command segment helpers,    │
- *   │ isEscaped, PLACEHOLDER, KNOWN_GATEKEEPER_PLACEHOLDERS,                 │
- *   │ MAX_INTENT_BODY_LENGTH, MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS      │
+ *   │ isEscaped, shellPlaceholderValue, PLACEHOLDER,                         │
+ *   │ KNOWN_GATEKEEPER_PLACEHOLDERS, MAX_INTENT_BODY_LENGTH,                 │
+ *   │ MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS                              │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports GatekeeperInput, buildIssuePrIntent, buildWorkPlanPrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
@@ -65,6 +66,9 @@ const MAX_INTENT_BODY_LENGTH = 8000;
 const MAX_PUSH_INTENT_INPUT = 4000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
 const NO_MISTAKES_AXI_RUN_AT_START = /^no-mistakes\s+axi\s+run\b/;
+const GATEKEEPER_INTENT_ENV = "COMBO_CHEN_GATEKEEPER_INTENT_B64";
+const DECODE_GATEKEEPER_INTENT_JS =
+  `process.stdout.write(Buffer.from(process.env.${GATEKEEPER_INTENT_ENV} || "", "base64").toString("utf8"))`;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -237,6 +241,16 @@ function forceNoMistakesPublishOnly(command: string): string {
   return command.slice(0, segmentRange.start) + rewrittenSegment + command.slice(segmentRange.end);
 }
 
+function shellDecodedIntentArg(intent: string): string {
+  const encoded = Buffer.from(intent, "utf8").toString("base64");
+  return `"$(${GATEKEEPER_INTENT_ENV}=${shellQuote(encoded)} node -e ${shellQuote(DECODE_GATEKEEPER_INTENT_JS)})"`;
+}
+
+function shellPlaceholderValue(name: string, value: string): string {
+  if (name === "issue_pr_intent") return shellDecodedIntentArg(value);
+  return shellQuote(value);
+}
+
 // -- 2/3 HELPER · PR body visibility + autoclose --
 function visiblePrBodyMarkdown(body: string): string {
   const visible: string[] = [];
@@ -343,7 +357,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
         if (value === undefined) {
           throw new ComboConfigError(`Gatekeeper placeholder {${name}} is not available`);
         }
-        return shellQuote(value);
+        return shellPlaceholderValue(name, value);
       }),
     );
   }
@@ -362,7 +376,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
     branch: input.combo.branch,
   };
   return forceNoMistakesPublishOnly(
-    input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => shellQuote(vars[name]!)),
+    input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => shellPlaceholderValue(name, vars[name]!)),
   );
 }
 

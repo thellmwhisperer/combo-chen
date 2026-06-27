@@ -71,6 +71,12 @@ function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-cli-"));
 }
 
+function decodedGeneratedGatekeeperIntent(script: string): string {
+  const encoded = /COMBO_CHEN_GATEKEEPER_INTENT_B64='([^']+)'/.exec(script)?.[1];
+  if (encoded === undefined) throw new Error("generated script did not contain a gatekeeper intent payload");
+  return Buffer.from(encoded, "base64").toString("utf8");
+}
+
 function idleActiveRuntime() {
   return {
     status: "idle" as const,
@@ -2115,7 +2121,7 @@ describe("gate-restart", () => {
 
     const script = readFileSync(join(dir, `gatekeeper-post-${HEAD.slice(0, 12)}.sh`), "utf8");
     expect(ghCalls).toEqual([]);
-    expect(script).toContain("Implement work plan Generic work.");
+    expect(decodedGeneratedGatekeeperIntent(script)).toContain("Implement work plan Generic work.");
     expect(script).not.toContain("ensure-pr-autoclose");
     expect(script).not.toContain("pr_autoclose_failed");
     expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
@@ -4170,8 +4176,9 @@ exit 0
     const runnerPath = join(runDirFor(h, "o-r-7"), "runner.sh");
     const runner = readFileSync(runnerPath, "utf8");
     expect(runner).toContain("no-mistakes axi run --intent");
-    expect(runner).toContain("This only mentions issue #7 without a closing keyword.");
-    expect(runner).toContain("Fixes #7");
+    const decodedIntent = decodedGeneratedGatekeeperIntent(runner);
+    expect(decodedIntent).toContain("This only mentions issue #7 without a closing keyword.");
+    expect(decodedIntent).toContain("Fixes #7");
     expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
   });
 
