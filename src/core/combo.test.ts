@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1625 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1800 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -698,6 +698,183 @@ exit 1
       stderr: "coder failed loudly\n",
     });
     expect(existsSync(join(dir, "coder.log"))).toBe(false);
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "coder_started",
+      [
+        "coder_failed",
+        "--field exit_code=42",
+        "--field has_new_commits=false",
+        "--field base_sha=head-sha",
+        "--field head_sha=head-sha",
+        "--field new_commit_count=0",
+      ].join(" "),
+    ]);
+  });
+
+  it("treats a fresh gnhf stop-condition abort as coder_done even when the TUI exits nonzero", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeCoder = join(bin, "fake-gnhf");
+    writeFileSync(
+      fakeCoder,
+      `#!/bin/sh
+mkdir -p .gnhf/runs/implement-demo
+cat > .gnhf/runs/implement-demo/iteration-1.jsonl <<'JSONL'
+{"type":"item.completed","item":{"id":"item_final","type":"agent_message","text":"{\\"success\\":true,\\"summary\\":\\"done\\",\\"key_changes_made\\":[],\\"key_learnings\\":[],\\"type\\":\\"fix\\",\\"scope\\":\\"runner\\",\\"should_fully_stop\\":true}"}}
+JSONL
+exit 130
+`,
+    );
+    chmodSync(fakeCoder, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then printf 'head-sha\\n'; exit 0; fi
+if [ "$1" = "rev-list" ]; then printf '0\\n'; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...runnerSubprocessEnv({
+          EVENTS_LOG: eventsPath,
+          PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        }),
+        COMBO_CHEN_RUNNER_PROGRESS: "1",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("runner: coder stop condition met; starting gatekeeper");
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      "gate_status --field state=fix_inflight --field head_sha=head-sha",
+      "gate_status --field state=idle --field head_sha=head-sha",
+      "needs_human --field reason=pr_missing",
+    ]);
+  });
+
+  it("ignores stale or malformed gnhf stop-condition artifacts when the current coder exits nonzero", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(join(worktree, ".gnhf", "runs", "old-run"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      join(worktree, ".gnhf", "runs", "old-run", "iteration-1.jsonl"),
+      [
+        '{"type":"item.completed","item":{"id":"old","type":"agent_message","text":"{\\"success\\":true,\\"should_fully_stop\\":true}"}}',
+        "",
+      ].join("\n"),
+    );
+
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeCoder = join(bin, "fake-gnhf");
+    writeFileSync(
+      fakeCoder,
+      `#!/bin/sh
+mkdir -p .gnhf/runs/current-run
+cat > .gnhf/runs/current-run/iteration-2.jsonl <<'JSONL'
+not json
+{"type":"item.completed","item":{"id":"wrong-success","type":"agent_message","text":"{\\"success\\":\\"true\\",\\"should_fully_stop\\":true}"}}
+{"type":"item.completed","item":{"id":"wrong-stop","type":"agent_message","text":"{\\"success\\":true,\\"should_fully_stop\\":\\"true\\"}"}}
+
+JSONL
+exit 42
+`,
+    );
+    chmodSync(fakeCoder, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1" = "rev-parse" ]; then printf 'head-sha\\n'; exit 0; fi
+if [ "$1" = "rev-list" ]; then printf '0\\n'; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: "true",
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: {
+        ...runnerSubprocessEnv({
+          EVENTS_LOG: eventsPath,
+          PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        }),
+        COMBO_CHEN_RUNNER_PROGRESS: "1",
+      },
+    });
+
+    expect(result.status).toBe(42);
+    expect(result.stdout).toContain("runner: coder failed with exit 42; stopping runner");
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
       [

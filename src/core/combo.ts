@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~480 lines, 9 exports, 1 critical function.
+ *   ~560 lines, 9 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -371,6 +371,7 @@ fi`;
 # Sequencing is mechanics; judgment stays with agents and humans.
 set -u
 coder_status="$(dirname "$0")/coder.exit"
+coder_start_marker="$(dirname "$0")/coder-started.$$"
 gatekeeper_log="$(dirname "$0")/gatekeeper.log"
 autoclose_log="$(dirname "$0")/autoclose.log"
 rebase_log="$(dirname "$0")/rebase.log"
@@ -379,6 +380,69 @@ runner_status() {
   if [ "$runner_progress" = "1" ]; then
     printf '%s\\n' "$1"
   fi
+}
+gnhf_stop_condition_met() {
+  if [ ! -d .gnhf/runs ]; then
+    return 1
+  fi
+  node - "$coder_start_marker" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+let markerMs = 0;
+try {
+  markerMs = fs.statSync(process.argv[2]).mtimeMs;
+} catch {
+  process.exit(1);
+}
+
+const runsDir = path.join(process.cwd(), ".gnhf", "runs");
+
+function* walk(dir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      yield* walk(entryPath);
+    } else {
+      yield entryPath;
+    }
+  }
+}
+
+function isStopConditionResult(value) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed !== null &&
+      typeof parsed === "object" &&
+      parsed.success === true &&
+      parsed.should_fully_stop === true;
+  } catch {
+    return false;
+  }
+}
+
+try {
+  for (const file of walk(runsDir)) {
+    const name = path.basename(file);
+    if (!name.startsWith("iteration-") || !name.endsWith(".jsonl")) continue;
+    if (fs.statSync(file).mtimeMs < markerMs) continue;
+    const lines = fs.readFileSync(file, "utf8").split(/\\r?\\n/);
+    for (const line of lines) {
+      if (line.trim() === "") continue;
+      if (isStopConditionResult(line)) process.exit(0);
+      try {
+        const event = JSON.parse(line);
+        const text = event?.item?.type === "agent_message" ? event.item.text : undefined;
+        if (typeof text === "string" && isStopConditionResult(text)) process.exit(0);
+      } catch {}
+    }
+  }
+} catch {
+  process.exit(1);
+}
+
+process.exit(1);
+NODE
 }
 
 cd ${shellQuote(combo.worktree)}
@@ -393,7 +457,8 @@ coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 ${runnerStatus("starting coder")}
 ${emit} coder_started
 
-rm -f "$coder_status"
+rm -f "$coder_status" "$coder_start_marker"
+: > "$coder_start_marker"
 (
   coder_code=0
   ${coderCommand} || coder_code=$?
@@ -405,9 +470,18 @@ case "$code" in
 esac
 rm -f "$coder_status"
 
+if [ "$code" -ne 0 ] && gnhf_stop_condition_met; then
+  ${runnerStatus("coder stop condition met; starting gatekeeper")}
+  code=0
+fi
+rm -f "$coder_start_marker"
+
 if [ "$code" -eq 0 ]; then
   ${emit} coder_done
 else
+  if [ "$runner_progress" = "1" ]; then
+    printf '%s\\n' "runner: coder failed with exit $code; stopping runner"
+  fi
   coder_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
   new_commit_count=0
   if [ -n "$coder_base_sha" ] && [ -n "$coder_head_sha" ]; then
