@@ -8,6 +8,13 @@
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 
+## [0.0.65](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.64...combo-chen-v0.0.65) (2026-06-27)
+
+
+### Bug Fixes
+
+* **worker-monitor:** skip stall detection when gnhf is actively progressing ([65f4ea0](https://github.com/thellmwhisperer/combo-chen/commit/65f4ea03c3fc743ef55518f50b6e0ba98163a8bb))
+
 ## [0.0.64](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.63...combo-chen-v0.0.64) (2026-06-27)
 
 
