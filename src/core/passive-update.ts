@@ -16,6 +16,7 @@
  *   ----------
  *   PASSIVE_UPDATE_DISABLE_ENV          Env knob that fully disables passive checks.
  *   DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS Default freshness window for passive cache entries.
+ *   PassiveUpdatePlanStatus             Re-exported read-only plan resolution status union.
  *   PassiveUpdateCacheEntry             Persistable passive result summary.
  *   PassiveUpdateCheckInput             Injectable passive-check boundary.
  *   PassiveUpdateCheckResult            Quiet result returned to callers.
