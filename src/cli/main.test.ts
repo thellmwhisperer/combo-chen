@@ -3712,7 +3712,7 @@ describe("run", () => {
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
     expect(out).toContain(
-      "   topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · reviewer=reviewer(on-pr-open) · director-watch=director-watch · coder-response=coder",
+      "   topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · director-watch=director-watch · coder-responding=lazy", (fix(topology): Stopped new combo runtime ledgers and launch output from advertising legacy gate-runner/reviewer-watch windows as active topology resources.)
     );
     const initialWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(calls.find((call) => call[0] === "tmux" && call[1] === "new-session")).toEqual([
