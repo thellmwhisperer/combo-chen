@@ -262,6 +262,16 @@ describe("buildRunnerScript", () => {
     expect(script).toContain("runner: no PR detected; needs human");
   });
 
+  it("keeps the runner shell body in an external template file", () => {
+    const comboSource = readFileSync(new URL("./combo.ts", import.meta.url), "utf8");
+    const template = readFileSync(new URL("./runner-template.sh", import.meta.url), "utf8");
+
+    expect(comboSource).not.toContain("return `#!/bin/sh");
+    expect(template).toContain("#!/bin/sh");
+    expect(template).toContain("__COMBO_ID__");
+    expect(template).toContain("__GATEKEEPER_RUN_SCRIPT__");
+  });
+
   it("can guard the gatekeeper run with a branch-scoped gate lease", () => {
     const leased = buildRunnerScript({
       combo,

@@ -10,6 +10,7 @@
  *   MAIN FLOW
  *   ---------
  *   package/git/env metadata -> releaseDefines -> tsdown define -> dist bundles
+ *   src/core/runner-template.sh -> copyRunnerTemplatePlugin -> dist/runner-template.sh
  *
  *   PUBLIC API
  *   ----------
@@ -17,13 +18,13 @@
  *
  *   INTERNALS
  *   ---------
- *   packageVersion, gitCommit, buildDate, sourceDateEpochIso.
+ *   packageVersion, gitCommit, buildDate, sourceDateEpochIso, copyRunnerTemplatePlugin.
  *
  * @exports default
  * @deps tsdown, node:{child_process,fs}
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { defineConfig } from "tsdown";
 
 // -- 1/2 HELPER · release metadata define values --
@@ -62,6 +63,14 @@ const releaseDefines = {
   __COMBO_CHEN_COMMIT__: JSON.stringify(gitCommit()),
   __COMBO_CHEN_BUILD_DATE__: JSON.stringify(buildDate()),
 };
+
+const copyRunnerTemplatePlugin = {
+  name: "copy-runner-template",
+  writeBundle(): void {
+    mkdirSync("dist", { recursive: true });
+    copyFileSync("src/core/runner-template.sh", "dist/runner-template.sh");
+  },
+};
 // -/ 1/2
 
 // -- 2/2 CORE · tsdown config <- START HERE --
@@ -75,5 +84,6 @@ export default defineConfig({
   clean: true,
   dts: false,
   define: releaseDefines,
+  plugins: [copyRunnerTemplatePlugin],
 });
 // -/ 2/2
