@@ -565,6 +565,69 @@ describe("tickDirector", () => {
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
   });
 
+  it("recovers the initial coder after coder_failed with a dead pane", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    const windows = new Set(["coder"]);
+    writeCombo(runDir, record);
+    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_failed", { exit_code: 1, has_new_commits: false });
+    const { deps, calls, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      env: { COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS: "2" },
+      tmux: (args) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: `${[...windows].join("\n")}\n`, stderr: "" };
+        }
+        if (args[0] === "list-panes") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "kill-window") {
+          windows.delete("coder");
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "new-window") {
+          windows.add(String(args.at(4) ?? ""));
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "worker_recovered",
+        reason: "worker_dead",
+        worker: "coder",
+        detail: "dead pane",
+        attempt: 1,
+        max_attempts: 2,
+      }),
+    );
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(calls).toEqual(
+      expect.arrayContaining([
+        ["tmux", "kill-window", "-t", "combo-chen-o-r-7:coder"],
+        [
+          "tmux",
+          "new-window",
+          "-t",
+          "combo-chen-o-r-7",
+          "-n",
+          "coder",
+          `COMBO_CHEN_RUNNER_PROGRESS=1 sh '${join(runDir, "runner.sh").replaceAll("'", "'\\''")}'`,
+        ],
+      ]),
+    );
+    expect(out).toContain("director: restarted dead coder attempt 1/2");
+  });
+
   it("escalates a dead pre-PR coder after the restart attempt budget is exhausted", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();

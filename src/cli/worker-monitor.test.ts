@@ -360,6 +360,68 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContain("director: worker coder: terminal_outcome=coder_done");
   });
 
+  it("detects a dead pane for a coder_failed terminal outcome instead of skipping", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_failed", { exit_code: 1, has_new_commits: false });
+    const { deps } = fakeDeps({
+      coder: undefined,
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      recoverableDeadWorkers: ["coder"],
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(result.findings).toEqual([
+      {
+        worker: "coder",
+        reason: "worker_dead",
+        detail: "dead pane",
+        needsHumanRecorded: false,
+      },
+    ]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
+  it("detects a dead session for a coder_failed terminal outcome instead of skipping", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_failed", { exit_code: 1, has_new_commits: false });
+    const out: string[] = [];
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 1, stdout: "", stderr: "no session" };
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "no session" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      recoverableDeadWorkers: ["coder"],
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(result.findings).toEqual([
+      {
+        worker: "coder",
+        reason: "worker_dead",
+        detail: "no session",
+        needsHumanRecorded: false,
+      },
+    ]);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
   it("returns recoverable dead-worker findings without journaling needs_human", () => {
     const { record, runDir } = combo();
     const { deps } = fakeDeps({
