@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~1050 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~1165 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -959,12 +959,12 @@ describe("tickReviewer", () => {
         "-t",
         "combo-chen-o-r-7",
         "-n",
-        "coder-responding",
+        "coder",
         `codex resume '${CODEX_THREAD_ID}'`,
       ],
       expect.arrayContaining(["set-buffer"]),
-      ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-coder-responding", "-t", "combo-chen-o-r-7:coder-responding"],
-      ["send-keys", "-t", "combo-chen-o-r-7:coder-responding", "C-m"],
+      ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-coder", "-t", "combo-chen-o-r-7:coder"],
+      ["send-keys", "-t", "combo-chen-o-r-7:coder", "C-m"],
     ]);
     expect(out).toEqual([`nudged ${verdictUrl}`]);
   });

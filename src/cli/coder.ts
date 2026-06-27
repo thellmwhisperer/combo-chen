@@ -208,19 +208,13 @@ export function activateCoder(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const artifact = readCoderThreadArtifact(runDir);
-  const coderResponding = deps.tmux(
-    newWindowArgs(
-      combo.tmuxSession,
-      config.coderRespondingWindowName,
-      buildCoderRespondingResumeCommand(artifact, config.coderResumeCommand),
-    ),
-  );
-  if (coderResponding.status !== 0) {
-    throw new Error(
-      `tmux failed to start ${config.coderRespondingWindowName}: ${coderResponding.stderr.trim() || "unknown error"}`,
-    );
-  }
+  ensureCoderRespondingWindow({
+    deps,
+    combo,
+    runDir,
+    windowName: config.coderRespondingWindowName,
+    resumeCommand: config.coderResumeCommand,
+  });
   deps.out(`coder responding active for ${combo.id}`);
 }
 // -/ 2/3

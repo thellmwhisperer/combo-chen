@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~930 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~940 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -126,9 +126,9 @@ export async function tickDirector(input: {
       stallTicks: config.workerStallTicks,
       coderGnhfProgressMaxAgeMs: config.coderGnhfProgressMaxAgeMs,
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
-      recoverableStalledWorkers: [config.coderRespondingWindowName],
+      recoverableStalledWorkers: prAlreadyOpened ? [config.coderRespondingWindowName] : [],
       recoverablePermissionPromptWorkers: config.workerPermissionPromptPolicy === "recreate-non-interactive"
-        ? [config.coderRespondingWindowName]
+        ? (prAlreadyOpened ? [config.coderRespondingWindowName] : [])
         : [],
       autoApprovePermissionPromptMaxAttempts: config.workerRecoveryAttempts,
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
@@ -417,7 +417,7 @@ function syncDirectorPrLabels(input: {
       runDir: input.runDir,
       prUrl: input.prUrl,
       events: input.events,
-      activity: livePrLabelActivity(input.deps, input.combo, input.config.coderRespondingWindowName),
+      activity: livePrLabelActivity(input.deps, input.combo, input.config.coderRespondingWindowName, input.events),
       requiredCheckNames: input.config.readyRequiredChecks,
       ambientCheckNames: input.config.externalCommentAgents,
       greenCheckNames: input.config.prLabelGreenCheckNames,
@@ -436,12 +436,16 @@ function livePrLabelActivity(
   deps: Pick<DirectorDeps, "tmux">,
   combo: ReturnType<typeof readCombo>,
   coderRespondingWindowName: string,
+  events: ComboEvent[],
 ): { coderRespondingActive?: boolean; reviewerActive?: boolean; gateActive?: boolean } {
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) return {};
   const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  const coderRespondingActive = coderRespondingWindowName === CODER_WINDOW
+    ? windows.has(CODER_WINDOW) && hasRoutedCoderPrompt(events)
+    : windows.has(coderRespondingWindowName);
   return {
-    coderRespondingActive: windows.has(coderRespondingWindowName),
+    coderRespondingActive,
     reviewerActive: windows.has(REVIEWER_WINDOW),
     gateActive: windows.has(GATEKEEPER_WINDOW),
   };
@@ -449,10 +453,11 @@ function livePrLabelActivity(
 
 function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
   if (latestPrUrl(events) !== undefined) {
-    return [...new Set([
-      REVIEWER_WINDOW,
-      coderRespondingWindowName,
-    ])];
+    const workerWindows = [REVIEWER_WINDOW];
+    if (coderRespondingWindowName !== CODER_WINDOW || hasRoutedCoderPrompt(events)) {
+      workerWindows.push(coderRespondingWindowName);
+    }
+    return [...new Set(workerWindows)];
   }
 
   const status = deriveStatus(events);
@@ -467,6 +472,10 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
     default:
       return [];
   }
+}
+
+function hasRoutedCoderPrompt(events: ComboEvent[]): boolean {
+  return events.some((event) => event.event === "review_comment" || event.event === "pr_conflict");
 }
 
 const WORKER_NEEDS_HUMAN_REASONS = new Set(["worker_dead", "worker_permission_prompt", "worker_stalled"]);

@@ -197,7 +197,7 @@ const DEFAULTS = {
     command: DEFAULT_DIRECTOR_COMMAND,
   },
   coder_responding: {
-    window_name: "coder-responding",
+    window_name: "coder",
     review_nudge_prompt: [
       "New review comment for coder responding mode:",
       "{url}",

@@ -242,9 +242,13 @@ ignored config or environment outside that file.
 - On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed with the configured `resume_command` template:
   default `codex resume <id>` (recommended `codex --profile sitter --no-alt-screen resume <id>` for tmux visibility),
   `hermes --resume <session>`, or a stateful ACP session.
+- By default the response prompt is delivered through the persistent `coder`
+  role window. `[coder_responding].window_name` may still name a separate
+  compatibility bridge window for adopted or historical capsules until they can
+  move to the fixed role topology.
 - A first-pass PR-open happy path does not start coder responding mode. The
-  window is created lazily before the first actionable review nudge or
-  PR-conflict recovery prompt.
+  response surface is prepared lazily before the first actionable review nudge
+  or PR-conflict recovery prompt.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with work-item context + PR diff + the comment. Degraded, never
   blocking.
@@ -741,7 +745,7 @@ Recovery playbook:
   do not launch a replacement on the same branch.
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
-  interactive prompts are auto-approved, trigger coder-responding recreation, or
+  interactive prompts are auto-approved, trigger coder-response recreation, or
   escalate to `needs_human`. Default is `escalate`.
 - Reviewer auth failures are configuration/auth problems. Restore the configured
   reviewer GitHub login and rerun reviewer activation or prompt the reviewer;

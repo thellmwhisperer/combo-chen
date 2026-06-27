@@ -541,6 +541,7 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
     writeCombo(runDir, record);
     writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
@@ -731,6 +732,7 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     const { deps, calls } = fakeDeps({
@@ -797,6 +799,7 @@ describe("tickDirector", () => {
     const runDir = runDirFor(h, record.id);
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const windows = new Set(["coder-responding"]);
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
     writeCombo(runDir, record);
     writeCoderThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -973,10 +976,10 @@ describe("tickDirector", () => {
       "tmux",
       "send-keys",
       "-t",
-      "combo-chen-o-r-7:coder-responding",
+      "combo-chen-o-r-7:coder",
       "C-m",
     ]);
-    expect(calls.some((call) => call.includes("combo-chen-o-r-7:coder"))).toBe(false);
+    expect(calls.some((call) => call[1] === "list-panes" && call.includes("combo-chen-o-r-7:coder"))).toBe(false);
     expect(calls.some((call) => call.includes("combo-chen-o-r-7:gatekeeper"))).toBe(false);
     expect(out).toContain("nudged https://github.com/o/r/pull/7#pullrequestreview-1");
   });
@@ -1102,6 +1105,9 @@ describe("tickDirector", () => {
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
       [
+        "[coder_responding]",
+        'window_name = "coder-responding"',
+        "",
         "[monitor]",
         "permission_prompt_policy = 'recreate-non-interactive'",
         "worker_recovery_attempts = 1",
@@ -1443,13 +1449,13 @@ describe("tickDirector", () => {
       "paste-buffer",
       "-d",
       "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
+      "combo-chen-nudge-combo-chen-o-r-7-coder",
       "-t",
-      "combo-chen-o-r-7:coder-responding",
+      "combo-chen-o-r-7:coder",
     ]);
   });
 
-  it("retries the pr_conflict nudge when coder-responding startup fails", async () => {
+  it("retries the pr_conflict nudge when coder response startup fails", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
@@ -1463,7 +1469,7 @@ describe("tickDirector", () => {
       mergeStateStatus: "DIRTY",
       externalReviewComments: [],
       tmux: (args) => {
-        if (args[0] === "new-window" && args.includes("coder-responding")) {
+        if (args[0] === "new-window" && args.includes("coder")) {
           return { status: 1, stdout: "", stderr: "can't find window" };
         }
         return { status: 0, stdout: "", stderr: "" };
