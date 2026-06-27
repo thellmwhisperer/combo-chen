@@ -64,7 +64,7 @@ OVERTURE    deterministic launch runway: checks work-item readability, repo/issu
   │           print an X with the failing resource and exit before creating any
   │           launch resources. Writes overture.json when the run dir is available.
   └─▶ SETUP      clean main verified, Treehouse worktree leased, branch created from base ref, tmux session up
-  └─▶ CODING     gnhf loop; ends with coder_done + captured thread_id
+  └─▶ CODING     gnhf loop; `coder_done` advances to GATING. `coder_failed` (non-zero exit, no gnhf stop-condition override) transitions to STALLED.
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
               └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, coder responding mode workers, and live PR label sync; code-2 verdicts prompt the director via `director_prompted`
                     └─▶ READY      gate_current ∧ reviewer_current ∧ required_checks_current_success ∧ ci_current_success
@@ -720,8 +720,11 @@ Recovery playbook:
 - Parked combos resume through `combo-chen resume -n <combo-id>`; missing tmux is
   expected for parked combos and must not be treated as drift.
 - Pre-PR coder stalls are diagnosed with `status --deep`, `forensics`, and pane
-  health signals. Resume or park the same capsule; do not launch a replacement
-  on the same branch.
+  health signals. Before treating a dead coder pane as a stall, the monitor
+  checks for a journaled `coder_done` or `coder_failed` event; a prior
+  `coder_done` means the coder completed cleanly and the pane is expected to be
+  gone — no recovery or escalation is needed. Resume or park the same capsule;
+  do not launch a replacement on the same branch.
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
   interactive prompts are auto-approved, trigger coder-responding recreation, or
