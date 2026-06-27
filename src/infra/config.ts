@@ -618,9 +618,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   }
   if (env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY"] !== undefined) {
     monitorTable["permission_prompt_policy"] = env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY"];
-    if (env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"] !== undefined) {
-      monitorTable["coder_gnhf_progress_max_age_ms"] = env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"];
-    }
+  }
+  if (env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"] !== undefined) {
+    monitorTable["coder_gnhf_progress_max_age_ms"] = env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"];
   }
   if (env["COMBO_CHEN_READY_REQUIRED_CHECKS"] !== undefined) {
     readyTable["required_checks"] = parseEnvStringArray(

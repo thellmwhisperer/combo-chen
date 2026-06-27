@@ -571,6 +571,36 @@ describe("loadConfig", () => {
     }
   });
 
+  it("loads the coder gnhf progress max age from monitor config, env, and defaults", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[monitor]\ncoder_gnhf_progress_max_age_ms = 300000\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.coderGnhfProgressMaxAgeMs).toBe(300000);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS: "600000" },
+    });
+    expect(envConfig.coderGnhfProgressMaxAgeMs).toBe(600000);
+
+    const defaultConfig = loadConfig({
+      repoDir: tempDir(),
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: {},
+    });
+    expect(defaultConfig.coderGnhfProgressMaxAgeMs).toBe(10 * 60 * 1000);
+
+    for (const value of ["0", "-1", "1.5", '"nope"']) {
+      const invalidRepoDir = tempDir();
+      writeToml(invalidRepoDir, "combo-chen.toml", `[monitor]\ncoder_gnhf_progress_max_age_ms = ${value}\n`);
+      expect(() =>
+        loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+      ).toThrow(/coder_gnhf_progress_max_age_ms/);
+    }
+  });
+
   it("loads the worker stall recovery budget from repo monitor config or env", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", "[monitor]\nworker_recovery_attempts = 4\n");
