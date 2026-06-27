@@ -7,6 +7,18 @@
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 
+## [0.0.63](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.62...combo-chen-v0.0.63) (2026-06-27)
+
+
+### Features
+
+* **update:** Implemented GitHub issue [#193](https://github.com/thellmwhisperer/combo-chen/issues/193): successful updates now perform a deterministic post-update refresh pass, docs are updated, and the full validation suite is green. ([3393769](https://github.com/thellmwhisperer/combo-chen/commit/3393769df0f600b85fd3a0f4934faa28f79a5f6d))
+
+
+### Bug Fixes
+
+* **update:** bound and refresh runtime after install ([4883cd4](https://github.com/thellmwhisperer/combo-chen/commit/4883cd4a9b9046d5a572aeb87ae5fc2f5098ea6b))
+
 ## [0.0.62](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.61...combo-chen-v0.0.62) (2026-06-26)
 
 
