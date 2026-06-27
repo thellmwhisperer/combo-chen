@@ -20,6 +20,9 @@ gnhf_snapshot_iterations() {
     : > "$gnhf_iteration_snapshot"
     return 0
   fi
+  if ! command -v node >/dev/null 2>&1; then
+    return 1
+  fi
   node - "$gnhf_iteration_snapshot" <<'NODE'
 const fs = require("fs");
 const path = require("path");
@@ -57,6 +60,9 @@ NODE
 }
 gnhf_stop_condition_met() {
   if [ ! -d .gnhf/runs ]; then
+    return 1
+  fi
+  if ! command -v node >/dev/null 2>&1; then
     return 1
   fi
   node - "$coder_start_marker" "$gnhf_iteration_snapshot" <<'NODE'
