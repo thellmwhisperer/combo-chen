@@ -2157,6 +2157,9 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
 
+    }
+  });
+
   it("does not flag the coder as stalled when gnhf log shows recent activity", () => {
     const harness = prepareHarness();
     let passed = false;
@@ -2201,8 +2204,6 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     } finally {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
-    }
-  });
     }
   });
 });
