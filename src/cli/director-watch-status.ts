@@ -1,5 +1,5 @@
 /**
- * @overview Director-watch operator status line formatter. ~280 lines,
+ * @overview Director-watch operator status line formatter. ~290 lines,
  *   pure timeline/checklist rendering for tmux panes.
  *
  *   READING GUIDE

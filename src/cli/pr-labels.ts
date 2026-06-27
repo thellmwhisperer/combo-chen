@@ -1,6 +1,6 @@
 /**
  * @overview Combo PR label projection helpers.
- *   ~575 lines, deterministic desired-label, diff, and GitHub mutation helpers.
+ *   ~590 lines, deterministic desired-label, diff, and GitHub mutation helpers.
  *
  *   READING GUIDE
  *   -------------
