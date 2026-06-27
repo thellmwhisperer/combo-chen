@@ -1,6 +1,6 @@
 /**
  * @overview CLI adapter for quiet passive update checks.
- *   ~205 lines, 11 exports, owns local cache I/O, bounded lookup, and command hook policy.
+ *   ~200 lines, 11 exports, owns local cache I/O, bounded lookup, and command hook policy.
  *
  *   READING GUIDE
  *   -------------

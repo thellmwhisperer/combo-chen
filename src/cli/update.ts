@@ -1,6 +1,6 @@
 /**
  * @overview Active update command assembly for combo-chen release archives.
- *   ~505 lines, 6 exports, wires release resolution, active-runtime safety, verified staging, install replacement, and refresh reporting.
+ *   ~490 lines, 6 exports, wires release resolution, active-runtime safety, verified staging, install replacement, and refresh reporting.
  *
  *   READING GUIDE
  *   -------------
