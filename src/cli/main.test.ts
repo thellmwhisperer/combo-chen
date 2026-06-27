@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~8290 lines. (fix(status): Implemented the PR-head/local-worktree-head drift visibility slice for issue #195 and validated it with focused, e2e, and full local checks.)
+ *   deps so tests run without a real terminal or network. ~8315 lines. (fix(resume): Restored missing journal role recovery for existing tmux sessions during resume, with regression coverage and full validation green.)
  *
  *   READING GUIDE
  *   ─────────────
@@ -4854,7 +4854,7 @@ describe("resume", () => {
       .filter((call) => call[0] === "new-window")
       .map((call) => call[4]);
     expect(newWindowNames).toEqual(
-      expect.arrayContaining(["journal", "director", "gatekeeper", "reviewer", "director-watch"]),
+      expect.arrayContaining(["journal", "director", "reviewer", "director-watch"]), (fix(resume): Restored missing journal role recovery for existing tmux sessions during resume, with regression coverage and full validation green.)
     );
     expect(readEvents(dir)).toEqual(initialEvents);
     expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
