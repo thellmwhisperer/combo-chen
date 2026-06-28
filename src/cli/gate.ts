@@ -141,6 +141,26 @@ export function buildGatekeeperAttachCommand(
   ].join("\n");
 }
 
+function buildGatekeeperSingleAttachProbeCommand(
+  combo: ComboRecord,
+  options: { replaceProcess?: boolean } = {},
+): string {
+  const attachLine = options.replaceProcess === false
+    ? "  no-mistakes attach --run \"$no_mistakes_run_id\""
+    : "  exec no-mistakes attach --run \"$no_mistakes_run_id\"";
+  return [
+    `cd ${shellQuote(combo.worktree)}`,
+    `expected_branch=${shellQuote(combo.branch)}`,
+    "expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)",
+    "no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
+    "no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+    "no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
+    "if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
+    attachLine,
+    "fi",
+  ].join("\n");
+}
+
 export function startGatekeeperWindow(
   deps: GatekeeperWindowDeps,
   combo: ComboRecord,
@@ -446,6 +466,9 @@ function buildScriptWithGatekeeperAttachCommand(
     ...options,
     replaceProcess: false,
   });
+  const finalAttachProbe = buildGatekeeperSingleAttachProbeCommand(combo, {
+    replaceProcess: false,
+  });
   return shellScript(
     `combo_chen_gate_script_window_log=${shellQuote(scriptWindowLog)}`,
     `combo_chen_gate_script_done=${shellQuote(scriptDoneFile)}`,
@@ -478,6 +501,14 @@ function buildScriptWithGatekeeperAttachCommand(
     '  combo_chen_gate_script_code=$(cat "$combo_chen_gate_script_done" 2>/dev/null || printf "%s" "$combo_chen_gate_script_code")',
     "fi",
     'printf "\\n[combo-chen] gate script exited with code %s\\n" "$combo_chen_gate_script_code"',
+    'printf "[combo-chen] gatekeeper final attach probe for current run.\\n"',
+    "combo_chen_gate_attach_code=0",
+    "(",
+    indentShellLines(finalAttachProbe.split(/\r?\n/), 2),
+    ") || combo_chen_gate_attach_code=$?",
+    'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
+    '  printf "[combo-chen] gatekeeper final attach exited with code %s\\n" "$combo_chen_gate_attach_code" >&2',
+    "fi",
     'printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
     'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then',
     '  exit "$combo_chen_gate_script_code"',

@@ -277,6 +277,8 @@ describe("gatekeeper runtime config snapshots", () => {
     const gatekeeperWindowCommand = calls.find((call) => call[0] === "set-buffer")?.at(-1) ?? "";
     expect(gatekeeperWindowCommand).toContain("no-mistakes attach --run");
     expect(gatekeeperWindowCommand).toContain("gatekeeper-attach: gate script finished before attach became available");
+    expect(gatekeeperWindowCommand).toContain("[combo-chen] gatekeeper final attach probe for current run.");
+    expect(gatekeeperWindowCommand).toContain("no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)");
     expect(gatekeeperWindowCommand).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     expect(gatekeeperWindowCommand).toContain('if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then');
     expect(gatekeeperWindowCommand).toContain('exit "$combo_chen_gate_script_code"');

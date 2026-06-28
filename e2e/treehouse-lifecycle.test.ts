@@ -118,7 +118,7 @@ interface LogEntryJson {
 }
 
 interface TmuxStateJson {
-  sessions: Record<string, { windows: Record<string, { panes: number }> }>;
+  sessions: Record<string, { windows: Record<string, { panes: number; visibleText?: string }> }>;
 }
 
 function run(
@@ -613,6 +613,14 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     try {
       const { combo } = launchPlanCombo(harness);
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      const comboSession = tmuxState.sessions[combo.tmuxSession];
+      if (!comboSession) throw new Error(`missing tmux session ${combo.tmuxSession}`);
+      comboSession.windows.gatekeeper = {
+        panes: 1,
+        visibleText: "no-mistakes attach --run stale-same-branch\nattached stale-same-branch\n",
+      };
+      writeFileSync(harness.env.E2E_TMUX_STATE!, `${JSON.stringify(tmuxState, null, 2)}\n`);
       writeFileSync(
         harness.env.E2E_NO_MISTAKES_STATE!,
         `${JSON.stringify(
@@ -645,6 +653,15 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         tmuxLog.some((entry) => entry.args[0] === "send-keys" && entry.args[2] === `${combo.tmuxSession}:gatekeeper`),
       ).toBe(true);
       expect(tmuxLog.some((entry) => entry.args.join(" ").includes("no-mistakes attach --run"))).toBe(true);
+      expect(tmuxLog.some((entry) => entry.args[0] === "kill-window" && entry.args.includes(`${combo.tmuxSession}:gatekeeper`))).toBe(false);
+
+      const gatekeeperPane = run("tmux", ["capture-pane", "-p", "-t", `${combo.tmuxSession}:gatekeeper`], {
+        cwd: harness.repo,
+        env: harness.env,
+      }).stdout;
+      expect(gatekeeperPane).toContain("no-mistakes attach --run");
+      expect(gatekeeperPane).toContain("attached e2e-run");
+      expect(gatekeeperPane).not.toContain("attached stale-same-branch");
 
       const noMistakesCalls = readJsonLines<LogEntryJson>(harness.logs.noMistakes);
       const abortIndex = noMistakesCalls.findIndex((entry) => entry.args.join(" ") === "axi abort");
