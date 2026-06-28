@@ -255,15 +255,11 @@ describe("gatekeeper runtime config snapshots", () => {
     });
 
     expect(result).toEqual({ started: true, headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
-    expect(calls).toHaveLength(3);
-    expect(calls[1]).toEqual(["kill-window", "-t", "combo-chen-o-r-7:gatekeeper"]);
-    expect(calls[2]?.slice(0, 5)).toEqual([
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      GATEKEEPER_WINDOW,
-    ]);
+    expect(calls).toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:gate-runner"]);
+    expect(calls).not.toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:gatekeeper"]);
+    expect(calls.some((call) => call[0] === "new-window" && call.includes(GATEKEEPER_WINDOW))).toBe(false);
+    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:gatekeeper", "C-c"]);
+    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:gatekeeper", "C-m"]);
     const script = readFileSync(join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-gate");
     expect(script).not.toContain("printf drifted-gate");
@@ -272,9 +268,13 @@ describe("gatekeeper runtime config snapshots", () => {
     expect(script).toContain("reason=pr_missing");
     expect(script).toContain("gate-lease acquire -n 'o-r-7'");
     expect(script.indexOf("gate-lease acquire")).toBeLessThan(script.indexOf("no-mistakes axi run"));
-    const gatekeeperWindowCommand = calls.find((call) => call[0] === "new-window")?.at(-1) ?? "";
+    const gatekeeperWindowCommand = calls.find((call) => call[0] === "set-buffer")?.at(-1) ?? "";
     expect(gatekeeperWindowCommand).toContain("no-mistakes attach --run");
     expect(gatekeeperWindowCommand).toContain("gatekeeper-attach: gate script finished before attach became available");
+    expect(gatekeeperWindowCommand).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
+    expect(gatekeeperWindowCommand).toContain('if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then');
+    expect(gatekeeperWindowCommand).toContain('exit "$combo_chen_gate_script_code"');
+    expect(gatekeeperWindowCommand).not.toContain("window retained for inspection");
     expect(gatekeeperWindowCommand).toContain(
       `sh '${join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh")}' > "$combo_chen_gate_script_window_log" 2>&1`,
     );
@@ -388,6 +388,9 @@ describe("gatekeeper runtime config snapshots", () => {
         },
         tmux: (args) => {
           calls.push(args);
+          if (args.join(" ") === "list-windows -t combo-chen-o-r-7 -F #{window_name}") {
+            return { status: 0, stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n", stderr: "" };
+          }
           return { status: 0, stdout: "", stderr: "" };
         },
       },
@@ -397,14 +400,9 @@ describe("gatekeeper runtime config snapshots", () => {
       cli: "node /repo/dist/cli.mjs",
     });
 
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.slice(0, 5)).toEqual([
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      GATEKEEPER_WINDOW,
-    ]);
+    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:gatekeeper", "C-c"]);
+    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:gatekeeper", "C-m"]);
+    expect(calls.some((call) => call[0] === "new-window" && call.includes(GATEKEEPER_WINDOW))).toBe(false);
     const script = readFileSync(join(runDir, "gatekeeper-post-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-post");
     expect(script).not.toContain("printf drifted-post");

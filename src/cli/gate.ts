@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~1000 lines, 20 exports, persistent attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~1070 lines, 20 exports, persistent attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -45,7 +45,7 @@ import {
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { listWindowsArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { killWindowArgs, listWindowsArgs, newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
@@ -53,7 +53,6 @@ import {
   buildWorkPlanPrIntent,
 } from "../roles/gatekeeper.js";
 import { fetchIssueDetails } from "./github.js";
-import { killWindowIfPresent } from "./sessions.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "./work-plan.js";
 
 // -- 1/5 HELPER · Types and constants --
@@ -183,8 +182,11 @@ export function refreshGatekeeperWindow(
   combo: ComboRecord,
   options: GatekeeperAttachOptions,
 ): void {
-  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
-  startGatekeeperWindow(deps, combo, options);
+  runCommandInGatekeeperWindow(
+    deps,
+    combo,
+    buildPersistentGatekeeperWindowCommand(buildGatekeeperAttachCommand(combo, options)),
+  );
 }
 // -/ 2/5
 
@@ -414,16 +416,18 @@ function indentShellLines(lines: string[], spaces: number): string[] {
 
 function buildPersistentGatekeeperWindowCommand(command: string): string {
   return shellScript(
+    "while :; do",
     "(",
     indentShellLines(command.split(/\r?\n/), 2),
     ")",
     "combo_chen_gatekeeper_window_code=$?",
     'printf "\\n[combo-chen] gatekeeper exited with code %s\\n" "$combo_chen_gatekeeper_window_code"',
-    'printf "[combo-chen] window retained for inspection until closure; press Ctrl-C to close manually.\\n"',
-    'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" != "0" ]; then',
-    "  while :; do sleep 3600; done",
+    'printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
+    'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then',
+    '  exit "$combo_chen_gatekeeper_window_code"',
     "fi",
-    'exit "$combo_chen_gatekeeper_window_code"',
+    "sleep 1",
+    "done",
   );
 }
 
@@ -434,41 +438,108 @@ function buildScriptWithGatekeeperAttachCommand(
 ): string {
   const scriptWindowLog = `${scriptPath}.window.log`;
   const scriptDoneFile = `${scriptWindowLog}.done`;
-  return buildPersistentGatekeeperWindowCommand(
-    shellScript(
-      `combo_chen_gate_script_window_log=${shellQuote(scriptWindowLog)}`,
-      `combo_chen_gate_script_done=${shellQuote(scriptDoneFile)}`,
-      `rm -f "$combo_chen_gate_script_done"`,
-      "(",
-      `  sh ${shellQuote(scriptPath)} > "$combo_chen_gate_script_window_log" 2>&1`,
-      "  combo_chen_gate_script_inner_code=$?",
-      `  printf '%s\\n' "$combo_chen_gate_script_inner_code" > "$combo_chen_gate_script_done"`,
-      `  exit "$combo_chen_gate_script_inner_code"`,
-      ") &",
-      "combo_chen_gate_script_pid=$!",
-      "combo_chen_gate_attach_code=0",
-      "(",
-      indentShellLines(
-        buildGatekeeperAttachCommand(combo, {
-          ...options,
-          replaceProcess: false,
-          stopWhenFileExists: scriptDoneFile,
-        }).split(/\r?\n/),
-        2,
-      ),
-      ") || combo_chen_gate_attach_code=$?",
-      'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
-      '  printf "[combo-chen] gatekeeper attach exited with code %s; showing gate script log.\\n" "$combo_chen_gate_attach_code" >&2',
-      '  tail -80 "$combo_chen_gate_script_window_log" >&2 2>/dev/null || true',
-      "fi",
-      "combo_chen_gate_script_code=0",
-      'wait "$combo_chen_gate_script_pid" || combo_chen_gate_script_code=$?',
-      'if [ -f "$combo_chen_gate_script_done" ]; then',
-      '  combo_chen_gate_script_code=$(cat "$combo_chen_gate_script_done" 2>/dev/null || printf "%s" "$combo_chen_gate_script_code")',
-      "fi",
-      'exit "$combo_chen_gate_script_code"',
+  const idleAttach = buildGatekeeperAttachCommand(combo, {
+    ...options,
+    replaceProcess: false,
+  });
+  return shellScript(
+    `combo_chen_gate_script_window_log=${shellQuote(scriptWindowLog)}`,
+    `combo_chen_gate_script_done=${shellQuote(scriptDoneFile)}`,
+    `rm -f "$combo_chen_gate_script_done"`,
+    "(",
+    `  sh ${shellQuote(scriptPath)} > "$combo_chen_gate_script_window_log" 2>&1`,
+    "  combo_chen_gate_script_inner_code=$?",
+    `  printf '%s\\n' "$combo_chen_gate_script_inner_code" > "$combo_chen_gate_script_done"`,
+    `  exit "$combo_chen_gate_script_inner_code"`,
+    ") &",
+    "combo_chen_gate_script_pid=$!",
+    "combo_chen_gate_attach_code=0",
+    "(",
+    indentShellLines(
+      buildGatekeeperAttachCommand(combo, {
+        ...options,
+        replaceProcess: false,
+        stopWhenFileExists: scriptDoneFile,
+      }).split(/\r?\n/),
+      2,
     ),
+    ") || combo_chen_gate_attach_code=$?",
+    'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
+    '  printf "[combo-chen] gatekeeper attach exited with code %s; showing gate script log.\\n" "$combo_chen_gate_attach_code" >&2',
+    '  tail -80 "$combo_chen_gate_script_window_log" >&2 2>/dev/null || true',
+    "fi",
+    "combo_chen_gate_script_code=0",
+    'wait "$combo_chen_gate_script_pid" || combo_chen_gate_script_code=$?',
+    'if [ -f "$combo_chen_gate_script_done" ]; then',
+    '  combo_chen_gate_script_code=$(cat "$combo_chen_gate_script_done" 2>/dev/null || printf "%s" "$combo_chen_gate_script_code")',
+    "fi",
+    'printf "\\n[combo-chen] gate script exited with code %s\\n" "$combo_chen_gate_script_code"',
+    'printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
+    'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then',
+    '  exit "$combo_chen_gate_script_code"',
+    "fi",
+    "while :; do",
+    "  combo_chen_gate_attach_code=0",
+    "  (",
+    indentShellLines(idleAttach.split(/\r?\n/), 4),
+    "  ) || combo_chen_gate_attach_code=$?",
+    '  printf "\\n[combo-chen] gatekeeper attach exited with code %s\\n" "$combo_chen_gate_attach_code"',
+    '  printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
+    "  sleep 1",
+    "done",
   );
+}
+
+function runCommandInGatekeeperWindow(
+  deps: GatekeeperWindowDeps,
+  combo: ComboRecord,
+  command: string,
+): void {
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  if (windows.has(GATE_RUNNER_WINDOW)) {
+    const killed = deps.tmux(killWindowArgs(combo.tmuxSession, GATE_RUNNER_WINDOW));
+    if (killed.status !== 0) {
+      throw new Error(
+        `tmux failed to remove legacy "${GATE_RUNNER_WINDOW}" in "${combo.tmuxSession}": ` +
+          `${killed.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
+  if (!windows.has(GATEKEEPER_WINDOW)) {
+    const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, command));
+    if (created.status !== 0) {
+      throw new Error(
+        `tmux failed to start gatekeeper watcher in "${combo.tmuxSession}": ` +
+          `${created.stderr.trim() || "unknown error"}`,
+      );
+    }
+    return;
+  }
+
+  const target = `${combo.tmuxSession}:${GATEKEEPER_WINDOW}`;
+  const interrupted = deps.tmux(["send-keys", "-t", target, "C-c"]);
+  if (interrupted.status !== 0) {
+    throw new Error(
+      `tmux failed to interrupt gatekeeper in "${combo.tmuxSession}": ` +
+        `${interrupted.stderr.trim() || "unknown error"}`,
+    );
+  }
+  for (const args of nudgeWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, command)) {
+    const sent = deps.tmux(args);
+    if (sent.status !== 0) {
+      throw new Error(
+        `tmux failed to prompt gatekeeper in "${combo.tmuxSession}": ` +
+          `${sent.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
 }
 
 function gateFailureReasonScript(): string[] {
@@ -647,23 +718,14 @@ export function startInitialGateRetry(input: {
   );
   chmodSync(scriptPath, 0o755);
 
-  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
-  const created = deps.tmux(
-    newWindowArgs(
-      combo.tmuxSession,
-      GATEKEEPER_WINDOW,
-      buildScriptWithGatekeeperAttachCommand(combo, scriptPath, {
-        timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-        retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-      }),
-    ),
+  runCommandInGatekeeperWindow(
+    deps,
+    combo,
+    buildScriptWithGatekeeperAttachCommand(combo, scriptPath, {
+      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+    }),
   );
-  if (created.status !== 0) {
-    throw new Error(
-      `tmux failed to start initial gate runner in "${combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
-    );
-  }
   return { started: true, headSha };
 }
 
@@ -793,14 +855,7 @@ function startPostAddressGate(input: {
 
   const command = buildScriptWithGatekeeperAttachCommand(input.combo, scriptPath, input.attachOptions);
 
-  killWindowIfPresent(input.deps, input.combo, GATEKEEPER_WINDOW);
-  const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATEKEEPER_WINDOW, command));
-  if (created.status !== 0) {
-    throw new Error(
-      `tmux failed to start post-address gatekeeper in "${input.combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
-    );
-  }
+  runCommandInGatekeeperWindow(input.deps, input.combo, command);
 }
 
 // Force a post-address gate for the current committed head, even when a prior

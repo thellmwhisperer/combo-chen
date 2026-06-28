@@ -108,10 +108,10 @@ describe("release docs", () => {
 
     for (const doc of [readme, spec, agents]) {
       expect(doc).toContain("fixed tmux role topology");
-      expect(doc).toContain("coder, journal, director, gatekeeper, and reviewer");
-      expect(doc).toContain("reviewer activates after `pr_opened`");
+      expect(doc).toContain("journal, director, coder, gatekeeper, reviewer, and director-watch");
+      expect(doc).toContain("gatekeeper and reviewer");
+      expect(doc).toContain("precreated at launch");
       expect(doc).toContain("director-watch");
-      expect(doc).toContain("deliberate polling exception");
       expect(doc).toContain("coder-response target defaults to the persistent coder window");
       expect(doc).not.toContain("gate-runner");
     }

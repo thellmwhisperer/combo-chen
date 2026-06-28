@@ -403,17 +403,19 @@ ignored config or environment outside that file.
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo uses the fixed tmux role topology: coder,
-  journal, director, gatekeeper, and reviewer. The `director-watch` window is
-  the deliberate polling exception: it owns deterministic polling and per-tick
-  status so the promptable `director` window stays interactive and non-polling.
-  The reviewer activates after `pr_opened`, so launch records it as
-  `reviewer=reviewer(on-pr-open)` instead of starting a pre-PR reviewer pane.
+- One tmux session per combo uses the fixed tmux role topology in stable
+  six-window order: journal, director, coder, gatekeeper, reviewer, and
+  director-watch. The `director-watch` window owns deterministic polling and
+  per-tick status so the promptable `director` window stays interactive and
+  non-polling. The gatekeeper and reviewer windows are precreated at launch;
+  before they are active, they wait as idle terminals ready to be attached or
+  prompted.
   The gatekeeper window is the live no-mistakes surface: it resolves the
   branch's no-mistakes run id from local no-mistakes state, then attaches to
   that run so simultaneous combos cannot render each other's run. On
-  `gate_started` the emit handler recreates the gatekeeper window so the live
-  role window is visible when no-mistakes becomes active. The coder window
+  `gate_started` the emit handler refreshes the existing gatekeeper window in
+  place so the live role window is visible when no-mistakes becomes active and
+  stale retained attaches are interrupted. The coder window
   streams live coder stdout/stderr; combo launch enables concise `runner:`
   progress lines there for deterministic rebase, gate, and PR-detection steps
   around the coder stream. The coder-response target defaults to the

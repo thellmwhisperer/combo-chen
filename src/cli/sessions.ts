@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~200 lines, 13 exports, attach/recovery and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~220 lines, 17 exports, attach/recovery and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -14,15 +14,15 @@
  *
  *   PUBLIC API
  *   ----------
- *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, SessionDeps
+ *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, legacy window constants, SessionDeps
  *   KillComboSessionResult
- *   killComboSession, killWindowIfPresent, ensureWindowPresent, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
  *   windowSet, tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CODER_RESPONDING_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
  * @deps ../core/{combo,state}, ../infra/tmux
  */
 import { shellQuote } from "../core/combo.js";
@@ -44,6 +44,8 @@ export const DIRECTOR_WINDOW = "director";
 export const REVIEWER_WINDOW = "reviewer";
 export const REVIEWER_WATCH_WINDOW = "reviewer-watch";
 export const DIRECTOR_WATCH_WINDOW = "director-watch";
+export const GATE_RUNNER_WINDOW = "gate-runner";
+export const CODER_RESPONDING_WINDOW = "coder-responding";
 
 export interface SessionDeps {
   tmux: (args: string[]) => TmuxResult;
@@ -124,6 +126,28 @@ export function ensureWindowPresent(
     );
   }
   return true;
+}
+
+export function idleRoleWindowCommand(role: string): string {
+  return [
+    `printf '[combo-chen] ${role} window idle; waiting for combo-chen to prompt it.\\n'`,
+    "while :; do sleep 3600; done",
+  ].join("\n");
+}
+
+export function removeLegacyTopologyWindows(
+  deps: SessionDeps,
+  combo: ComboRecord,
+  options: { removeCoderResponding?: boolean } = {},
+): void {
+  const windows = [
+    REVIEWER_WATCH_WINDOW,
+    GATE_RUNNER_WINDOW,
+    ...(options.removeCoderResponding === true ? [CODER_RESPONDING_WINDOW] : []),
+  ];
+  for (const windowName of windows) {
+    killWindowIfPresent(deps, combo, windowName);
+  }
 }
 
 export function ensureComboSession(input: {
