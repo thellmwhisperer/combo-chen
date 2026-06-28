@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~700 lines, attach, config artifact, mirror sync, and runtime snapshot use.
+ * @overview Unit tests for gatekeeper CLI helpers. ~760 lines, attach, config artifact, mirror sync, and runtime snapshot use.
  *
  *   READING GUIDE
  *   -------------
@@ -380,6 +380,7 @@ describe("gatekeeper runtime config snapshots", () => {
       kind: "thread",
       head_sha: oldSha,
     });
+    appendEvent(runDir, "address_done", { head_sha: headSha });
 
     runPostAddressGateIfNeeded({
       deps: {
@@ -475,7 +476,7 @@ describe("gatekeeper runtime config snapshots", () => {
     expect(journal).toContain(`"head_sha":"${headSha}"`);
   });
 
-  it("does not duplicate a post-address gate already started for the current head", () => {
+  it("starts a post-address gate after address_done records the current head", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
     const record = combo({ repoDir, worktree: join(repoDir, ".worktrees", "issue-7") });
@@ -483,6 +484,7 @@ describe("gatekeeper runtime config snapshots", () => {
     const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
     appendEvent(runDir, "gate_validated", { sha: oldSha });
     appendEvent(runDir, "review_comment", {
       url: "https://github.com/o/r/pull/7#discussion_r1",
@@ -491,6 +493,65 @@ describe("gatekeeper runtime config snapshots", () => {
       head_sha: oldSha,
     });
     appendEvent(runDir, "address_done", { head_sha: headSha });
+
+    const result = runPostAddressGateIfNeeded({
+      deps: {
+        env: {},
+        out: () => undefined,
+        gh: () => ({ status: 0, stdout: '{"title":"Issue","body":"Body"}', stderr: "" }),
+        git: (args) => {
+          calls.push(["git", ...args]);
+          if (args.join(" ") === "rev-parse HEAD") {
+            return { status: 0, stdout: `${headSha}\n`, stderr: "" };
+          }
+          if (args.join(" ") === "status --porcelain") {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          if (args.join(" ") === `merge-base --is-ancestor ${oldSha} ${headSha}`) {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          if (args.join(" ") === "list-windows -t combo-chen-o-r-7 -F #{window_name}") {
+            return { status: 0, stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      combo: record,
+      runDir,
+      prUrl: "https://github.com/o/r/pull/7",
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(result).toEqual({ status: "started", headSha });
+    expect(calls).toContainEqual(["git", "merge-base", "--is-ancestor", oldSha, headSha]);
+    expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:gatekeeper", "C-c"]);
+    const journal = readFileSync(join(runDir, "journal.jsonl"), "utf8");
+    expect(journal.match(/"event":"address_done"/g)).toHaveLength(1);
+    expect(journal).toContain('"event":"gate_stale"');
+    expect(journal).toContain(`"new_sha":"${headSha}"`);
+  });
+
+  it("waits when the latest local recovery does not match the worktree head", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const record = combo({ repoDir, worktree: join(repoDir, ".worktrees", "issue-7") });
+    const calls: string[][] = [];
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const recoveredSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const headSha = "cccccccccccccccccccccccccccccccccccccccc";
+
+    appendEvent(runDir, "gate_validated", { sha: oldSha });
+    appendEvent(runDir, "review_comment", {
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+      author: "reviewer",
+      kind: "thread",
+      head_sha: oldSha,
+    });
+    appendEvent(runDir, "address_done", { head_sha: recoveredSha });
 
     const result = runPostAddressGateIfNeeded({
       deps: {
