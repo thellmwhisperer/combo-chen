@@ -131,7 +131,10 @@ export function ensureWindowPresent(
 export function idleRoleWindowCommand(role: string): string {
   return [
     `printf '[combo-chen] ${role} window idle; waiting for combo-chen to prompt it.\\n'`,
-    "while :; do sleep 3600; done",
+    "combo_chen_idle=1",
+    "trap 'combo_chen_idle=0' INT",
+    'while [ "$combo_chen_idle" = 1 ]; do sleep 3600; done',
+    'exec "${SHELL:-/bin/sh}"',
   ].join("\n");
 }
 
