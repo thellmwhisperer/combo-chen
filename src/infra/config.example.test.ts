@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~185 lines, testing that combo-chen.example.toml and public docs use
+ *   ~180 lines, testing that combo-chen.example.toml and public docs use
  *   only OSS-friendly role names, document the tracked no-mistakes and Codex
  *   resume policies, and keep the example config loadable by the config
  *   cascade.
@@ -124,7 +124,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.reviewerLogins).toEqual(["claude"]);
     expect(config.workerPermissionPromptPolicy).toBe("escalate");
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
-    expect(config.coderRespondingWindowName).toBe("coder-responding");
+    expect(config.coderRespondingWindowName).toBe("coder");
     expect(config.workerRecoveryAttempts).toBe(2);
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");

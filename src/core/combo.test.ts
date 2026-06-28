@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~2050 lines, testing
+ * @overview Unit tests for core combo orchestration. ~2360 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -433,7 +433,7 @@ exit 1
     ]);
   });
 
-  it("does not recover context cancellation before checks-passed outcome", () => {
+  it("normalizes checks-passed context-canceled through the runner path", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -459,8 +459,9 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     writeFileSync(
       fakeGatekeeper,
       `#!/bin/sh
-printf '%s\\n' 'ci.log: context canceled'
+sleep 2
 printf '%s\\n' 'outcome: checks-passed'
+printf '%s\\n' 'ci.log: context canceled'
 exit 42
 `,
     );
@@ -501,14 +502,14 @@ exit 1
       }),
     });
 
-    expect(result.status).toBe(42);
+    expect(result.status).toBe(0);
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
       "coder_done",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
-      `gate_status --field state=failed --field head_sha=${localHead}`,
-      "gate_failed --field exit_code=42 --field reason=gate_failed",
+      `gate_status --field state=idle --field head_sha=${localHead} --field recovery=checks_passed_context_canceled`,
+      "needs_human --field reason=pr_missing",
     ]);
   });
 
@@ -613,6 +614,7 @@ exit 1
       encoding: "utf8",
       env: runnerSubprocessEnv({
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
+        COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED: "1",
         EVENTS_LOG: eventsPath,
         LOCAL_HEAD: localHead,
         NO_MISTAKES_GATE: gatePath,
@@ -665,6 +667,7 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     writeFileSync(
       fakeGatekeeper,
       `#!/bin/sh
+sleep 2
 printf '%s\\n' 'outcome: checks-passed'
 printf '%s\\n' 'ci.log: context canceled'
 exit 42
@@ -689,14 +692,13 @@ exit 1
       fakeNoMistakes,
       `#!/bin/sh
 if [ "$1" = "status" ]; then
-  sleep 2
   printf 'daemon: running\\n'
   printf 'gate: %s\\n' "$NO_MISTAKES_GATE"
   exit 0
 fi
 if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
   printf 'id: 01CONFIGRACE\\n'
-  printf 'branch: combo/issue-7\\n'
+  printf 'branch: other-branch\\n'
   printf 'status: running\\n'
   exit 0
 fi
@@ -733,7 +735,7 @@ exit 1
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
       env: runnerSubprocessEnv({
-        COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
+        COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "1",
         EVENTS_LOG: eventsPath,
         LOCAL_HEAD: localHead,
         NO_MISTAKES_GATE: gatePath,
@@ -1847,10 +1849,17 @@ exit 1
       `#!/bin/sh
 printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  if [ -f "$NO_MISTAKES_ABORT_FILE" ] && [ ! -d "$NO_MISTAKES_RUN_DIR" ]; then
+    exit 1
+  fi
   printf 'run:\\n'
   printf '  id: %s\\n' "$NO_MISTAKES_RUN_ID"
   printf '  branch: combo/issue-7\\n'
   printf '  status: running\\n'
+  exit 0
+fi
+if [ "$1" = "axi" ] && [ "$2" = "abort" ]; then
+  touch "$NO_MISTAKES_ABORT_FILE"
   exit 0
 fi
 if [ "$1" = "axi" ]; then
@@ -1905,6 +1914,7 @@ fi
         NO_MISTAKES_OTHER_RUN_ID: otherRunId,
         NO_MISTAKES_RUN_DIR: daemonWorktree,
         NO_MISTAKES_OTHER_RUN_DIR: join(dataDir, "worktrees", "dd1c02626404", otherRunId),
+        NO_MISTAKES_ABORT_FILE: join(dir, "no-mistakes-aborted"),
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       }),
@@ -1946,9 +1956,16 @@ if [ "$1" = "status" ]; then
   exit 0
 fi
 if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  if [ -f "$NO_MISTAKES_ABORT_FILE" ]; then
+    exit 1
+  fi
   printf 'id: 01CONFIGRACE\\n'
   printf 'branch: combo/issue-7\\n'
   printf 'status: running\\n'
+  exit 0
+fi
+if [ "$1" = "axi" ] && [ "$2" = "abort" ]; then
+  touch "$NO_MISTAKES_ABORT_FILE"
   exit 0
 fi
 exit 0
@@ -1970,8 +1987,10 @@ exit 0
       encoding: "utf8",
       env: {
         ...process.env,
+        COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED: "1",
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
         NO_MISTAKES_GATE: gatePath,
+        NO_MISTAKES_ABORT_FILE: join(dir, "no-mistakes-aborted"),
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       },
     });

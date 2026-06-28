@@ -1,5 +1,5 @@
 /**
- * @overview First-class resume routing for persisted combos. ~390 lines,
+ * @overview First-class resume routing for persisted combos. ~400 lines,
  *   2 exports, state-machine driven safe actions.
  *
  *   READING GUIDE
@@ -30,7 +30,8 @@ import { shellQuote } from "../core/combo.js";
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import type { TmuxResult } from "../infra/tmux.js";
+import { buildDirectorInvocation } from "../roles/director.js";
 import { closeMergedCombo } from "./closure.js";
 import {
   ensureGatekeeperWindow,
@@ -41,7 +42,16 @@ import {
 } from "./gate.js";
 import { parsePrView, type GhRunner } from "./github.js";
 import { activateReviewer } from "./reviewer.js";
-import { DIRECTOR_WATCH_WINDOW, ensureComboSession, killWindowIfPresent } from "./sessions.js";
+import {
+  CODER_WINDOW,
+  DIRECTOR_WATCH_WINDOW,
+  DIRECTOR_WINDOW,
+  REVIEWER_WINDOW,
+  ensureComboSession,
+  ensureWindowPresent,
+  idleRoleWindowCommand,
+  removeLegacyTopologyWindows,
+} from "./sessions.js";
 import {
   AWAITING_REVIEW_GATE,
   deepComboStatus,
@@ -276,18 +286,15 @@ export async function resumeCombo(input: {
   const state = classifyResumeState({ combo, events, downstream, headSha, home, cli, gh: deps.gh });
 
   if (state.kind === "reviewer_ready") {
-    const recreated = ensureComboSession({ deps, combo, home, cli });
+    const recreated = convergeStableTopology({ deps, combo, home, cli, config });
+    pruneLegacyTopology({ deps, combo, config });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(`resume: ${PR_READY_FOR_REVIEWER}${recreated ? " (recreated tmux session)" : ""}`);
     return;
   }
 
   if (state.kind === "gate_running") {
-    const recreated = ensureComboSession({ deps, combo, home, cli });
-    ensureGatekeeperWindow(deps, combo, {
-      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-    });
+    const recreated = convergeStableTopology({ deps, combo, home, cli, config });
     const prUrl = ensurePrOpenedForLiveCi({ deps, combo, runDir, events, downstream: state.downstream });
     if (prUrl !== undefined) {
       activateReviewer({ deps, home, comboId: combo.id, cli });
@@ -312,32 +319,9 @@ export async function resumeCombo(input: {
   }
 
   if (state.kind === "initial_gate_retry") {
-    const recreated = ensureComboSession({ deps, combo, home, cli });
+    const recreated = convergeStableTopology({ deps, combo, home, cli, config });
+    pruneLegacyTopology({ deps, combo, config });
     const result = startInitialGateRetry({ deps, combo, runDir, cli });
-    try {
-      killWindowIfPresent(deps, combo, DIRECTOR_WATCH_WINDOW);
-    } catch {
-      // best-effort: a resume whose session had no director-watch
-    }
-    const directorWatch = deps.tmux(
-      newWindowArgs(
-        combo.tmuxSession,
-        DIRECTOR_WATCH_WINDOW,
-        buildDirectorWatchCommand({
-          cli,
-          comboHome: home,
-          comboId: combo.id,
-          pollSeconds: config.limits.babysitPollSeconds,
-          watchFailureLimit: config.limits.watchFailureLimit,
-          watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
-        }),
-      ),
-    );
-    if (directorWatch.status !== 0) {
-      throw new Error(
-        `resume: director-watch creation failed for ${combo.id}: ${directorWatch.stderr.trim() || "unknown error"}`,
-      );
-    }
     if (result.started) {
       deps.out(
         `resume: initial gate relaunched for ${combo.id} at ${result.headSha}` +
@@ -348,7 +332,8 @@ export async function resumeCombo(input: {
   }
 
   if (state.kind === "pr_exists") {
-    const recreated = ensureComboSession({ deps, combo, home, cli });
+    const recreated = convergeStableTopology({ deps, combo, home, cli, config });
+    pruneLegacyTopology({ deps, combo, config });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(
       `resume: PR exists at ${state.prUrl}; reviewer/director monitoring ensured` +
@@ -374,5 +359,53 @@ export async function resumeCombo(input: {
     `resume: salvage required for ${combo.id}; no pr_opened event. ` +
       `Inspect ${runDir} and ${combo.worktree} before continuing coder work.`,
   );
+}
+
+function convergeStableTopology(input: {
+  deps: Pick<ResumeDeps, "env" | "tmux">;
+  combo: ComboRecord;
+  home: string;
+  cli: string;
+  config: ReturnType<typeof loadRuntimeConfig>;
+}): boolean {
+  const { deps, combo, home, cli, config } = input;
+  const recreated = ensureComboSession({ deps, combo, home, cli });
+  ensureWindowPresent(
+    deps,
+    combo,
+    DIRECTOR_WINDOW,
+    buildDirectorInvocation({ combo, directorCommand: config.directorCommand }),
+  );
+  ensureWindowPresent(deps, combo, CODER_WINDOW, idleRoleWindowCommand(CODER_WINDOW));
+  ensureGatekeeperWindow(deps, combo, {
+    timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+    retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+  });
+  ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
+  ensureWindowPresent(
+    deps,
+    combo,
+    DIRECTOR_WATCH_WINDOW,
+    buildDirectorWatchCommand({
+      cli,
+      comboHome: home,
+      comboId: combo.id,
+      pollSeconds: config.limits.babysitPollSeconds,
+      watchFailureLimit: config.limits.watchFailureLimit,
+      watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
+    }),
+  );
+  return recreated;
+}
+
+function pruneLegacyTopology(input: {
+  deps: Pick<ResumeDeps, "tmux">;
+  combo: ComboRecord;
+  config: ReturnType<typeof loadRuntimeConfig>;
+}): void {
+  const { deps, combo, config } = input;
+  removeLegacyTopologyWindows(deps, combo, {
+    removeCoderResponding: config.coderRespondingWindowName === CODER_WINDOW,
+  });
 }
 // -/ 3/3

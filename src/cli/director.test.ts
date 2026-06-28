@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2370 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~2420 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -20,7 +20,7 @@
  *   combo, event, fakeDeps, seedReadyCandidate, writeCoderThreadArtifact
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./director
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./director, ./sessions
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,6 +40,7 @@ import {
   type DirectorDeps,
 } from "./director.js";
 import { GATEKEEPER_WINDOW } from "./gate.js";
+import { idleRoleWindowCommand } from "./sessions.js";
 
 // -- 1/2 HELPER · Fixtures --
 const ISSUE = "https://github.com/o/r/issues/7";
@@ -355,10 +356,10 @@ describe("tickDirector", () => {
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
+    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("initial gate retry for o-r-7");
-    expect(script).toContain("emit -n 'o-r-7' gate_started");
+    expect(script).toContain("emit -n 'o-r-7' --skip-gate-window-recovery gate_started");
     expect(readEvents(runDir).some((entry) => entry.event === "needs_human")).toBe(false);
     expect(out).toContain("director: retrying initial gate for o-r-7 after gate_failed (attempt 1/2)");
 
@@ -541,6 +542,7 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
     writeCombo(runDir, record);
     writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
@@ -731,6 +733,7 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     const { deps, calls } = fakeDeps({
@@ -797,6 +800,7 @@ describe("tickDirector", () => {
     const runDir = runDirFor(h, record.id);
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const windows = new Set(["coder-responding"]);
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
     writeCombo(runDir, record);
     writeCoderThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -952,6 +956,9 @@ describe("tickDirector", () => {
       if (args[0] === "list-windows") {
         return { status: 0, stdout: "coder\nreviewer\ngatekeeper\ncoder-responding\n", stderr: "" };
       }
+      if (args[0] === "list-panes" && args.includes("#{pane_dead}")) {
+        return { status: 0, stdout: "0\n", stderr: "" };
+      }
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
       if (args[0] === "capture-pane") return { status: 0, stdout: "idle pane\n", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
@@ -973,10 +980,10 @@ describe("tickDirector", () => {
       "tmux",
       "send-keys",
       "-t",
-      "combo-chen-o-r-7:coder-responding",
+      "combo-chen-o-r-7:coder",
       "C-m",
     ]);
-    expect(calls.some((call) => call.includes("combo-chen-o-r-7:coder"))).toBe(false);
+    expect(calls.some((call) => call[1] === "list-panes" && call.includes("combo-chen-o-r-7:coder") && !call.includes("#{pane_dead}"))).toBe(false);
     expect(calls.some((call) => call.includes("combo-chen-o-r-7:gatekeeper"))).toBe(false);
     expect(out).toContain("nudged https://github.com/o/r/pull/7#pullrequestreview-1");
   });
@@ -1102,6 +1109,9 @@ describe("tickDirector", () => {
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
       [
+        "[coder_responding]",
+        'window_name = "coder-responding"',
+        "",
         "[monitor]",
         "permission_prompt_policy = 'recreate-non-interactive'",
         "worker_recovery_attempts = 1",
@@ -1248,12 +1258,15 @@ describe("tickDirector", () => {
       record,
       prHeadSha: headSha,
     });
-    let reviewerCaptures = 0;
+    let previousTmuxCommand = "";
+    let reviewerWorkerCaptures = 0;
     deps.tmux = (args) => {
+      const previous = previousTmuxCommand;
+      previousTmuxCommand = args[0] ?? "";
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
       if (args[0] === "capture-pane") {
-        reviewerCaptures += 1;
+        if (previous === "list-panes") reviewerWorkerCaptures += 1;
         return { status: 0, stdout: "reviewer is working\n", stderr: "" };
       }
       return { status: 0, stdout: "", stderr: "" };
@@ -1261,7 +1274,7 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(reviewerCaptures).toBe(1);
+    expect(reviewerWorkerCaptures).toBe(1);
   });
 
   it("leaves repeated director-watch PR label projections as no-ops when labels already match", async () => {
@@ -1320,6 +1333,38 @@ describe("tickDirector", () => {
         source: "director-watch",
       }),
     ]);
+  });
+
+  it("does not project reviewer work from a precreated idle reviewer window", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_started", {});
+    appendEvent(runDir, "gate_status", { state: "idle", head_sha: oldSha });
+    appendEvent(runDir, "gate_validated", { sha: oldSha });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      prLabels: [{ name: "combo:stale" }],
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\ngatekeeper\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+      if (args[0] === "capture-pane") {
+        return { status: 0, stdout: idleRoleWindowCommand("reviewer"), stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit")).toEqual([]);
+    expect(readEvents(runDir).filter((event) => event.event === "pr_labels_updated")).toEqual([]);
   });
 
   it("removes combo:ready when a required READY check is skipped", async () => {
@@ -1443,13 +1488,13 @@ describe("tickDirector", () => {
       "paste-buffer",
       "-d",
       "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
+      "combo-chen-nudge-combo-chen-o-r-7-coder",
       "-t",
-      "combo-chen-o-r-7:coder-responding",
+      "combo-chen-o-r-7:coder",
     ]);
   });
 
-  it("retries the pr_conflict nudge when coder-responding startup fails", async () => {
+  it("retries the pr_conflict nudge when coder response startup fails", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
@@ -1463,7 +1508,7 @@ describe("tickDirector", () => {
       mergeStateStatus: "DIRTY",
       externalReviewComments: [],
       tmux: (args) => {
-        if (args[0] === "new-window" && args.includes("coder-responding")) {
+        if (args[0] === "new-window" && args.includes("coder")) {
           return { status: 1, stdout: "", stderr: "can't find window" };
         }
         return { status: 0, stdout: "", stderr: "" };
@@ -2171,7 +2216,7 @@ describe("tickDirector", () => {
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
+    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
     expect(readFileSync(join(worktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
     expect(out).toContain(`no-mistakes: copied local config to ${worktree}/.no-mistakes.yaml`);
@@ -2224,7 +2269,7 @@ describe("tickDirector", () => {
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
+    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
   });
 

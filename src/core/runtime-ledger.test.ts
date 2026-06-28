@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for runtime ledger persistence. ~180 lines, fallback and update contracts.
+ * @overview Unit tests for runtime ledger persistence. ~190 lines, fallback and update contracts.
  *
  *   READING GUIDE
  *   -------------
@@ -156,7 +156,12 @@ describe("updateRuntimeLedger", () => {
 
     const updated = updateRuntimeLedger(runDir, {
       prUrl: "https://github.com/o/r/pull/7",
-      roleWindows: { reviewer: "reviewer", directorWatch: "director-watch" },
+      roleWindows: {
+        reviewer: "reviewer",
+        directorWatch: "director-watch",
+        gateRunner: "gate-runner",
+        reviewerWatch: "reviewer-watch",
+      },
       now: () => "2026-06-21T17:02:00.000Z",
     });
 
@@ -174,6 +179,8 @@ describe("updateRuntimeLedger", () => {
       createdAt: "2026-06-21T17:00:00.000Z",
       updatedAt: "2026-06-21T17:02:00.000Z",
     });
+    expect(updated.roleWindows).not.toHaveProperty("gateRunner");
+    expect(updated.roleWindows).not.toHaveProperty("reviewerWatch");
     expect(JSON.parse(readFileSync(join(runDir, RUNTIME_LEDGER_FILE), "utf8"))).toEqual(updated);
   });
 });

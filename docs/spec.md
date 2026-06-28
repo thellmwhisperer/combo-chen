@@ -66,7 +66,7 @@ OVERTURE    deterministic launch runway: checks work-item readability, repo/issu
   └─▶ SETUP      clean main verified, Treehouse worktree leased, branch created from base ref, tmux session up
   └─▶ CODING     gnhf loop; `coder_done` advances to GATING. `coder_failed` (non-zero exit, no gnhf stop-condition override) transitions to STALLED.
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
-              └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, coder responding mode workers, and live PR label sync; code-2 verdicts prompt the director via `director_prompted`
+              └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, coder-response workers, and live PR label sync; code-2 verdicts prompt the director via `director_prompted`
                     └─▶ READY      gate_current ∧ reviewer_current ∧ required_checks_current_success ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
@@ -175,7 +175,6 @@ runner, initial-retry, and post-address gate scripts treat that as recovered
 success evidence. They emit `gate_status state=idle` with
 `recovery=checks_passed_context_canceled` and continue the normal PR detection
 or post-address validation path instead of journaling `gate_failed`.
-
 When the local combo worktree HEAD differs from the current GitHub PR head,
 `status --deep` and `forensics` surface the drift explicitly as a warning with
 a recommended next action (fetch PR head for review or sync the combo
@@ -242,9 +241,13 @@ ignored config or environment outside that file.
 - On `review_comment` (fields: `author`, `kind`, `url`, plus optional `head_sha`), coder responding mode is the implementing thread resumed with the configured `resume_command` template:
   default `codex resume <id>` (recommended `codex --profile sitter --no-alt-screen resume <id>` for tmux visibility),
   `hermes --resume <session>`, or a stateful ACP session.
+- By default the response prompt is delivered through the persistent `coder`
+  role window. `[coder_responding].window_name` may still name a separate
+  compatibility bridge window for adopted or historical capsules until they can
+  move to the fixed role topology.
 - A first-pass PR-open happy path does not start coder responding mode. The
-  window is created lazily before the first actionable review nudge or
-  PR-conflict recovery prompt.
+  response surface is prepared lazily before the first actionable review nudge
+  or PR-conflict recovery prompt.
 - Fallback (resume unavailable or context-saturated): fresh coder instance
   primed with work-item context + PR diff + the comment. Degraded, never
   blocking.
@@ -382,7 +385,7 @@ ignored config or environment outside that file.
   consecutive failures. The watcher doubles its backoff on each failure
   (capped by `[limits].watch_backoff_max_seconds`) and resets both counter
   and backoff on a healthy tick.
-- Priority under scarcity: coder coding mode > coder responding mode > reviewer > sweeps.
+- Priority under scarcity: coder coding mode > coder-response work > reviewer > sweeps.
 - Roles spread across independent budgets by design (Claude subscription,
   Codex subscription, Hermes API providers).
 - Persistent roles run interactive sessions; headless `-p`/SDK calls are
@@ -400,25 +403,28 @@ ignored config or environment outside that file.
 
 ## 8. Director mechanics (v0)
 
-- One tmux session per combo: windows for coder, journal, gatekeeper, gate-runner,
-  director, and any interactive agent roles (reviewer, coder responding mode).
-  The gate-runner window is reserved for generated initial retry and
-  post-address gate scripts. The gatekeeper window is reserved for the live
-  no-mistakes attach UI: it resolves the branch's no-mistakes run id from the
-  local no-mistakes state, then attaches to that run, so simultaneous combos
-  cannot render each other's run. On `gate_started` the emit handler recreates
-  the gatekeeper window so the live role window is visible when no-mistakes
-  becomes active. The coder window streams live coder stdout/stderr; combo
-  launch enables concise `runner:` progress lines there for deterministic
-  rebase, gate, and PR-detection steps around the coder stream. The journal
-  window tails `combo-chen events --follow` so raw event output never
-  replaces the coder role. After PR open,
-  one `director-watch` window runs the polling loop and renders one routine
-  per-tick operator status line (combo id, phase age, PR state/head,
-  last journal event age, GitHub poll timing, worker counters, gate
-  and reviewer pins, READY checklist, and the current pending action);
-  reviewer and coder responding mode are worker windows, not independent
-  babysitters.
+- One tmux session per combo uses the fixed tmux role topology in stable
+  six-window order: journal, director, coder, gatekeeper, reviewer, and
+  director-watch. The `director-watch` window owns deterministic polling and
+  per-tick status so the promptable `director` window stays interactive and
+  non-polling. The gatekeeper and reviewer windows are precreated at launch;
+  before they are active, they wait as idle terminals ready to be attached or
+  prompted.
+  The gatekeeper window is the live no-mistakes surface: it resolves the
+  branch's no-mistakes run id from local no-mistakes state, then attaches to
+  that run so simultaneous combos cannot render each other's run. On
+  `gate_started` the emit handler refreshes the existing gatekeeper window in
+  place so the live role window is visible when no-mistakes becomes active and
+  stale retained attaches are interrupted. The coder window
+  streams live coder stdout/stderr; combo launch enables concise `runner:`
+  progress lines there for deterministic rebase, gate, and PR-detection steps
+  around the coder stream. The coder-response target defaults to the
+  persistent coder window; `[coder_responding].window_name` remains only as a
+  compatibility bridge for older capsules that need a separate response
+  surface. The journal window tails `combo-chen events --follow` so raw event
+  output never replaces the coder role. After PR open, the reviewer and
+  coder-response surfaces are worker prompts routed by the director-watch loop,
+  not independent babysitters.
 - The journal is an append-only JSONL spine per combo run. Each combo run
   directory also contains `combo.json` (combo identity),
   `runtime-ledger.json` (machine-readable capsule resources, written at launch
@@ -741,7 +747,7 @@ Recovery playbook:
   do not launch a replacement on the same branch.
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
-  interactive prompts are auto-approved, trigger coder-responding recreation, or
+  interactive prompts are auto-approved, trigger coder-response recreation, or
   escalate to `needs_human`. Default is `escalate`.
 - Reviewer auth failures are configuration/auth problems. Restore the configured
   reviewer GitHub login and rerun reviewer activation or prompt the reviewer;

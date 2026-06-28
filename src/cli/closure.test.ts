@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for deterministic merged-combo closure. ~360 lines,
+ * @overview Unit tests for deterministic merged-combo closure. ~410 lines,
  *   command-level post-merge convergence.
  *
  *   READING GUIDE
@@ -205,6 +205,47 @@ describe("closeMergedCombo", () => {
     expect(readEvents(runDir).filter((event) => event.event === "merged")).toHaveLength(1);
     expect(calls).toEqual([["tmux", "kill-session", "-t", "combo-chen-o-r-7"]]);
     expect(out).toEqual(["closure: o-r-7 already closed; tmux session killed"]);
+  });
+
+  it("tears down only the named combo resources when a sibling combo shares the repo", async () => {
+    const h = home();
+    const target = writeTestCombo(h);
+    const sibling = writeTestCombo(h, {
+      combo: {
+        id: "o-r-8",
+        issueUrl: "https://github.com/o/r/issues/8",
+        repoDir: target.repoDir,
+        worktree: join(target.repoDir, ".worktrees", "issue-8"),
+        branch: "combo/issue-8",
+        tmuxSession: "combo-chen-o-r-8",
+      },
+    });
+    writeRuntimeLedger(
+      target.runDir,
+      buildRuntimeLedger({
+        combo: target.combo,
+        runDir: target.runDir,
+        cli: "combo-chen",
+        prUrl: "https://github.com/o/r/pull/7",
+      }),
+    );
+    const { deps, calls, out } = fakeDeps();
+
+    await closeMergedCombo({ deps, home: h, comboId: target.combo.id });
+
+    expect(readEvents(target.runDir)).toMatchObject([
+      { event: "pr_opened" },
+      { event: "merged", sha: "merge777", by: "maintainer", source: "closure" },
+      { event: "combo_closed", source: "closure" },
+    ]);
+    expect(readEvents(sibling.runDir).map((event) => event.event)).toEqual(["pr_opened"]);
+    expect(calls).toContainEqual(["treehouse", `cwd=${target.repoDir}`, "return", "--force", target.worktree]);
+    expect(calls).toContainEqual(["git", `cwd=${target.repoDir}`, "branch", "-D", target.combo.branch]);
+    expect(calls).toContainEqual(["tmux", "kill-session", "-t", target.combo.tmuxSession]);
+    expect(calls.some((call) => call.includes(sibling.worktree))).toBe(false);
+    expect(calls.some((call) => call.includes(sibling.combo.branch))).toBe(false);
+    expect(calls.some((call) => call.includes(sibling.combo.tmuxSession))).toBe(false);
+    expect(out).toEqual(["closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete"]);
   });
 
   it("closes a merged combo when local resources are already gone", async () => {

@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~930 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~970 lines, 5 exports, initial-gate retry and pre/post-PR orchestration. (fix(labels): ignore idle reviewer windows)
  *
  *   READING GUIDE
  *   -------------
@@ -35,7 +35,7 @@ import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { listWindowsArgs } from "../infra/tmux.js";
+import { captureWindowArgs, listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
@@ -52,7 +52,7 @@ import {
 import { blockingReadyMergeState, parsePrView } from "./github.js";
 import { syncComboPrLabels } from "./pr-labels.js";
 import { closurePendingReviewerEvent, livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
-import { CODER_WINDOW, REVIEWER_WINDOW } from "./sessions.js";
+import { CODER_WINDOW, idleRoleWindowCommand, REVIEWER_WINDOW } from "./sessions.js";
 import {
   appendWorkerEscalation,
   inspectWorkerPanes,
@@ -126,9 +126,9 @@ export async function tickDirector(input: {
       stallTicks: config.workerStallTicks,
       coderGnhfProgressMaxAgeMs: config.coderGnhfProgressMaxAgeMs,
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
-      recoverableStalledWorkers: [config.coderRespondingWindowName],
+      recoverableStalledWorkers: prAlreadyOpened ? [config.coderRespondingWindowName] : [],
       recoverablePermissionPromptWorkers: config.workerPermissionPromptPolicy === "recreate-non-interactive"
-        ? [config.coderRespondingWindowName]
+        ? (prAlreadyOpened ? [config.coderRespondingWindowName] : [])
         : [],
       autoApprovePermissionPromptMaxAttempts: config.workerRecoveryAttempts,
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
@@ -417,7 +417,7 @@ function syncDirectorPrLabels(input: {
       runDir: input.runDir,
       prUrl: input.prUrl,
       events: input.events,
-      activity: livePrLabelActivity(input.deps, input.combo, input.config.coderRespondingWindowName),
+      activity: livePrLabelActivity(input.deps, input.combo, input.config.coderRespondingWindowName, input.events),
       requiredCheckNames: input.config.readyRequiredChecks,
       ambientCheckNames: input.config.externalCommentAgents,
       greenCheckNames: input.config.prLabelGreenCheckNames,
@@ -436,23 +436,51 @@ function livePrLabelActivity(
   deps: Pick<DirectorDeps, "tmux">,
   combo: ReturnType<typeof readCombo>,
   coderRespondingWindowName: string,
+  events: ComboEvent[],
 ): { coderRespondingActive?: boolean; reviewerActive?: boolean; gateActive?: boolean } {
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) return {};
   const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  const coderRespondingActive = coderRespondingWindowName === CODER_WINDOW
+    ? windows.has(CODER_WINDOW) && hasRoutedCoderPrompt(events)
+    : windows.has(coderRespondingWindowName);
   return {
-    coderRespondingActive: windows.has(coderRespondingWindowName),
-    reviewerActive: windows.has(REVIEWER_WINDOW),
+    coderRespondingActive,
+    reviewerActive: windows.has(REVIEWER_WINDOW) && roleWindowLooksActiveForPrLabels(deps, combo, REVIEWER_WINDOW),
     gateActive: windows.has(GATEKEEPER_WINDOW),
   };
 }
 
+function roleWindowLooksActiveForPrLabels(
+  deps: Pick<DirectorDeps, "tmux">,
+  combo: ReturnType<typeof readCombo>,
+  windowName: string,
+): boolean {
+  const captured = deps.tmux(captureWindowArgs(combo.tmuxSession, windowName));
+  if (captured.status !== 0) return false;
+  const lines = captured.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+  return !roleWindowCaptureLooksIdle(windowName, lines);
+}
+
+function roleWindowCaptureLooksIdle(windowName: string, lines: string[]): boolean {
+  const idleMessage = `[combo-chen] ${windowName} window idle; waiting for combo-chen to prompt it.`;
+  const idleScriptLines = new Set(
+    [
+      idleMessage,
+      ...idleRoleWindowCommand(windowName).split(/\r?\n/),
+    ].map((line) => line.trim()).filter(Boolean),
+  );
+  return lines.some((line) => line.includes(idleMessage)) && lines.every((line) => idleScriptLines.has(line));
+}
+
 function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
   if (latestPrUrl(events) !== undefined) {
-    return [...new Set([
-      REVIEWER_WINDOW,
-      coderRespondingWindowName,
-    ])];
+    const workerWindows = [REVIEWER_WINDOW];
+    if (coderRespondingWindowName !== CODER_WINDOW || hasRoutedCoderPrompt(events)) {
+      workerWindows.push(coderRespondingWindowName);
+    }
+    return [...new Set(workerWindows)];
   }
 
   const status = deriveStatus(events);
@@ -467,6 +495,10 @@ function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName:
     default:
       return [];
   }
+}
+
+function hasRoutedCoderPrompt(events: ComboEvent[]): boolean {
+  return events.some((event) => event.event === "review_comment" || event.event === "pr_conflict");
 }
 
 const WORKER_NEEDS_HUMAN_REASONS = new Set(["worker_dead", "worker_permission_prompt", "worker_stalled"]);

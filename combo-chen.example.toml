@@ -117,7 +117,10 @@ commands = ["@coderabbitai review"]
 green_check_names = ["CodeRabbit"]
 
 [coder_responding]
-window_name = "coder-responding"
+# Defaults to the persistent coder role window. Set this to a separate window
+# name such as "coder-responding" only for historical/adopted capsules that
+# still need the compatibility bridge.
+window_name = "coder"
 # {placeholders}: author, kind, url.
 review_nudge_prompt = '''
 New review comment for coder responding mode:
