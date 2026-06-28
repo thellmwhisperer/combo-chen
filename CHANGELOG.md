@@ -12,6 +12,7 @@
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 * **pr-labels:** Make combo PR label projection single-writer and idempotent. Read-only commands (`status`, `status --deep`, `status --deep --all`) no longer mutate GitHub labels or journal `pr_labels_updated` events; only the canonical mutation path (`director-watch`/`director-tick`) writes labels. Fixes [#241](https://github.com/thellmwhisperer/combo-chen/issues/241).
 
+
 ## [0.0.67](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.66...combo-chen-v0.0.67) (2026-06-28)
 
 
