@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~930 lines, activate, nudge, and recovery flows.
+ * @overview Unit tests for coder-response CLI helpers. ~995 lines, activate, nudge, and recovery flows.
  *
  *   READING GUIDE
  *   -------------
