@@ -98,7 +98,11 @@ human merge -> director-watch auto-closure -> combo_closed
 - **A journal, not vibes.** Every run has `journal.jsonl`. Status is derived
   from events, not from terminal scrollback or agent memory.
 - **Fixed role boundaries.** Coder, gatekeeper, reviewer, director, and human
-  are separate roles. The reviewer cannot be the coder.
+  are separate roles. The reviewer cannot be the coder. The fixed tmux role
+  topology is the stable six-window order journal, director, coder,
+  gatekeeper, reviewer, and director-watch. Gatekeeper and reviewer windows are
+  precreated at launch, and the coder-response target defaults to the
+  persistent coder window.
 - **Publish boundary.** Coders leave local commits. The gatekeeper is the normal
   publisher.
 - **Visible PR state.** GitHub labels track the live combo workflow
@@ -232,11 +236,14 @@ The default Codex coder path is gnhf-managed: combo-chen runs pinned `gnhf` with
 `--meteor-frequency 0`, and `--current-branch`. gnhf 0.1.41 does not expose a
 generic Codex CLI profile/flag pass-through, so Codex terminal flags are not
 part of the normal coder command. Coder responding mode resumes the captured
-thread with the configured resume command (default `codex resume {thread_id}`).
+thread with the configured resume command (default `codex resume {thread_id}`)
+through the persistent `coder` tmux window.
 The recommended `codex --profile sitter --no-alt-screen resume {thread_id}`
 keeps tmux scrollback visible and the session resumable/auditable without
 changing the underlying default. Custom `resume_command` templates remain
-supported for local wrappers or other agents.
+supported for local wrappers or other agents, and
+`[coder_responding].window_name` remains as a compatibility bridge for older
+capsules that still need a separate response window.
 
 If combo-chen later adds a direct noninteractive Codex runner, it must keep
 `-C {worktree}` explicit, use an autonomous isolated sandbox such as
@@ -498,12 +505,13 @@ Recovery playbook:
   `coder_done` or `coder_failed` event before classifying a dead pane.
   A prior `coder_done` means clean completion — no recovery runs.
   When no terminal outcome is journaled, the director auto-restarts dead
-  pre-PR coder workers and stalled coder-responding windows up to the
-  configured recovery budget. After the budget is exhausted a `needs_human`
-  event is journaled.
+  pre-PR coder workers and stalled coder-response surfaces (the default
+  `coder` window or a configured compatibility window) up to the configured
+  recovery budget. After the budget is exhausted a `needs_human` event is
+  journaled.
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
-  interactive prompts are auto-approved, trigger coder-responding recreation, or
+  interactive prompts are auto-approved, trigger coder-response recreation, or
   escalate to `needs_human`. Auto-approve and recreate attempts share the
   configured worker recovery budget. Default is `escalate`.
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
@@ -586,8 +594,8 @@ contract: deterministic overture launch runway,
 coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer with
 machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
-lazy coder responding mode (created only after review signals or PR-conflict
-recovery need it, not on first-pass PR-open happy path), single `director-watch`
+lazy coder-response routing through the persistent coder window by default
+(legacy `coder-responding` compatibility window only when configured), single `director-watch`
 observation with compact per-tick operator status lines, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),
 merged-PR `reconcile` with merge-fact recording only (resource convergence
@@ -606,11 +614,14 @@ heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
 justification), explicit coder terminal outcomes (`coder_done` trust over dead-looking panes) before worker recovery, pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
-stalled coder-responding recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
+stalled coder-response recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
-human-readable tmux topology (separate coder, journal, gatekeeper/live,
-gate-runner, and director-watch windows; raw event output never replaces the
-coder role), and opt-in runner progress status lines
+human-readable tmux topology (fixed tmux role topology: journal, director,
+coder, gatekeeper, reviewer, and director-watch in that stable order;
+gatekeeper and reviewer are precreated at launch; coder-response target
+defaults to the persistent coder window; raw event output never replaces the
+coder role), and opt-in runner
+progress status lines
 (`COMBO_CHEN_RUNNER_PROGRESS=1`).
 
 Deferred: preflight scoring, counterfactual automerge logs, and ACP role driving.

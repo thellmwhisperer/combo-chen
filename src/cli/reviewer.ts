@@ -1,5 +1,5 @@
 /**
- * @overview Reviewer CLI helpers. ~405 lines, 11 exports, reviewer activation and poll tick.
+ * @overview Reviewer CLI helpers. ~420 lines, 11 exports, reviewer activation and poll tick.
  *
  *   READING GUIDE
  *   -------------
@@ -31,7 +31,7 @@ import { updateRuntimeLedger } from "../core/runtime-ledger.js";
 import { cleanOptional, runDirFor, readCombo, type ComboRecord } from "../core/state.js";
 import type { WorkPlan } from "../core/work-plan.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { captureWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { buildDirectorInvocation } from "../roles/director.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { nudgeReviewComments } from "./coder.js";
@@ -43,6 +43,7 @@ import {
   DIRECTOR_WATCH_WINDOW,
   REVIEWER_WINDOW,
   ensureWindowPresent,
+  idleRoleWindowCommand,
   killComboSession,
   killWindowIfPresent,
 } from "./sessions.js";
@@ -97,43 +98,30 @@ export function activateReviewer(input: {
     workPlan,
   });
 
-  killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
   killWindowIfPresent(deps, combo, REVIEWER_WATCH_WINDOW);
-  killWindowIfPresent(deps, combo, DIRECTOR_WATCH_WINDOW);
-
-  const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
-  if (created.status !== 0) {
+  try {
+    ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
+    sendCommandToWindow(deps, combo, REVIEWER_WINDOW, reviewerCommand);
+  } catch (error) {
     throw new Error(
       `tmux failed to start reviewer in "${combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
+        `${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
-  const watcher = deps.tmux(
-    newWindowArgs(
-      combo.tmuxSession,
-      DIRECTOR_WATCH_WINDOW,
-      buildDirectorWatchCommand({
-        cli,
-        comboHome: home,
-        comboId: combo.id,
-        pollSeconds: config.limits.babysitPollSeconds,
-        watchFailureLimit: config.limits.watchFailureLimit,
-        watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
-      }),
-    ),
+  ensureWindowPresent(
+    deps,
+    combo,
+    DIRECTOR_WATCH_WINDOW,
+    buildDirectorWatchCommand({
+      cli,
+      comboHome: home,
+      comboId: combo.id,
+      pollSeconds: config.limits.babysitPollSeconds,
+      watchFailureLimit: config.limits.watchFailureLimit,
+      watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
+    }),
   );
-  if (watcher.status !== 0) {
-    try {
-      killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
-    } catch {
-      // Preserve the watcher-start failure as the primary error.
-    }
-    throw new Error(
-      `tmux failed to start director watcher in "${combo.tmuxSession}": ` +
-        `${watcher.stderr.trim() || "unknown error"}`,
-    );
-  }
 
   updateRuntimeLedger(runDir, {
     cli,
@@ -145,7 +133,6 @@ export function activateReviewer(input: {
     },
   });
   deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
-  deps.out(`${DIRECTOR_WATCH_WINDOW}: polling combo hard signals every ${config.limits.babysitPollSeconds}s`);
 }
 // -/ 2/4
 
@@ -324,13 +311,13 @@ export async function tickReviewer(input: {
     }),
   });
 
-  killWindowIfPresent(deps, combo, REVIEWER_WINDOW);
-
-  const created = deps.tmux(newWindowArgs(combo.tmuxSession, REVIEWER_WINDOW, reviewerCommand));
-  if (created.status !== 0) {
+  try {
+    ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
+    sendCommandToWindow(deps, combo, REVIEWER_WINDOW, reviewerCommand);
+  } catch (error) {
     throw new Error(
       `tmux failed to start reviewer re-review in "${combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
+        `${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
@@ -355,6 +342,43 @@ function hasCompleteWorkItemMetadata(combo: ComboRecord): boolean {
     combo.workItemSourceType === "github_issue" ? cleanOptional(combo.issueUrl) : undefined
   );
   return combo.workItemSourceType !== undefined && reference !== undefined;
+}
+
+function sendCommandToWindow(
+  deps: Pick<ActivateReviewerDeps, "tmux">,
+  combo: ComboRecord,
+  windowName: string,
+  command: string,
+): void {
+  const target = `${combo.tmuxSession}:${windowName}`;
+  if (windowLooksIdle(deps, combo, windowName)) {
+    const interrupted = deps.tmux(["send-keys", "-t", target, "C-c"]);
+    if (interrupted.status !== 0) {
+      throw new Error(
+        `tmux failed to interrupt "${windowName}" in "${combo.tmuxSession}": ` +
+          `${interrupted.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
+  for (const args of nudgeWindowArgs(combo.tmuxSession, windowName, command)) {
+    const sent = deps.tmux(args);
+    if (sent.status !== 0) {
+      throw new Error(
+        `tmux failed to prompt "${windowName}" in "${combo.tmuxSession}": ` +
+          `${sent.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
+}
+
+function windowLooksIdle(
+  deps: Pick<ActivateReviewerDeps, "tmux">,
+  combo: ComboRecord,
+  windowName: string,
+): boolean {
+  const captured = deps.tmux(captureWindowArgs(combo.tmuxSession, windowName));
+  if (captured.status !== 0) return false;
+  return captured.stdout.includes(`[combo-chen] ${windowName} window idle; waiting for combo-chen to prompt it.`);
 }
 
 export function latestOpenedPrUrl(runDir: string): string | undefined {

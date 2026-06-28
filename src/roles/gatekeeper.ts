@@ -1,7 +1,7 @@
 /**
  * @overview Gatekeeper adapter: invokes no-mistakes' blocking agent
  *   interface. Expands {placeholders} in commands, prepares push-safe
- *   base64 intent, and reads TOON outcomes tolerantly. ~370 lines, 8 exports.
+ *   base64 intent, and reads TOON outcomes tolerantly. ~390 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -30,8 +30,9 @@
  *   │ parseAxiOutcome            Extract TOON "outcome:" line from raw text  │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
  *   │ visiblePrBodyMarkdown, escapeRegExp, shell command segment helpers,    │
- *   │ isEscaped, PLACEHOLDER, KNOWN_GATEKEEPER_PLACEHOLDERS,                 │
- *   │ MAX_INTENT_BODY_LENGTH, MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS      │
+ *   │ isEscaped, replaceGatekeeperPlaceholders, PLACEHOLDER,                 │
+ *   │ KNOWN_GATEKEEPER_PLACEHOLDERS, MAX_INTENT_BODY_LENGTH,                 │
+ *   │ MAX_PUSH_INTENT_INPUT, AUTOCLOSE_KEYWORDS                              │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports GatekeeperInput, buildIssuePrIntent, buildWorkPlanPrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
@@ -65,9 +66,64 @@ const MAX_INTENT_BODY_LENGTH = 8000;
 const MAX_PUSH_INTENT_INPUT = 4000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
 const NO_MISTAKES_AXI_RUN_AT_START = /^no-mistakes\s+axi\s+run\b/;
+const GATEKEEPER_INTENT_ENV = "COMBO_CHEN_GATEKEEPER_INTENT_B64";
+const DECODE_GATEKEEPER_INTENT_JS =
+  `process.stdout.write(Buffer.from(process.env.${GATEKEEPER_INTENT_ENV} || "", "base64").toString("utf8"))`;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+type PlaceholderQuoteContext = "single" | "double" | "unquoted";
+
+function isBackslashEscaped(value: string, index: number): boolean {
+  let count = 0;
+  for (let i = index - 1; i >= 0 && value[i] === "\\"; i -= 1) count += 1;
+  return count % 2 === 1;
+}
+
+function placeholderQuoteContext(template: string, index: number): PlaceholderQuoteContext {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < index; i += 1) {
+    const char = template[i];
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (char === '"' && !inSingle && !isBackslashEscaped(template, i)) {
+      inDouble = !inDouble;
+    }
+  }
+  if (inSingle) return "single";
+  if (inDouble) return "double";
+  return "unquoted";
+}
+
+function shellDecodedIntentSubstitution(intent: string): string {
+  const encoded = Buffer.from(intent, "utf8").toString("base64");
+  return `$(${GATEKEEPER_INTENT_ENV}=${shellQuote(encoded)} node -e ${shellQuote(DECODE_GATEKEEPER_INTENT_JS)})`;
+}
+
+function quotePlaceholderValue(template: string, index: number, name: string, value: string): string {
+  const context = placeholderQuoteContext(template, index);
+  if (name === "issue_pr_intent") {
+    const substitution = shellDecodedIntentSubstitution(value);
+    if (context === "double") return substitution;
+    if (context === "single") return `'"${substitution}"'`;
+    return `"${substitution}"`;
+  }
+  if (context === "single") return value.replace(/'/g, "'\\''");
+  if (context === "double") return value.replace(/["\\$`]/g, "\\$&");
+  return shellQuote(value);
+}
+
+function replaceGatekeeperPlaceholders(template: string, vars: Record<string, string | undefined>): string {
+  return template.replace(PLACEHOLDER, (_match, name: string, offset: number) => {
+    const value = vars[name];
+    if (value === undefined) {
+      throw new ComboConfigError(`Gatekeeper placeholder {${name}} is not available`);
+    }
+    return quotePlaceholderValue(template, offset, name, value);
+  });
 }
 
 // Single source of truth for the gate's `{issue_pr_intent}`. The `intent` CLI
@@ -337,15 +393,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
       issue_pr_intent: buildWorkPlanPrIntent(input.workPlan),
       branch: input.combo.branch,
     };
-    return forceNoMistakesPublishOnly(
-      input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => {
-        const value = vars[name];
-        if (value === undefined) {
-          throw new ComboConfigError(`Gatekeeper placeholder {${name}} is not available`);
-        }
-        return shellQuote(value);
-      }),
-    );
+    return forceNoMistakesPublishOnly(replaceGatekeeperPlaceholders(input.gatekeeperCommand, vars));
   }
   if (input.issueTitle === undefined || input.issueBody === undefined) {
     throw new ComboConfigError("Gatekeeper command placeholders require work item facts (issue or work plan) during runner generation");
@@ -361,9 +409,7 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
     }),
     branch: input.combo.branch,
   };
-  return forceNoMistakesPublishOnly(
-    input.gatekeeperCommand.replace(PLACEHOLDER, (_match, name: string) => shellQuote(vars[name]!)),
-  );
+  return forceNoMistakesPublishOnly(replaceGatekeeperPlaceholders(input.gatekeeperCommand, vars));
 }
 
 const OUTCOME = /^outcome:\s*(.+)\s*$/m;

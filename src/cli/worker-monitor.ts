@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~410 lines, detects permission prompts,
+ * @overview Worker pane monitor. ~490 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -32,7 +32,7 @@
  *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
- * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
+ * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}, ./sessions
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -52,6 +52,7 @@ import {
   listWindowsArgs,
   type TmuxResult,
 } from "../infra/tmux.js";
+import { idleRoleWindowCommand } from "./sessions.js";
 
 // -- 1/1 CORE · inspectWorkerPanes <- START HERE --
 export interface WorkerMonitorDeps {
@@ -135,6 +136,19 @@ function activeWindowNames(stdout: string): Set<string> {
   return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
 }
 
+function paneLooksLikeIdleRoleWindow(worker: string, pane: string): boolean {
+  const idleMessage = `[combo-chen] ${worker} window idle; waiting for combo-chen to prompt it.`;
+  if (!pane.includes(idleMessage)) return false;
+  const idleLines = new Set(
+    [
+      idleMessage,
+      ...idleRoleWindowCommand(worker).split(/\r?\n/),
+    ].map((line) => line.trim()).filter(Boolean),
+  );
+  const paneLines = pane.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return paneLines.length > 0 && paneLines.every((line) => idleLines.has(line));
+}
+
 function compilePermissionPromptPatterns(patterns: string[]): RegExp[] {
   return patterns.map((pattern) => new RegExp(pattern, "i"));
 }
@@ -169,13 +183,29 @@ export function workerRecoveryAttempts(events: ComboEvent[], worker: string, rea
   ).length;
 }
 
-function latestInitialCoderTerminalOutcome(events: ComboEvent[]): "coder_done" | "coder_failed" | undefined {
+function latestInitialCoderTerminalOutcome(
+  events: ComboEvent[],
+): { outcome: "coder_done" | "coder_failed"; index: number } | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
-    if (event.event === "coder_done" || event.event === "coder_failed") return event.event;
+    if (event.event === "coder_done" || event.event === "coder_failed") {
+      return { outcome: event.event, index: i };
+    }
     if (event.event === "coder_started") return undefined;
   }
   return undefined;
+}
+
+function hasCoderResponsePromptAfter(events: ComboEvent[], index: number): boolean {
+  let unresolved = false;
+  for (const event of events.slice(index + 1)) {
+    if (event.event === "review_comment" || event.event === "pr_conflict") {
+      unresolved = true;
+    } else if (event.event === "lgtm") {
+      unresolved = false;
+    }
+  }
+  return unresolved;
 }
 
 function terminalOutcomeSummary(worker: string, outcome: "coder_done" | "coder_failed"): string {
@@ -263,8 +293,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
     const deadDetail = session.stderr.trim() || detail;
     for (const worker of new Set(input.workerWindows)) {
-      if (worker === "coder" && initialCoderOutcome === "coder_done") {
-        const summary = terminalOutcomeSummary(worker, initialCoderOutcome);
+      if (
+        worker === "coder" &&
+        initialCoderOutcome?.outcome === "coder_done" &&
+        !hasCoderResponsePromptAfter(events, initialCoderOutcome.index)
+      ) {
+        const summary = terminalOutcomeSummary(worker, initialCoderOutcome.outcome);
         summaries.push(summary);
         deps.out(`director: ${summary}`);
         continue;
@@ -301,8 +335,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   for (const worker of new Set(input.workerWindows)) {
     if (!active.has(worker)) continue;
 
-    if (worker === "coder" && initialCoderOutcome === "coder_done") {
-      summaries.push(terminalOutcomeSummary(worker, initialCoderOutcome));
+    if (
+      worker === "coder" &&
+      initialCoderOutcome?.outcome === "coder_done" &&
+      !hasCoderResponsePromptAfter(events, initialCoderOutcome.index)
+    ) {
+      summaries.push(terminalOutcomeSummary(worker, initialCoderOutcome.outcome));
       continue;
     }
 
@@ -335,6 +373,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
 
     const pane = captured.stdout;
+    if (paneLooksLikeIdleRoleWindow(worker, pane)) {
+      delete snapshot[worker];
+      summaries.push(`worker ${worker}: idle role window`);
+      continue;
+    }
+
     if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
       if (permissionPromptPolicy === "auto-approve-known-safe") {
         const attempts = workerRecoveryAttempts(readEvents(runDir), worker, "worker_permission_prompt");

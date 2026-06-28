@@ -1,6 +1,6 @@
 /**
  * @overview tmux plumbing: pure argument builders + one system-calling
- *   executor. Builders are pinned by tests; tmux() touches the OS. ~105
+ *   executor. Builders are pinned by tests; tmux() touches the OS. ~150
  *   lines, 17 exports.
  *
  *   READING GUIDE
@@ -88,8 +88,8 @@ export function listWindowsArgs(session: string): string[] {
   return ["list-windows", "-t", session, "-F", "#{window_name}"];
 }
 
-export function listPanesArgs(session: string, windowName: string): string[] {
-  return ["list-panes", "-t", `${session}:${windowName}`, "-F", "#{pane_index}"];
+export function listPanesArgs(session: string, windowName: string, format = "#{pane_index}"): string[] {
+  return ["list-panes", "-t", `${session}:${windowName}`, "-F", format];
 }
 
 export function captureWindowArgs(session: string, windowName: string): string[] {

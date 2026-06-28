@@ -1,5 +1,5 @@
 /**
- * @overview Runtime ledger persistence for a combo capsule. ~240 lines,
+ * @overview Runtime ledger persistence for a combo capsule. ~260 lines,
  *   10 exports, writes and updates the machine-readable resource artifact.
  *
  *   READING GUIDE
@@ -54,6 +54,15 @@ export interface RuntimeRoleWindows {
   reviewerWatch?: string;
   directorWatch?: string;
 }
+
+const ACTIVE_ROLE_WINDOW_KEYS = new Set([
+  "coder",
+  "journal",
+  "director",
+  "gatekeeper",
+  "reviewer",
+  "directorWatch",
+]);
 
 export interface RuntimeLedgerInput {
   combo: ComboRecord;
@@ -122,7 +131,7 @@ export function buildRuntimeLedger(input: RuntimeLedgerInput): RuntimeLedger {
     worktree: combo.worktree,
     runDir,
     tmuxSession: combo.tmuxSession,
-    roleWindows: cleanRecord(input.roleWindows ?? {}),
+    roleWindows: cleanRoleWindows(input.roleWindows ?? {}),
     logs: {
       rebase: join(runDir, "rebase.log"),
       gatekeeper: join(runDir, "gatekeeper.log"),
@@ -192,7 +201,7 @@ export function updateRuntimeLedger(runDir: string, update: RuntimeLedgerUpdate)
   const current = readRuntimeLedger(runDir, update);
   const updated: RuntimeLedger = {
     ...current,
-    roleWindows: cleanRecord({ ...current.roleWindows, ...update.roleWindows }),
+    roleWindows: cleanRoleWindows({ ...current.roleWindows, ...update.roleWindows }),
     ...(update.promptTargets !== undefined
       ? { promptTargets: cleanRecord({ ...(current.promptTargets ?? {}), ...update.promptTargets }) }
       : {}),
@@ -238,5 +247,14 @@ function cleanRecord(record: object): Record<string, string> {
   return Object.fromEntries(
     Object.entries(record).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
+}
+
+function cleanRoleWindows(record: RuntimeRoleWindows): RuntimeRoleWindows {
+  return Object.fromEntries(
+    Object.entries(record).filter(
+      (entry): entry is [keyof RuntimeRoleWindows, string] =>
+        ACTIVE_ROLE_WINDOW_KEYS.has(entry[0]) && typeof entry[1] === "string",
+    ),
+  ) as RuntimeRoleWindows;
 }
 // -/ 2/2

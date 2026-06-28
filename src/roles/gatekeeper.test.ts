@@ -17,8 +17,10 @@
  *   └──────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, ./gatekeeper
+ * @deps node:child_process, vitest, ./gatekeeper
  */
+import { spawnSync } from "node:child_process";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -98,6 +100,36 @@ describe("buildGatekeeperInvocation", () => {
     expect(buildGatekeeperInvocation({ gatekeeperCommand: "echo 'no-mistakes axi run --skip=lint'" })).toBe(
       "echo 'no-mistakes axi run --skip=lint'",
     );
+  });
+
+  it("expands double-quoted issue PR intent without executing markdown backticks", () => {
+    const command = buildGatekeeperInvocation({
+      gatekeeperCommand: 'printf "%s" "{issue_pr_intent}"',
+      combo: {
+        branch: "combo/issue-7",
+        issueUrl: "https://github.com/o/r/issues/7",
+      },
+      workPlan: {
+        title: "Gatekeeper quoting",
+        source: { type: "local_file", reference: "plans/gatekeeper-quoting.md" },
+        problem: "The plan mentions `status --deep` and `pr_labels_updated` as literal markdown.",
+        scope: "",
+        acceptanceCriteria: "- Keep markdown literals inert.",
+        validation: "",
+        outOfScope: "",
+        intentDecisions: "",
+        rawMarkdown: "# Gatekeeper quoting\n\nThe plan mentions `status --deep` as literal markdown.",
+      },
+    });
+
+    expect(command).toContain('printf "%s" "$(');
+    expect(command).not.toContain('""$(');
+
+    const result = spawnSync("sh", ["-c", command], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("`status --deep`");
+    expect(result.stdout).toContain("`pr_labels_updated`");
   });
 
   it("builds an issue-derived PR intent with an autoclose keyword", () => {

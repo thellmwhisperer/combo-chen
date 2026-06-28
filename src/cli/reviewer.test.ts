@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for reviewer CLI helpers. ~1050 lines, journal predicates and reviewer flows.
+ * @overview Unit tests for reviewer CLI helpers. ~1165 lines, journal predicates and reviewer flows.
  *
  *   READING GUIDE
  *   -------------
@@ -71,6 +71,12 @@ function writeCoderThreadArtifact(runDir: string): void {
       source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
     })}\n`,
   );
+}
+
+function reviewerPromptCommand(calls: string[][], session = "combo-chen-o-r-7"): string {
+  return calls.find(
+    (call) => call[0] === "set-buffer" && call.includes(`combo-chen-nudge-${session}-reviewer`),
+  )?.at(-1) ?? "";
 }
 // -/ 1/4
 
@@ -166,7 +172,12 @@ describe("activateReviewer", () => {
     expect(directorWindow?.at(-1)).toContain("Combo director for o-r-7");
     const reviewerWindow = newWindows.find((call) => call[4] === "reviewer");
     expect(reviewerWindow?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "reviewer"]);
-    expect(reviewerWindow?.at(-1)).toContain("https://github.com/o/r/pull/7");
+    expect(reviewerWindow?.at(-1)).toContain("reviewer window idle");
+    expect(reviewerWindow?.at(-1)).toContain("combo_chen_idle=1");
+    expect(reviewerWindow?.at(-1)).toContain("trap 'combo_chen_idle=0' INT");
+    expect(reviewerWindow?.at(-1)).toContain('while [ "$combo_chen_idle" = 1 ]; do sleep 3600; done');
+    expect(reviewerWindow?.at(-1)).toContain('exec "${SHELL:-/bin/sh}"');
+    expect(reviewerPromptCommand(calls)).toContain("https://github.com/o/r/pull/7");
     const directorWatchWindow = newWindows.find((call) => call[4] === "director-watch");
     expect(directorWatchWindow?.slice(0, 5)).toEqual([
       "new-window",
@@ -180,7 +191,6 @@ describe("activateReviewer", () => {
     );
     expect(out).toEqual([
       "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
-      "director-watch: polling combo hard signals every 120s",
     ]);
     const ledger = JSON.parse(readFileSync(join(runDir, RUNTIME_LEDGER_FILE), "utf8")) as {
       prUrl?: string;
@@ -252,15 +262,15 @@ describe("activateReviewer", () => {
     const reviewerWindow = newWindows.find((call) => call[4] === "reviewer");
     const directorWatchWindow = newWindows.find((call) => call[4] === "director-watch");
     expect(directorWindow?.at(-1)).toContain("Combo director for o-r-7");
-    expect(reviewerWindow?.at(-1)).toContain("claude-launch");
-    expect(reviewerWindow?.at(-1)).toContain("launch reviewer prompt");
-    expect(reviewerWindow?.at(-1)).not.toContain("claude-mutated");
-    expect(reviewerWindow?.at(-1)).not.toContain("mutated reviewer prompt");
+    const reviewerCommand = reviewerPromptCommand(calls);
+    expect(reviewerCommand).toContain("claude-launch");
+    expect(reviewerCommand).toContain("launch reviewer prompt");
+    expect(reviewerCommand).not.toContain("claude-mutated");
+    expect(reviewerCommand).not.toContain("mutated reviewer prompt");
     expect(directorWatchWindow?.at(-1)).toContain("sleep 5");
     expect(directorWatchWindow?.at(-1)).not.toContain("sleep 999");
     expect(out).toEqual([
       "reviewer: claude reviewing https://github.com/o/r/pull/7 in combo-chen-o-r-7:reviewer",
-      "director-watch: polling combo hard signals every 5s",
     ]);
   });
 
@@ -309,7 +319,7 @@ describe("activateReviewer", () => {
       cli: "node /repo/dist/cli.mjs",
     });
 
-    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    const reviewerCommand = reviewerPromptCommand(calls, "combo-chen-plan-reviewer-context-1234abcd");
     expect(reviewerCommand).toContain("Work plan context:");
     expect(reviewerCommand).toContain("# Reviewer context");
     expect(reviewerCommand).toContain("Source: local_file /plans/reviewer-context.md");
@@ -360,7 +370,7 @@ describe("activateReviewer", () => {
       cli: "node /repo/dist/cli.mjs",
     });
 
-    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    const reviewerCommand = reviewerPromptCommand(calls);
     expect(reviewerCommand).toContain("Work plan context:");
     expect(reviewerCommand).toContain("# Issue reviewer context");
     expect(reviewerCommand).toContain(`Source: github_issue ${issueUrl}`);
@@ -403,7 +413,7 @@ describe("activateReviewer", () => {
       }),
     ).not.toThrow();
 
-    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    const reviewerCommand = reviewerPromptCommand(calls);
     expect(reviewerCommand).toContain("Work plan context:");
     expect(reviewerCommand).toContain("# Issue without formal criteria");
     expect(reviewerCommand).toContain("## Acceptance Criteria\n_Not specified._");
@@ -464,13 +474,11 @@ describe("activateReviewer", () => {
     ).toThrow("Cannot activate reviewer for o-r-7: no pr_opened event in the journal");
   });
 
-  it("rolls back the reviewer window when director watcher startup fails", () => {
+  it("surfaces director watcher startup failures without replacing the reviewer window", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(home, record.id);
-    let watcherFailed = false;
-
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
 
@@ -482,11 +490,7 @@ describe("activateReviewer", () => {
           tmux: (args) => {
             calls.push(args);
             if (args[0] === "new-window" && args.includes("director-watch")) {
-              watcherFailed = true;
               return { status: 1, stdout: "", stderr: "watcher boom" };
-            }
-            if (args[0] === "list-windows" && watcherFailed) {
-              return { status: 0, stdout: "reviewer\n", stderr: "" };
             }
             return { status: 0, stdout: "", stderr: "" };
           },
@@ -495,9 +499,77 @@ describe("activateReviewer", () => {
         comboId: record.id,
         cli: "node /repo/dist/cli.mjs",
       }),
-    ).toThrow('tmux failed to start director watcher in "combo-chen-o-r-7": watcher boom');
+    ).toThrow('tmux failed to start "director-watch" in "combo-chen-o-r-7": watcher boom');
 
-    expect(calls.at(-1)).toEqual(["kill-window", "-t", "combo-chen-o-r-7:reviewer"]);
+    expect(calls).not.toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:reviewer"]);
+  });
+
+  it("does not interrupt an active reviewer window before nudging it", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "director\nreviewer\ndirector-watch\n", stderr: "" };
+          }
+          if (args[0] === "capture-pane") {
+            return { status: 0, stdout: "reviewer is still running\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls).not.toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:reviewer", "C-c"]);
+    expect(reviewerPromptCommand(calls)).toContain("https://github.com/o/r/pull/7");
+  });
+
+  it("interrupts an idle reviewer window before nudging it", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "director\nreviewer\ndirector-watch\n", stderr: "" };
+          }
+          if (args[0] === "capture-pane") {
+            return {
+              status: 0,
+              stdout: "[combo-chen] reviewer window idle; waiting for combo-chen to prompt it.\n",
+              stderr: "",
+            };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:reviewer", "C-c"]);
+    expect(reviewerPromptCommand(calls)).toContain("https://github.com/o/r/pull/7");
   });
 });
 // -/ 3/4
@@ -959,12 +1031,12 @@ describe("tickReviewer", () => {
         "-t",
         "combo-chen-o-r-7",
         "-n",
-        "coder-responding",
+        "coder",
         `codex resume '${CODEX_THREAD_ID}'`,
       ],
       expect.arrayContaining(["set-buffer"]),
-      ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-coder-responding", "-t", "combo-chen-o-r-7:coder-responding"],
-      ["send-keys", "-t", "combo-chen-o-r-7:coder-responding", "C-m"],
+      ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-coder", "-t", "combo-chen-o-r-7:coder"],
+      ["send-keys", "-t", "combo-chen-o-r-7:coder", "C-m"],
     ]);
     expect(out).toEqual([`nudged ${verdictUrl}`]);
   });

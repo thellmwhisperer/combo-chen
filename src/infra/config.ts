@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~800 lines, 16 exports.
+ *   Repo wins on policy, user wins on local setup. ~830 lines, 16 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -197,7 +197,7 @@ const DEFAULTS = {
     command: DEFAULT_DIRECTOR_COMMAND,
   },
   coder_responding: {
-    window_name: "coder-responding",
+    window_name: "coder",
     review_nudge_prompt: [
       "New review comment for coder responding mode:",
       "{url}",

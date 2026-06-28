@@ -92,6 +92,7 @@ describe("deepComboStatus", () => {
     );
   });
 
+
   it("prioritizes PR head drift over blocking merge state", () => {
     const combo = {
       branch: "combo/issue-7",

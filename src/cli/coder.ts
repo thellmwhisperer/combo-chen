@@ -1,5 +1,5 @@
 /**
- * @overview Coder-response CLI helpers. ~430 lines, 11 exports, review, conflict, worker recovery, and PR-head sync routing.
+ * @overview Coder-response CLI helpers. ~450 lines, 11 exports, review, conflict, worker recovery, and PR-head sync routing.
  *
  *   READING GUIDE
  *   -------------
@@ -45,6 +45,7 @@ import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import {
   hasSessionArgs,
   killWindowArgs,
+  listPanesArgs,
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
@@ -121,6 +122,10 @@ function hasUnroutedReviewComments(runDir: string, comments: { url: string }[]):
   return comments.some((comment) => !routed.has(comment.url));
 }
 
+function hasLivePane(paneDeadOutput: string): boolean {
+  return paneDeadOutput.split(/\r?\n/).some((line) => line.trim() === "0");
+}
+
 function ensureCoderRespondingWindow(input: {
   deps: ActivateCoderDeps;
   combo: { id: string; tmuxSession: string };
@@ -136,7 +141,24 @@ function ensureCoderRespondingWindow(input: {
     );
   }
   const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
-  if (windows.has(input.windowName)) return;
+  if (windows.has(input.windowName)) {
+    const panes = input.deps.tmux(listPanesArgs(input.combo.tmuxSession, input.windowName, "#{pane_dead}"));
+    if (panes.status !== 0) {
+      throw new Error(
+        `tmux failed to inspect ${input.windowName} panes: ` +
+          `${panes.stderr.trim() || "unknown error"}`,
+      );
+    }
+    if (hasLivePane(panes.stdout)) return;
+
+    const killed = input.deps.tmux(killWindowArgs(input.combo.tmuxSession, input.windowName));
+    if (killed.status !== 0) {
+      throw new Error(
+        `tmux failed to replace dead ${input.windowName}: ` +
+          `${killed.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
 
   const artifact = readCoderThreadArtifact(input.runDir);
   const created = input.deps.tmux(
@@ -208,19 +230,13 @@ export function activateCoder(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const artifact = readCoderThreadArtifact(runDir);
-  const coderResponding = deps.tmux(
-    newWindowArgs(
-      combo.tmuxSession,
-      config.coderRespondingWindowName,
-      buildCoderRespondingResumeCommand(artifact, config.coderResumeCommand),
-    ),
-  );
-  if (coderResponding.status !== 0) {
-    throw new Error(
-      `tmux failed to start ${config.coderRespondingWindowName}: ${coderResponding.stderr.trim() || "unknown error"}`,
-    );
-  }
+  ensureCoderRespondingWindow({
+    deps,
+    combo,
+    runDir,
+    windowName: config.coderRespondingWindowName,
+    resumeCommand: config.coderResumeCommand,
+  });
   deps.out(`coder responding active for ${combo.id}`);
 }
 // -/ 2/3

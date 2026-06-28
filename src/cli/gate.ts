@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~1000 lines, 20 exports, persistent attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~1110 lines, 20 exports, persistent attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -25,8 +25,10 @@
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
- *   buildInitialGateRetryScript, gateStatusIdleScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
+ *   requireComboGit, worktreeHeadSha, latestLocalRecoveryHeadShaAfterGate,
+ *   latestLocalGateReplacementHeadShaAfterGate, publishedGateSupersededByLocalRecovery,
+ *   buildInitialGateRetryScript, gateStatusIdleScript, shellScript, renderGatekeeperCommand,
+ *   buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -45,7 +47,7 @@ import {
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { listWindowsArgs, newWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { killWindowArgs, listWindowsArgs, newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
@@ -53,7 +55,6 @@ import {
   buildWorkPlanPrIntent,
 } from "../roles/gatekeeper.js";
 import { fetchIssueDetails } from "./github.js";
-import { killWindowIfPresent } from "./sessions.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "./work-plan.js";
 
 // -- 1/5 HELPER · Types and constants --
@@ -126,6 +127,7 @@ export function buildGatekeeperAttachCommand(
     "while :; do",
     "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+    "  no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
     "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
     attachLine,
     "  fi",
@@ -138,6 +140,26 @@ export function buildGatekeeperAttachCommand(
     `  echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/${maxAttempts})..." >&2`,
     `  sleep ${options.retryIntervalSeconds}`,
     "done",
+  ].join("\n");
+}
+
+function buildGatekeeperSingleAttachProbeCommand(
+  combo: ComboRecord,
+  options: { replaceProcess?: boolean } = {},
+): string {
+  const attachLine = options.replaceProcess === false
+    ? "  no-mistakes attach --run \"$no_mistakes_run_id\""
+    : "  exec no-mistakes attach --run \"$no_mistakes_run_id\"";
+  return [
+    `cd ${shellQuote(combo.worktree)}`,
+    `expected_branch=${shellQuote(combo.branch)}`,
+    "expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)",
+    "no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
+    "no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
+    "no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
+    "if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
+    attachLine,
+    "fi",
   ].join("\n");
 }
 
@@ -183,8 +205,11 @@ export function refreshGatekeeperWindow(
   combo: ComboRecord,
   options: GatekeeperAttachOptions,
 ): void {
-  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
-  startGatekeeperWindow(deps, combo, options);
+  runCommandInGatekeeperWindow(
+    deps,
+    combo,
+    buildPersistentGatekeeperWindowCommand(buildGatekeeperAttachCommand(combo, options)),
+  );
 }
 // -/ 2/5
 
@@ -215,6 +240,12 @@ interface LatestGateStatus {
   state: string;
   headSha?: string;
 }
+
+type LocalRecoveryAfterGate =
+  | { kind: "gate_stale"; headSha: string }
+  | { kind: "address_done"; headSha: string }
+  | { kind: "review_comment"; headSha: string }
+  | { kind: "pr_conflict"; headSha: string };
 
 export function latestGateStatus(events: ComboEvent[]): LatestGateStatus | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -267,12 +298,23 @@ function hasAddressDone(events: ComboEvent[], headSha: string): boolean {
   return events.some((event) => event.event === "address_done" && event["head_sha"] === headSha);
 }
 
-function latestCoderRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
+function latestLocalRecoveryAfterGate(events: ComboEvent[], gateSha: string): LocalRecoveryAfterGate | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
+    if (
+      event.event === "gate_stale" &&
+      event["old_sha"] === gateSha &&
+      typeof event["new_sha"] === "string" &&
+      event["new_sha"] !== ""
+    ) {
+      return { kind: "gate_stale", headSha: event["new_sha"] };
+    }
+    if (event.event === "address_done" && typeof event["head_sha"] === "string" && event["head_sha"] !== "") {
+      return { kind: "address_done", headSha: event["head_sha"] };
+    }
     if (event.event === "review_comment") {
       return typeof event["head_sha"] === "string" && event["head_sha"] !== ""
-        ? event["head_sha"]
+        ? { kind: "review_comment", headSha: event["head_sha"] }
         : undefined;
     }
     if (
@@ -281,7 +323,7 @@ function latestCoderRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: stri
       typeof event["sha"] === "string" &&
       event["sha"] !== ""
     ) {
-      return event["sha"];
+      return { kind: "pr_conflict", headSha: event["sha"] };
     }
     if (event.event === "gate_validated" && event["sha"] === gateSha) return undefined;
     if (event.event === "gate_status" && event["state"] === "idle" && event["head_sha"] === gateSha) {
@@ -289,6 +331,33 @@ function latestCoderRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: stri
     }
   }
   return undefined;
+}
+
+function latestLocalGateReplacementHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (
+      event.event === "gate_stale" &&
+      event["old_sha"] === gateSha &&
+      typeof event["new_sha"] === "string" &&
+      event["new_sha"] !== ""
+    ) {
+      return event["new_sha"];
+    }
+    if (event.event === "gate_validated" && event["sha"] === gateSha) return undefined;
+    if (event.event === "gate_status" && event["state"] === "idle" && event["head_sha"] === gateSha) {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function publishedGateSupersededByLocalRecovery(
+  events: ComboEvent[],
+  publishedSha: string,
+): boolean {
+  const recoveryHeadSha = latestLocalGateReplacementHeadShaAfterGate(events, publishedSha);
+  return recoveryHeadSha !== undefined;
 }
 
 function hasGateStale(events: ComboEvent[], oldSha: string, newSha: string): boolean {
@@ -414,16 +483,21 @@ function indentShellLines(lines: string[], spaces: number): string[] {
 
 function buildPersistentGatekeeperWindowCommand(command: string): string {
   return shellScript(
+    "combo_chen_idle=1",
+    "trap 'combo_chen_idle=0' INT",
+    'while [ "$combo_chen_idle" = 1 ]; do',
     "(",
     indentShellLines(command.split(/\r?\n/), 2),
     ")",
     "combo_chen_gatekeeper_window_code=$?",
     'printf "\\n[combo-chen] gatekeeper exited with code %s\\n" "$combo_chen_gatekeeper_window_code"',
-    'printf "[combo-chen] window retained for inspection until closure; press Ctrl-C to close manually.\\n"',
-    'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" != "0" ]; then',
-    "  while :; do sleep 3600; done",
+    'printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
+    'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then',
+    '  exit "$combo_chen_gatekeeper_window_code"',
     "fi",
-    'exit "$combo_chen_gatekeeper_window_code"',
+    "sleep 1",
+    "done",
+    'exec "${SHELL:-/bin/sh}"',
   );
 }
 
@@ -434,41 +508,122 @@ function buildScriptWithGatekeeperAttachCommand(
 ): string {
   const scriptWindowLog = `${scriptPath}.window.log`;
   const scriptDoneFile = `${scriptWindowLog}.done`;
-  return buildPersistentGatekeeperWindowCommand(
-    shellScript(
-      `combo_chen_gate_script_window_log=${shellQuote(scriptWindowLog)}`,
-      `combo_chen_gate_script_done=${shellQuote(scriptDoneFile)}`,
-      `rm -f "$combo_chen_gate_script_done"`,
-      "(",
-      `  sh ${shellQuote(scriptPath)} > "$combo_chen_gate_script_window_log" 2>&1`,
-      "  combo_chen_gate_script_inner_code=$?",
-      `  printf '%s\\n' "$combo_chen_gate_script_inner_code" > "$combo_chen_gate_script_done"`,
-      `  exit "$combo_chen_gate_script_inner_code"`,
-      ") &",
-      "combo_chen_gate_script_pid=$!",
-      "combo_chen_gate_attach_code=0",
-      "(",
-      indentShellLines(
-        buildGatekeeperAttachCommand(combo, {
-          ...options,
-          replaceProcess: false,
-          stopWhenFileExists: scriptDoneFile,
-        }).split(/\r?\n/),
-        2,
-      ),
-      ") || combo_chen_gate_attach_code=$?",
-      'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
-      '  printf "[combo-chen] gatekeeper attach exited with code %s; showing gate script log.\\n" "$combo_chen_gate_attach_code" >&2',
-      '  tail -80 "$combo_chen_gate_script_window_log" >&2 2>/dev/null || true',
-      "fi",
-      "combo_chen_gate_script_code=0",
-      'wait "$combo_chen_gate_script_pid" || combo_chen_gate_script_code=$?',
-      'if [ -f "$combo_chen_gate_script_done" ]; then',
-      '  combo_chen_gate_script_code=$(cat "$combo_chen_gate_script_done" 2>/dev/null || printf "%s" "$combo_chen_gate_script_code")',
-      "fi",
-      'exit "$combo_chen_gate_script_code"',
+  const idleAttach = buildGatekeeperAttachCommand(combo, {
+    ...options,
+    replaceProcess: false,
+  });
+  const finalAttachProbe = buildGatekeeperSingleAttachProbeCommand(combo, {
+    replaceProcess: false,
+  });
+  return shellScript(
+    `combo_chen_gate_script_window_log=${shellQuote(scriptWindowLog)}`,
+    `combo_chen_gate_script_done=${shellQuote(scriptDoneFile)}`,
+    `rm -f "$combo_chen_gate_script_done"`,
+    "(",
+    `  sh ${shellQuote(scriptPath)} > "$combo_chen_gate_script_window_log" 2>&1`,
+    "  combo_chen_gate_script_inner_code=$?",
+    `  printf '%s\\n' "$combo_chen_gate_script_inner_code" > "$combo_chen_gate_script_done"`,
+    `  exit "$combo_chen_gate_script_inner_code"`,
+    ") &",
+    "combo_chen_gate_script_pid=$!",
+    "combo_chen_gate_attach_code=0",
+    "(",
+    indentShellLines(
+      buildGatekeeperAttachCommand(combo, {
+        ...options,
+        replaceProcess: false,
+        stopWhenFileExists: scriptDoneFile,
+      }).split(/\r?\n/),
+      2,
     ),
+    ") || combo_chen_gate_attach_code=$?",
+    'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
+    '  printf "[combo-chen] gatekeeper attach exited with code %s; showing gate script log.\\n" "$combo_chen_gate_attach_code" >&2',
+    '  tail -80 "$combo_chen_gate_script_window_log" >&2 2>/dev/null || true',
+    "fi",
+    "combo_chen_gate_script_code=0",
+    'wait "$combo_chen_gate_script_pid" || combo_chen_gate_script_code=$?',
+    'if [ -f "$combo_chen_gate_script_done" ]; then',
+    '  combo_chen_gate_script_code=$(cat "$combo_chen_gate_script_done" 2>/dev/null || printf "%s" "$combo_chen_gate_script_code")',
+    "fi",
+    'printf "\\n[combo-chen] gate script exited with code %s\\n" "$combo_chen_gate_script_code"',
+    'printf "[combo-chen] gatekeeper final attach probe for current run.\\n"',
+    "combo_chen_gate_attach_code=0",
+    "(",
+    indentShellLines(finalAttachProbe.split(/\r?\n/), 2),
+    ") || combo_chen_gate_attach_code=$?",
+    'if [ "$combo_chen_gate_attach_code" -ne 0 ]; then',
+    '  printf "[combo-chen] gatekeeper final attach exited with code %s\\n" "$combo_chen_gate_attach_code" >&2',
+    "fi",
+    'printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
+    'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then',
+    '  exit "$combo_chen_gate_script_code"',
+    "fi",
+    "combo_chen_idle=1",
+    "trap 'combo_chen_idle=0' INT",
+    'while [ "$combo_chen_idle" = 1 ]; do',
+    "  combo_chen_gate_attach_code=0",
+    "  (",
+    indentShellLines(idleAttach.split(/\r?\n/), 4),
+    "  ) || combo_chen_gate_attach_code=$?",
+    '  printf "\\n[combo-chen] gatekeeper attach exited with code %s\\n" "$combo_chen_gate_attach_code"',
+    '  printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
+    "  sleep 1",
+    "done",
+    'exec "${SHELL:-/bin/sh}"',
   );
+}
+
+function runCommandInGatekeeperWindow(
+  deps: GatekeeperWindowDeps,
+  combo: ComboRecord,
+  command: string,
+): void {
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  if (windows.has(GATE_RUNNER_WINDOW)) {
+    const killed = deps.tmux(killWindowArgs(combo.tmuxSession, GATE_RUNNER_WINDOW));
+    if (killed.status !== 0) {
+      throw new Error(
+        `tmux failed to remove legacy "${GATE_RUNNER_WINDOW}" in "${combo.tmuxSession}": ` +
+          `${killed.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
+  if (!windows.has(GATEKEEPER_WINDOW)) {
+    const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, command));
+    if (created.status !== 0) {
+      throw new Error(
+        `tmux failed to start gatekeeper watcher in "${combo.tmuxSession}": ` +
+          `${created.stderr.trim() || "unknown error"}`,
+      );
+    }
+    return;
+  }
+
+  const target = `${combo.tmuxSession}:${GATEKEEPER_WINDOW}`;
+  const interrupted = deps.tmux(["send-keys", "-t", target, "C-c"]);
+  if (interrupted.status !== 0) {
+    throw new Error(
+      `tmux failed to interrupt gatekeeper in "${combo.tmuxSession}": ` +
+        `${interrupted.stderr.trim() || "unknown error"}`,
+    );
+  }
+  for (const args of nudgeWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, command)) {
+    const sent = deps.tmux(args);
+    if (sent.status !== 0) {
+      throw new Error(
+        `tmux failed to prompt gatekeeper in "${combo.tmuxSession}": ` +
+          `${sent.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
 }
 
 function gateFailureReasonScript(): string[] {
@@ -636,7 +791,7 @@ export function startInitialGateRetry(input: {
       gatekeeperCommand: renderedGatekeeper.command,
       gatekeeperMirrorIntent: renderedGatekeeper.pushIntent,
       headSha,
-      emit: `${cli} emit -n ${shellQuote(combo.id)}`,
+      emit: `${cli} emit -n ${shellQuote(combo.id)} --skip-gate-window-recovery`,
       activateReviewer: `${cli} activate-reviewer -n ${shellQuote(combo.id)}`,
       gateLeaseAcquire: `${cli} gate-lease acquire -n ${shellQuote(combo.id)}`,
       gateLeaseRelease: `${cli} gate-lease release -n ${shellQuote(combo.id)}`,
@@ -647,23 +802,14 @@ export function startInitialGateRetry(input: {
   );
   chmodSync(scriptPath, 0o755);
 
-  killWindowIfPresent(deps, combo, GATEKEEPER_WINDOW);
-  const created = deps.tmux(
-    newWindowArgs(
-      combo.tmuxSession,
-      GATEKEEPER_WINDOW,
-      buildScriptWithGatekeeperAttachCommand(combo, scriptPath, {
-        timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-        retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-      }),
-    ),
+  runCommandInGatekeeperWindow(
+    deps,
+    combo,
+    buildScriptWithGatekeeperAttachCommand(combo, scriptPath, {
+      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+    }),
   );
-  if (created.status !== 0) {
-    throw new Error(
-      `tmux failed to start initial gate runner in "${combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
-    );
-  }
   return { started: true, headSha };
 }
 
@@ -781,7 +927,7 @@ function startPostAddressGate(input: {
       gatekeeperMirrorIntent: input.gatekeeperMirrorIntent,
       headSha: input.headSha,
       prUrl: input.prUrl,
-      emit: `${input.cli} emit -n ${shellQuote(input.combo.id)}`,
+      emit: `${input.cli} emit -n ${shellQuote(input.combo.id)} --skip-gate-window-recovery`,
       gateLeaseAcquire: `${input.cli} gate-lease acquire -n ${shellQuote(input.combo.id)}`,
       gateLeaseRelease: `${input.cli} gate-lease release -n ${shellQuote(input.combo.id)}`,
       ...(isGitHubIssueWorkItem(input.combo)
@@ -793,14 +939,7 @@ function startPostAddressGate(input: {
 
   const command = buildScriptWithGatekeeperAttachCommand(input.combo, scriptPath, input.attachOptions);
 
-  killWindowIfPresent(input.deps, input.combo, GATEKEEPER_WINDOW);
-  const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, GATEKEEPER_WINDOW, command));
-  if (created.status !== 0) {
-    throw new Error(
-      `tmux failed to start post-address gatekeeper in "${input.combo.tmuxSession}": ` +
-        `${created.stderr.trim() || "unknown error"}`,
-    );
-  }
+  runCommandInGatekeeperWindow(input.deps, input.combo, command);
 }
 
 // Force a post-address gate for the current committed head, even when a prior
@@ -840,9 +979,12 @@ export function restartPostAddressGate(input: {
   }
 
   const lastPublishedSha = latestPublishedGateSha(events);
+  const publishedGateIsSuperseded = lastPublishedSha !== undefined &&
+    publishedGateSupersededByLocalRecovery(events, lastPublishedSha);
   if (
     lastPublishedSha !== undefined &&
     lastPublishedSha !== headSha &&
+    !publishedGateIsSuperseded &&
     !worktreeContainsSha(deps, combo, lastPublishedSha, headSha)
   ) {
     deps.out(
@@ -850,6 +992,12 @@ export function restartPostAddressGate(input: {
         `does not include published gate ${lastPublishedSha}`,
     );
     return { started: false, headSha, reason: "coder_worktree_out_of_sync" };
+  }
+  if (publishedGateIsSuperseded && lastPublishedSha !== undefined) {
+    deps.out(
+      `gate-restart: published gate ${lastPublishedSha} was superseded by local recovery; ` +
+        `restarting post-address gate from ${headSha}`,
+    );
   }
 
   if (!hasAddressDone(events, headSha)) {
@@ -919,18 +1067,30 @@ export function runPostAddressGateIfNeeded(input: {
     return { status: "idle", reason: "gate_failed_at_head", headSha };
   }
 
-  const recoveryHeadSha = latestCoderRecoveryHeadShaAfterGate(events, lastPublishedSha);
-  if (recoveryHeadSha === undefined || recoveryHeadSha === headSha) {
+  const recovery = latestLocalRecoveryAfterGate(events, lastPublishedSha);
+  const recoveryHasUsableHead =
+    recovery !== undefined &&
+    (recovery.kind === "gate_stale" || recovery.kind === "address_done"
+      ? recovery.headSha === headSha
+      : recovery.headSha !== headSha);
+  if (!recoveryHasUsableHead) {
     deps.out(`director: no coder HEAD change for ${combo.id}; waiting for coder to commit`);
     return { status: "idle", reason: "no_coder_head_change", headSha };
   }
 
-  if (!worktreeContainsSha(deps, combo, lastPublishedSha, headSha)) {
+  const publishedGateIsSuperseded = publishedGateSupersededByLocalRecovery(events, lastPublishedSha);
+  if (!publishedGateIsSuperseded && !worktreeContainsSha(deps, combo, lastPublishedSha, headSha)) {
     deps.out(
       `director: worktree HEAD ${headSha} does not include published gate ${lastPublishedSha}; ` +
         "waiting for coder sync before post-address gate",
     );
     return { status: "blocked", reason: "coder_worktree_out_of_sync", headSha, publishedSha: lastPublishedSha };
+  }
+  if (publishedGateIsSuperseded) {
+    deps.out(
+      `director: published gate ${lastPublishedSha} was superseded by local recovery; ` +
+        `starting post-address gate from ${headSha}`,
+    );
   }
 
   if (propagateNoMistakesConfig(combo.repoDir, combo.worktree)) {

@@ -45,6 +45,7 @@ import { CODER_THREAD_ARTIFACT } from "../src/roles/coder.js";
 // -- 1/3 HELPER · Command runner + JSON helpers --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const cliPath = join(repoRoot, "dist", "cli.mjs");
+const LAUNCH_TIMEOUT_MS = 20_000;
 
 interface RunResult {
   status: number;
@@ -56,9 +57,11 @@ interface Harness {
   root: string;
   repo: string;
   comboHome: string;
+  workPlanExtra: string[];
   env: NodeJS.ProcessEnv;
   logs: {
     gh: string;
+    noMistakes: string;
     treehouse: string;
     tmux: string;
   };
@@ -79,10 +82,12 @@ interface HarnessOptions {
   greenCheckNames?: string[];
   reviewerLogins?: string[];
   externalReviewCommands?: string[];
+  coderRespondingWindowName?: string;
   quoteNoMistakesRunId?: boolean;
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
   workerStallTicks?: number;
+  workPlanExtra?: string[];
   permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
 }
 
@@ -100,6 +105,7 @@ interface RuntimeLedgerJson {
   comboId: string;
   prUrl?: string;
   worktree: string;
+  roleWindows: Record<string, string>;
 }
 
 interface JournalEventJson {
@@ -113,7 +119,7 @@ interface LogEntryJson {
 }
 
 interface TmuxStateJson {
-  sessions: Record<string, { windows: Record<string, { panes: number }> }>;
+  sessions: Record<string, { windows: Record<string, { panes: number; visibleText?: string }> }>;
 }
 
 function run(
@@ -182,6 +188,7 @@ function commitPlan(harness: Harness): string {
       "",
       "## Problem",
       "Exercise combo-chen launch and closure through the built CLI.",
+      ...harness.workPlanExtra,
       "",
       "## Acceptance Criteria",
       "- The combo leases a Treehouse worktree.",
@@ -204,6 +211,7 @@ function launchPlanCombo(harness: Harness): { combo: ComboRecordJson; runDir: st
   const launch = run(process.execPath, [cliPath, "run", "--plan", planPath, "--repo", harness.repo], {
     cwd: harness.repo,
     env: harness.env,
+    timeoutMs: LAUNCH_TIMEOUT_MS,
   });
   const runDir = singleRunDir(harness.comboHome);
   const combo = readJson<ComboRecordJson>(join(runDir, "combo.json"));
@@ -234,6 +242,49 @@ function setTmuxWindowPaneCount(harness: Harness, sessionName: string, windowNam
 
 // -- 2/3 CORE · Treehouse lifecycle E2E <- START HERE --
 describe("treehouse-backed combo lifecycle e2e", () => {
+  it("does not synchronously execute the journal follower in the fake tmux shim", () => {
+    const tmpBase = join(repoRoot, ".tmp");
+    mkdirSync(tmpBase, { recursive: true });
+    const root = mkdtempSync(join(tmpBase, "e2e-tmux-shim-"));
+    const statePath = join(root, "tmux-state.json");
+    let passed = false;
+
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          join(repoRoot, "e2e", "fixtures", "shims", "tmux.mjs"),
+          "new-session",
+          "-d",
+          "-s",
+          "combo-chen-shim-regression",
+          "-n",
+          "journal",
+          `${process.execPath} -e "setInterval(() => {}, 1000)" events --follow -n combo-chen-shim-regression`,
+        ],
+        {
+          cwd: repoRoot,
+          env: {
+            ...process.env,
+            E2E_TMUX_RUN_NEW_SESSION: "1",
+            E2E_TMUX_STATE: statePath,
+          },
+          encoding: "utf8",
+          timeout: 500,
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      const state = readJson<TmuxStateJson>(statePath);
+      expect(Object.keys(state.sessions["combo-chen-shim-regression"]?.windows ?? {})).toEqual(["journal"]);
+      passed = true;
+    } finally {
+      if (passed) rmSync(root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${root}\n`);
+    }
+  });
+
   it("launches a plan-backed combo in a leased git worktree and returns it on closure", () => {
     const harness = prepareHarness();
     let passed = false;
@@ -351,6 +402,99 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("exposes the persistent role-window topology through launch and open-PR resume", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, launch, runDir } = launchPlanCombo(harness);
+      expect(launch.stdout).toContain(
+        "topology: journal=journal · director=director · coder=coder · gatekeeper=gatekeeper · reviewer=reviewer · director-watch=director-watch · coder-response=coder",
+      );
+
+      let ledger = readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json"));
+      expect(ledger.roleWindows).toMatchObject({
+        journal: "journal",
+        director: "director",
+        coder: "coder",
+        gatekeeper: "gatekeeper",
+        reviewer: "reviewer",
+        directorWatch: "director-watch",
+      });
+      expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
+      expect(ledger.roleWindows).not.toHaveProperty("reviewerWatch");
+
+      let tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      expect(Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows)).toEqual([
+        "journal",
+        "director",
+        "coder",
+        "gatekeeper",
+        "reviewer",
+        "director-watch",
+      ]);
+
+      const prUrl = "https://github.com/o/r/pull/1";
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "pr_opened", "--field", `url=${prUrl}`], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      const journalBeforeResume = readFileSync(join(runDir, "journal.jsonl"), "utf8");
+      for (const windowName of ["journal", "director", "gatekeeper", "director-watch"]) {
+        run("tmux", ["kill-window", "-t", `${combo.tmuxSession}:${windowName}`], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const resume = run(process.execPath, [cliPath, "resume", "-n", combo.id], {
+        cwd: harness.repo,
+        env: { ...harness.env, E2E_PR_STATE: "OPEN" },
+      });
+      expect(resume.stdout).toContain("resume: PR ready for reviewer");
+      expect(readFileSync(join(runDir, "journal.jsonl"), "utf8").startsWith(journalBeforeResume)).toBe(true);
+
+      tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      expect(Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows).sort()).toEqual([
+        "coder",
+        "director",
+        "director-watch",
+        "gatekeeper",
+        "journal",
+        "reviewer",
+      ]);
+
+      ledger = readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json"));
+      expect(ledger.prUrl).toBe(prUrl);
+      expect(ledger.roleWindows).toMatchObject({
+        journal: "journal",
+        director: "director",
+        coder: "coder",
+        gatekeeper: "gatekeeper",
+        reviewer: "reviewer",
+        directorWatch: "director-watch",
+      });
+      expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
+      expect(ledger.roleWindows).not.toHaveProperty("reviewerWatch");
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const newWindowNames = tmuxLog
+        .filter((entry) => entry.args[0] === "new-window")
+        .map((entry) => entry.args[entry.args.indexOf("-n") + 1]);
+      expect(newWindowNames.slice(0, 5)).toEqual(["director", "coder", "gatekeeper", "reviewer", "director-watch"]);
+      expect(newWindowNames).not.toContain("gate-runner");
+      expect(newWindowNames).not.toContain("reviewer-watch");
+
+      passed = true;
+    } finally {
+      if (passed) {
+        rmSync(harness.root, { recursive: true, force: true });
+      } else {
+        process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+      }
+    }
+  });
+
   it("resumes a GitHub-merged combo by converging closure instead of restarting review", () => {
     const harness = prepareHarness();
     let passed = false;
@@ -382,9 +526,18 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       );
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       expect(tmuxLog).toContainEqual(expect.objectContaining({ args: ["kill-session", "-t", combo.tmuxSession] }));
-      expect(tmuxLog).not.toContainEqual(
-        expect.objectContaining({ args: ["new-window", "-t", combo.tmuxSession, "-n", "reviewer", expect.any(String)] }),
+      const reviewerWindows = tmuxLog.filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("reviewer"),
       );
+      expect(reviewerWindows).toHaveLength(1);
+      expect(reviewerWindows[0]?.args.at(-1)).toContain("reviewer window idle");
+      expect(
+        tmuxLog.some(
+          (entry) =>
+            entry.args[0] === "set-buffer" &&
+            entry.args.includes(`combo-chen-nudge-${combo.tmuxSession}-reviewer`),
+        ),
+      ).toBe(false);
 
       passed = true;
     } finally {
@@ -398,6 +551,8 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
   it("executes the generated runner and copies no-mistakes config into the active gate worktree", () => {
     const harness = prepareHarness({ executeRunner: true, activeNoMistakes: true });
+    harness.env.COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS = "5";
+    harness.env.COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED = "1";
     let passed = false;
 
     try {
@@ -435,15 +590,99 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   it("resumes a broken combo when no-mistakes creates the run only after gate restart", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
-      gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-resume",
+      gatekeeperCommand: 'no-mistakes daemon start && no-mistakes axi run --intent "{issue_pr_intent}"',
       noMistakesRunDelayMs: 1200,
       quoteNoMistakesRunId: true,
+      workPlanExtra: [
+        "",
+        "The work plan mentions `pr_labels_updated` and `status --deep` as literal markdown.",
+      ],
     });
     let passed = false;
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const tmuxBeforeRestart = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const gatekeeperWindowStartsBefore = tmuxBeforeRestart.filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
+      ).length;
+      const gatekeeperWindowKillsBefore = tmuxBeforeRestart.filter(
+        (entry) => entry.args[0] === "kill-window" && entry.args.includes(`${combo.tmuxSession}:gatekeeper`),
+      ).length;
+      expect(gatekeeperWindowStartsBefore).toBeGreaterThanOrEqual(1);
+
+      const restart = run(process.execPath, [cliPath, "gate-restart", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_TMUX_RUN_GATEKEEPER_WINDOW: "1",
+          COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
+          COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
+        },
+        timeoutMs: 10_000,
+      });
+      expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
+      const tmuxAfterRestart = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const gatekeeperWindowStartsAfter = tmuxAfterRestart.filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
+      ).length;
+      const gatekeeperWindowKillsAfter = tmuxAfterRestart.filter(
+        (entry) => entry.args[0] === "kill-window" && entry.args.includes(`${combo.tmuxSession}:gatekeeper`),
+      ).length;
+      expect(gatekeeperWindowStartsAfter - gatekeeperWindowStartsBefore).toBe(0);
+      expect(gatekeeperWindowKillsAfter - gatekeeperWindowKillsBefore).toBe(0);
+
+      const gatekeeperLog = readFileSync(join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.log`), "utf8");
+      expect(gatekeeperLog).toContain("outcome: checks-passed");
+      expect(gatekeeperLog).toContain("copied .no-mistakes.yaml");
+      expect(gatekeeperLog).not.toContain("command not found");
+      const gateConfig = join(harness.root, "no-mistakes", "worktrees", "e2e", "e2e-run", ".no-mistakes.yaml");
+      expect(readFileSync(gateConfig, "utf8")).toContain("commands:");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).map((event) => event.event);
+      expect(events).toEqual(expect.arrayContaining(["gate_started", "gate_status", "pr_opened"]));
+      expect(readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json")).prUrl).toBe(harness.env.E2E_PR_URL);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, 15_000);
+
+  it("aborts a stale same-branch no-mistakes run before a restarted gate while preserving other branches", () => {
+    const harness = prepareHarness({
+      activateNoMistakesOnAxiRun: true,
+      gatekeeperCommand: 'no-mistakes daemon start && no-mistakes axi run --intent "{issue_pr_intent}"',
+      noMistakesRunDelayMs: 0,
+    });
+    let passed = false;
+
+    try {
+      const { combo } = launchPlanCombo(harness);
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      const comboSession = tmuxState.sessions[combo.tmuxSession];
+      if (!comboSession) throw new Error(`missing tmux session ${combo.tmuxSession}`);
+      comboSession.windows.gatekeeper = {
+        panes: 1,
+        visibleText: "no-mistakes attach --run stale-same-branch\nattached stale-same-branch\n",
+      };
+      writeFileSync(harness.env.E2E_TMUX_STATE!, `${JSON.stringify(tmuxState, null, 2)}\n`);
+      writeFileSync(
+        harness.env.E2E_NO_MISTAKES_STATE!,
+        `${JSON.stringify(
+          {
+            runs: [
+              { id: "stale-same-branch", branch: combo.branch, head: "old-head", status: "running" },
+              { id: "live-other-branch", branch: "combo/issue-241", head: "other-head", status: "running" },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+      );
 
       const restart = run(process.execPath, [cliPath, "gate-restart", "-n", combo.id], {
         cwd: harness.repo,
@@ -457,15 +696,38 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       });
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
 
-      const gatekeeperLog = readFileSync(join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.log`), "utf8");
-      expect(gatekeeperLog).toContain("outcome: checks-passed");
-      expect(gatekeeperLog).toContain("copied .no-mistakes.yaml");
-      const gateConfig = join(harness.root, "no-mistakes", "worktrees", "e2e", "e2e-run", ".no-mistakes.yaml");
-      expect(readFileSync(gateConfig, "utf8")).toContain("commands:");
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog.some((entry) => entry.args.includes("gate-runner"))).toBe(false);
+      expect(
+        tmuxLog.some((entry) => entry.args[0] === "send-keys" && entry.args[2] === `${combo.tmuxSession}:gatekeeper`),
+      ).toBe(true);
+      expect(tmuxLog.some((entry) => entry.args.join(" ").includes("no-mistakes attach --run"))).toBe(true);
+      expect(tmuxLog.some((entry) => entry.args[0] === "kill-window" && entry.args.includes(`${combo.tmuxSession}:gatekeeper`))).toBe(false);
 
-      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).map((event) => event.event);
-      expect(events).toEqual(expect.arrayContaining(["gate_started", "gate_status", "pr_opened"]));
-      expect(readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json")).prUrl).toBe(harness.env.E2E_PR_URL);
+      const gatekeeperPane = run("tmux", ["capture-pane", "-p", "-t", `${combo.tmuxSession}:gatekeeper`], {
+        cwd: harness.repo,
+        env: harness.env,
+      }).stdout;
+      expect(gatekeeperPane).toContain("no-mistakes attach --run");
+      expect(gatekeeperPane).toContain("attached e2e-run");
+      expect(gatekeeperPane).not.toContain("attached stale-same-branch");
+
+      const noMistakesCalls = readJsonLines<LogEntryJson>(harness.logs.noMistakes);
+      const abortIndex = noMistakesCalls.findIndex((entry) => entry.args.join(" ") === "axi abort");
+      const runIndex = noMistakesCalls.findIndex((entry) => entry.args.slice(0, 2).join(" ") === "axi run");
+      expect(abortIndex).toBeGreaterThanOrEqual(0);
+      expect(runIndex).toBeGreaterThan(abortIndex);
+
+      const state = readJson<{
+        runs: Array<{ id: string; branch: string; head: string; status: string }>;
+      }>(harness.env.E2E_NO_MISTAKES_STATE!);
+      expect(state.runs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "stale-same-branch", branch: combo.branch, status: "cancelled" }),
+          expect.objectContaining({ id: "live-other-branch", branch: "combo/issue-241", status: "running" }),
+          expect.objectContaining({ id: "e2e-run", branch: combo.branch, head: headSha, status: "active" }),
+        ]),
+      );
 
       passed = true;
     } finally {
@@ -515,6 +777,20 @@ describe("treehouse-backed combo lifecycle e2e", () => {
               expect.stringContaining("events --follow"),
             ],
           }),
+          expect.objectContaining({
+            args: [
+              "new-window",
+              "-t",
+              combo.tmuxSession,
+              "-n",
+              "gatekeeper",
+              expect.stringContaining(`gatekeeper-initial-${headSha.slice(0, 12)}.sh`),
+            ],
+          }),
+        ]),
+      );
+      expect(tmuxLog).toEqual(
+        expect.arrayContaining([
           expect.objectContaining({
             args: [
               "new-window",
@@ -574,7 +850,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
-  it("recreates the gatekeeper window when gate_started follows an exited no-mistakes attach", () => {
+  it("repairs the gatekeeper window when gate_started follows an exited no-mistakes attach", () => {
     const harness = prepareHarness();
     let passed = false;
 
@@ -594,6 +870,14 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
       ).length;
       expect(after).toBe(before + 1);
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const repairedCommand = tmuxLog
+        .filter((entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"))
+        .at(-1)?.args.at(-1);
+      expect(repairedCommand).toContain(`expected_branch='${combo.branch}'`);
+      expect(repairedCommand).toContain("expected_head=$(git rev-parse --short=7 HEAD");
+      expect(repairedCommand).toContain("no-mistakes attach --run");
+      expect(tmuxLog.some((entry) => entry.args.includes("gate-runner"))).toBe(false);
 
       passed = true;
     } finally {
@@ -658,12 +942,12 @@ describe("treehouse-backed combo lifecycle e2e", () => {
               "paste-buffer",
               "-d",
               "-b",
-              `combo-chen-nudge-${combo.tmuxSession}-coder-responding`,
+              `combo-chen-nudge-${combo.tmuxSession}-coder`,
               "-t",
-              `${combo.tmuxSession}:coder-responding`,
+              `${combo.tmuxSession}:coder`,
             ],
           }),
-          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder-responding`, "C-m"] }),
+          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder`, "C-m"] }),
         ]),
       );
 
@@ -957,12 +1241,10 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           env: harness.env,
         });
       }
-      for (const window of ["reviewer", "gatekeeper", "coder-responding"]) {
-        run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", window, "true"], {
-          cwd: harness.repo,
-          env: harness.env,
-        });
-      }
+      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "coder-responding", "true"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
 
       const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
         cwd: harness.repo,
@@ -995,7 +1277,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       expect(tmuxLog).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder-responding`, "C-m"] }),
+          expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:coder`, "C-m"] }),
         ]),
       );
 
@@ -1019,11 +1301,6 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         cwd: harness.repo,
         env: harness.env,
       });
-      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "reviewer", "true"], {
-        cwd: harness.repo,
-        env: harness.env,
-      });
-
       const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
         cwd: harness.repo,
         env: {
@@ -1053,7 +1330,10 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   });
 
   it("recreates a permission-prompted coder responding worker before escalating needs_human", () => {
-    const harness = prepareHarness({ permissionPromptPolicy: "recreate-non-interactive" });
+    const harness = prepareHarness({
+      permissionPromptPolicy: "recreate-non-interactive",
+      coderRespondingWindowName: "coder-responding",
+    });
     let passed = false;
 
     try {
@@ -1145,7 +1425,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   }, 15_000);
 
   it("recovers a stalled coder responding worker before escalating needs_human", () => {
-    const harness = prepareHarness({ workerStallTicks: 2 });
+    const harness = prepareHarness({ workerStallTicks: 2, coderRespondingWindowName: "coder-responding" });
     let passed = false;
 
     try {
@@ -1244,7 +1524,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   });
 
   it("holds a dirty PR on an intent decision instead of recycling coder responding", () => {
-    const harness = prepareHarness({ workerStallTicks: 2 });
+    const harness = prepareHarness({ workerStallTicks: 2, coderRespondingWindowName: "coder-responding" });
     let passed = false;
 
     try {
@@ -1403,7 +1683,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   });
 
   it("escalates a dead coder responding worker for a mergeable PR without restarting the initial runner", () => {
-    const harness = prepareHarness();
+    const harness = prepareHarness({ coderRespondingWindowName: "coder-responding" });
     let passed = false;
 
     try {
@@ -1427,6 +1707,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         env: harness.env,
       });
       setTmuxWindowPaneCount(harness, combo.tmuxSession, "coder-responding", 0);
+      const tmuxLogBeforeTick = readJsonLines<LogEntryJson>(harness.logs.tmux).length;
 
       const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
         cwd: harness.repo,
@@ -1455,7 +1736,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         false,
       );
 
-      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux).slice(tmuxLogBeforeTick);
       const postTickWindowOps = tmuxLog.filter(
         (entry) =>
           (entry.args[0] === "kill-window" || entry.args[0] === "new-window") &&
@@ -1530,10 +1811,19 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         ]),
       );
 
-      const after = readJsonLines<LogEntryJson>(harness.logs.tmux).filter(
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const after = tmuxLog.filter(
         (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
       ).length;
-      expect(after).toBe(before + 1);
+      expect(after).toBe(before);
+      const gatekeeperPrompt = tmuxLog
+        .filter(
+          (entry) =>
+            entry.args[0] === "set-buffer" &&
+            entry.args.includes(`combo-chen-nudge-${combo.tmuxSession}-gatekeeper`),
+        )
+        .at(-1)?.args.at(-1);
+      expect(gatekeeperPrompt).toContain(`gatekeeper-post-${localSha.slice(0, 12)}.sh`);
       expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(true);
 
       passed = true;
@@ -1591,7 +1881,11 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       const gatekeeperWindowCommand = tmuxLog
-        .filter((entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"))
+        .filter(
+          (entry) =>
+            entry.args[0] === "set-buffer" &&
+            entry.args.includes(`combo-chen-nudge-${combo.tmuxSession}-gatekeeper`),
+        )
         .at(-1)?.args.at(-1);
       expect(gatekeeperWindowCommand).toBeDefined();
 
@@ -1634,7 +1928,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       externalCommentAgents: ["coderabbitai"],
       failNoMistakesAttach: true,
       gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-post-address",
-      noMistakesRunDelayMs: 100,
+      noMistakesRunDelayMs: 1200,
     });
     let passed = false;
 
@@ -1674,7 +1968,11 @@ describe("treehouse-backed combo lifecycle e2e", () => {
 
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
       const gatekeeperWindowCommand = tmuxLog
-        .filter((entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"))
+        .filter(
+          (entry) =>
+            entry.args[0] === "set-buffer" &&
+            entry.args.includes(`combo-chen-nudge-${combo.tmuxSession}-gatekeeper`),
+        )
         .at(-1)?.args.at(-1);
       expect(gatekeeperWindowCommand).toBeDefined();
 
@@ -1691,8 +1989,10 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       const paneOutput = `${pane.stdout ?? ""}\n${pane.stderr ?? ""}`;
 
       expect(pane.status).toBe(0);
-      expect(paneOutput).toContain("outcome: checks-passed");
-      expect(paneOutput).toContain("ci.log: context canceled");
+      expect(paneOutput).toContain("[combo-chen] gate script exited with code 0");
+      const gatekeeperLog = readFileSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.log`), "utf8");
+      expect(gatekeeperLog).toContain("outcome: checks-passed");
+      expect(gatekeeperLog).toContain("ci.log: context canceled");
 
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
       expect(events).toEqual(
@@ -1818,6 +2118,87 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       ).length;
       expect(afterRestart).toBe(before);
       expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(false);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("restarts a post-address gate from a rebased local head that supersedes a snapshot PR gate", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const baseSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(join(combo.worktree, "snapshot-only.txt"), "published snapshot\n");
+      run("git", ["add", "snapshot-only.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "test: published snapshot gate"], { cwd: combo.worktree });
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      run("git", ["reset", "--hard", baseSha], { cwd: combo.worktree });
+      writeFileSync(join(combo.worktree, "first-local-fix.txt"), "first local fix\n");
+      run("git", ["add", "first-local-fix.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: first local recovery"], { cwd: combo.worktree });
+      const supersededLocalSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+        ["address_done", [`head_sha=${supersededLocalSha}`]],
+        ["gate_stale", [`old_sha=${publishedSha}`, `new_sha=${supersededLocalSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      run("git", ["reset", "--hard", baseSha], { cwd: combo.worktree });
+      writeFileSync(join(combo.worktree, "rebased-local-fix.txt"), "rebased local fix\n");
+      run("git", ["add", "rebased-local-fix.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: rebased local recovery"], { cwd: combo.worktree });
+      const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      expect(localSha).not.toBe(publishedSha);
+      expect(localSha).not.toBe(supersededLocalSha);
+      expect(
+        spawnSync("git", ["merge-base", "--is-ancestor", publishedSha, localSha], { cwd: combo.worktree }).status,
+      ).toBe(1);
+      expect(
+        spawnSync("git", ["merge-base", "--is-ancestor", supersededLocalSha, localSha], { cwd: combo.worktree }).status,
+      ).toBe(1);
+
+      const restart = run(process.execPath, [cliPath, "gate-restart", "-n", combo.id], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      expect(restart.stdout).toContain(`gate-restart: post-address gate restarted for ${combo.id} at ${localSha}`);
+      expect(restart.stdout).not.toContain("coder_worktree_out_of_sync");
+      expect(restart.stdout).not.toContain("does not include published gate");
+      const scriptPath = join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`);
+      expect(existsSync(scriptPath)).toBe(true);
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "address_done", head_sha: localSha }),
+          expect.objectContaining({ event: "gate_stale", old_sha: publishedSha, new_sha: localSha }),
+        ]),
+      );
+      const gatekeeperPrompt = readJsonLines<LogEntryJson>(harness.logs.tmux)
+        .filter(
+          (entry) =>
+            entry.args[0] === "set-buffer" &&
+            entry.args.includes(`combo-chen-nudge-${combo.tmuxSession}-gatekeeper`),
+        )
+        .at(-1)?.args.at(-1);
+      expect(gatekeeperPrompt).toContain(scriptPath);
 
       passed = true;
     } finally {
@@ -2173,11 +2554,6 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         });
       }
 
-      run("tmux", ["new-window", "-t", combo.tmuxSession, "-n", "reviewer", "true"], {
-        cwd: harness.repo,
-        env: harness.env,
-      });
-
       const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
         cwd: harness.repo,
         env: {
@@ -2437,6 +2813,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
   const noMistakesRoot = join(root, "no-mistakes");
   const logs = {
     gh: join(root, "gh.jsonl"),
+    noMistakes: join(root, "no-mistakes.jsonl"),
     treehouse: join(root, "treehouse.jsonl"),
     tmux: join(root, "tmux.jsonl"),
   };
@@ -2460,6 +2837,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
     root,
     repo,
     comboHome,
+    workPlanExtra: options.workPlanExtra ?? [],
     logs,
     env: {
       ...process.env,
@@ -2485,6 +2863,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
       E2E_NO_MISTAKES_ATTACH_FAIL: options.failNoMistakesAttach === true ? "1" : "0",
       E2E_NO_MISTAKES_QUOTE_RUN_ID: options.quoteNoMistakesRunId === true ? "1" : "0",
       E2E_NO_MISTAKES_GATE: join(noMistakesRoot, "repos", "e2e.git"),
+      E2E_NO_MISTAKES_LOG: logs.noMistakes,
       E2E_NO_MISTAKES_STATE: join(root, "no-mistakes-state.json"),
       E2E_NO_MISTAKES_RUN_DELAY_MS: String(options.noMistakesRunDelayMs ?? 0),
       TREEHOUSE_NO_UPDATE_CHECK: "1",
@@ -2575,6 +2954,13 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
         : [
             "[pr_labels]",
             `green_check_names = ${JSON.stringify(greenCheckNames)}`,
+            "",
+          ]),
+      ...(options.coderRespondingWindowName === undefined
+        ? []
+        : [
+            "[coder_responding]",
+            `window_name = ${JSON.stringify(options.coderRespondingWindowName)}`,
             "",
           ]),
       "[limits]",
