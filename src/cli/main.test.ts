@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~8315 lines.
+ *   deps so tests run without a real terminal or network. ~8220 lines. (no-mistakes(document): Sync docs to single-writer label projection change)
  *
  *   READING GUIDE
  *   ─────────────
