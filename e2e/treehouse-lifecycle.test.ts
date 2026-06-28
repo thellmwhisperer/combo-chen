@@ -2145,6 +2145,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
   });
+
   it("keeps the coder owner label with stale after a newer local addressed head fails gate", () => {
     const harness = prepareHarness({ greenCheckNames: ["ExternalReview"] });
     let passed = false;
