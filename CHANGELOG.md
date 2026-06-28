@@ -4,6 +4,8 @@
 
 ### Features
 
+* **gate:** Normalize gate status when no-mistakes exits after checks-passed plus context-canceled, treating it as recovered success instead of failure. Fixes [#195](https://github.com/thellmwhisperer/combo-chen/issues/195).
+* **status:** Surface PR head vs local worktree head drift in `status --deep` and forensics reports with an explicit sync or fetch action.
 * **coder:** Explicit coder terminal outcome contract prevents clean gnhf stop-condition completions from being mistaken for dead coder panes. Fixes [#234](https://github.com/thellmwhisperer/combo-chen/issues/234).
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).

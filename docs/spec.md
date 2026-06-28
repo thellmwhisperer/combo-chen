@@ -176,6 +176,14 @@ success evidence. They emit `gate_status state=idle` with
 `recovery=checks_passed_context_canceled` and continue the normal PR detection
 or post-address validation path instead of journaling `gate_failed`.
 
+When the local combo worktree HEAD differs from the current GitHub PR head,
+`status --deep` and `forensics` surface the drift explicitly as a warning with
+a recommended next action (fetch PR head for review or sync the combo
+worktree). Forensics reports a `pr_head_local_drift` incident at warning
+severity; the markdown outcome block includes the local worktree HEAD
+abbreviation alongside the PR head SHA so the operator can assess the mismatch
+at a glance without inspecting git remotes.
+
 The hidden `gate-lease acquire` command scopes leases by branch. Different
 branches acquire independently. When the same branch is owned by a different
 combo, it returns exit code 76 and journals

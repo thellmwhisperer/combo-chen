@@ -28,7 +28,7 @@
  *
  *   INTERNALS
  *   ---------
- *   summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine
+ *   summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine, shortSha, prHeadDriftStatus
  *
  * @exports PR_READY_FOR_REVIEWER, PR_CONFLICT_REBASE_REQUIRED, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
  * @deps ../core/events, ../core/gate-lease, ../core/state, ./checks, ./gate, ./github

@@ -21,7 +21,7 @@
  *
  *   INTERNALS
  *   ---------
- *   durationBetween, latestEvent, latestPrUrl, formatDuration, incident
+ *   durationBetween, latestEvent, latestPrUrl, formatDuration, incident, shortSha
  *
  * @exports ForensicsSignalState, ForensicsGithubPrFacts, ForensicsGithubIssueFacts, ForensicsTmuxFacts, ForensicsComboInput, ForensicsIncident, ForensicsComboReport, analyzeForensicsCombo, renderForensicsMarkdown, renderForensicsOutcomeMarkdown
  * @deps ../core/{combo,events,state}, ./gate, ./reviewer

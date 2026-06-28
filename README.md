@@ -39,7 +39,9 @@ combo-chen makes the process explicit.
    the generated script acquires a branch-scoped gate lease so independent
    branches can publish in parallel while same-branch ownership stays exclusive.
    If the initial gate fails before a PR opens, the director auto-retries it up to
-   a configurable limit.
+   a configurable limit. When no-mistakes exits non-zero after publishing but the
+   gate log shows `outcome: checks-passed` with a later `context canceled`, the
+   generated scripts treat that as recovered success instead of `gate_failed`.
 5. A reviewer comments with a machine-readable verdict block (codes: 0=OK/LGTM,
    1=mechanical fix→coder, 2=ambiguous→director, 3=needs human) and/or a
    SHA-pinned LGTM verdict.
@@ -442,7 +444,10 @@ consume it automatically.
 - `status` is the parallel capsule dashboard: it shows actionable live combos
   by default. Add `--all` to include
   terminal historical rows, and `--deep` to compare the journal with downstream
-  GitHub and gatekeeper state. Its table includes active branch-scoped gate
+  GitHub and gatekeeper state. When the local combo worktree HEAD has fallen
+  behind the current PR head on GitHub, `status --deep` reports the drift
+  explicitly with a recommended action (fetch PR head for review, or sync the
+  combo worktree). Its table includes active branch-scoped gate
   lease owners when no-mistakes is reserved by combos. Before rendering, `status`
   quietly closes closed-PR salvage cases. For merged PRs it records the merge
   fact, leaves resources untouched, and keeps the row visible as
@@ -460,11 +465,13 @@ consume it automatically.
 - `resume` reconstructs the right next action from the journal and downstream
   state. It does not start a fresh run on an existing combo.
 - `forensics` produces a read-only report for stalled or confusing runs. The
-  markdown includes a copy-ready outcome block with PR link, head SHA,
-  review/check state, failures found, and follow-up bug status for dogfood
-  records. Add markdown-only `--record-outcome` to post that compact Outcome
-  block to each matched source GitHub issue once a PR link and head SHA are
-  known.
+  markdown includes a copy-ready outcome block with PR link, head SHA, local
+  worktree HEAD (when it differs from the published PR head), review/check state,
+  failures found, and follow-up bug status for dogfood records. A
+  `pr_head_local_drift` incident flags when the local combo worktree and GitHub
+  PR head are out of sync. Add markdown-only `--record-outcome` to post that
+  compact Outcome block to each matched source GitHub issue once a PR link and
+  head SHA are known.
 - `reconcile --apply` repairs journals that froze before a merged or closed PR
   was recorded locally. Add `-n <combo-id>` to scope repair and teardown to a
   single combo. Teardown is idempotent: already-returned worktrees, branches, and
