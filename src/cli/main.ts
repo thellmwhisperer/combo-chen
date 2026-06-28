@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1155 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1175 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -724,6 +724,7 @@ export function createProgram(deps: Deps): Command {
         const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
         const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
           prUrl,
+          localHeadSha: collectLocalWorktreeHeadSha(deps, combo),
           requiredCheckNames: config.readyRequiredChecks,
           ambientCheckNames: config.externalCommentAgents,
           reviewerLogins: config.reviewerLogins,
@@ -762,6 +763,7 @@ export function createProgram(deps: Deps): Command {
         return analyzeForensicsCombo({
           combo,
           events,
+          local: { worktreeHeadSha: collectLocalWorktreeHeadSha(deps, combo) },
           github: fetchForensicsGithubFacts(
             deps.gh,
             combo.issueUrl.trim() === "" ? undefined : combo.issueUrl,
@@ -1123,6 +1125,17 @@ function collectForensicsTmuxFacts(deps: Deps, combo: ComboRecord): { sessionExi
       sessionExists: true,
       windows: listed.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0),
     };
+  } catch {
+    return undefined;
+  }
+}
+
+function collectLocalWorktreeHeadSha(deps: Pick<Deps, "git">, combo: Pick<ComboRecord, "worktree">): string | undefined {
+  try {
+    const result = deps.git(["rev-parse", "HEAD"], combo.worktree);
+    if (result.status !== 0) return undefined;
+    const head = result.stdout.trim().split(/\r?\n/)[0]?.trim();
+    return head === undefined || head === "" ? undefined : head;
   } catch {
     return undefined;
   }

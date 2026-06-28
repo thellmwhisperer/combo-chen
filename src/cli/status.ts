@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~255 lines, 10 exports, parsers for deep recovery status and gate lease visibility.
+ *   ~275 lines, 10 exports, parsers for deep recovery status and gate lease visibility.
  *
  *   READING GUIDE
  *   -------------
@@ -65,6 +65,7 @@ export interface NoMistakesAxiStatus {
 type NoMistakesRunner = (args: string[], cwd: string) => CommandResult;
 interface DeepGithubStatusOptions {
   prUrl?: string;
+  localHeadSha?: string;
   requiredCheckNames?: string[];
   ambientCheckNames?: string[];
   reviewerLogins?: string[];
@@ -87,6 +88,17 @@ function cleanScalar(value: string): string {
 
 function firstLine(value: string): string {
   return value.trim().split(/\r?\n/)[0]?.trim() ?? "";
+}
+
+function shortSha(sha: string): string {
+  return sha.trim().slice(0, 7);
+}
+
+function prHeadDriftStatus(localHeadSha: string | undefined, prHeadSha: string | undefined): string | undefined {
+  if (localHeadSha === undefined || prHeadSha === undefined || shaMatchesHead(localHeadSha, prHeadSha)) {
+    return undefined;
+  }
+  return `PR head drift: local ${shortSha(localHeadSha)} differs from PR ${shortSha(prHeadSha)}; fetch PR head for review or sync combo worktree`;
 }
 
 export function formatGateLeaseStatus(lease: GateLeaseRecord | readonly GateLeaseRecord[] | undefined): string {
@@ -216,6 +228,9 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
 
   const blockingMergeState = blockingReadyMergeState(pr);
   if (blockingMergeState !== undefined) return `${PR_CONFLICT_REBASE_REQUIRED} (${blockingMergeState})`;
+
+  const drift = prHeadDriftStatus(options.localHeadSha, pr.headSha);
+  if (drift !== undefined) return drift;
 
   if (
     !checkRollupSucceeded(pr.statusCheckRollup, { requiredCheckNames: options.requiredCheckNames, ambientCheckNames: options.ambientCheckNames }) ||

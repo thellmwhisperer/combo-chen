@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for combo forensics reports. ~194 lines, fixture-driven incidents.
+ * @overview Unit tests for combo forensics reports. ~230 lines, fixture-driven incidents.
  *
  *   READING GUIDE
  *   -------------
@@ -118,6 +118,38 @@ describe("forensics analyzer", () => {
       "merged_pr_open_issue",
       "local_status_stale",
     ]);
+  });
+
+  it("flags PR head drift from the local worktree and renders the next safe action", () => {
+    const report = analyzeForensicsCombo({
+      combo,
+      events: [
+        event("2026-06-11T10:00:00.000Z", "combo_created", { issue_url: combo.issueUrl }),
+        event("2026-06-11T10:08:30.000Z", "pr_opened", { url: "https://github.com/o/r/pull/55" }),
+      ],
+      local: {
+        worktreeHeadSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+      github: {
+        pr: {
+          url: "https://github.com/o/r/pull/55",
+          headSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          state: "OPEN",
+          ci: "pending",
+          readyRequiredChecks: "pending",
+        },
+        issue: { state: "OPEN" },
+      },
+    });
+
+    expect(report.gates.localWorktreeHeadSha).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(report.incidents.map((incident) => incident.id)).toEqual(["pr_head_local_drift"]);
+
+    const markdown = renderForensicsMarkdown([report]);
+    expect(markdown).toContain("Local worktree HEAD: aaaaaaa");
+    expect(markdown).toContain(
+      "pr_head_local_drift (warning): PR head bbbbbbb differs from local worktree aaaaaaa; fetch PR head for review or sync combo worktree.",
+    );
   });
 
   it("renders a copy-ready dogfood outcome block with head and review-check state", () => {

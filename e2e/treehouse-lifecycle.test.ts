@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2485 lines, log-derived regressions.
+ *   and process shims for external services. ~2525 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -1886,6 +1886,65 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           }),
         ]),
       );
+
+      const labelEvents = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).filter(
+        (event) => event.event === "pr_labels_updated",
+      );
+      expect(labelEvents).toEqual([]);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("surfaces PR head drift in status --deep without mutating labels", () => {
+    const harness = prepareHarness({ greenCheckNames: ["ExternalReview"] });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const localHeadSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const prHeadSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+      writeFileSync(
+        harness.env.E2E_GH_STATE!,
+        `${JSON.stringify({
+          prLabels: ["combo:ready"],
+          knownLabels: ["combo:working-gate", "combo:ready"],
+          failedMissingLabelAdd: false,
+        }, null, 2)}\n`,
+      );
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_failed", ["exit_code=1"]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const status = run(process.execPath, [cliPath, "status", "--deep"], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: prHeadSha,
+          E2E_PR_STATE: "OPEN",
+        },
+      });
+
+      expect(status.stdout).toContain(combo.id);
+      expect(status.stdout).toContain(
+        `PR head drift: local ${localHeadSha.slice(0, 7)} differs from PR ${prHeadSha.slice(0, 7)}`,
+      );
+      expect(status.stdout).toContain("fetch PR head for review or sync combo worktree");
+
+      const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
+      expect(ghState.prLabels).toEqual(["combo:ready"]);
 
       const labelEvents = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).filter(
         (event) => event.event === "pr_labels_updated",
