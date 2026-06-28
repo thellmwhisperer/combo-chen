@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~890 lines, activate, nudge, and recovery flows. (fix(coder): Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules.)
+ * @overview Unit tests for coder-response CLI helpers. ~890 lines, activate, nudge, and recovery flows. (no-mistakes(document): Sync Sherpa line counts in 3 test files)
  *
  *   READING GUIDE
  *   -------------
