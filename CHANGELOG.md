@@ -9,6 +9,14 @@
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 * **pr-labels:** Make combo PR label projection single-writer and idempotent. Read-only commands (`status`, `status --deep`, `status --deep --all`) no longer mutate GitHub labels or journal `pr_labels_updated` events; only the canonical mutation path (`director-watch`/`director-tick`) writes labels. Fixes [#241](https://github.com/thellmwhisperer/combo-chen/issues/241).
 
+## [0.0.66](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.65...combo-chen-v0.0.66) (2026-06-28)
+
+
+### Bug Fixes
+
+* **labels:** Implemented and verified the current-head stale-label slice so provider-green PR labels are removed when validated signals belong to an older head. ([98f59b6](https://github.com/thellmwhisperer/combo-chen/commit/98f59b60e68b4566a0b7b80eb8a2be6bb19ee086))
+* **labels:** Made `status --deep` observational for PR labels by removing its label mutation path and pinning the behavior with unit and e2e regressions. ([00736e3](https://github.com/thellmwhisperer/combo-chen/commit/00736e3f4d9a2d12fa07f2f446f483794d388f68))
+
 ## [0.0.65](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.64...combo-chen-v0.0.65) (2026-06-27)
 
 
