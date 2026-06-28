@@ -28,7 +28,7 @@
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
  *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,director,gatekeeper},
- *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./passive-update, ./pr-labels, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
+ *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./passive-update, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
@@ -115,7 +115,6 @@ import {
   shouldRunPassiveUpdateForCommand,
   type PassiveUpdateCliDeps,
 } from "./passive-update.js";
-import { syncComboPrLabels } from "./pr-labels.js";
 import { reconcileCombos } from "./reconcile.js";
 import { resumeCombo } from "./resume.js";
 import {
@@ -264,31 +263,6 @@ function acquireTreehouseWorktree(input: {
   return combo;
 }
 
-function syncStatusDeepPrLabels(input: {
-  deps: Pick<Deps, "gh">;
-  runDir: string;
-  prUrl: string | undefined;
-  events: ComboEvent[];
-  requiredCheckNames: string[];
-  ambientCheckNames: string[];
-  prLabelGreenCheckNames: string[];
-}): void {
-  if (input.prUrl === undefined) return;
-  try {
-    syncComboPrLabels({
-      gh: input.deps.gh,
-      runDir: input.runDir,
-      prUrl: input.prUrl,
-      events: input.events,
-      requiredCheckNames: input.requiredCheckNames,
-      ambientCheckNames: input.ambientCheckNames,
-      greenCheckNames: input.prLabelGreenCheckNames,
-      source: "status-deep",
-    });
-  } catch {
-    // status is a dashboard; GitHub label projection must not block it.
-  }
-}
 // -/ 1/4
 
 // -- 2/4 CORE · createProgram command registry <- START HERE --
@@ -753,15 +727,6 @@ export function createProgram(deps: Deps): Command {
           requiredCheckNames: config.readyRequiredChecks,
           ambientCheckNames: config.externalCommentAgents,
           reviewerLogins: config.reviewerLogins,
-        });
-        syncStatusDeepPrLabels({
-          deps,
-          runDir,
-          prUrl,
-          events,
-          requiredCheckNames: config.readyRequiredChecks,
-          ambientCheckNames: config.externalCommentAgents,
-          prLabelGreenCheckNames: config.prLabelGreenCheckNames,
         });
         deps.out(`${line} ${downstream ?? "—"}`);
       }
