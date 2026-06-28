@@ -439,6 +439,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         cwd: harness.repo,
         env: harness.env,
       });
+      const journalBeforeResume = readFileSync(join(runDir, "journal.jsonl"), "utf8");
       for (const windowName of ["journal", "director", "gatekeeper", "director-watch"]) {
         run("tmux", ["kill-window", "-t", `${combo.tmuxSession}:${windowName}`], {
           cwd: harness.repo,
@@ -451,6 +452,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         env: { ...harness.env, E2E_PR_STATE: "OPEN" },
       });
       expect(resume.stdout).toContain("resume: PR ready for reviewer");
+      expect(readFileSync(join(runDir, "journal.jsonl"), "utf8").startsWith(journalBeforeResume)).toBe(true);
 
       tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
       expect(Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows).sort()).toEqual([
