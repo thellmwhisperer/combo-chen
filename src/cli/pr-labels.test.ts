@@ -221,7 +221,7 @@ describe("combo PR label projection", () => {
       greenCheckNames: ["ExternalReview"],
     });
 
-    expect(projection.labels).toEqual(["combo:external-review-green", "combo:stale"]);
+    expect(projection.labels).toEqual(["combo:stale"]);
     expect(
       diffComboPrLabels(
         ["combo:lgtm", "combo:external-review-green", "combo:ready", "documentation"],
@@ -229,7 +229,7 @@ describe("combo PR label projection", () => {
       ),
     ).toEqual({
       add: ["combo:stale"],
-      remove: ["combo:lgtm", "combo:ready"],
+      remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
     });
   });
 
