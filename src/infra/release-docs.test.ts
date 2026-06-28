@@ -113,7 +113,9 @@ describe("release docs", () => {
     const spec = normalizeDoc(readDoc("docs/spec.md"));
 
     expect(spec).toContain("`director-watch` or `director-tick`");
+    expect(spec).toContain("`status`");
     expect(spec).toContain("status --deep");
+    expect(spec).toContain("status --deep --all");
     expect(spec).toContain("read-only");
     expect(spec).not.toContain("director-watch loop and `status --deep` keep GitHub PR labels in sync");
     expect(spec).not.toContain("`director-watch` or `status-deep`");

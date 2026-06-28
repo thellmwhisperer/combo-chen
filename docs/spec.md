@@ -766,10 +766,10 @@ after the run has a PR link and head SHA.
 
 While the PR is open, the canonical mutation path (`director-watch` or
 `director-tick`) keeps GitHub PR labels in sync with the live combo state.
-Read-only commands such as `status` and `status --deep` may surface the same
-projected state, but they do not mutate PR labels or journal
-`pr_labels_updated` events. Labels are a UI/status projection only; the journal
-and GitHub checks remain the source of truth.
+Read-only commands such as `status`, `status --deep`, and `status --deep --all`
+may surface the same projected state, but they do not mutate PR labels or
+journal `pr_labels_updated` events. Labels are a UI/status projection only; the
+journal and GitHub checks remain the source of truth.
 
 ### Label catalogue
 
