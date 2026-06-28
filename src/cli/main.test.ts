@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~8220 lines.
+ *   deps so tests run without a real terminal or network. ~8290 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -5587,6 +5587,70 @@ describe("status", () => {
     expect(text).toContain("STALLED");
     expect(text).toContain("gate_failed");
     expect(text).toContain("PR ready for reviewer");
+  });
+
+  it("prints PR head drift in deep mode when the local worktree is behind the PR", async () => {
+    const h = home();
+    const worktree = "/repos/r/.worktrees/issue-7";
+    const prUrl = "https://github.com/o/r/pull/7";
+    const localHeadSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const prHeadSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    appendEvent(dir, "pr_opened", { url: prUrl });
+    appendEvent(dir, "gate_failed", { exit_code: 1 });
+
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: () => ({ status: 0, stdout: "", stderr: "" }),
+      git: (args, cwd) => {
+        calls.push(["git", `cwd=${cwd}`, ...args]);
+        if (args[0] === "rev-parse" && args[1] === "HEAD") {
+          expect(cwd).toBe(worktree);
+          return { status: 0, stdout: `${localHeadSha}\n`, stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+      noMistakes: () => ({
+        status: 1,
+        stdout: "No active run.\n",
+        stderr: "",
+      }),
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: prHeadSha,
+              state: "OPEN",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                { name: "test", conclusion: "SUCCESS" },
+                { name: "CodeRabbit", conclusion: "SUCCESS" },
+              ],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await exec(deps, ["status", "--deep"]);
+
+    const text = out.join("\n");
+    expect(text).toContain("PR head drift: local aaaaaaa differs from PR bbbbbbb");
+    expect(text).toContain("fetch PR head for review or sync combo worktree");
+    expect(calls).toContainEqual(["git", `cwd=${worktree}`, "rev-parse", "HEAD"]);
   });
 
   it("uses the runtime ledger PR URL for deep GitHub status when the journal lacks pr_opened", async () => {
