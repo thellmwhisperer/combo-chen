@@ -15,7 +15,7 @@ if (process.env.E2E_TMUX_LOG) {
 }
 
 function load() {
-  return existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : { sessions: {} };
+  return existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : { sessions: {}, buffers: {} };
 }
 
 function save(state) {
@@ -143,7 +143,57 @@ if (cmd === "capture-pane") {
   process.exit(0);
 }
 if (cmd === "rename-window") process.exit(0);
-if (cmd === "set-buffer" || cmd === "paste-buffer" || cmd === "send-keys") process.exit(0);
+if (cmd === "set-buffer") {
+  const bufferName = valueAfter("-b") || "buffer";
+  state.buffers = state.buffers || {};
+  state.buffers[bufferName] = args[args.length - 1] || "";
+  save(state);
+  process.exit(0);
+}
+if (cmd === "paste-buffer") {
+  const target = splitTarget(valueAfter("-t"));
+  const session = state.sessions[target.session];
+  if (!session) missing(target.session);
+  const window = session.windows[target.window];
+  if (!window) {
+    process.stderr.write(`can't find window: ${target.window}\n`);
+    process.exit(1);
+  }
+  const bufferName = valueAfter("-b");
+  window.pendingCommand = state.buffers?.[bufferName] || "";
+  if (args.includes("-d") && state.buffers) delete state.buffers[bufferName];
+  save(state);
+  process.exit(0);
+}
+if (cmd === "send-keys") {
+  const target = splitTarget(valueAfter("-t"));
+  const session = state.sessions[target.session];
+  if (!session) missing(target.session);
+  const window = session.windows[target.window];
+  if (!window) {
+    process.stderr.write(`can't find window: ${target.window}\n`);
+    process.exit(1);
+  }
+  const shouldRun =
+    target.window === "gatekeeper" &&
+    process.env.E2E_TMUX_RUN_GATEKEEPER_WINDOW === "1" &&
+    args.includes("C-m") &&
+    typeof window.pendingCommand === "string" &&
+    window.pendingCommand.length > 0;
+  if (!shouldRun) process.exit(0);
+
+  const command = window.pendingCommand;
+  delete window.pendingCommand;
+  save(state);
+  const result = spawnSync("sh", ["-c", command], {
+    cwd: process.cwd(),
+    env: process.env,
+    encoding: "utf8",
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exit(result.status ?? 1);
+}
 
 process.stderr.write(`unsupported tmux command: ${args.join(" ")}\n`);
 process.exit(1);

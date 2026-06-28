@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1175 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1200 lines, 24 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -127,6 +127,7 @@ import {
   ensureComboSession,
   ensureJournalPane,
   ensureWindowPresent,
+  idleRoleWindowCommand,
   JOURNAL_WINDOW,
   REVIEWER_WINDOW,
   resolveAttachCombo,
@@ -421,10 +422,11 @@ export function createProgram(deps: Deps): Command {
             runDir,
             cli: cliInvocation(),
             roleWindows: {
-              coder: CODER_WINDOW,
               journal: JOURNAL_WINDOW,
               director: DIRECTOR_WINDOW,
+              coder: CODER_WINDOW,
               gatekeeper: GATEKEEPER_WINDOW,
+              reviewer: REVIEWER_WINDOW,
               directorWatch: DIRECTOR_WATCH_WINDOW,
             },
             promptTargets: {
@@ -455,7 +457,7 @@ export function createProgram(deps: Deps): Command {
       }
 
       const created = deps.tmux(
-        newSessionArgs(session, CODER_WINDOW, `COMBO_CHEN_RUNNER_PROGRESS=1 sh ${shellQuote(runnerPath)}`),
+        newSessionArgs(session, JOURNAL_WINDOW, `${cliInvocation()} events --follow -n ${shellQuote(id)}`),
       );
       if (created.status !== 0) {
         // A combo that never started must not leave orphans behind: undo the
@@ -467,17 +469,23 @@ export function createProgram(deps: Deps): Command {
         throw new Error(`tmux failed to start the combo: ${created.stderr.trim()}`);
       }
       try {
-        ensureJournalPane(deps, combo, cliInvocation());
         ensureWindowPresent(
           deps,
           combo,
           DIRECTOR_WINDOW,
           directorCommand,
         );
+        ensureWindowPresent(
+          deps,
+          combo,
+          CODER_WINDOW,
+          `COMBO_CHEN_RUNNER_PROGRESS=1 sh ${shellQuote(runnerPath)}`,
+        );
         startGatekeeperWindow(deps, combo, {
           timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
           retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
         });
+        ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
         const directorWatch = deps.tmux(
           newWindowArgs(
             session,
@@ -518,11 +526,11 @@ export function createProgram(deps: Deps): Command {
       deps.out(`   coder: ${config.roles.coder} · gatekeeper: ${config.roles.gatekeeper}`);
       deps.out(
         [
-          `   topology: coder=${CODER_WINDOW}`,
-          `journal=${JOURNAL_WINDOW}`,
+          `   topology: journal=${JOURNAL_WINDOW}`,
           `director=${DIRECTOR_WINDOW}`,
+          `coder=${CODER_WINDOW}`,
           `gatekeeper=${GATEKEEPER_WINDOW}`,
- (fix(topology): Stopped new combo runtime ledgers and launch output from advertising legacy gate-runner/reviewer-watch windows as active topology resources.)
+          `reviewer=${REVIEWER_WINDOW}`, (fix(topology): stabilize combo role windows)
           `director-watch=${DIRECTOR_WATCH_WINDOW}`,
           `coder-response=${config.coderRespondingWindowName}`,
         ].join(" · "),
@@ -865,18 +873,16 @@ export function createProgram(deps: Deps): Command {
           cli: cliInvocation(),
           prUrl: payload["url"],
           roleWindows: {
-            coder: CODER_WINDOW,
+            journal: JOURNAL_WINDOW,
             director: DIRECTOR_WINDOW,
+            coder: CODER_WINDOW,
             gatekeeper: GATEKEEPER_WINDOW,
+            reviewer: REVIEWER_WINDOW,
             directorWatch: DIRECTOR_WATCH_WINDOW,
           },
         });
       }
       if (canonicalEvent === "gate_started") {
-        // The gatekeeper tmux window runs `no-mistakes attach`, which exits when
-        // no active no-mistakes run exists — often before the runner's gatekeeper
-        // command starts one.  Recreate the window now so the live role
-        // window is visible when the no-mistakes run becomes active.
         try {
           const combo = readCombo(runDir);
           const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });

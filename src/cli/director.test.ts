@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2370 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~2380 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -355,7 +355,7 @@ describe("tickDirector", () => {
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
+    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("initial gate retry for o-r-7");
     expect(script).toContain("emit -n 'o-r-7' gate_started");
@@ -2180,7 +2180,7 @@ describe("tickDirector", () => {
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
+    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
     expect(readFileSync(join(worktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
     expect(out).toContain(`no-mistakes: copied local config to ${worktree}/.no-mistakes.yaml`);
@@ -2233,7 +2233,7 @@ describe("tickDirector", () => {
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("window retained for inspection until closure");
+    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
   });
 
