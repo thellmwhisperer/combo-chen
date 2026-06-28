@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2360 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~2400 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -1264,7 +1264,7 @@ describe("tickDirector", () => {
     expect(reviewerCaptures).toBe(1);
   });
 
-  it("syncs live combo PR labels from director-watch ticks", async () => {
+  it("leaves repeated director-watch PR label projections as no-ops when labels already match", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const record = combo();
@@ -1292,16 +1292,22 @@ describe("tickDirector", () => {
     };
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(calls).toContainEqual([
-      "gh",
-      "pr",
-      "edit",
-      "https://github.com/o/r/pull/7",
-      "--add-label",
-      "combo:working-reviewer,combo:external-review-green",
+    const labelEditCalls = calls.filter(
+      (call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit",
+    );
+    expect(labelEditCalls).toEqual([
+      [
+        "gh",
+        "pr",
+        "edit",
+        "https://github.com/o/r/pull/7",
+        "--add-label",
+        "combo:working-reviewer,combo:external-review-green",
+      ],
     ]);
-    expect(readEvents(runDir)).toContainEqual(
+    expect(readEvents(runDir).filter((event) => event.event === "pr_labels_updated")).toEqual([
       expect.objectContaining({
         event: "pr_labels_updated",
         pr_url: "https://github.com/o/r/pull/7",
@@ -1313,7 +1319,7 @@ describe("tickDirector", () => {
         reason: "current",
         source: "director-watch",
       }),
-    );
+    ]);
   });
 
   it("removes combo:ready when a required READY check is skipped", async () => {
