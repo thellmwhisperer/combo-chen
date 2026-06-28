@@ -1629,11 +1629,12 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   it("normalizes post-address checks-passed context cancellation through director-tick", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
+      activeNoMistakes: true,
       contextCanceledAfterChecksPassed: true,
       externalCommentAgents: ["coderabbitai"],
       failNoMistakesAttach: true,
       gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-post-address",
-      noMistakesRunDelayMs: 0,
+      noMistakesRunDelayMs: 100,
     });
     let passed = false;
 
