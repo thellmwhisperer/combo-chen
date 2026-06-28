@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director-watch operator status formatting. ~145 lines,
+ * @overview Unit tests for director-watch operator status formatting. ~215 lines,
  *   phase age, PR facts, worker counters, readiness, and closure actions.
  *
  *   READING GUIDE
