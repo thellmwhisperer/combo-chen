@@ -1,7 +1,7 @@
 /**
  * @overview Gatekeeper adapter: invokes no-mistakes' blocking agent
  *   interface. Expands {placeholders} in commands, prepares push-safe
- *   base64 intent, and reads TOON outcomes tolerantly. ~370 lines, 8 exports.
+ *   base64 intent, and reads TOON outcomes tolerantly. ~390 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
