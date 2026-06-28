@@ -169,6 +169,12 @@ keyword. Automatic initial-gate retry paths follow the same start-before-termina
 contract: when the director cannot launch the retry script, it journals
 `gate_started` (`source=director_retry`) immediately before `gate_failed`
 (`reason=retry_start_failed`).
+If no-mistakes exits non-zero after publication but the captured gate log
+contains `outcome: checks-passed` and a later `context canceled`, generated
+runner, initial-retry, and post-address gate scripts treat that as recovered
+success evidence. They emit `gate_status state=idle` with
+`recovery=checks_passed_context_canceled` and continue the normal PR detection
+or post-address validation path instead of journaling `gate_failed`.
 
 The hidden `gate-lease acquire` command scopes leases by branch. Different
 branches acquire independently. When the same branch is owned by a different
