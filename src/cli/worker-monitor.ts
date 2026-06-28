@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~430 lines, detects permission prompts, (fix(coder): Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules.)
+ * @overview Worker pane monitor. ~470 lines, detects permission prompts, (no-mistakes(document): Sync CHANGELOG and Sherpa line counts for topology consolidation)
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
