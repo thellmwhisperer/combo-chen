@@ -13,6 +13,42 @@
 * **pr-labels:** Make combo PR label projection single-writer and idempotent. Read-only commands (`status`, `status --deep`, `status --deep --all`) no longer mutate GitHub labels or journal `pr_labels_updated` events; only the canonical mutation path (`director-watch`/`director-tick`) writes labels. Fixes [#241](https://github.com/thellmwhisperer/combo-chen/issues/241).
 
 
+## [0.0.68](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.67...combo-chen-v0.0.68) (2026-06-28)
+
+
+### Features
+
+* consolidate combo tmux topology into persistent role windows ([7a3755b](https://github.com/thellmwhisperer/combo-chen/commit/7a3755b199bbe3603db9ba3c98285f6b49ea876c))
+
+
+### Bug Fixes
+
+* address review recovery comments ([747b45f](https://github.com/thellmwhisperer/combo-chen/commit/747b45f99f2a7ece814036e4b285bd383e13558d))
+* **coder:** Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules. ([8812ed6](https://github.com/thellmwhisperer/combo-chen/commit/8812ed679ece56da5ee9701f28f22503dec4c486))
+* **coder:** Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules. ([34d4fa8](https://github.com/thellmwhisperer/combo-chen/commit/34d4fa8678966de6b267e9b26de98bfae799c5af))
+* **coder:** recreate retained dead response pane ([ffed313](https://github.com/thellmwhisperer/combo-chen/commit/ffed3130fa8e1f47078f2c798aadb91cbd792f3f))
+* **e2e:** prevent lifecycle harness deadlocks ([2fa0c22](https://github.com/thellmwhisperer/combo-chen/commit/2fa0c228efe485ed71e5cea846148fe521fd3ec7))
+* **gate:** Implemented the remaining issue [#195](https://github.com/thellmwhisperer/combo-chen/issues/195) gate-status slice so checks-passed plus context-canceled no-mistakes exits are recovered as successful gate evidence, with full local validation green. ([772ae9e](https://github.com/thellmwhisperer/combo-chen/commit/772ae9ebd15e99c776c9d4a3ab276660f3bd9c34))
+* **gatekeeper:** abort stale branch gates ([41f4c38](https://github.com/thellmwhisperer/combo-chen/commit/41f4c38d16fa97126cd7fbdaf231fbf51490a9d4))
+* **gatekeeper:** attach restarted no-mistakes run ([577f1e5](https://github.com/thellmwhisperer/combo-chen/commit/577f1e5cf5ae81a7a5c044540f0f088a08ae4214))
+* **gatekeeper:** keep restarted gates attached ([28256d5](https://github.com/thellmwhisperer/combo-chen/commit/28256d542d536c17d0efc627813050a1d77c79d8))
+* **gatekeeper:** pass intent without shell interpolation ([3de4627](https://github.com/thellmwhisperer/combo-chen/commit/3de462775e3715f93efdd6fa85ae41a0f02a9d5b))
+* **gatekeeper:** restart rebased local gates ([1cd1474](https://github.com/thellmwhisperer/combo-chen/commit/1cd14741eae5aa8b6d639ef6eb26250472693c48))
+* keep post-address recovery gates live ([f565278](https://github.com/thellmwhisperer/combo-chen/commit/f5652788b47c565e8c258fcb605b0f03af481baf))
+* **labels:** ignore idle reviewer windows ([6d17fb0](https://github.com/thellmwhisperer/combo-chen/commit/6d17fb0f74a13ed132b079b616b9a60dbb5ca985))
+* **labels:** Made `status --deep` observational for PR labels by removing its label mutation path and pinning the behavior with unit and e2e regressions. ([e3b1c74](https://github.com/thellmwhisperer/combo-chen/commit/e3b1c7427747c7c113408a2c8e8d5a4f029fa4e0))
+* preserve config copy failure marker ([cc500f9](https://github.com/thellmwhisperer/combo-chen/commit/cc500f90532db9551ac90359e61e1395eff1c4e6))
+* preserve config-copy gate failures ([914ea52](https://github.com/thellmwhisperer/combo-chen/commit/914ea52f77dc6aca2a2c97230a09164d0b6f3eda))
+* **resume:** Restored missing journal role recovery for existing tmux sessions during resume, with regression coverage and full validation green. ([1e0e465](https://github.com/thellmwhisperer/combo-chen/commit/1e0e465c86efe565ce3850fcbe2a8aceab3a0a9d))
+* **resume:** Restored missing journal role recovery for existing tmux sessions during resume, with regression coverage and full validation green. ([bae50fc](https://github.com/thellmwhisperer/combo-chen/commit/bae50fc9cbd8cd04e18b617cc4a843133b04d6e7))
+* **resume:** Restored the persistent gatekeeper window during open-PR resume and added built-CLI e2e topology coverage for launch/resume. ([e8a8b8a](https://github.com/thellmwhisperer/combo-chen/commit/e8a8b8a9cadf2f2a1b0322b25d89b35216593a3f))
+* **resume:** Restored the persistent gatekeeper window during open-PR resume and added built-CLI e2e topology coverage for launch/resume. ([2c90f8a](https://github.com/thellmwhisperer/combo-chen/commit/2c90f8a3a4a30e2a41f70f3183e6b0da6a7e5310))
+* **status:** Implemented the PR-head/local-worktree-head drift visibility slice for issue [#195](https://github.com/thellmwhisperer/combo-chen/issues/195) and validated it with focused, e2e, and full local checks. ([f832fca](https://github.com/thellmwhisperer/combo-chen/commit/f832fca7c694ba5dd9ba0168d6a30b883ef3de55))
+* **topology:** clarify reviewer activation ([4edc3ab](https://github.com/thellmwhisperer/combo-chen/commit/4edc3aba69db53b85f635bb3d17924d8fcf84f0c))
+* **topology:** stabilize combo role windows ([5ece5dc](https://github.com/thellmwhisperer/combo-chen/commit/5ece5dcaa535bc67a996f6bd7e99c4f9f6458b57))
+* **topology:** Stopped new combo runtime ledgers and launch output from advertising legacy gate-runner/reviewer-watch windows as active topology resources. ([90480ab](https://github.com/thellmwhisperer/combo-chen/commit/90480ab53bd508b876176f8f598dfd0d010d1181))
+* **topology:** Stopped new combo runtime ledgers and launch output from advertising legacy gate-runner/reviewer-watch windows as active topology resources. ([ff6e64d](https://github.com/thellmwhisperer/combo-chen/commit/ff6e64d98a9ae0a79d2c4ad093518176f1f07c94))
+
 ## [0.0.67](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.66...combo-chen-v0.0.67) (2026-06-28)
 
 
