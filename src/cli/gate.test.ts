@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~460 lines, attach, config artifact, mirror sync, and runtime snapshot use.
+ * @overview Unit tests for gatekeeper CLI helpers. ~700 lines, attach, config artifact, mirror sync, and runtime snapshot use.
  *
  *   READING GUIDE
  *   -------------
@@ -423,6 +423,100 @@ describe("gatekeeper runtime config snapshots", () => {
     expect(gatekeeperCommand).toContain("trap 'combo_chen_idle=0' INT");
     expect(gatekeeperCommand).toContain('while [ "$combo_chen_idle" = 1 ]; do');
     expect(gatekeeperCommand).toContain('exec "${SHELL:-/bin/sh}"');
+  });
+
+  it("starts a post-address gate when a published gate was superseded at the current head", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const record = combo({ repoDir, worktree: join(repoDir, ".worktrees", "issue-7") });
+    const calls: string[][] = [];
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
+    appendEvent(runDir, "gate_validated", { sha: oldSha });
+    appendEvent(runDir, "gate_stale", { old_sha: oldSha, new_sha: headSha });
+    appendEvent(runDir, "gate_status", { state: "failed", head_sha: oldSha });
+
+    const result = runPostAddressGateIfNeeded({
+      deps: {
+        env: {},
+        out: () => undefined,
+        gh: () => ({ status: 0, stdout: '{"title":"Issue","body":"Body"}', stderr: "" }),
+        git: (args) => {
+          calls.push(["git", ...args]);
+          if (args.join(" ") === "rev-parse HEAD") {
+            return { status: 0, stdout: `${headSha}\n`, stderr: "" };
+          }
+          if (args.join(" ") === "status --porcelain") {
+            return { status: 0, stdout: "", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          if (args.join(" ") === "list-windows -t combo-chen-o-r-7 -F #{window_name}") {
+            return { status: 0, stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      combo: record,
+      runDir,
+      prUrl: "https://github.com/o/r/pull/7",
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(result).toEqual({ status: "started", headSha });
+    expect(calls).not.toContainEqual(["git", "merge-base", "--is-ancestor", oldSha, headSha]);
+    expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:gatekeeper", "C-c"]);
+    const journal = readFileSync(join(runDir, "journal.jsonl"), "utf8");
+    expect(journal).toContain('"event":"address_done"');
+    expect(journal).toContain(`"head_sha":"${headSha}"`);
+  });
+
+  it("does not duplicate a post-address gate already started for the current head", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const record = combo({ repoDir, worktree: join(repoDir, ".worktrees", "issue-7") });
+    const calls: string[][] = [];
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    appendEvent(runDir, "gate_validated", { sha: oldSha });
+    appendEvent(runDir, "review_comment", {
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+      author: "reviewer",
+      kind: "thread",
+      head_sha: oldSha,
+    });
+    appendEvent(runDir, "address_done", { head_sha: headSha });
+
+    const result = runPostAddressGateIfNeeded({
+      deps: {
+        env: {},
+        out: () => undefined,
+        gh: () => ({ status: 0, stdout: '{"title":"Issue","body":"Body"}', stderr: "" }),
+        git: (args) => {
+          calls.push(["git", ...args]);
+          if (args.join(" ") === "rev-parse HEAD") {
+            return { status: 0, stdout: `${headSha}\n`, stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
+        },
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      combo: record,
+      runDir,
+      prUrl: "https://github.com/o/r/pull/7",
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(result).toEqual({ status: "idle", reason: "no_coder_head_change", headSha });
+    expect(calls.some((call) => call[0] === "tmux")).toBe(false);
   });
 });
 // -/ 4/5

@@ -53,6 +53,11 @@ function commandIsJournalFollower(command) {
   return /\bevents\s+--follow\b/.test(command);
 }
 
+function commandIsIdleRoleWindow(command) {
+  return /\[combo-chen\] \S+ window idle; waiting for combo-chen to prompt it\./.test(command) &&
+    /\bsleep 3600\b/.test(command);
+}
+
 function runCommandSynchronously(command) {
   const result = spawnSync("sh", ["-c", command], {
     cwd: process.cwd(),
@@ -94,7 +99,7 @@ if (cmd === "new-window") {
   const command = args[args.length - 1] || ":";
   state.sessions[session].windows[name] = windowWithCommand(command);
   save(state);
-  if (name === "coder" && process.env.E2E_TMUX_RUN_NEW_SESSION === "1") {
+  if (name === "coder" && process.env.E2E_TMUX_RUN_NEW_SESSION === "1" && !commandIsIdleRoleWindow(command)) {
     runCommandSynchronously(command);
   }
   if (name === "gatekeeper" && process.env.E2E_TMUX_RUN_GATEKEEPER_WINDOW === "1") {

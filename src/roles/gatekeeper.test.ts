@@ -17,7 +17,7 @@
  *   └──────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, ./gatekeeper
+ * @deps node:child_process, vitest, ./gatekeeper
  */
 import { spawnSync } from "node:child_process";
 
