@@ -1068,7 +1068,12 @@ export function runPostAddressGateIfNeeded(input: {
   }
 
   const recovery = latestLocalRecoveryAfterGate(events, lastPublishedSha);
-  if (recovery === undefined || (recovery.kind !== "gate_stale" && recovery.headSha === headSha)) {
+  const recoveryHasUsableHead =
+    recovery !== undefined &&
+    (recovery.kind === "gate_stale" || recovery.kind === "address_done"
+      ? recovery.headSha === headSha
+      : recovery.headSha !== headSha);
+  if (!recoveryHasUsableHead) {
     deps.out(`director: no coder HEAD change for ${combo.id}; waiting for coder to commit`);
     return { status: "idle", reason: "no_coder_head_change", headSha };
   }
