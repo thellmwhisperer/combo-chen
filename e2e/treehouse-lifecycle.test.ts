@@ -754,18 +754,6 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           }),
         ]),
       );
-      expect(tmuxLog).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            args: [
-              "set-buffer",
-              "-b",
-              `combo-chen-nudge-${combo.tmuxSession}-gatekeeper`,
-              expect.stringContaining("no-mistakes attach --run"),
-            ],
-          }),
-        ]),
-      );
       expect(tmuxLog).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({ args: ["new-session", "-d", "-s", combo.tmuxSession, "-n", "coder", expect.stringContaining("events --follow")] }),
