@@ -60,6 +60,7 @@ interface Harness {
   env: NodeJS.ProcessEnv;
   logs: {
     gh: string;
+    noMistakes: string;
     treehouse: string;
     tmux: string;
   };
@@ -593,6 +594,74 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).map((event) => event.event);
       expect(events).toEqual(expect.arrayContaining(["gate_started", "gate_status", "pr_opened"]));
       expect(readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json")).prUrl).toBe(harness.env.E2E_PR_URL);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, 15_000);
+
+  it("aborts a stale same-branch no-mistakes run before a restarted gate while preserving other branches", () => {
+    const harness = prepareHarness({
+      activateNoMistakesOnAxiRun: true,
+      gatekeeperCommand: 'no-mistakes daemon start && no-mistakes axi run --intent "{issue_pr_intent}"',
+      noMistakesRunDelayMs: 0,
+    });
+    let passed = false;
+
+    try {
+      const { combo } = launchPlanCombo(harness);
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      writeFileSync(
+        harness.env.E2E_NO_MISTAKES_STATE!,
+        `${JSON.stringify(
+          {
+            runs: [
+              { id: "stale-same-branch", branch: combo.branch, head: "old-head", status: "running" },
+              { id: "live-other-branch", branch: "combo/issue-241", head: "other-head", status: "running" },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      const restart = run(process.execPath, [cliPath, "gate-restart", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_TMUX_RUN_GATEKEEPER_WINDOW: "1",
+          COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
+          COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
+        },
+        timeoutMs: 10_000,
+      });
+      expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog.some((entry) => entry.args.includes("gate-runner"))).toBe(false);
+      expect(
+        tmuxLog.some((entry) => entry.args[0] === "send-keys" && entry.args[2] === `${combo.tmuxSession}:gatekeeper`),
+      ).toBe(true);
+      expect(tmuxLog.some((entry) => entry.args.join(" ").includes("no-mistakes attach --run"))).toBe(true);
+
+      const noMistakesCalls = readJsonLines<LogEntryJson>(harness.logs.noMistakes);
+      const abortIndex = noMistakesCalls.findIndex((entry) => entry.args.join(" ") === "axi abort");
+      const runIndex = noMistakesCalls.findIndex((entry) => entry.args.slice(0, 2).join(" ") === "axi run");
+      expect(abortIndex).toBeGreaterThanOrEqual(0);
+      expect(runIndex).toBeGreaterThan(abortIndex);
+
+      const state = readJson<{
+        runs: Array<{ id: string; branch: string; head: string; status: string }>;
+      }>(harness.env.E2E_NO_MISTAKES_STATE!);
+      expect(state.runs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "stale-same-branch", branch: combo.branch, status: "cancelled" }),
+          expect.objectContaining({ id: "live-other-branch", branch: "combo/issue-241", status: "running" }),
+          expect.objectContaining({ id: "e2e-run", branch: combo.branch, head: headSha, status: "active" }),
+        ]),
+      );
 
       passed = true;
     } finally {
@@ -2602,6 +2671,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
   const noMistakesRoot = join(root, "no-mistakes");
   const logs = {
     gh: join(root, "gh.jsonl"),
+    noMistakes: join(root, "no-mistakes.jsonl"),
     treehouse: join(root, "treehouse.jsonl"),
     tmux: join(root, "tmux.jsonl"),
   };
@@ -2651,6 +2721,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
       E2E_NO_MISTAKES_ATTACH_FAIL: options.failNoMistakesAttach === true ? "1" : "0",
       E2E_NO_MISTAKES_QUOTE_RUN_ID: options.quoteNoMistakesRunId === true ? "1" : "0",
       E2E_NO_MISTAKES_GATE: join(noMistakesRoot, "repos", "e2e.git"),
+      E2E_NO_MISTAKES_LOG: logs.noMistakes,
       E2E_NO_MISTAKES_STATE: join(root, "no-mistakes-state.json"),
       E2E_NO_MISTAKES_RUN_DELAY_MS: String(options.noMistakesRunDelayMs ?? 0),
       TREEHOUSE_NO_UPDATE_CHECK: "1",
