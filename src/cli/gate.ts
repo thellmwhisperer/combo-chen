@@ -1,5 +1,5 @@
 /**
- * @overview Gatekeeper CLI helpers. ~1070 lines, 20 exports, persistent attach window, mirror sync, initial/post-address gates.
+ * @overview Gatekeeper CLI helpers. ~1110 lines, 20 exports, persistent attach window, mirror sync, initial/post-address gates.
  *
  *   READING GUIDE
  *   -------------
@@ -25,8 +25,10 @@
  *
  *   INTERNALS
  *   ---------
- *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
- *   buildInitialGateRetryScript, gateStatusIdleScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
+ *   requireComboGit, worktreeHeadSha, latestLocalRecoveryHeadShaAfterGate,
+ *   latestLocalGateReplacementHeadShaAfterGate, publishedGateSupersededByLocalRecovery,
+ *   buildInitialGateRetryScript, gateStatusIdleScript, shellScript, renderGatekeeperCommand,
+ *   buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -290,9 +292,20 @@ function hasAddressDone(events: ComboEvent[], headSha: string): boolean {
   return events.some((event) => event.event === "address_done" && event["head_sha"] === headSha);
 }
 
-function latestCoderRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
+function latestLocalRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
+    if (
+      event.event === "gate_stale" &&
+      event["old_sha"] === gateSha &&
+      typeof event["new_sha"] === "string" &&
+      event["new_sha"] !== ""
+    ) {
+      return event["new_sha"];
+    }
+    if (event.event === "address_done" && typeof event["head_sha"] === "string" && event["head_sha"] !== "") {
+      return event["head_sha"];
+    }
     if (event.event === "review_comment") {
       return typeof event["head_sha"] === "string" && event["head_sha"] !== ""
         ? event["head_sha"]
@@ -312,6 +325,37 @@ function latestCoderRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: stri
     }
   }
   return undefined;
+}
+
+function latestLocalGateReplacementHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (
+      event.event === "gate_stale" &&
+      event["old_sha"] === gateSha &&
+      typeof event["new_sha"] === "string" &&
+      event["new_sha"] !== ""
+    ) {
+      return event["new_sha"];
+    }
+    if (event.event === "address_done" && typeof event["head_sha"] === "string" && event["head_sha"] !== "") {
+      return event["head_sha"];
+    }
+    if (event.event === "gate_validated" && event["sha"] === gateSha) return undefined;
+    if (event.event === "gate_status" && event["state"] === "idle" && event["head_sha"] === gateSha) {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function publishedGateSupersededByLocalRecovery(
+  events: ComboEvent[],
+  publishedSha: string,
+  headSha: string,
+): boolean {
+  const recoveryHeadSha = latestLocalGateReplacementHeadShaAfterGate(events, publishedSha);
+  return recoveryHeadSha !== undefined && recoveryHeadSha !== headSha;
 }
 
 function hasGateStale(events: ComboEvent[], oldSha: string, newSha: string): boolean {
@@ -933,9 +977,12 @@ export function restartPostAddressGate(input: {
   }
 
   const lastPublishedSha = latestPublishedGateSha(events);
+  const publishedGateIsSuperseded = lastPublishedSha !== undefined &&
+    publishedGateSupersededByLocalRecovery(events, lastPublishedSha, headSha);
   if (
     lastPublishedSha !== undefined &&
     lastPublishedSha !== headSha &&
+    !publishedGateIsSuperseded &&
     !worktreeContainsSha(deps, combo, lastPublishedSha, headSha)
   ) {
     deps.out(
@@ -943,6 +990,12 @@ export function restartPostAddressGate(input: {
         `does not include published gate ${lastPublishedSha}`,
     );
     return { started: false, headSha, reason: "coder_worktree_out_of_sync" };
+  }
+  if (publishedGateIsSuperseded && lastPublishedSha !== undefined) {
+    deps.out(
+      `gate-restart: published gate ${lastPublishedSha} was superseded by local recovery; ` +
+        `restarting post-address gate from ${headSha}`,
+    );
   }
 
   if (!hasAddressDone(events, headSha)) {
@@ -1012,18 +1065,25 @@ export function runPostAddressGateIfNeeded(input: {
     return { status: "idle", reason: "gate_failed_at_head", headSha };
   }
 
-  const recoveryHeadSha = latestCoderRecoveryHeadShaAfterGate(events, lastPublishedSha);
+  const recoveryHeadSha = latestLocalRecoveryHeadShaAfterGate(events, lastPublishedSha);
   if (recoveryHeadSha === undefined || recoveryHeadSha === headSha) {
     deps.out(`director: no coder HEAD change for ${combo.id}; waiting for coder to commit`);
     return { status: "idle", reason: "no_coder_head_change", headSha };
   }
 
-  if (!worktreeContainsSha(deps, combo, lastPublishedSha, headSha)) {
+  const publishedGateIsSuperseded = publishedGateSupersededByLocalRecovery(events, lastPublishedSha, headSha);
+  if (!publishedGateIsSuperseded && !worktreeContainsSha(deps, combo, lastPublishedSha, headSha)) {
     deps.out(
       `director: worktree HEAD ${headSha} does not include published gate ${lastPublishedSha}; ` +
         "waiting for coder sync before post-address gate",
     );
     return { status: "blocked", reason: "coder_worktree_out_of_sync", headSha, publishedSha: lastPublishedSha };
+  }
+  if (publishedGateIsSuperseded) {
+    deps.out(
+      `director: published gate ${lastPublishedSha} was superseded by local recovery; ` +
+        `starting post-address gate from ${headSha}`,
+    );
   }
 
   if (propagateNoMistakesConfig(combo.repoDir, combo.worktree)) {

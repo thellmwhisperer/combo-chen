@@ -2070,6 +2070,87 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("restarts a post-address gate from a rebased local head that supersedes a snapshot PR gate", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const baseSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(join(combo.worktree, "snapshot-only.txt"), "published snapshot\n");
+      run("git", ["add", "snapshot-only.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "test: published snapshot gate"], { cwd: combo.worktree });
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      run("git", ["reset", "--hard", baseSha], { cwd: combo.worktree });
+      writeFileSync(join(combo.worktree, "first-local-fix.txt"), "first local fix\n");
+      run("git", ["add", "first-local-fix.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: first local recovery"], { cwd: combo.worktree });
+      const supersededLocalSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+        ["address_done", [`head_sha=${supersededLocalSha}`]],
+        ["gate_stale", [`old_sha=${publishedSha}`, `new_sha=${supersededLocalSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      run("git", ["reset", "--hard", baseSha], { cwd: combo.worktree });
+      writeFileSync(join(combo.worktree, "rebased-local-fix.txt"), "rebased local fix\n");
+      run("git", ["add", "rebased-local-fix.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: rebased local recovery"], { cwd: combo.worktree });
+      const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      expect(localSha).not.toBe(publishedSha);
+      expect(localSha).not.toBe(supersededLocalSha);
+      expect(
+        spawnSync("git", ["merge-base", "--is-ancestor", publishedSha, localSha], { cwd: combo.worktree }).status,
+      ).toBe(1);
+      expect(
+        spawnSync("git", ["merge-base", "--is-ancestor", supersededLocalSha, localSha], { cwd: combo.worktree }).status,
+      ).toBe(1);
+
+      const restart = run(process.execPath, [cliPath, "gate-restart", "-n", combo.id], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      expect(restart.stdout).toContain(`gate-restart: post-address gate restarted for ${combo.id} at ${localSha}`);
+      expect(restart.stdout).not.toContain("coder_worktree_out_of_sync");
+      expect(restart.stdout).not.toContain("does not include published gate");
+      const scriptPath = join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`);
+      expect(existsSync(scriptPath)).toBe(true);
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ event: "address_done", head_sha: localSha }),
+          expect.objectContaining({ event: "gate_stale", old_sha: publishedSha, new_sha: localSha }),
+        ]),
+      );
+      const gatekeeperPrompt = readJsonLines<LogEntryJson>(harness.logs.tmux)
+        .filter(
+          (entry) =>
+            entry.args[0] === "set-buffer" &&
+            entry.args.includes(`combo-chen-nudge-${combo.tmuxSession}-gatekeeper`),
+        )
+        .at(-1)?.args.at(-1);
+      expect(gatekeeperPrompt).toContain(scriptPath);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("removes stale READY labels while a newer local addressed head is in gate", () => {
     const harness = prepareHarness({ greenCheckNames: ["ExternalReview"] });
     let passed = false;
