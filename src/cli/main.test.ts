@@ -3734,7 +3734,7 @@ describe("run", () => {
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
     expect(out).toContain(
-      "   topology: journal=journal · director=director · coder=coder · gatekeeper=gatekeeper · reviewer=reviewer · director-watch=director-watch · coder-response=coder", (fix(topology): stabilize combo role windows)
+      "   topology: journal=journal · director=director · coder=coder · gatekeeper=gatekeeper · reviewer=reviewer · director-watch=director-watch · coder-response=coder",
     );
     const initialWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(calls.find((call) => call[0] === "tmux" && call[1] === "new-session")).toEqual([
@@ -4879,7 +4879,7 @@ describe("resume", () => {
       .filter((call) => call[0] === "new-window")
       .map((call) => call[4]);
     expect(newWindowNames).toEqual(
-      expect.arrayContaining(["journal", "director", "gatekeeper", "reviewer", "director-watch"]), (fix(resume): Restored the persistent gatekeeper window during open-PR resume and added built-CLI e2e topology coverage for launch/resume.)
+      expect.arrayContaining(["journal", "director", "gatekeeper", "reviewer", "director-watch"]),
     );
     expect(readEvents(dir)).toEqual(initialEvents);
     expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);

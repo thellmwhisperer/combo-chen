@@ -199,7 +199,7 @@ function latestInitialCoderTerminalOutcome(
 function hasCoderResponsePromptAfter(events: ComboEvent[], index: number): boolean {
   return events
     .slice(index + 1)
-    .some((event) => event.event === "review_comment" || event.event === "pr_conflict"); (fix(coder): Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules.)
+    .some((event) => event.event === "review_comment" || event.event === "pr_conflict");
 }
 
 function terminalOutcomeSummary(worker: string, outcome: "coder_done" | "coder_failed"): string {

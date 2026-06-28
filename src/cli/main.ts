@@ -530,7 +530,7 @@ export function createProgram(deps: Deps): Command {
           `director=${DIRECTOR_WINDOW}`,
           `coder=${CODER_WINDOW}`,
           `gatekeeper=${GATEKEEPER_WINDOW}`,
-          `reviewer=${REVIEWER_WINDOW}`, (fix(topology): stabilize combo role windows)
+          `reviewer=${REVIEWER_WINDOW}`,
           `director-watch=${DIRECTOR_WATCH_WINDOW}`,
           `coder-response=${config.coderRespondingWindowName}`,
         ].join(" · "),

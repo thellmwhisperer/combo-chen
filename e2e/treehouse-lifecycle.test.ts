@@ -409,7 +409,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     try {
       const { combo, launch, runDir } = launchPlanCombo(harness);
       expect(launch.stdout).toContain(
-        "topology: journal=journal · director=director · coder=coder · gatekeeper=gatekeeper · reviewer=reviewer · director-watch=director-watch · coder-response=coder", (fix(topology): stabilize combo role windows)
+        "topology: journal=journal · director=director · coder=coder · gatekeeper=gatekeeper · reviewer=reviewer · director-watch=director-watch · coder-response=coder",
       );
 
       let ledger = readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json"));
