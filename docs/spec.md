@@ -792,6 +792,8 @@ and GitHub checks remain the source of truth.
   `combo:working-gate` > `combo:working-coder` > `combo:working-reviewer`.
 - Signal labels (`combo:lgtm`, `combo:external-review-green`, `combo:ready`) are
   removed when the PR head changes and revalidated against the new head.
+- `combo:external-review-green` is not applied when the projected state is stale,
+  even when the configured green check has succeeded.
 - When GitHub reports a dirty/conflicting merge state, all signal labels are
   removed and `combo:conflict` is applied instead.
 - Labels are derived from journal events plus live `gh pr view` facts; they
