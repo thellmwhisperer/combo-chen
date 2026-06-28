@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~940 lines, 5 exports, initial-gate retry and pre/post-PR orchestration. (fix(coder): Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules.)
+ * @overview Director CLI helpers. ~950 lines, 5 exports, initial-gate retry and pre/post-PR orchestration. (no-mistakes(document): Sync CHANGELOG and Sherpa line counts for topology consolidation)
  *
  *   READING GUIDE
  *   -------------
