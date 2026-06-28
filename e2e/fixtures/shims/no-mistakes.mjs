@@ -104,11 +104,12 @@ if (args[0] === "axi" && args[1] === "run") {
 }
 
 if (args[0] === "attach" && args[1] === "--run") {
-  if (process.env.E2E_NO_MISTAKES_ATTACH_FAIL === "1") {
-    process.stderr.write(`get run: run not found: ${JSON.stringify(args[2] || "")}\n`);
+  const requested = args[2] || "";
+  if (process.env.E2E_NO_MISTAKES_ATTACH_FAIL === "1" || /^".*"$/.test(requested)) {
+    process.stderr.write(`get run: run not found: ${JSON.stringify(requested)}\n`);
     process.exit(1);
   }
-  process.stdout.write(`attached ${args[2] || ""}\n`);
+  process.stdout.write(`attached ${requested}\n`);
   process.exit(0);
 }
 

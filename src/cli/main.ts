@@ -857,8 +857,9 @@ export function createProgram(deps: Deps): Command {
     .description("Append a lifecycle event (used by the runner)")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .argument("<event>", "Event name")
+    .option("--skip-gate-window-recovery", "Skip gatekeeper window recovery for gate_started", false)
     .option("--field <key=value...>", "Payload fields", (value: string, prev: string[]) => [...prev, value], [])
-    .action(async (event: string, options: { name: string; field: string[] }) => {
+    .action(async (event: string, options: { name: string; field: string[]; skipGateWindowRecovery: boolean }) => {
       const home = comboHome(deps.env);
       const runDir = runDirFor(home, options.name);
       const canonicalEvent = canonicalEventName(event);
@@ -882,7 +883,11 @@ export function createProgram(deps: Deps): Command {
           },
         });
       }
-      if (canonicalEvent === "gate_started") {
+      if (canonicalEvent === "gate_started" && !options.skipGateWindowRecovery) {
+        // The gatekeeper tmux window runs `no-mistakes attach`, which exits when
+        // no active no-mistakes run exists — often before the runner's gatekeeper
+        // command starts one.  Recreate the window now so the live role
+        // window is visible when the no-mistakes run becomes active.
         try {
           const combo = readCombo(runDir);
           const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });

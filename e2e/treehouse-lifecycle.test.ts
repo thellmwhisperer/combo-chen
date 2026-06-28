@@ -56,6 +56,7 @@ interface Harness {
   root: string;
   repo: string;
   comboHome: string;
+  workPlanExtra: string[];
   env: NodeJS.ProcessEnv;
   logs: {
     gh: string;
@@ -84,6 +85,7 @@ interface HarnessOptions {
   noMistakesRunDelayMs?: number;
   missingComboLabelsOnFirstAdd?: boolean;
   workerStallTicks?: number;
+  workPlanExtra?: string[];
   permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
 }
 
@@ -184,6 +186,7 @@ function commitPlan(harness: Harness): string {
       "",
       "## Problem",
       "Exercise combo-chen launch and closure through the built CLI.",
+      ...harness.workPlanExtra,
       "",
       "## Acceptance Criteria",
       "- The combo leases a Treehouse worktree.",
@@ -537,15 +540,27 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   it("resumes a broken combo when no-mistakes creates the run only after gate restart", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
-      gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-resume",
+      gatekeeperCommand: 'no-mistakes daemon start && no-mistakes axi run --intent "{issue_pr_intent}"',
       noMistakesRunDelayMs: 1200,
       quoteNoMistakesRunId: true,
+      workPlanExtra: [
+        "",
+        "The work plan mentions `pr_labels_updated` and `status --deep` as literal markdown.",
+      ],
     });
     let passed = false;
 
     try {
       const { combo, runDir } = launchPlanCombo(harness);
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const tmuxBeforeRestart = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const gatekeeperWindowStartsBefore = tmuxBeforeRestart.filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
+      ).length;
+      const gatekeeperWindowKillsBefore = tmuxBeforeRestart.filter(
+        (entry) => entry.args[0] === "kill-window" && entry.args.includes(`${combo.tmuxSession}:gatekeeper`),
+      ).length;
+      expect(gatekeeperWindowStartsBefore).toBeGreaterThanOrEqual(1);
 
       const restart = run(process.execPath, [cliPath, "gate-restart", "-n", combo.id], {
         cwd: harness.repo,
@@ -558,10 +573,20 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         timeoutMs: 10_000,
       });
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
+      const tmuxAfterRestart = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const gatekeeperWindowStartsAfter = tmuxAfterRestart.filter(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"),
+      ).length;
+      const gatekeeperWindowKillsAfter = tmuxAfterRestart.filter(
+        (entry) => entry.args[0] === "kill-window" && entry.args.includes(`${combo.tmuxSession}:gatekeeper`),
+      ).length;
+      expect(gatekeeperWindowStartsAfter - gatekeeperWindowStartsBefore).toBe(0);
+      expect(gatekeeperWindowKillsAfter - gatekeeperWindowKillsBefore).toBe(0);
 
       const gatekeeperLog = readFileSync(join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.log`), "utf8");
       expect(gatekeeperLog).toContain("outcome: checks-passed");
       expect(gatekeeperLog).toContain("copied .no-mistakes.yaml");
+      expect(gatekeeperLog).not.toContain("command not found");
       const gateConfig = join(harness.root, "no-mistakes", "worktrees", "e2e", "e2e-run", ".no-mistakes.yaml");
       expect(readFileSync(gateConfig, "utf8")).toContain("commands:");
 
@@ -2600,6 +2625,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
     root,
     repo,
     comboHome,
+    workPlanExtra: options.workPlanExtra ?? [],
     logs,
     env: {
       ...process.env,

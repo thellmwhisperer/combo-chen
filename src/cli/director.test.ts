@@ -358,7 +358,7 @@ describe("tickDirector", () => {
     expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("initial gate retry for o-r-7");
-    expect(script).toContain("emit -n 'o-r-7' gate_started");
+    expect(script).toContain("emit -n 'o-r-7' --skip-gate-window-recovery gate_started");
     expect(readEvents(runDir).some((entry) => entry.event === "needs_human")).toBe(false);
     expect(out).toContain("director: retrying initial gate for o-r-7 after gate_failed (attempt 1/2)");
 
