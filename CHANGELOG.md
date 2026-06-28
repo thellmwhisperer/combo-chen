@@ -8,6 +8,7 @@
 * **status:** Surface PR head vs local worktree head drift in `status --deep` and forensics reports with an explicit sync or fetch action.
 * **coder:** Explicit coder terminal outcome contract prevents clean gnhf stop-condition completions from being mistaken for dead coder panes. Fixes [#234](https://github.com/thellmwhisperer/combo-chen/issues/234).
 * **passive-update:** Quiet passive update checks with local cache, TTL, and env disable knob for normal CLI commands. Fixes [#191](https://github.com/thellmwhisperer/combo-chen/issues/191).
+* **topology:** Consolidate combo tmux topology into persistent role windows: coder, journal, director, gatekeeper, and reviewer. Fixes [#235](https://github.com/thellmwhisperer/combo-chen/issues/235).
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 * **pr-labels:** Make combo PR label projection single-writer and idempotent. Read-only commands (`status`, `status --deep`, `status --deep --all`) no longer mutate GitHub labels or journal `pr_labels_updated` events; only the canonical mutation path (`director-watch`/`director-tick`) writes labels. Fixes [#241](https://github.com/thellmwhisperer/combo-chen/issues/241).
 

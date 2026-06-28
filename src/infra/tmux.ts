@@ -1,6 +1,6 @@
 /**
  * @overview tmux plumbing: pure argument builders + one system-calling
- *   executor. Builders are pinned by tests; tmux() touches the OS. ~105
+ *   executor. Builders are pinned by tests; tmux() touches the OS. ~150
  *   lines, 17 exports.
  *
  *   READING GUIDE
