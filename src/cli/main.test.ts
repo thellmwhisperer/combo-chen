@@ -4610,7 +4610,7 @@ describe("resume", () => {
     expect(script).toContain("exec no-mistakes attach");
     expect(script).toContain("branch: combo/issue-7");
     expect(script).toContain("pr_autoclose_failed");
-    expect(script).toContain("emit -n 'o-r-7' pr_opened");
+    expect(script).toContain("emit -n 'o-r-7' --skip-gate-window-recovery pr_opened");
     expect(script).not.toContain("activate-coder");
     expect(script).toContain("activate-reviewer -n 'o-r-7'");
     expect(spawnSync("sh", ["-n", scriptPath], { encoding: "utf8" }).status).toBe(0);
