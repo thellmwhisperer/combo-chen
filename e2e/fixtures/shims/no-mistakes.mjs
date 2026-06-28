@@ -162,6 +162,7 @@ if (args[0] === "axi" && args[1] === "run") {
   }
   if (process.env.E2E_NO_MISTAKES_CONTEXT_CANCELED_AFTER_CHECKS_PASSED === "1") {
     const state = load();
+    markCurrentBranchRun(state, "failed");
     state.active = false;
     save(state);
     process.stdout.write("outcome: checks-passed\n");

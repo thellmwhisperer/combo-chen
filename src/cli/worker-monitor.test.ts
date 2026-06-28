@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~590 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~730 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -20,7 +20,7 @@
  *   combo, fakeDeps
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./worker-monitor
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ./sessions, ./worker-monitor
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
+import { idleRoleWindowCommand } from "./sessions.js";
 import { inspectWorkerPanes, type WorkerMonitorDeps } from "./worker-monitor.js";
 
 // -- 1/1 CORE · inspectWorkerPanes tests <- START HERE --
@@ -558,6 +559,22 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "reviewer" }),
     );
+  });
+
+  it("does not stall a precreated idle role window", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      reviewer: idleRoleWindowCommand("reviewer"),
+    });
+
+    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated)
+      .toBe(false);
+    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated)
+      .toBe(false);
+    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated)
+      .toBe(false);
+
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
   });
 
   it("returns recoverable stalled-worker findings without journaling needs_human", () => {

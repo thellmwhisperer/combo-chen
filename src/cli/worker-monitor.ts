@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~470 lines, detects permission prompts, (no-mistakes(document): Sync CHANGELOG and Sherpa line counts for topology consolidation)
+ * @overview Worker pane monitor. ~490 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -32,7 +32,7 @@
  *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
- * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}
+ * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}, ./sessions
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -52,6 +52,7 @@ import {
   listWindowsArgs,
   type TmuxResult,
 } from "../infra/tmux.js";
+import { idleRoleWindowCommand } from "./sessions.js";
 
 // -- 1/1 CORE · inspectWorkerPanes <- START HERE --
 export interface WorkerMonitorDeps {
@@ -133,6 +134,19 @@ function paneFingerprint(pane: string): string {
 
 function activeWindowNames(stdout: string): Set<string> {
   return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+}
+
+function paneLooksLikeIdleRoleWindow(worker: string, pane: string): boolean {
+  const idleMessage = `[combo-chen] ${worker} window idle; waiting for combo-chen to prompt it.`;
+  if (!pane.includes(idleMessage)) return false;
+  const idleLines = new Set(
+    [
+      idleMessage,
+      ...idleRoleWindowCommand(worker).split(/\r?\n/),
+    ].map((line) => line.trim()).filter(Boolean),
+  );
+  const paneLines = pane.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return paneLines.length > 0 && paneLines.every((line) => idleLines.has(line));
 }
 
 function compilePermissionPromptPatterns(patterns: string[]): RegExp[] {
@@ -353,6 +367,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
 
     const pane = captured.stdout;
+    if (paneLooksLikeIdleRoleWindow(worker, pane)) {
+      delete snapshot[worker];
+      summaries.push(`worker ${worker}: idle role window`);
+      continue;
+    }
+
     if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
       if (permissionPromptPolicy === "auto-approve-known-safe") {
         const attempts = workerRecoveryAttempts(readEvents(runDir), worker, "worker_permission_prompt");

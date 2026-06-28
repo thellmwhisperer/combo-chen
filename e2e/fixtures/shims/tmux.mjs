@@ -49,6 +49,21 @@ function windowWithCommand(command = "") {
   return { panes: 1, visibleText: command };
 }
 
+function commandIsJournalFollower(command) {
+  return /\bevents\s+--follow\b/.test(command);
+}
+
+function runCommandSynchronously(command) {
+  const result = spawnSync("sh", ["-c", command], {
+    cwd: process.cwd(),
+    env: process.env,
+    encoding: "utf8",
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exit(result.status ?? 1);
+}
+
 function requireWindow(target) {
   const session = state.sessions[target.session];
   if (!session) missing(target.session);
@@ -66,15 +81,8 @@ if (cmd === "new-session") {
   const command = args[args.length - 1] || ":";
   state.sessions[session] = { windows: { [name]: windowWithCommand(command) } };
   save(state);
-  if (process.env.E2E_TMUX_RUN_NEW_SESSION === "1") {
-    const result = spawnSync("sh", ["-c", command], {
-      cwd: process.cwd(),
-      env: process.env,
-      encoding: "utf8",
-    });
-    if (result.stdout) process.stdout.write(result.stdout);
-    if (result.stderr) process.stderr.write(result.stderr);
-    process.exit(result.status ?? 1);
+  if (process.env.E2E_TMUX_RUN_NEW_SESSION === "1" && !commandIsJournalFollower(command)) {
+    runCommandSynchronously(command);
   }
   process.exit(0);
 }
@@ -86,15 +94,11 @@ if (cmd === "new-window") {
   const command = args[args.length - 1] || ":";
   state.sessions[session].windows[name] = windowWithCommand(command);
   save(state);
+  if (name === "coder" && process.env.E2E_TMUX_RUN_NEW_SESSION === "1") {
+    runCommandSynchronously(command);
+  }
   if (name === "gatekeeper" && process.env.E2E_TMUX_RUN_GATEKEEPER_WINDOW === "1") {
-    const result = spawnSync("sh", ["-c", command], {
-      cwd: process.cwd(),
-      env: process.env,
-      encoding: "utf8",
-    });
-    if (result.stdout) process.stdout.write(result.stdout);
-    if (result.stderr) process.stderr.write(result.stderr);
-    process.exit(result.status ?? 1);
+    runCommandSynchronously(command);
   }
   process.exit(0);
 }
