@@ -175,8 +175,6 @@ runner, initial-retry, and post-address gate scripts treat that as recovered
 success evidence. They emit `gate_status state=idle` with
 `recovery=checks_passed_context_canceled` and continue the normal PR detection
 or post-address validation path instead of journaling `gate_failed`.
-
-
 When the local combo worktree HEAD differs from the current GitHub PR head,
 `status --deep` and `forensics` surface the drift explicitly as a warning with
 a recommended next action (fetch PR head for review or sync the combo
