@@ -215,6 +215,7 @@ __GATE_LEASE_SCRIPT__
 __EMIT__ gate_status --field state=fix_inflight --field head_sha="$gatekeeper_start_sha"
 
 gatekeeper_code=0
+gatekeeper_recovery_reason=
 (
 __GATEKEEPER_MIRROR_SCRIPT__
 __GATEKEEPER_RUN_SCRIPT__
@@ -226,6 +227,8 @@ if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_l
   __EMIT__ needs_human --field reason=gate_waiting
   exit 0
 fi
+
+__GATEKEEPER_RECOVERY_SCRIPT__
 
 if [ "$gatekeeper_code" -ne 0 ]; then
   gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
@@ -256,12 +259,20 @@ if [ -n "${pr_url:-}" ]; then
     __EMIT__ pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"
     exit "$autoclose_code"
   fi
-  __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
+  if [ -n "$gatekeeper_recovery_reason" ]; then
+    __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha" --field recovery="$gatekeeper_recovery_reason"
+  else
+    __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
+  fi
   __EMIT__ pr_opened --field url="$pr_url"
   __RUNNER_STATUS_PR_DETECTED__
   __ACTIVATE_REVIEWER__
 else
   __RUNNER_STATUS_NO_PR__
-  __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
+  if [ -n "$gatekeeper_recovery_reason" ]; then
+    __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha" --field recovery="$gatekeeper_recovery_reason"
+  else
+    __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
+  fi
   __EMIT__ needs_human --field reason=pr_missing
 fi

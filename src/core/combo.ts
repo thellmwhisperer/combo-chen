@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~425 lines, 9 exports, 1 critical function.
+ *   ~435 lines, 10 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -8,8 +8,9 @@
  *   2. deriveStatus                  ← event → phase state machine
  *   3. buildNoMistakesMirrorPublishScript ← gate mirror push with intent
  *   4. buildNoMistakesGatekeeperRunScript ← config handoff + gate run
- *   5. guardNoMistakesDaemonStart    ← avoids double-starting mirror gates
- *   6. shellQuote                    ← POSIX-safe shell quoting
+ *   5. checksPassedContextCanceledRecoveryScript ← normalizes post-success cancel evidence
+ *   6. guardNoMistakesDaemonStart    ← avoids double-starting mirror gates
+ *   7. shellQuote                    ← POSIX-safe shell quoting
  *
  *   MAIN FLOW (called from cli/main.ts)
  *   ───────────────────────────────────
@@ -31,6 +32,7 @@
  *   │ buildRunnerScript   Generates the runner shell script          │
  *   │ buildNoMistakesMirrorPublishScript Git push to gate mirror     │
  *   │ buildNoMistakesGatekeeperRunScript Config handoff + gate run   │
+ *   │ checksPassedContextCanceledRecoveryScript Gate success recovery│
  *   │ guardNoMistakesDaemonStart Avoid duplicate no-mistakes starts  │
  *   │ shellQuote           POSIX-safe single-quoting                 │
  *   ├─ PHASE DERIVATION ────────────────────────────────────────────┤
@@ -40,7 +42,7 @@
  *   │ RunnerInput          Input shape for buildRunnerScript         │
  *   └────────────────────────────────────────────────────────────────┘
  *
- * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, buildNoMistakesGatekeeperRunScript, gateLeaseScriptLines, guardNoMistakesDaemonStart, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
+ * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, buildNoMistakesGatekeeperRunScript, checksPassedContextCanceledRecoveryScript, gateLeaseScriptLines, guardNoMistakesDaemonStart, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
  * @deps node:fs, ./events, ./state
  */
 import { readFileSync } from "node:fs";
@@ -289,6 +291,16 @@ export function buildNoMistakesGatekeeperRunScript(
   ];
 }
 
+export function checksPassedContextCanceledRecoveryScript(): string[] {
+  return [
+    "gatekeeper_recovery_reason=${gatekeeper_recovery_reason:-}",
+    "if [ \"$gatekeeper_code\" -ne 0 ] && grep -Eiq '^outcome:[[:space:]]*checks-passed[[:space:]]*$' \"$gatekeeper_log\" && grep -Eiq 'context[[:space:]]+canceled' \"$gatekeeper_log\"; then",
+    "  gatekeeper_recovery_reason=checks_passed_context_canceled",
+    "  gatekeeper_code=0",
+    "fi",
+  ];
+}
+
 export function buildNoMistakesMirrorPublishScript(combo: ComboRecord, pushIntent: string): string[] {
   return [
     "if git remote get-url no-mistakes >/dev/null 2>&1; then",
@@ -359,7 +371,7 @@ const RUNNER_TEMPLATE = readFileSync(new URL("./runner-template.sh", import.meta
 function renderRunnerTemplate(values: Record<string, string>): string {
   let rendered = RUNNER_TEMPLATE;
   for (const [placeholder, value] of Object.entries(values)) {
-    rendered = rendered.replaceAll(placeholder, value);
+    rendered = rendered.split(placeholder).join(value);
   }
   const unresolved = rendered.match(/__[A-Z0-9_]+__/);
   if (unresolved !== null) {
@@ -413,6 +425,7 @@ fi`;
     "__GATEKEEPER_RUN_SCRIPT__": buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, {
       expectedBranch: combo.branch,
     }).map((line) => `  ${line}`).join("\n"),
+    "__GATEKEEPER_RECOVERY_SCRIPT__": checksPassedContextCanceledRecoveryScript().join("\n"),
     "__RUNNER_STATUS_GATEKEEPER_FINISHED__": runnerStatus("gatekeeper finished; detecting PR"),
     "__BRANCH__": shellQuote(combo.branch),
     "__ENSURE_PR_AUTOCLOSE__": ensurePrAutoclose,

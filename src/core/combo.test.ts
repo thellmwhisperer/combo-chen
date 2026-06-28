@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~1900 lines, testing
+ * @overview Unit tests for core combo orchestration. ~1950 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -335,6 +335,102 @@ describe("buildRunnerScript", () => {
 
   it("runs the gatekeeper phase with stdin closed so auth prompts cannot block the runner", () => {
     expect(script).toContain(') < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?');
+  });
+
+  it("continues to PR detection when no-mistakes exits nonzero after checks passed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const eventsPath = join(dir, "events.log");
+    const localHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const prHead = "cccccccccccccccccccccccccccccccccccccccc";
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeCoder = join(bin, "fake-coder");
+    writeFileSync(fakeCoder, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeCoder, 0o755);
+
+    const fakeGatekeeper = join(bin, "fake-no-mistakes");
+    writeFileSync(
+      fakeGatekeeper,
+      `#!/bin/sh
+printf '%s\\n' 'outcome: checks-passed'
+printf '%s\\n' 'ci.log: context canceled'
+exit 42
+`,
+    );
+    chmodSync(fakeGatekeeper, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1 $2" = "rev-parse HEAD" ]; then printf '%s\\n' "$LOCAL_HEAD"; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(
+      fakeGh,
+      `#!/bin/sh
+if [ "$1 $2" = "pr list" ]; then printf '%s\\n' 'https://github.com/o/r/pull/7'; exit 0; fi
+if [ "$1 $2" = "pr view" ]; then printf '%s\\n' "$PR_HEAD"; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: shellQuote(fakeGatekeeper),
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: runnerSubprocessEnv({
+        EVENTS_LOG: eventsPath,
+        LOCAL_HEAD: localHead,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        PR_HEAD: prHead,
+      }),
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
+      `gate_status --field state=idle --field head_sha=${prHead} --field recovery=checks_passed_context_canceled`,
+      "pr_opened --field url=https://github.com/o/r/pull/7",
+    ]);
   });
 
   it("fetches and rebases origin/main before the coder starts", () => {

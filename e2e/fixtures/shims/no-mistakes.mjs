@@ -91,6 +91,14 @@ if (args[0] === "axi" && args[1] === "run") {
     process.stdout.write('error: "step review failed: agent review: acp:opencode output parse: JSON output findings[1].action must match one of the allowed values"\n');
     process.exit(1);
   }
+  if (process.env.E2E_NO_MISTAKES_CONTEXT_CANCELED_AFTER_CHECKS_PASSED === "1") {
+    const state = load();
+    state.active = false;
+    save(state);
+    process.stdout.write("outcome: checks-passed\n");
+    process.stdout.write("ci.log: context canceled\n");
+    process.exit(1);
+  }
   process.stdout.write("outcome: checks-passed\n");
   process.exit(0);
 }
