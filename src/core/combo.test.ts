@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~2050 lines, testing
+ * @overview Unit tests for core combo orchestration. ~2360 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -613,6 +613,7 @@ exit 1
       encoding: "utf8",
       env: runnerSubprocessEnv({
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
+        COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED: "1",
         EVENTS_LOG: eventsPath,
         LOCAL_HEAD: localHead,
         NO_MISTAKES_GATE: gatePath,
