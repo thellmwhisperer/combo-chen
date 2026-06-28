@@ -1847,10 +1847,17 @@ exit 1
       `#!/bin/sh
 printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
 if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  if [ -f "$NO_MISTAKES_ABORT_FILE" ] && [ ! -d "$NO_MISTAKES_RUN_DIR" ]; then
+    exit 1
+  fi
   printf 'run:\\n'
   printf '  id: %s\\n' "$NO_MISTAKES_RUN_ID"
   printf '  branch: combo/issue-7\\n'
   printf '  status: running\\n'
+  exit 0
+fi
+if [ "$1" = "axi" ] && [ "$2" = "abort" ]; then
+  touch "$NO_MISTAKES_ABORT_FILE"
   exit 0
 fi
 if [ "$1" = "axi" ]; then
@@ -1905,6 +1912,7 @@ fi
         NO_MISTAKES_OTHER_RUN_ID: otherRunId,
         NO_MISTAKES_RUN_DIR: daemonWorktree,
         NO_MISTAKES_OTHER_RUN_DIR: join(dataDir, "worktrees", "dd1c02626404", otherRunId),
+        NO_MISTAKES_ABORT_FILE: join(dir, "no-mistakes-aborted"),
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       }),
@@ -1946,9 +1954,16 @@ if [ "$1" = "status" ]; then
   exit 0
 fi
 if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  if [ -f "$NO_MISTAKES_ABORT_FILE" ]; then
+    exit 1
+  fi
   printf 'id: 01CONFIGRACE\\n'
   printf 'branch: combo/issue-7\\n'
   printf 'status: running\\n'
+  exit 0
+fi
+if [ "$1" = "axi" ] && [ "$2" = "abort" ]; then
+  touch "$NO_MISTAKES_ABORT_FILE"
   exit 0
 fi
 exit 0
@@ -1970,8 +1985,10 @@ exit 0
       encoding: "utf8",
       env: {
         ...process.env,
+        COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED: "1",
         COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
         NO_MISTAKES_GATE: gatePath,
+        NO_MISTAKES_ABORT_FILE: join(dir, "no-mistakes-aborted"),
         PATH: `${bin}:${process.env["PATH"] ?? ""}`,
       },
     });
