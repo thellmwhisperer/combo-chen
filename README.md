@@ -99,9 +99,10 @@ human merge -> director-watch auto-closure -> combo_closed
   from events, not from terminal scrollback or agent memory.
 - **Fixed role boundaries.** Coder, gatekeeper, reviewer, director, and human
   are separate roles. The reviewer cannot be the coder. The fixed tmux role
-  topology is coder, journal, director, gatekeeper, and reviewer;
-  `director-watch` is a deliberate polling exception, and the coder-response
-  target defaults to the persistent coder window.
+  topology is coder, journal, director, gatekeeper, and reviewer; reviewer
+  activates after `pr_opened`, `director-watch` is a deliberate polling
+  exception, and the coder-response target defaults to the persistent coder
+  window.
 - **Publish boundary.** Coders leave local commits. The gatekeeper is the normal
   publisher.
 - **Visible PR state.** GitHub labels track the live combo workflow
@@ -593,8 +594,8 @@ contract: deterministic overture launch runway,
 coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer with
 machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
-lazy coder responding mode (created only after review signals or PR-conflict
-recovery need it, not on first-pass PR-open happy path), single `director-watch`
+lazy coder-response routing through the persistent coder window by default
+(legacy `coder-responding` compatibility window only when configured), single `director-watch`
 observation with compact per-tick operator status lines, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),
 merged-PR `reconcile` with merge-fact recording only (resource convergence
@@ -613,10 +614,11 @@ heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
 justification), explicit coder terminal outcomes (`coder_done` trust over dead-looking panes) before worker recovery, pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
-stalled coder-responding recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
+stalled coder-response recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (fixed tmux role topology: coder, journal,
-director, gatekeeper, and reviewer; director-watch remains a deliberate
+director, gatekeeper, and reviewer; reviewer activates after `pr_opened`;
+director-watch remains a deliberate
 polling exception; coder-response target defaults to the persistent coder
 window; raw event output never replaces the coder role), and opt-in runner
 progress status lines

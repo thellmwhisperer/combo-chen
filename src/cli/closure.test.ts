@@ -220,6 +220,15 @@ describe("closeMergedCombo", () => {
         tmuxSession: "combo-chen-o-r-8",
       },
     });
+    writeRuntimeLedger(
+      target.runDir,
+      buildRuntimeLedger({
+        combo: target.combo,
+        runDir: target.runDir,
+        cli: "combo-chen",
+        prUrl: "https://github.com/o/r/pull/7",
+      }),
+    );
     const { deps, calls, out } = fakeDeps();
 
     await closeMergedCombo({ deps, home: h, comboId: target.combo.id });

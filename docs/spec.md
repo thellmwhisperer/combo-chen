@@ -66,7 +66,7 @@ OVERTURE    deterministic launch runway: checks work-item readability, repo/issu
   └─▶ SETUP      clean main verified, Treehouse worktree leased, branch created from base ref, tmux session up
   └─▶ CODING     gnhf loop; `coder_done` advances to GATING. `coder_failed` (non-zero exit, no gnhf stop-condition override) transitions to STALLED.
         └─▶ GATING     gate_started; publishes HEAD to the no-mistakes mirror (with --force-with-lease and base64-encoded intent) via generated shell script, then no-mistakes pipeline (publish-only, --skip=ci); ends with pr_opened, gate_failed (exit_code), or awaiting_approval (needs_human reason=gate_waiting). A pre-PR gate_failed triggers automatic director retry up to the configured [gatekeeper].initial_gate_retry_attempts with [gatekeeper].initial_gate_retry_backoff_seconds delay; exhausting retries journals needs_human reason=gate_failed.
-              └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, coder responding mode workers, and live PR label sync; code-2 verdicts prompt the director via `director_prompted`
+              └─▶ REVIEWING  director-watch observes reviewer verdict signals (machine-readable codes 0–3), reviewer LGTM pins, coder-response workers, and live PR label sync; code-2 verdicts prompt the director via `director_prompted`
                     └─▶ READY      gate_current ∧ reviewer_current ∧ required_checks_current_success ∧ ci_current_success
                           └─▶ MERGED | CLOSED   (human, or earned automerge)
 ```
@@ -386,7 +386,7 @@ ignored config or environment outside that file.
   consecutive failures. The watcher doubles its backoff on each failure
   (capped by `[limits].watch_backoff_max_seconds`) and resets both counter
   and backoff on a healthy tick.
-- Priority under scarcity: coder coding mode > coder responding mode > reviewer > sweeps.
+- Priority under scarcity: coder coding mode > coder-response work > reviewer > sweeps.
 - Roles spread across independent budgets by design (Claude subscription,
   Codex subscription, Hermes API providers).
 - Persistent roles run interactive sessions; headless `-p`/SDK calls are
@@ -408,6 +408,8 @@ ignored config or environment outside that file.
   journal, director, gatekeeper, and reviewer. The `director-watch` window is
   the deliberate polling exception: it owns deterministic polling and per-tick
   status so the promptable `director` window stays interactive and non-polling.
+  The reviewer activates after `pr_opened`, so launch records it as
+  `reviewer=reviewer(on-pr-open)` instead of starting a pre-PR reviewer pane.
   The gatekeeper window is the live no-mistakes surface: it resolves the
   branch's no-mistakes run id from local no-mistakes state, then attaches to
   that run so simultaneous combos cannot render each other's run. On

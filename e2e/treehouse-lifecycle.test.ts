@@ -360,7 +360,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     try {
       const { combo, launch, runDir } = launchPlanCombo(harness);
       expect(launch.stdout).toContain(
-        "topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · director-watch=director-watch · coder-response=coder",
+        "topology: coder=coder · journal=journal · director=director · gatekeeper=gatekeeper · reviewer=reviewer(on-pr-open) · director-watch=director-watch · coder-response=coder",
       );
 
       let ledger = readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json"));
@@ -388,6 +388,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         cwd: harness.repo,
         env: harness.env,
       });
+      const journalBeforeResume = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
       for (const windowName of ["journal", "director", "gatekeeper", "director-watch"]) {
         run("tmux", ["kill-window", "-t", `${combo.tmuxSession}:${windowName}`], {
           cwd: harness.repo,
@@ -400,6 +401,10 @@ describe("treehouse-backed combo lifecycle e2e", () => {
         env: { ...harness.env, E2E_PR_STATE: "OPEN" },
       });
       expect(resume.stdout).toContain("resume: PR ready for reviewer");
+
+      const journalAfterResume = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(journalAfterResume.slice(0, journalBeforeResume.length)).toEqual(journalBeforeResume);
+      expect(journalAfterResume).toContainEqual(expect.objectContaining({ event: "pr_opened", url: prUrl }));
 
       tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
       expect(Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows).sort()).toEqual([
