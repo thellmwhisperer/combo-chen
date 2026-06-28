@@ -104,10 +104,12 @@ describe("release docs", () => {
   it("documents the fixed role topology without advertising removed windows", () => {
     const readme = normalizeDoc(readDoc("README.md"));
     const spec = normalizeDoc(readDoc("docs/spec.md"));
+    const agents = normalizeDoc(readDoc("AGENTS.md"));
 
-    for (const doc of [readme, spec]) {
+    for (const doc of [readme, spec, agents]) {
       expect(doc).toContain("fixed tmux role topology");
       expect(doc).toContain("coder, journal, director, gatekeeper, and reviewer");
+      expect(doc).toContain("reviewer activates after `pr_opened`");
       expect(doc).toContain("director-watch");
       expect(doc).toContain("deliberate polling exception");
       expect(doc).toContain("coder-response target defaults to the persistent coder window");

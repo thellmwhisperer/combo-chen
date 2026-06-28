@@ -34,12 +34,12 @@ Hard rule: `reviewer != coder`.
    fails before the PR opens, the director auto-retries it up to configured
    `initial_gate_retry_attempts` with `initial_gate_retry_backoff_seconds`
    delay; after exhausting retries it journals `needs_human reason=gate_failed`.
-4. After `pr_opened`, `director-watch` is the single observer. Reviewer and
-   coder responding mode (created lazily only when review signals or
-   PR-conflict recovery need it; not on first-pass happy path) are worker
-   windows. Reviewer verdict codes drive
-   deterministic routing: code 0 feeds the LGTM journal path, code 1 nudges
-   coder responding, code 2 prompts the director, and code 3 journals
+4. After `pr_opened`, `director-watch` is the single observer. The reviewer
+   activates after `pr_opened`, and coder-response prompts route through the
+   persistent coder window by default; a configured `coder-responding` window
+   remains only as a compatibility bridge for older capsules. Reviewer verdict
+   codes drive deterministic routing: code 0 feeds the LGTM journal path, code
+   1 nudges coder-response, code 2 prompts the director, and code 3 journals
    `needs_human`. On each tick the director also updates the PR's GitHub
    labels to project the live combo state (`combo:working-*`, `combo:lgtm`,
    `combo:external-review-green`, `combo:ready`, `combo:stale`, `combo:conflict`).
@@ -55,7 +55,7 @@ Hard rule: `reviewer != coder`.
     present with SUCCESS, and the remaining CI/check rollup is successful for
     that SHA. If GitHub later reports an open READY PR as dirty or conflicting
     after the base advances, the director journals `pr_conflict`, invalidates
-    READY back to REVIEWING, and nudges coder responding to rebase.
+    READY back to REVIEWING, and nudges coder-response to rebase.
 8. After the human merges the PR, the director-watch loop detects the merge
    on its next tick and auto-triggers `closure` convergence: it verifies
    GitHub reports MERGED, records any missing `merged` event, refuses
@@ -135,8 +135,8 @@ contract: deterministic overture launch runway,
 coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer with
 machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
-lazy coder responding mode (created only after review signals or PR-conflict
-recovery need it, not on first-pass PR-open happy path), single `director-watch`
+lazy coder-response routing through the persistent coder window by default
+(legacy `coder-responding` compatibility window only when configured), single `director-watch`
 observation with compact per-tick operator status lines, frozen journal
 `reconcile` repair for closed PRs (preserving all worktrees on close),
 merged-PR `reconcile` with merge-fact recording only (resource convergence
@@ -155,12 +155,13 @@ heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
 justification), explicit coder terminal outcomes (`coder_done` trust over dead-looking panes) before worker recovery, pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
-stalled coder-responding recovery with bounded retries,
+stalled coder-response recovery with bounded retries,
 configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries,
 current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (fixed tmux role topology: coder, journal,
-director, gatekeeper, and reviewer; director-watch remains a deliberate
+director, gatekeeper, and reviewer; reviewer activates after `pr_opened`;
+director-watch remains a deliberate
 polling exception; coder-response target defaults to the persistent coder
 window; raw event output never replaces the coder role), and opt-in runner
 progress status lines

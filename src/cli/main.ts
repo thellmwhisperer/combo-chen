@@ -128,6 +128,7 @@ import {
   ensureJournalPane,
   ensureWindowPresent,
   JOURNAL_WINDOW,
+  REVIEWER_WINDOW,
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, formatGateLeaseStatus, type CommandResult } from "./status.js";
@@ -521,6 +522,7 @@ export function createProgram(deps: Deps): Command {
           `journal=${JOURNAL_WINDOW}`,
           `director=${DIRECTOR_WINDOW}`,
           `gatekeeper=${GATEKEEPER_WINDOW}`,
+          `reviewer=${REVIEWER_WINDOW}(on-pr-open)`,
           `director-watch=${DIRECTOR_WATCH_WINDOW}`,
           `coder-response=${config.coderRespondingWindowName}`,
         ].join(" · "),
