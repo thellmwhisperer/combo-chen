@@ -173,6 +173,10 @@ describe("activateReviewer", () => {
     const reviewerWindow = newWindows.find((call) => call[4] === "reviewer");
     expect(reviewerWindow?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "reviewer"]);
     expect(reviewerWindow?.at(-1)).toContain("reviewer window idle");
+    expect(reviewerWindow?.at(-1)).toContain("combo_chen_idle=1");
+    expect(reviewerWindow?.at(-1)).toContain("trap 'combo_chen_idle=0' INT");
+    expect(reviewerWindow?.at(-1)).toContain('while [ "$combo_chen_idle" = 1 ]; do sleep 3600; done');
+    expect(reviewerWindow?.at(-1)).toContain('exec "${SHELL:-/bin/sh}"');
     expect(reviewerPromptCommand(calls)).toContain("https://github.com/o/r/pull/7");
     const directorWatchWindow = newWindows.find((call) => call[4] === "director-watch");
     expect(directorWatchWindow?.slice(0, 5)).toEqual([

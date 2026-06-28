@@ -170,6 +170,11 @@ describe("gatekeeper attach window helpers", () => {
       "-n",
       "gatekeeper",
     ]);
+    const gatekeeperCommand = calls[1]?.at(-1) ?? "";
+    expect(gatekeeperCommand).toContain("combo_chen_idle=1");
+    expect(gatekeeperCommand).toContain("trap 'combo_chen_idle=0' INT");
+    expect(gatekeeperCommand).toContain('while [ "$combo_chen_idle" = 1 ]; do');
+    expect(gatekeeperCommand).toContain('exec "${SHELL:-/bin/sh}"');
   });
 });
 // -/ 2/5
@@ -283,6 +288,10 @@ describe("gatekeeper runtime config snapshots", () => {
       `combo_chen_gate_script_done='${join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh.window.log.done")}'`,
     );
     expect(gatekeeperWindowCommand).toContain('wait "$combo_chen_gate_script_pid"');
+    expect(gatekeeperWindowCommand).toContain("combo_chen_idle=1");
+    expect(gatekeeperWindowCommand).toContain("trap 'combo_chen_idle=0' INT");
+    expect(gatekeeperWindowCommand).toContain('while [ "$combo_chen_idle" = 1 ]; do');
+    expect(gatekeeperWindowCommand).toContain('exec "${SHELL:-/bin/sh}"');
   });
 
   it("passes initial gate retry intent without embedding shell-interpretable issue text", () => {
@@ -407,6 +416,11 @@ describe("gatekeeper runtime config snapshots", () => {
     const script = readFileSync(join(runDir, "gatekeeper-post-bbbbbbbbbbbb.sh"), "utf8");
     expect(script).toContain("printf launch-post");
     expect(script).not.toContain("printf drifted-post");
+    const gatekeeperCommand = calls.find((call) => call[0] === "set-buffer")?.at(-1) ?? "";
+    expect(gatekeeperCommand).toContain("combo_chen_idle=1");
+    expect(gatekeeperCommand).toContain("trap 'combo_chen_idle=0' INT");
+    expect(gatekeeperCommand).toContain('while [ "$combo_chen_idle" = 1 ]; do');
+    expect(gatekeeperCommand).toContain('exec "${SHELL:-/bin/sh}"');
   });
 });
 // -/ 4/5

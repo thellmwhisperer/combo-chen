@@ -417,7 +417,9 @@ function indentShellLines(lines: string[], spaces: number): string[] {
 
 function buildPersistentGatekeeperWindowCommand(command: string): string {
   return shellScript(
-    "while :; do",
+    "combo_chen_idle=1",
+    "trap 'combo_chen_idle=0' INT",
+    'while [ "$combo_chen_idle" = 1 ]; do',
     "(",
     indentShellLines(command.split(/\r?\n/), 2),
     ")",
@@ -429,6 +431,7 @@ function buildPersistentGatekeeperWindowCommand(command: string): string {
     "fi",
     "sleep 1",
     "done",
+    'exec "${SHELL:-/bin/sh}"',
   );
 }
 
@@ -479,7 +482,9 @@ function buildScriptWithGatekeeperAttachCommand(
     'if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then',
     '  exit "$combo_chen_gate_script_code"',
     "fi",
-    "while :; do",
+    "combo_chen_idle=1",
+    "trap 'combo_chen_idle=0' INT",
+    'while [ "$combo_chen_idle" = 1 ]; do',
     "  combo_chen_gate_attach_code=0",
     "  (",
     indentShellLines(idleAttach.split(/\r?\n/), 4),
@@ -488,6 +493,7 @@ function buildScriptWithGatekeeperAttachCommand(
     '  printf "[combo-chen] gatekeeper idle; waiting for the next current-head run.\\n"',
     "  sleep 1",
     "done",
+    'exec "${SHELL:-/bin/sh}"',
   );
 }
 
