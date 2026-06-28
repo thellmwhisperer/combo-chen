@@ -5383,7 +5383,7 @@ describe("status", () => {
     expect(text).toContain("no-mistakes running ci");
   });
 
-  it("syncs combo PR labels from status --deep with fake GitHub state", async () => {
+  it("keeps status --deep observational and never mutates PR labels", async () => {
     const h = home();
     const worktree = "/repos/r/.worktrees/issue-7";
     const prUrl = "https://github.com/o/r/pull/7";
@@ -5401,7 +5401,6 @@ describe("status", () => {
     appendEvent(dir, "pr_opened", { url: prUrl });
     appendEvent(dir, "gate_started", {});
 
-    let liveLabels: Array<{ name: string }> = [];
     const { deps, calls } = fakeDeps({
       env: {
         COMBO_CHEN_HOME: h,
@@ -5432,7 +5431,7 @@ describe("status", () => {
             stdout: JSON.stringify({
               headRefOid: headSha,
               state: "OPEN",
-              ...(fields.includes("labels") ? { labels: liveLabels } : {}),
+              ...(fields.includes("labels") ? { labels: [{ name: "combo:ready" }] } : {}),
               ...(fields.includes("statusCheckRollup")
                 ? {
                     statusCheckRollup: [
@@ -5447,10 +5446,7 @@ describe("status", () => {
           };
         }
         if (args[0] === "pr" && args[1] === "edit") {
-          if (args[3] === "--add-label") {
-            liveLabels = liveLabels.concat(String(args[4] ?? "").split(",").map((name) => ({ name })));
-          }
-          return { status: 0, stdout: "", stderr: "" };
+          return { status: 1, stdout: "", stderr: "status must not mutate labels" };
         }
         return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
       },
@@ -5458,27 +5454,8 @@ describe("status", () => {
 
     await exec(deps, ["status", "--deep"]);
 
-    expect(calls).toContainEqual([
-      "gh",
-      "pr",
-      "edit",
-      prUrl,
-      "--add-label",
-      "combo:working-gate,combo:external-review-green",
-    ]);
-    expect(readEvents(dir)).toContainEqual(
-      expect.objectContaining({
-        event: "pr_labels_updated",
-        pr_url: prUrl,
-        head_sha: headSha,
-        old_labels: [],
-        new_labels: ["combo:working-gate", "combo:external-review-green"],
-        added_labels: ["combo:working-gate", "combo:external-review-green"],
-        removed_labels: [],
-        reason: "current",
-        source: "status-deep",
-      }),
-    );
+    expect(calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit")).toEqual([]);
+    expect(readEvents(dir).filter((event) => event.event === "pr_labels_updated")).toEqual([]);
   });
 
   it("prints awaiting no-mistakes gate finding ids and respond command in deep mode", async () => {

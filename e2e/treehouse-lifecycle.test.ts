@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2120 lines, log-derived regressions.
+ *   and process shims for external services. ~2200 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -1829,6 +1829,68 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           }),
         ]),
       );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("keeps status --deep observational for PR labels", () => {
+    const harness = prepareHarness({ greenCheckNames: ["ExternalReview"] });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(
+        harness.env.E2E_GH_STATE!,
+        `${JSON.stringify({
+          prLabels: ["combo:ready"],
+          knownLabels: ["combo:working-gate", "combo:ready"],
+          failedMissingLabelAdd: false,
+        }, null, 2)}\n`,
+      );
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_started", []],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const status = run(process.execPath, [cliPath, "status", "--deep"], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: headSha,
+          E2E_PR_STATE: "OPEN",
+        },
+      });
+
+      expect(status.stdout).toContain(combo.id);
+      const ghState = readJson<{ prLabels: string[] }>(harness.env.E2E_GH_STATE!);
+      expect(ghState.prLabels).toEqual(["combo:ready"]);
+
+      const ghLog = readJsonLines<LogEntryJson>(harness.logs.gh);
+      expect(ghLog).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            args: expect.arrayContaining(["pr", "edit", prUrl]),
+          }),
+        ]),
+      );
+
+      const labelEvents = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).filter(
+        (event) => event.event === "pr_labels_updated",
+      );
+      expect(labelEvents).toEqual([]);
 
       passed = true;
     } finally {
