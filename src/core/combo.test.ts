@@ -433,7 +433,7 @@ exit 1
     ]);
   });
 
-  it("does not recover context cancellation before checks-passed outcome", () => {
+  it("normalizes checks-passed context-canceled through the runner path", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
@@ -459,8 +459,9 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     writeFileSync(
       fakeGatekeeper,
       `#!/bin/sh
-printf '%s\\n' 'ci.log: context canceled'
+sleep 2
 printf '%s\\n' 'outcome: checks-passed'
+printf '%s\\n' 'ci.log: context canceled'
 exit 42
 `,
     );
@@ -501,14 +502,14 @@ exit 1
       }),
     });
 
-    expect(result.status).toBe(42);
+    expect(result.status).toBe(0);
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
       "coder_done",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
-      `gate_status --field state=failed --field head_sha=${localHead}`,
-      "gate_failed --field exit_code=42 --field reason=gate_failed",
+      `gate_status --field state=idle --field head_sha=${localHead} --field recovery=checks_passed_context_canceled`,
+      "needs_human --field reason=pr_missing",
     ]);
   });
 
@@ -666,6 +667,7 @@ printf '%s\\n' "$*" >> "$EVENTS_LOG"
     writeFileSync(
       fakeGatekeeper,
       `#!/bin/sh
+sleep 2
 printf '%s\\n' 'outcome: checks-passed'
 printf '%s\\n' 'ci.log: context canceled'
 exit 42
@@ -690,14 +692,13 @@ exit 1
       fakeNoMistakes,
       `#!/bin/sh
 if [ "$1" = "status" ]; then
-  sleep 2
   printf 'daemon: running\\n'
   printf 'gate: %s\\n' "$NO_MISTAKES_GATE"
   exit 0
 fi
 if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
   printf 'id: 01CONFIGRACE\\n'
-  printf 'branch: combo/issue-7\\n'
+  printf 'branch: other-branch\\n'
   printf 'status: running\\n'
   exit 0
 fi
@@ -734,7 +735,7 @@ exit 1
     const result = spawnSync("sh", [runnerPath], {
       encoding: "utf8",
       env: runnerSubprocessEnv({
-        COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
+        COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "1",
         EVENTS_LOG: eventsPath,
         LOCAL_HEAD: localHead,
         NO_MISTAKES_GATE: gatePath,
