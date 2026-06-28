@@ -77,6 +77,14 @@ function setCurrentBranchRun(state, run) {
   state.head = run.head;
 }
 
+function markCurrentBranchRun(state, status) {
+  if (!Array.isArray(state.runs)) return;
+  const currentBranch = branch();
+  state.runs = state.runs.map((run) =>
+    run.branch === currentBranch && isLive(run) ? { ...run, status } : run,
+  );
+}
+
 function logCall() {
   if (!process.env.E2E_NO_MISTAKES_LOG) return;
   appendFileSync(
@@ -145,6 +153,7 @@ if (args[0] === "axi" && args[1] === "run") {
   if (Number.isFinite(delay) && delay > 0) sleep(delay);
   if (process.env.E2E_NO_MISTAKES_FAIL_AXI_RUN === "1") {
     const state = load();
+    markCurrentBranchRun(state, "failed");
     state.active = false;
     save(state);
     process.stdout.write("run: failed\n  review: failed\n");
