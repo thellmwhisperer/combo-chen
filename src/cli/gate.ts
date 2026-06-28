@@ -241,6 +241,12 @@ interface LatestGateStatus {
   headSha?: string;
 }
 
+type LocalRecoveryAfterGate =
+  | { kind: "gate_stale"; headSha: string }
+  | { kind: "address_done"; headSha: string }
+  | { kind: "review_comment"; headSha: string }
+  | { kind: "pr_conflict"; headSha: string };
+
 export function latestGateStatus(events: ComboEvent[]): LatestGateStatus | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
@@ -292,7 +298,7 @@ function hasAddressDone(events: ComboEvent[], headSha: string): boolean {
   return events.some((event) => event.event === "address_done" && event["head_sha"] === headSha);
 }
 
-function latestLocalRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
+function latestLocalRecoveryAfterGate(events: ComboEvent[], gateSha: string): LocalRecoveryAfterGate | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
     if (
@@ -301,14 +307,14 @@ function latestLocalRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: stri
       typeof event["new_sha"] === "string" &&
       event["new_sha"] !== ""
     ) {
-      return event["new_sha"];
+      return { kind: "gate_stale", headSha: event["new_sha"] };
     }
     if (event.event === "address_done" && typeof event["head_sha"] === "string" && event["head_sha"] !== "") {
-      return event["head_sha"];
+      return { kind: "address_done", headSha: event["head_sha"] };
     }
     if (event.event === "review_comment") {
       return typeof event["head_sha"] === "string" && event["head_sha"] !== ""
-        ? event["head_sha"]
+        ? { kind: "review_comment", headSha: event["head_sha"] }
         : undefined;
     }
     if (
@@ -317,7 +323,7 @@ function latestLocalRecoveryHeadShaAfterGate(events: ComboEvent[], gateSha: stri
       typeof event["sha"] === "string" &&
       event["sha"] !== ""
     ) {
-      return event["sha"];
+      return { kind: "pr_conflict", headSha: event["sha"] };
     }
     if (event.event === "gate_validated" && event["sha"] === gateSha) return undefined;
     if (event.event === "gate_status" && event["state"] === "idle" && event["head_sha"] === gateSha) {
@@ -338,9 +344,6 @@ function latestLocalGateReplacementHeadShaAfterGate(events: ComboEvent[], gateSh
     ) {
       return event["new_sha"];
     }
-    if (event.event === "address_done" && typeof event["head_sha"] === "string" && event["head_sha"] !== "") {
-      return event["head_sha"];
-    }
     if (event.event === "gate_validated" && event["sha"] === gateSha) return undefined;
     if (event.event === "gate_status" && event["state"] === "idle" && event["head_sha"] === gateSha) {
       return undefined;
@@ -352,10 +355,9 @@ function latestLocalGateReplacementHeadShaAfterGate(events: ComboEvent[], gateSh
 function publishedGateSupersededByLocalRecovery(
   events: ComboEvent[],
   publishedSha: string,
-  headSha: string,
 ): boolean {
   const recoveryHeadSha = latestLocalGateReplacementHeadShaAfterGate(events, publishedSha);
-  return recoveryHeadSha !== undefined && recoveryHeadSha !== headSha;
+  return recoveryHeadSha !== undefined;
 }
 
 function hasGateStale(events: ComboEvent[], oldSha: string, newSha: string): boolean {
@@ -978,7 +980,7 @@ export function restartPostAddressGate(input: {
 
   const lastPublishedSha = latestPublishedGateSha(events);
   const publishedGateIsSuperseded = lastPublishedSha !== undefined &&
-    publishedGateSupersededByLocalRecovery(events, lastPublishedSha, headSha);
+    publishedGateSupersededByLocalRecovery(events, lastPublishedSha);
   if (
     lastPublishedSha !== undefined &&
     lastPublishedSha !== headSha &&
@@ -1065,13 +1067,13 @@ export function runPostAddressGateIfNeeded(input: {
     return { status: "idle", reason: "gate_failed_at_head", headSha };
   }
 
-  const recoveryHeadSha = latestLocalRecoveryHeadShaAfterGate(events, lastPublishedSha);
-  if (recoveryHeadSha === undefined || recoveryHeadSha === headSha) {
+  const recovery = latestLocalRecoveryAfterGate(events, lastPublishedSha);
+  if (recovery === undefined || (recovery.kind !== "gate_stale" && recovery.headSha === headSha)) {
     deps.out(`director: no coder HEAD change for ${combo.id}; waiting for coder to commit`);
     return { status: "idle", reason: "no_coder_head_change", headSha };
   }
 
-  const publishedGateIsSuperseded = publishedGateSupersededByLocalRecovery(events, lastPublishedSha, headSha);
+  const publishedGateIsSuperseded = publishedGateSupersededByLocalRecovery(events, lastPublishedSha);
   if (!publishedGateIsSuperseded && !worktreeContainsSha(deps, combo, lastPublishedSha, headSha)) {
     deps.out(
       `director: worktree HEAD ${headSha} does not include published gate ${lastPublishedSha}; ` +

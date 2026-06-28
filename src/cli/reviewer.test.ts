@@ -503,6 +503,74 @@ describe("activateReviewer", () => {
 
     expect(calls).not.toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:reviewer"]);
   });
+
+  it("does not interrupt an active reviewer window before nudging it", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "director\nreviewer\ndirector-watch\n", stderr: "" };
+          }
+          if (args[0] === "capture-pane") {
+            return { status: 0, stdout: "reviewer is still running\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls).not.toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:reviewer", "C-c"]);
+    expect(reviewerPromptCommand(calls)).toContain("https://github.com/o/r/pull/7");
+  });
+
+  it("interrupts an idle reviewer window before nudging it", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(home, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    activateReviewer({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "director\nreviewer\ndirector-watch\n", stderr: "" };
+          }
+          if (args[0] === "capture-pane") {
+            return {
+              status: 0,
+              stdout: "[combo-chen] reviewer window idle; waiting for combo-chen to prompt it.\n",
+              stderr: "",
+            };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
+
+    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:reviewer", "C-c"]);
+    expect(reviewerPromptCommand(calls)).toContain("https://github.com/o/r/pull/7");
+  });
 });
 // -/ 3/4
 

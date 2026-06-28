@@ -31,7 +31,7 @@ import { updateRuntimeLedger } from "../core/runtime-ledger.js";
 import { cleanOptional, runDirFor, readCombo, type ComboRecord } from "../core/state.js";
 import type { WorkPlan } from "../core/work-plan.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import { captureWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import { buildDirectorInvocation } from "../roles/director.js";
 import { buildReviewerInvocation, incrementalReviewerPrompt } from "../roles/reviewer.js";
 import { nudgeReviewComments } from "./coder.js";
@@ -351,12 +351,14 @@ function sendCommandToWindow(
   command: string,
 ): void {
   const target = `${combo.tmuxSession}:${windowName}`;
-  const interrupted = deps.tmux(["send-keys", "-t", target, "C-c"]);
-  if (interrupted.status !== 0) {
-    throw new Error(
-      `tmux failed to interrupt "${windowName}" in "${combo.tmuxSession}": ` +
-        `${interrupted.stderr.trim() || "unknown error"}`,
-    );
+  if (windowLooksIdle(deps, combo, windowName)) {
+    const interrupted = deps.tmux(["send-keys", "-t", target, "C-c"]);
+    if (interrupted.status !== 0) {
+      throw new Error(
+        `tmux failed to interrupt "${windowName}" in "${combo.tmuxSession}": ` +
+          `${interrupted.stderr.trim() || "unknown error"}`,
+      );
+    }
   }
   for (const args of nudgeWindowArgs(combo.tmuxSession, windowName, command)) {
     const sent = deps.tmux(args);
@@ -367,6 +369,16 @@ function sendCommandToWindow(
       );
     }
   }
+}
+
+function windowLooksIdle(
+  deps: Pick<ActivateReviewerDeps, "tmux">,
+  combo: ComboRecord,
+  windowName: string,
+): boolean {
+  const captured = deps.tmux(captureWindowArgs(combo.tmuxSession, windowName));
+  if (captured.status !== 0) return false;
+  return captured.stdout.includes(`[combo-chen] ${windowName} window idle; waiting for combo-chen to prompt it.`);
 }
 
 export function latestOpenedPrUrl(runDir: string): string | undefined {

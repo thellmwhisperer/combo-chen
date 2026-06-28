@@ -287,6 +287,7 @@ export async function resumeCombo(input: {
 
   if (state.kind === "reviewer_ready") {
     const recreated = convergeStableTopology({ deps, combo, home, cli, config });
+    pruneLegacyTopology({ deps, combo, config });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(`resume: ${PR_READY_FOR_REVIEWER}${recreated ? " (recreated tmux session)" : ""}`);
     return;
@@ -319,6 +320,7 @@ export async function resumeCombo(input: {
 
   if (state.kind === "initial_gate_retry") {
     const recreated = convergeStableTopology({ deps, combo, home, cli, config });
+    pruneLegacyTopology({ deps, combo, config });
     const result = startInitialGateRetry({ deps, combo, runDir, cli });
     if (result.started) {
       deps.out(
@@ -331,6 +333,7 @@ export async function resumeCombo(input: {
 
   if (state.kind === "pr_exists") {
     const recreated = convergeStableTopology({ deps, combo, home, cli, config });
+    pruneLegacyTopology({ deps, combo, config });
     activateReviewer({ deps, home, comboId: combo.id, cli });
     deps.out(
       `resume: PR exists at ${state.prUrl}; reviewer/director monitoring ensured` +
@@ -367,9 +370,6 @@ function convergeStableTopology(input: {
 }): boolean {
   const { deps, combo, home, cli, config } = input;
   const recreated = ensureComboSession({ deps, combo, home, cli });
-  removeLegacyTopologyWindows(deps, combo, {
-    removeCoderResponding: config.coderRespondingWindowName === CODER_WINDOW,
-  });
   ensureWindowPresent(
     deps,
     combo,
@@ -396,5 +396,16 @@ function convergeStableTopology(input: {
     }),
   );
   return recreated;
+}
+
+function pruneLegacyTopology(input: {
+  deps: Pick<ResumeDeps, "tmux">;
+  combo: ComboRecord;
+  config: ReturnType<typeof loadRuntimeConfig>;
+}): void {
+  const { deps, combo, config } = input;
+  removeLegacyTopologyWindows(deps, combo, {
+    removeCoderResponding: config.coderRespondingWindowName === CODER_WINDOW,
+  });
 }
 // -/ 3/3
