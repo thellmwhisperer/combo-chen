@@ -183,9 +183,17 @@ function latestInitialCoderTerminalOutcome(
 }
 
 function hasCoderResponsePromptAfter(events: ComboEvent[], index: number): boolean {
-  return events
-    .slice(index + 1)
-    .some((event) => event.event === "review_comment" || event.event === "pr_conflict");
+  let hasUnresolved = false;
+  for (let i = index + 1; i < events.length; i += 1) {
+    const event = events[i]!;
+    if (event.event === "review_comment" || event.event === "pr_conflict") {
+      hasUnresolved = true;
+    }
+    if (event.event === "lgtm") {
+      hasUnresolved = false;
+    }
+  }
+  return hasUnresolved;
 }
 
 function terminalOutcomeSummary(worker: string, outcome: "coder_done" | "coder_failed"): string {
