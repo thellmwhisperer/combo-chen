@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation, isParked; Treehouse lease acquisition/rollback; forensics option parsing/outcome recording; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation, isParked, collectLocalWorktreeHeadSha; Treehouse lease acquisition/rollback; forensics option parsing/outcome recording; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
