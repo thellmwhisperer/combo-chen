@@ -11,6 +11,15 @@
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 * **pr-labels:** Make combo PR label projection single-writer and idempotent. Read-only commands (`status`, `status --deep`, `status --deep --all`) no longer mutate GitHub labels or journal `pr_labels_updated` events; only the canonical mutation path (`director-watch`/`director-tick`) writes labels. Fixes [#241](https://github.com/thellmwhisperer/combo-chen/issues/241).
 
+## [0.0.67](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.66...combo-chen-v0.0.67) (2026-06-28)
+
+
+### Bug Fixes
+
+* **gate:** harden PR drift and recovery handling ([937f171](https://github.com/thellmwhisperer/combo-chen/commit/937f171d38be32557397c0c8425ce4612a7edd20))
+* **gate:** Implemented the remaining issue [#195](https://github.com/thellmwhisperer/combo-chen/issues/195) gate-status slice so checks-passed plus context-canceled no-mistakes exits are recovered as successful gate evidence, with full local validation green. ([f825706](https://github.com/thellmwhisperer/combo-chen/commit/f825706aecad607b3fa949e64434161bc68fcd2c))
+* **status:** Implemented the PR-head/local-worktree-head drift visibility slice for issue [#195](https://github.com/thellmwhisperer/combo-chen/issues/195) and validated it with focused, e2e, and full local checks. ([d6f8b7a](https://github.com/thellmwhisperer/combo-chen/commit/d6f8b7a5e89fb82ea48b55e0cc768a38cfe908ab))
+
 ## [0.0.66](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.65...combo-chen-v0.0.66) (2026-06-28)
 
 
