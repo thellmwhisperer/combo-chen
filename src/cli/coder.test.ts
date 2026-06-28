@@ -280,7 +280,6 @@ describe("nudgeReviewComments", () => {
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
 
- (fix(coder): Default coder-response routing now uses the persistent `coder` tmux role while retaining an explicit `coder-responding` compatibility bridge for historical/adopted capsules.)
   it("syncs the mirror, routes fetched PR comments, and reports routed nudges", () => {
     const calls: string[][] = [];
     const out: string[] = [];
