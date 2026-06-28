@@ -1,5 +1,5 @@
 /**
- * @overview Combo forensics report model and renderers. ~425 lines, pure analysis only.
+ * @overview Combo forensics report model and renderers. ~455 lines, pure analysis only.
  *
  *   READING GUIDE
  *   -------------
@@ -29,7 +29,7 @@
 import { deriveStatus, type Phase } from "../core/combo.js";
 import type { ComboEvent } from "../core/events.js";
 import { describeWorkItem, type ComboRecord, type WorkItemDescriptor } from "../core/state.js";
-import { latestGateStatus, latestPublishedGateSha } from "./gate.js";
+import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
 // -- 1/3 HELPER · Public report types --
@@ -61,6 +61,9 @@ export interface ForensicsTmuxFacts {
 export interface ForensicsComboInput {
   combo: ComboRecord;
   events: ComboEvent[];
+  local?: {
+    worktreeHeadSha?: string;
+  };
   github?: {
     pr?: ForensicsGithubPrFacts;
     issue?: ForensicsGithubIssueFacts;
@@ -74,7 +77,8 @@ export interface ForensicsIncident {
     | "stale_lgtm_after_push"
     | "process_without_github_gate"
     | "merged_pr_open_issue"
-    | "local_status_stale";
+    | "local_status_stale"
+    | "pr_head_local_drift";
   severity: "info" | "warning" | "critical";
   message: string;
 }
@@ -119,6 +123,7 @@ export interface ForensicsComboReport {
       livePinnedSha?: string;
       headSha?: string;
     };
+    localWorktreeHeadSha?: string;
     issueClosed: boolean | "unknown";
   };
   processes: {
@@ -137,6 +142,7 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
   const status = deriveStatus(events);
   const prUrl = input.github?.pr?.url ?? latestPrUrl(events);
   const headSha = input.github?.pr?.headSha;
+  const localHeadSha = input.local?.worktreeHeadSha;
   const probedReviewerSha = input.github?.pr?.reviewerPinnedSha;
   const liveReviewerSha = probedReviewerSha === null
     ? undefined
@@ -202,6 +208,7 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
         ...(liveReviewerSha !== undefined ? { livePinnedSha: liveReviewerSha } : {}),
         ...(headSha !== undefined ? { headSha } : {}),
       },
+      ...(localHeadSha !== undefined ? { localWorktreeHeadSha: localHeadSha } : {}),
       issueClosed: issueState === undefined ? "unknown" : issueState === "CLOSED",
     },
     processes: {
@@ -219,6 +226,21 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
         "missing_reviewer_verdict",
         "critical",
         `CI is green at ${headSha}, but no current reviewer lgtm is visible for that head.`,
+      ),
+    );
+  }
+
+  if (
+    prState === "OPEN" &&
+    localHeadSha !== undefined &&
+    headSha !== undefined &&
+    !shaMatchesHead(localHeadSha, headSha)
+  ) {
+    report.incidents.push(
+      incident(
+        "pr_head_local_drift",
+        "warning",
+        `PR head ${shortSha(headSha)} differs from local worktree ${shortSha(localHeadSha)}; fetch PR head for review or sync combo worktree.`,
       ),
     );
   }
@@ -282,6 +304,9 @@ export function renderForensicsMarkdown(reports: ForensicsComboReport[]): string
     lines.push("- Outcome:");
     lines.push(`  - PR link: ${report.prUrl ?? "unknown"}`);
     lines.push(`  - Head SHA: ${report.gates.reviewer.headSha ?? "unknown"}`);
+    if (report.gates.localWorktreeHeadSha !== undefined) {
+      lines.push(`  - Local worktree HEAD: ${shortSha(report.gates.localWorktreeHeadSha)}`);
+    }
     lines.push(`  - Review/check state: ${reviewCheckState(report)}`);
     lines.push(`  - Failures found: ${failuresFound(report)}`);
     lines.push(`  - Follow-up bugs: ${followUpBugs(report)}`);
@@ -409,6 +434,10 @@ function formatDuration(ms: number | undefined): string {
 
 function yesNo(value: boolean): "yes" | "no" {
   return value ? "yes" : "no";
+}
+
+function shortSha(sha: string): string {
+  return sha.trim().slice(0, 7);
 }
 
 function upper(value: string | undefined): string | undefined {
