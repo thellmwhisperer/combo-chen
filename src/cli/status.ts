@@ -232,6 +232,9 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
   const blockingMergeState = blockingReadyMergeState(pr);
   if (blockingMergeState !== undefined) return `${PR_CONFLICT_REBASE_REQUIRED} (${blockingMergeState})`;
 
+  const drift = prHeadDriftStatus(options.localHeadSha, pr.headSha);
+  if (drift !== undefined) return drift;
+
   if (
     !checkRollupSucceeded(pr.statusCheckRollup, { requiredCheckNames: options.requiredCheckNames, ambientCheckNames: options.ambientCheckNames }) ||
     !requiredChecksSucceeded(pr.statusCheckRollup, options.requiredCheckNames ?? [])

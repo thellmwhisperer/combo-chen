@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~8220 lines. (no-mistakes(document): Sync docs to single-writer label projection change)
+ *   deps so tests run without a real terminal or network. ~8290 lines. (fix(status): Implemented the PR-head/local-worktree-head drift visibility slice for issue #195 and validated it with focused, e2e, and full local checks.)
  *
  *   READING GUIDE
  *   ─────────────
