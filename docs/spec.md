@@ -764,9 +764,12 @@ after the run has a PR link and head SHA.
 
 ## 8d. PR label projection
 
-While the PR is open, the director-watch loop and `status --deep` keep
-GitHub PR labels in sync with the live combo state. Labels are a UI/status
-projection only; the journal and GitHub checks remain the source of truth.
+While the PR is open, the canonical mutation path (`director-watch` or
+`director-tick`) keeps GitHub PR labels in sync with the live combo state.
+Read-only commands such as `status` and `status --deep` may surface the same
+projected state, but they do not mutate PR labels or journal
+`pr_labels_updated` events. Labels are a UI/status projection only; the journal
+and GitHub checks remain the source of truth.
 
 ### Label catalogue
 
@@ -814,10 +817,11 @@ Every label change journals a `pr_labels_updated` event with:
 - `old_labels` / `new_labels`: the label set before and after mutation.
 - `added_labels` / `removed_labels`: the diff.
 - `reason`: one of `pr_not_open`, `conflict`, `stale`, or `current`.
-- `source` (optional): `director-watch` or `status-deep`.
+- `source` (optional): the explicit combo-owned mutation path, such as
+  `director-watch`.
 
 Label mutation failures (network errors, missing `gh`) are best-effort and
-do not block the director tick or status dashboard.
+do not block the director tick.
 
 ## 9. Work plans
 
