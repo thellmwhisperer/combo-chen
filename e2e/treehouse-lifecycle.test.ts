@@ -2087,6 +2087,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+<<<<<<< HEAD
   it("surfaces PR head drift in status --deep without mutating labels", () => {
     const harness = prepareHarness({ greenCheckNames: ["ExternalReview"] });
     let passed = false;
@@ -2146,6 +2147,8 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+=======
+>>>>>>> f5d98e2 (fix(labels): Made `status --deep` observational for PR labels by removing its label mutation path and pinning the behavior with unit and e2e regressions.)
   it("keeps the coder owner label with stale after a newer local addressed head fails gate", () => {
     const harness = prepareHarness({ greenCheckNames: ["ExternalReview"] });
     let passed = false;
