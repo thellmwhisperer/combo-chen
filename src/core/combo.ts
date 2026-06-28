@@ -1,6 +1,6 @@
 /**
  * @overview Core logic: phase state machine + runner script generator.
- *   ~435 lines, 10 exports, 1 critical function.
+ *   ~440 lines, 10 exports, 1 critical function.
  *
  *   READING GUIDE
  *   ─────────────
@@ -279,6 +279,12 @@ export function buildNoMistakesGatekeeperRunScript(
     "fi",
     "wait \"$gatekeeper_command_pid\" || true",
     "gatekeeper_inner_code=$(cat \"$gatekeeper_status_file\" 2>/dev/null || printf '1')",
+    "gatekeeper_raw_code=\"$gatekeeper_inner_code\"",
+    "if [ \"$gatekeeper_raw_code\" != \"0\" ]; then",
+    "  if [ -n \"${gatekeeper_log:-}\" ]; then",
+    "    printf '%s\\n' \"$gatekeeper_raw_code\" > \"${gatekeeper_log}.raw_status\"",
+    "  fi",
+    "fi",
     "if [ \"$gatekeeper_finished_before_config\" = \"1\" ] && [ \"$gatekeeper_inner_code\" = \"0\" ]; then",
     "  printf '%s\\n' \"no-mistakes config copy failed: gatekeeper finished before config copy\" >&2",
     "  gatekeeper_inner_code=1",
@@ -294,7 +300,14 @@ export function buildNoMistakesGatekeeperRunScript(
 export function checksPassedContextCanceledRecoveryScript(): string[] {
   return [
     "gatekeeper_recovery_reason=${gatekeeper_recovery_reason:-}",
-    "if [ \"$gatekeeper_code\" -ne 0 ] && grep -Eiq '^outcome:[[:space:]]*checks-passed[[:space:]]*$' \"$gatekeeper_log\" && grep -Eiq 'context[[:space:]]+canceled' \"$gatekeeper_log\"; then",
+    "gatekeeper_raw_status_file=\"${gatekeeper_log}.raw_status\"",
+    "gatekeeper_raw_code=$(cat \"$gatekeeper_raw_status_file\" 2>/dev/null || printf '')",
+    "case \"$gatekeeper_raw_code\" in",
+    "  ''|0|*[!0-9]*) gatekeeper_raw_failed=0 ;;",
+    "  *) gatekeeper_raw_failed=1 ;;",
+    "esac",
+    "rm -f \"$gatekeeper_raw_status_file\"",
+    "if [ \"$gatekeeper_code\" -ne 0 ] && [ \"$gatekeeper_raw_failed\" = \"1\" ] && awk 'BEGIN { seen=0; found=0 } { line=tolower($0) } line ~ /^outcome:[[:space:]]*checks-passed[[:space:]]*$/ { seen=1; next } seen && line ~ /context[[:space:]]+canceled/ { found=1 } END { exit found ? 0 : 1 }' \"$gatekeeper_log\"; then",
     "  gatekeeper_recovery_reason=checks_passed_context_canceled",
     "  gatekeeper_code=0",
     "fi",

@@ -226,11 +226,11 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
     return undefined;
   }
 
-  const blockingMergeState = blockingReadyMergeState(pr);
-  if (blockingMergeState !== undefined) return `${PR_CONFLICT_REBASE_REQUIRED} (${blockingMergeState})`;
-
   const drift = prHeadDriftStatus(options.localHeadSha, pr.headSha);
   if (drift !== undefined) return drift;
+
+  const blockingMergeState = blockingReadyMergeState(pr);
+  if (blockingMergeState !== undefined) return `${PR_CONFLICT_REBASE_REQUIRED} (${blockingMergeState})`;
 
   if (
     !checkRollupSucceeded(pr.statusCheckRollup, { requiredCheckNames: options.requiredCheckNames, ambientCheckNames: options.ambientCheckNames }) ||
