@@ -26,7 +26,7 @@
  *   INTERNALS
  *   ---------
  *   requireComboGit, worktreeHeadSha, latestCoderRecoveryHeadShaAfterGate,
- *   buildInitialGateRetryScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
+ *   buildInitialGateRetryScript, gateStatusIdleScript, shellScript, renderGatekeeperCommand, buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
@@ -37,6 +37,7 @@ import { join } from "node:path";
 import {
   buildNoMistakesGatekeeperRunScript,
   buildNoMistakesMirrorPublishScript,
+  checksPassedContextCanceledRecoveryScript,
   gateLeaseScriptLines,
   guardNoMistakesDaemonStart,
   shellQuote,
@@ -479,6 +480,17 @@ function gateFailureReasonScript(): string[] {
   ];
 }
 
+function gateStatusIdleScript(emit: string, headShaField?: string): string[] {
+  const headField = headShaField === undefined ? "" : ` ${headShaField}`;
+  return [
+    'if [ -n "$gatekeeper_recovery_reason" ]; then',
+    `  ${emit} gate_status --field state=idle${headField} --field recovery="$gatekeeper_recovery_reason"`,
+    "else",
+    `  ${emit} gate_status --field state=idle${headField}`,
+    "fi",
+  ];
+}
+
 function gateAlreadyRunningGuardScript(input: {
   combo: ComboRecord;
   headSha: string;
@@ -558,6 +570,7 @@ function buildInitialGateRetryScript(input: {
     `  ${input.emit} needs_human --field reason=gate_waiting`,
     "  exit 0",
     "fi",
+    checksPassedContextCanceledRecoveryScript(),
     "if [ \"$gatekeeper_code\" -ne 0 ]; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     indentShellLines(gateFailureReasonScript(), 2),
@@ -585,11 +598,11 @@ function buildInitialGateRetryScript(input: {
         `    exit "$autoclose_code"`,
         "  fi",
       ],
-    `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
+    indentShellLines(gateStatusIdleScript(input.emit, '--field head_sha="$gatekeeper_head_sha"'), 2),
     `  ${input.emit} pr_opened --field url="$pr_url"`,
     `  ${input.activateReviewer}`,
     "else",
-    `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
+    indentShellLines(gateStatusIdleScript(input.emit, '--field head_sha="$gatekeeper_head_sha"'), 2),
     `  ${input.emit} needs_human --field reason=pr_missing`,
     "fi",
   );
@@ -706,6 +719,7 @@ export function buildPostAddressGateScript(input: {
     `  ${input.emit} needs_human --field reason=gate_waiting`,
     "  exit 0",
     "fi",
+    checksPassedContextCanceledRecoveryScript(),
     "if [ \"$gatekeeper_code\" -ne 0 ]; then",
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     indentShellLines(gateFailureReasonScript(), 2),
@@ -738,10 +752,10 @@ export function buildPostAddressGateScript(input: {
         "fi",
       ],
     `if [ -n "$gatekeeper_head_sha" ]; then`,
-    `  ${input.emit} gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"`,
+    indentShellLines(gateStatusIdleScript(input.emit, '--field head_sha="$gatekeeper_head_sha"'), 2),
     `  ${input.emit} gate_validated --field sha="$gatekeeper_head_sha"`,
     "else",
-    `  ${input.emit} gate_status --field state=idle`,
+    indentShellLines(gateStatusIdleScript(input.emit), 2),
     "fi",
   );
 }

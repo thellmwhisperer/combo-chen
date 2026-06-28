@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for gatekeeper CLI helpers. ~410 lines, attach, config artifact, mirror sync, and runtime snapshot use.
+ * @overview Unit tests for gatekeeper CLI helpers. ~460 lines, attach, config artifact, mirror sync, and runtime snapshot use.
  *
  *   READING GUIDE
  *   -------------
@@ -22,9 +22,18 @@
  *   combo
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ./gate
+ * @deps vitest, node:{child_process,fs,os,path}, ../core/{combo,events,state}, ../infra/{config,config-snapshot}, ./gate
  */
-import { chmodSync, existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -40,6 +49,7 @@ import {
   startInitialGateRetry,
   syncNoMistakesMirror,
 } from "./gate.js";
+import { shellQuote } from "../core/combo.js";
 import { appendEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { loadConfig } from "../infra/config.js";
@@ -369,6 +379,99 @@ describe("syncNoMistakesMirror", () => {
 });
 
 describe("buildPostAddressGateScript", () => {
+  it("normalizes checks-passed plus context-canceled no-mistakes exits as validated", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-post-gate-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+
+    const localHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const prHead = "cccccccccccccccccccccccccccccccccccccccc";
+    const eventsPath = join(dir, "events.log");
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeGatekeeper = join(bin, "fake-no-mistakes");
+    writeFileSync(
+      fakeGatekeeper,
+      `#!/bin/sh
+printf '%s\\n' 'outcome: checks-passed'
+printf '%s\\n' 'ci.log: context canceled'
+exit 42
+`,
+    );
+    chmodSync(fakeGatekeeper, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1 $2" = "rev-parse HEAD" ]; then printf '%s\\n' "$LOCAL_HEAD"; exit 0; fi
+if [ "$1 $2 $3" = "remote get-url no-mistakes" ]; then exit 1; fi
+printf 'unexpected git %s\\n' "$*" >&2
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(
+      fakeGh,
+      `#!/bin/sh
+if [ "$1 $2" = "pr list" ]; then printf '%s\\n' 'https://github.com/o/r/pull/7'; exit 0; fi
+if [ "$1 $2" = "pr view" ]; then printf '%s\\n' "$PR_HEAD"; exit 0; fi
+printf 'unexpected gh %s\\n' "$*" >&2
+exit 1
+`,
+    );
+    chmodSync(fakeGh, 0o755);
+
+    const scriptPath = join(dir, "post-address.sh");
+    writeFileSync(
+      scriptPath,
+      buildPostAddressGateScript({
+        combo: combo({ worktree }),
+        runDir: dir,
+        gatekeeperCommand: shellQuote(fakeGatekeeper),
+        gatekeeperMirrorIntent: "SW1wbGVtZW50IGlzc3VlIDc=",
+        headSha: localHead,
+        prUrl: "https://github.com/o/r/pull/7",
+        emit: shellQuote(fakeEmit),
+      }),
+    );
+    chmodSync(scriptPath, 0o755);
+
+    const result = spawnSync("sh", [scriptPath], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENTS_LOG: eventsPath,
+        LOCAL_HEAD: localHead,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        PR_HEAD: prHead,
+      },
+    });
+
+    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+      status: 0,
+      stdout: "post-address gate for o-r-7 at bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\noutcome: checks-passed\nci.log: context canceled\n",
+      stderr: "",
+    });
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "gate_started",
+      `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
+      `gate_status --field state=idle --field head_sha=${prHead} --field recovery=checks_passed_context_canceled`,
+      `gate_validated --field sha=${prHead}`,
+    ]);
+  });
+
   it("publishes rewritten local HEAD to an existing mirror branch with force-with-lease", () => {
     const script = buildPostAddressGateScript({
       combo: combo(),

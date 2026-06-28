@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2525 lines, log-derived regressions.
+ *   and process shims for external services. ~2590 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -69,6 +69,7 @@ interface HarnessOptions {
   executeGatekeeperWindows?: boolean;
   activeNoMistakes?: boolean;
   activateNoMistakesOnAxiRun?: boolean;
+  contextCanceledAfterChecksPassed?: boolean;
   failNoMistakesAxiRun?: boolean;
   failNoMistakesAttach?: boolean;
   gatekeeperCommand?: string;
@@ -1625,6 +1626,94 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   }, 15_000);
 
+  it("normalizes post-address checks-passed context cancellation through director-tick", () => {
+    const harness = prepareHarness({
+      activateNoMistakesOnAxiRun: true,
+      contextCanceledAfterChecksPassed: true,
+      externalCommentAgents: ["coderabbitai"],
+      failNoMistakesAttach: true,
+      gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-post-address",
+      noMistakesRunDelayMs: 0,
+    });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      writeCoderThreadArtifact(runDir);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+        ["lgtm", [`sha=${publishedSha}`]],
+        ["ready_for_merge", [`sha=${publishedSha}`, `pr_url=${prUrl}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      writeFileSync(join(combo.worktree, "coderabbit-context-canceled-fix.txt"), "addressed\n");
+      run("git", ["add", "coderabbit-context-canceled-fix.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: address parser review"], { cwd: combo.worktree });
+      const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: publishedSha,
+          E2E_PR_STATE: "OPEN",
+          E2E_CODERABBIT_REVIEW: "1",
+        },
+      });
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      const gatekeeperWindowCommand = tmuxLog
+        .filter((entry) => entry.args[0] === "new-window" && entry.args.includes("gatekeeper"))
+        .at(-1)?.args.at(-1);
+      expect(gatekeeperWindowCommand).toBeDefined();
+
+      const pane = spawnSync("sh", ["-c", gatekeeperWindowCommand!], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
+          E2E_HEAD_SHA: localSha,
+        },
+        encoding: "utf8",
+        timeout: 15_000,
+      });
+      const paneOutput = `${pane.stdout ?? ""}\n${pane.stderr ?? ""}`;
+
+      expect(pane.status).toBe(0);
+      expect(paneOutput).toContain("outcome: checks-passed");
+      expect(paneOutput).toContain("ci.log: context canceled");
+
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: "gate_status",
+            state: "idle",
+            head_sha: localSha,
+            recovery: "checks_passed_context_canceled",
+          }),
+          expect.objectContaining({ event: "gate_validated", sha: localSha }),
+        ]),
+      );
+      expect(events.some((event) => event.event === "gate_failed")).toBe(false);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, 15_000);
+
   it("routes local sync recovery instead of post-address gating from a worktree behind the PR head", () => {
     const harness = prepareHarness({ externalCommentAgents: ["coderabbitai"] });
     let passed = false;
@@ -2390,6 +2479,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
       E2E_TMUX_RUN_GATEKEEPER_WINDOW: options.executeGatekeeperWindows === true ? "1" : "0",
       E2E_NO_MISTAKES_ACTIVE: options.activeNoMistakes === true ? "1" : "0",
       E2E_NO_MISTAKES_ACTIVATE_ON_AXI_RUN: options.activateNoMistakesOnAxiRun === true ? "1" : "0",
+      E2E_NO_MISTAKES_CONTEXT_CANCELED_AFTER_CHECKS_PASSED: options.contextCanceledAfterChecksPassed === true ? "1" : "0",
       E2E_NO_MISTAKES_FAIL_AXI_RUN: options.failNoMistakesAxiRun === true ? "1" : "0",
       E2E_NO_MISTAKES_ATTACH_FAIL: options.failNoMistakesAttach === true ? "1" : "0",
       E2E_NO_MISTAKES_QUOTE_RUN_ID: options.quoteNoMistakesRunId === true ? "1" : "0",
