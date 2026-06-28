@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~950 lines, 5 exports, initial-gate retry and pre/post-PR orchestration. (no-mistakes(document): Sync CHANGELOG and Sherpa line counts for topology consolidation)
+ * @overview Director CLI helpers. ~970 lines, 5 exports, initial-gate retry and pre/post-PR orchestration. (fix(labels): ignore idle reviewer windows)
  *
  *   READING GUIDE
  *   -------------
@@ -35,7 +35,7 @@ import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { listWindowsArgs } from "../infra/tmux.js";
+import { captureWindowArgs, listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
 import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
@@ -52,7 +52,7 @@ import {
 import { blockingReadyMergeState, parsePrView } from "./github.js";
 import { syncComboPrLabels } from "./pr-labels.js";
 import { closurePendingReviewerEvent, livePinnedLgtmSha, terminalReviewerEvent, tickReviewer } from "./reviewer.js";
-import { CODER_WINDOW, REVIEWER_WINDOW } from "./sessions.js";
+import { CODER_WINDOW, idleRoleWindowCommand, REVIEWER_WINDOW } from "./sessions.js";
 import {
   appendWorkerEscalation,
   inspectWorkerPanes,
@@ -446,9 +446,32 @@ function livePrLabelActivity(
     : windows.has(coderRespondingWindowName);
   return {
     coderRespondingActive,
-    reviewerActive: windows.has(REVIEWER_WINDOW),
+    reviewerActive: windows.has(REVIEWER_WINDOW) && roleWindowLooksActiveForPrLabels(deps, combo, REVIEWER_WINDOW),
     gateActive: windows.has(GATEKEEPER_WINDOW),
   };
+}
+
+function roleWindowLooksActiveForPrLabels(
+  deps: Pick<DirectorDeps, "tmux">,
+  combo: ReturnType<typeof readCombo>,
+  windowName: string,
+): boolean {
+  const captured = deps.tmux(captureWindowArgs(combo.tmuxSession, windowName));
+  if (captured.status !== 0) return false;
+  const lines = captured.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+  return !roleWindowCaptureLooksIdle(windowName, lines);
+}
+
+function roleWindowCaptureLooksIdle(windowName: string, lines: string[]): boolean {
+  const idleMessage = `[combo-chen] ${windowName} window idle; waiting for combo-chen to prompt it.`;
+  const idleScriptLines = new Set(
+    [
+      idleMessage,
+      ...idleRoleWindowCommand(windowName).split(/\r?\n/),
+    ].map((line) => line.trim()).filter(Boolean),
+  );
+  return lines.some((line) => line.includes(idleMessage)) && lines.every((line) => idleScriptLines.has(line));
 }
 
 function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {

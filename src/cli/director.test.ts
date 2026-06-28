@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for director CLI helpers. ~2380 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
+ * @overview Unit tests for director CLI helpers. ~2420 lines, initial-gate retry, READY, conflict recovery, auto-closure, worker monitoring, and worker recovery.
  *
  *   READING GUIDE
  *   -------------
@@ -20,7 +20,7 @@
  *   combo, event, fakeDeps, seedReadyCandidate, writeCoderThreadArtifact
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./director
+ * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./director, ./sessions
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,6 +40,7 @@ import {
   type DirectorDeps,
 } from "./director.js";
 import { GATEKEEPER_WINDOW } from "./gate.js";
+import { idleRoleWindowCommand } from "./sessions.js";
 
 // -- 1/2 HELPER · Fixtures --
 const ISSUE = "https://github.com/o/r/issues/7";
@@ -1257,12 +1258,15 @@ describe("tickDirector", () => {
       record,
       prHeadSha: headSha,
     });
-    let reviewerCaptures = 0;
+    let previousTmuxCommand = "";
+    let reviewerWorkerCaptures = 0;
     deps.tmux = (args) => {
+      const previous = previousTmuxCommand;
+      previousTmuxCommand = args[0] ?? "";
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
       if (args[0] === "capture-pane") {
-        reviewerCaptures += 1;
+        if (previous === "list-panes") reviewerWorkerCaptures += 1;
         return { status: 0, stdout: "reviewer is working\n", stderr: "" };
       }
       return { status: 0, stdout: "", stderr: "" };
@@ -1270,7 +1274,7 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(reviewerCaptures).toBe(1);
+    expect(reviewerWorkerCaptures).toBe(1);
   });
 
   it("leaves repeated director-watch PR label projections as no-ops when labels already match", async () => {
@@ -1329,6 +1333,38 @@ describe("tickDirector", () => {
         source: "director-watch",
       }),
     ]);
+  });
+
+  it("does not project reviewer work from a precreated idle reviewer window", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const oldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "gate_started", {});
+    appendEvent(runDir, "gate_status", { state: "idle", head_sha: oldSha });
+    appendEvent(runDir, "gate_validated", { sha: oldSha });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      prLabels: [{ name: "combo:stale" }],
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\ngatekeeper\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+      if (args[0] === "capture-pane") {
+        return { status: 0, stdout: idleRoleWindowCommand("reviewer"), stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit")).toEqual([]);
+    expect(readEvents(runDir).filter((event) => event.event === "pr_labels_updated")).toEqual([]);
   });
 
   it("removes combo:ready when a required READY check is skipped", async () => {
