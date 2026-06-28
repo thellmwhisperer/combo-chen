@@ -633,6 +633,126 @@ exit 1
     expect(readFileSync(join(daemonWorktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
   });
 
+  it("does not recover when config copy fails and gatekeeper exits non-zero with checks-passed+context-canceled", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+    const worktree = join(dir, "worktree");
+    const bin = join(dir, "bin");
+    const dataDir = join(dir, "no-mistakes-data");
+    const gatePath = join(dataDir, "repos", "dd1c02626404.git");
+    const daemonWorktree = join(dataDir, "worktrees", "dd1c02626404", "01CONFIGRACE");
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(daemonWorktree, { recursive: true });
+    writeFileSync(join(worktree, ".no-mistakes.yaml"), "commands:\n  test: pnpm test\n");
+
+    const eventsPath = join(dir, "events.log");
+    const localHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const prHead = "cccccccccccccccccccccccccccccccccccccccc";
+    const fakeEmit = join(bin, "emit");
+    writeFileSync(
+      fakeEmit,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$EVENTS_LOG"
+`,
+    );
+    chmodSync(fakeEmit, 0o755);
+
+    const fakeCoder = join(bin, "fake-coder");
+    writeFileSync(fakeCoder, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeCoder, 0o755);
+
+    const fakeGatekeeper = join(bin, "fake-no-mistakes");
+    writeFileSync(
+      fakeGatekeeper,
+      `#!/bin/sh
+printf '%s\\n' 'outcome: checks-passed'
+printf '%s\\n' 'ci.log: context canceled'
+exit 42
+`,
+    );
+    chmodSync(fakeGatekeeper, 0o755);
+
+    const fakeGit = join(bin, "git");
+    writeFileSync(
+      fakeGit,
+      `#!/bin/sh
+if [ "$1" = "fetch" ]; then exit 0; fi
+if [ "$1" = "rebase" ]; then exit 0; fi
+if [ "$1 $2" = "rev-parse HEAD" ]; then printf '%s\\n' "$LOCAL_HEAD"; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGit, 0o755);
+
+    const fakeNoMistakes = join(bin, "no-mistakes");
+    writeFileSync(
+      fakeNoMistakes,
+      `#!/bin/sh
+if [ "$1" = "status" ]; then
+  sleep 2
+  printf 'daemon: running\\n'
+  printf 'gate: %s\\n' "$NO_MISTAKES_GATE"
+  exit 0
+fi
+if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
+  printf 'id: 01CONFIGRACE\\n'
+  printf 'branch: combo/issue-7\\n'
+  printf 'status: running\\n'
+  exit 0
+fi
+exit 0
+`,
+    );
+    chmodSync(fakeNoMistakes, 0o755);
+
+    const fakeGh = join(bin, "gh");
+    writeFileSync(
+      fakeGh,
+      `#!/bin/sh
+if [ "$1 $2" = "pr list" ]; then printf '%s\\n' 'https://github.com/o/r/pull/7'; exit 0; fi
+if [ "$1 $2" = "pr view" ]; then printf '%s\\n' "$PR_HEAD"; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(fakeGh, 0o755);
+
+    const runnerPath = join(dir, "runner.sh");
+    writeFileSync(
+      runnerPath,
+      buildRunnerScript({
+        combo: { ...combo, worktree },
+        coderCommand: shellQuote(fakeCoder),
+        gatekeeperCommand: shellQuote(fakeGatekeeper),
+        emit: shellQuote(fakeEmit),
+        activateCoder: ":",
+        activateReviewer: ":",
+      }),
+    );
+    chmodSync(runnerPath, 0o755);
+
+    const result = spawnSync("sh", [runnerPath], {
+      encoding: "utf8",
+      env: runnerSubprocessEnv({
+        COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "3",
+        EVENTS_LOG: eventsPath,
+        LOCAL_HEAD: localHead,
+        NO_MISTAKES_GATE: gatePath,
+        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        PR_HEAD: prHead,
+      }),
+    });
+
+    expect(result.status).toBe(1);
+    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+      "coder_started",
+      "coder_done",
+      "gate_started",
+      `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
+      `gate_status --field state=failed --field head_sha=${localHead}`,
+      "gate_failed --field exit_code=1 --field reason=gate_failed",
+    ]);
+  });
+
   it("fetches and rebases origin/main before the coder starts", () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
