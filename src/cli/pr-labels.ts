@@ -186,7 +186,7 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
 
   if (workLabel !== undefined && !readyCurrent) labels.add(workLabel);
   if (lgtmCurrent) labels.add("combo:lgtm");
-  if (greenCheckSucceeded) labels.add("combo:external-review-green");
+  if (greenCheckSucceeded && !stale) labels.add("combo:external-review-green");
   if (readyCurrent) labels.add("combo:ready");
   if (stale && !readyCurrent) labels.add("combo:stale");
 
