@@ -116,8 +116,8 @@ the shared validation commands intentionally change.
 - Keep operational values configurable through env, TOML, then fallback.
 - Use focused tests for orchestration contracts and broaden only when shared
   behavior changes.
-- Validate with `pnpm test`, `pnpm typecheck`, `pnpm build`, and
-  `git diff --check` before committing.
+- Validate with `pnpm test`, `pnpm typecheck`, `pnpm build`,
+  `pnpm slop:check`, and `git diff --check` before committing.
 - Use short conventional commits. No co-authors.
 
 ## Sherpa Navigation
@@ -164,9 +164,13 @@ human-readable tmux topology (fixed tmux role topology: journal, director,
 coder, gatekeeper, reviewer, and director-watch in that stable order;
 gatekeeper and reviewer are precreated at launch; coder-response target
 defaults to the persistent coder window; raw event output never replaces the
-coder role), and opt-in runner
+coder role), opt-in runner
 progress status lines
-(`COMBO_CHEN_RUNNER_PROGRESS=1`), and mandatory Treehouse-backed worktree
-leases.
-Deferred: preflight scoring, counterfactual
+(`COMBO_CHEN_RUNNER_PROGRESS=1`), mandatory Treehouse-backed worktree
+leases, coder surface preflight (every coder prompt includes `pnpm surface`
+to avoid duplicating existing helpers), reviewer anti-slop guardrails
+(duplicate helper check, config plausibility, surface budget awareness),
+anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
+`pnpm surface`), and `needs-human-report` operational metrics.
+Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.

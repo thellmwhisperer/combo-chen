@@ -34,6 +34,9 @@ merge = "human"                   # hard default: earn automerge with data first
 # {placeholders}: thread_id. Used by coder responding mode to resume the same
 # implementation context after PR review comments land.
 # resume_command = 'codex --profile sitter --no-alt-screen resume {thread_id}'
+# combo-chen always appends a surface preflight to every coder prompt:
+# the coder is instructed to run `pnpm surface` before writing any new
+# helper and reuse existing exports instead of duplicating them.
 
 # A hermes example (DeepSeek/Gemini/... via the Hermes harness):
 # [coder."hermes:deepseek"]
@@ -148,6 +151,12 @@ agents = ["coderabbitai"]
 # to the active reviewer agent name; set this when the GitHub author differs.
 # Environment override: COMBO_CHEN_REVIEWER_LOGINS.
 logins = ["claude"]
+# The generated reviewer prompt always includes anti-slop guardrails:
+# - verify `pnpm surface` was consulted for new helpers (route code 1 for dupes)
+# - route code 1 for config without who/when/why, or compat paths without
+#   a removal issue/date
+# - flag script/runner string assertions that should be contract tests
+# - treat many new top-level exports as a surface budget breach unless justified
 
 [reviewer.claude]
 # {placeholders}: issue_url, pr_url, worktree, repo, branch, prompt.
