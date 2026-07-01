@@ -88,13 +88,14 @@ describe("buildCoderInvocation", () => {
     );
   });
 
-  it("lets a custom prompt replace the default", () => {
+  it("augments a custom prompt with the surface preflight", () => {
     const command = buildCoderInvocation({
       coderCommand: "gnhf {prompt}",
       combo,
       prompt: "fix the flaky test only",
     });
     expect(command).toContain("fix the flaky test only");
+    expect(command).toContain("pnpm surface");
   });
 
   it("throws when no prompt is provided and issueUrl is empty", () => {
