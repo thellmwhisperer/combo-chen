@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1200 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1200 lines, 25 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -674,6 +674,27 @@ export function createProgram(deps: Deps): Command {
         comboId: options.name,
         cli: cliInvocation(),
       });
+    });
+
+  program
+    .command("needs-human-report")
+    .description("Report needs_human counts by journal reason")
+    .action(() => {
+      const home = comboHome(deps.env);
+      const counts = new Map<string, number>();
+      let total = 0;
+      for (const combo of listCombos(home)) {
+        for (const event of readEvents(runDirFor(home, combo.id))) {
+          if (event.event !== "needs_human") continue;
+          const reason = typeof event["reason"] === "string" ? event["reason"] : "unknown";
+          counts.set(reason, (counts.get(reason) ?? 0) + 1);
+          total += 1;
+        }
+      }
+      deps.out(`needs_human total: ${total}`);
+      for (const [reason, count] of Array.from(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+        deps.out(`${reason}: ${count}`);
+      }
     });
 
   program

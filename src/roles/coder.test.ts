@@ -77,13 +77,24 @@ describe("buildCoderInvocation", () => {
     expect(command).toContain("Implement GitHub issue");
   });
 
+  it("adds the surface preflight to the coder prompt", () => {
+    const command = buildCoderInvocation({
+      coderCommand: "gnhf {prompt}",
+      combo,
+    });
+    expect(command).toContain("pnpm surface");
+    expect(command).toContain(
+      "si el helper existe como privado en otro módulo, expórtalo y reúsalo; no lo reescribas",
+    );
+  });
+
   it("lets a custom prompt replace the default", () => {
     const command = buildCoderInvocation({
       coderCommand: "gnhf {prompt}",
       combo,
       prompt: "fix the flaky test only",
     });
-    expect(command).toBe("gnhf 'fix the flaky test only'");
+    expect(command).toContain("fix the flaky test only");
   });
 
   it("throws when no prompt is provided and issueUrl is empty", () => {

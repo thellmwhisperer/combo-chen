@@ -1,6 +1,6 @@
 /**
  * @overview Coder adapter: turns config + combo facts into a gnhf command.
- *   Extracts Codex thread IDs for resume. ~165 lines, 9 exports.
+ *   Extracts Codex thread IDs for resume. ~170 lines, 9 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -50,6 +50,9 @@ import type { WorkPlan } from "../core/work-plan.js";
 // -- 1/3 HELPER · Types + constants + defaultPrompt --
 export const CODER_THREAD_ARTIFACT = "coder-thread.json";
 export const LEGACY_ROWER_THREAD_ARTIFACT = "rower-thread.json";
+const SURFACE_PREFLIGHT =
+  "Before writing any new helper, run pnpm surface. " +
+  "si el helper existe como privado en otro módulo, expórtalo y reúsalo; no lo reescribas.";
 
 export interface CoderThreadArtifact {
   agent: "codex";
@@ -90,7 +93,7 @@ export function buildCoderInvocation(input: CoderInput): string {
       "buildCoderInvocation requires an explicit prompt for plan-backed combos (issueUrl is empty); pass a prompt override",
     );
   }
-  const prompt = input.prompt ?? defaultPrompt(input.combo.issueUrl);
+  const prompt = `${input.prompt ?? defaultPrompt(input.combo.issueUrl)} ${SURFACE_PREFLIGHT}`;
   return renderCommand(input.coderCommand, {
     issue_url: input.combo.issueUrl,
     worktree: input.combo.worktree,
