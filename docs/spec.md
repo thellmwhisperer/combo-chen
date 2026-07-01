@@ -10,9 +10,9 @@ schema must conform to it, not the other way around.
 | Role | Does | Never does | Default agent |
 | --- | --- | --- | --- |
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
-| **coder** | implements the work item (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
+| **coder** | implements the work item (phase 1); the same thread resumes in responding mode for review comments (phase 3). Before writing any new helper, the coder runs `pnpm surface` to check for existing equivalents. | merge, deploy | codex via gnhf |
 | **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. For plan-backed combos, {issue_pr_intent} carries the rendered work-plan intent; other issue-specific placeholders are unsupported and cause a config error. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR with configured prompt text, emits machine-readable verdict codes (0–3), incrementally until merge | review its own changes | claude |
+| **reviewer** | reviews the PR with configured prompt text, emits machine-readable verdict codes (0–3), incrementally until merge. Includes anti-slop checks: duplicate helpers, config plausibility, surface budget, and contract test assertions. | review its own changes | claude |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
@@ -293,6 +293,18 @@ ignored config or environment outside that file.
   for the same code and SHA). Code 3 (`needs_human`) is also guarded against
   duplicate journaling for the same `reason` + `sha` combination.
 
+  The reviewer prompt also includes anti-slop guardrails that apply
+  regardless of the verdict code path:
+  - **Duplicate helpers:** verify `pnpm surface` was consulted; route code 1
+    when an equivalent helper already exists.
+  - **Config plausibility:** route code 1 for new config without
+    who/when/why in the PR body, and any compatibility path without a
+    removal issue or date.
+  - **Contract tests:** route code 1 for script/runner string assertions
+    that should be rewritten as behavior-based contract tests.
+  - **Surface budget:** treat many new top-level functions or exports in
+    one module as a surface budget breach unless the PR justifies the shape.
+
 - The reviewer may also emit a plain `lgtm` (required field `sha`) to journal
   the reviewed commit; the LGTM is pinned to that SHA and must come from a
   GitHub author listed in `[reviewer].logins` before the director treats it as
@@ -516,6 +528,11 @@ ignored config or environment outside that file.
   as stale. Parked combos are exempt from this check because the missing session
   is expected. Terminal historical rows are hidden unless the operator passes
   `status --all`.
+- `combo-chen needs-human-report` scans all combo journals and reports
+  `needs_human` event counts grouped by reason (e.g. `worker_stalled`,
+  `gate_decision`, `gate_failed`). It is an operational metrics tool that
+  helps operators spot systemic escalations across multiple combos without
+  reading individual journal files.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
@@ -781,6 +798,31 @@ after the run has a PR link and head SHA.
   AGENTS.md is the testing brain.
 - Anti-scope: combos are for issue-sized work. Typo-sized changes belong in
   direct sessions, not pipelines.
+
+### Code-level anti-slop surface probes
+
+Every coder prompt includes a surface preflight instruction: before writing
+any new helper, the coder must run `pnpm surface` (ast-grep structure outline)
+to check whether an equivalent function already exists in another module. If it
+does, the coder must export and reuse it instead of rewriting it. This prevents
+agent slop from accumulating duplicate helpers across combination runs.
+
+The project also ships with two static slop-checking rules under `.slop/rules/`:
+
+- **core-no-child-process** (`error`): forbids `node:child_process` imports in
+  `src/core/` — execution belongs in `cli/`, `roles/`, or `infra/`.
+- **script-string-assertion** (`warning`): flags `toContain` assertions on
+  script/runner targets that freeze internal strings; prefer contract
+  behavior assertions.
+
+These are surfaced in the package scripts:
+
+- `pnpm slop:check` — enforces the core-no-child-process rule on `src/core`
+  with `--error`, excluding test files.
+- `pnpm slop:report` — runs a jscpd duplication report and scans selected
+  test files for script-string-assertion violations.
+- `pnpm surface` — outputs the function-level structure outline of all
+  non-test TypeScript files under `src/`.
 
 ## 8d. PR label projection
 

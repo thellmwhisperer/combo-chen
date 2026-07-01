@@ -427,6 +427,7 @@ combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text
 combo-chen run --plan <file> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen update [--beta] [-y|--yes]
 combo-chen status [--deep] [--all]
+combo-chen needs-human-report
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
@@ -445,6 +446,9 @@ Treehouse/worktree/branch/tmux availability, no-mistakes status, and coder/revie
 command safety. A blocked check prints an `X` and exits before any launch
 resources are created. Run it standalone to verify readiness, or let `run`
 consume it automatically.
+
+`needs-human-report` scans all combo journals and reports a summary of
+`needs_human` event counts grouped by reason.
 
 ### Recovery Commands
 
@@ -585,6 +589,18 @@ git diff --check
 Behavior changes should be test-first. Keep operational values configurable
 through env, TOML, then fallback defaults.
 
+### Anti-Slop Surface
+
+combo-chen ships with code-level anti-slop probes to prevent agent slop during
+autonomous runs:
+
+- `pnpm slop:check` — ast-grep rule that forbids `node:child_process` imports in
+  `src/core/` (execution belongs in `cli/`, `roles/`, or `infra/`).
+- `pnpm slop:report` — jscpd duplication report plus ast-grep scan for
+  `toContain` assertions on script/runner strings that freeze internal details.
+- `pnpm surface` — ast-grep structure outline of all functions across `src/`,
+  used by the coder preflight to avoid duplicating existing helpers.
+
 ## Status
 
 Active development.
@@ -620,11 +636,14 @@ human-readable tmux topology (fixed tmux role topology: journal, director,
 coder, gatekeeper, reviewer, and director-watch in that stable order;
 gatekeeper and reviewer are precreated at launch; coder-response target
 defaults to the persistent coder window; raw event output never replaces the
-coder role), and opt-in runner
+coder role), opt-in runner
 progress status lines
-(`COMBO_CHEN_RUNNER_PROGRESS=1`).
+(`COMBO_CHEN_RUNNER_PROGRESS=1`), coder surface preflight (every coder prompt
+includes `pnpm surface` to avoid duplicating existing helpers), reviewer
+anti-slop guardrails (duplicate helper check, config plausibility, surface
+budget awareness), and `needs-human-report` operational metrics.
 
-Deferred: preflight scoring, counterfactual automerge logs, and ACP role driving.
+Deferred: issue preflight scoring, counterfactual automerge logs, and ACP role driving.
 
 ## License
 
