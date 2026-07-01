@@ -248,6 +248,22 @@ describe("command surface", () => {
     expect(out).toContain("gate_decision: 1");
   });
 
+  it("skips corrupted combos in needs_human reports", async () => {
+    const h = home();
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h, [PASSIVE_UPDATE_DISABLE_ENV]: "1" } });
+    const runDir = seedNeedsHumanCombo(h);
+    appendEvent(runDir, "needs_human", { reason: "worker_stalled" });
+    const badDir = runDirFor(h, "bad-combo");
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, "combo.json"), "{not json\n");
+
+    await exec(deps, ["needs-human-report"]);
+
+    expect(out.some((line) => line.startsWith("skipped bad-combo:"))).toBe(true);
+    expect(out).toContain("needs_human total: 1");
+    expect(out).toContain("worker_stalled: 1");
+  });
+
   it("exposes the configured command surface", () => {
     const { deps } = fakeDeps();
     const names = createProgram(deps)

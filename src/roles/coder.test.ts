@@ -56,6 +56,16 @@ function seedGnhfRun(worktree: string): void {
   writeFileSync(join(runDir, "iteration-1.jsonl"), readFileSync(codexJsonlFixture, "utf8"));
 }
 
+function comboWithSurfaceScript(): typeof combo {
+  const repoDir = tempDir("coder-surface-repo-");
+  mkdirSync(repoDir, { recursive: true });
+  writeFileSync(
+    join(repoDir, "package.json"),
+    JSON.stringify({ scripts: { surface: "sg outline --items structure src" } }),
+  );
+  return { ...combo, repoDir, worktree: join(repoDir, ".worktrees", "issue-7") };
+}
+
 // -- 1/3 CORE · Prompt generation + invocation ← START HERE --
 describe("defaultPrompt", () => {
   it("tells the coder which issue to implement and to work test-first", () => {
@@ -77,21 +87,31 @@ describe("buildCoderInvocation", () => {
     expect(command).toContain("Implement GitHub issue");
   });
 
-  it("adds the surface preflight to the coder prompt", () => {
+  it("adds the surface preflight when the target repo exposes the script", () => {
+    const command = buildCoderInvocation({
+      coderCommand: "gnhf {prompt}",
+      combo: comboWithSurfaceScript(),
+    });
+    expect(command).toContain("pnpm surface");
+    expect(command).toContain(
+      "If the helper exists as private in another module, export it and reuse it; do not rewrite it",
+    );
+  });
+
+  it("uses a generic helper preflight when the target repo has no surface script", () => {
     const command = buildCoderInvocation({
       coderCommand: "gnhf {prompt}",
       combo,
     });
-    expect(command).toContain("pnpm surface");
-    expect(command).toContain(
-      "si el helper existe como privado en otro módulo, expórtalo y reúsalo; no lo reescribas",
-    );
+    expect(command).not.toContain("pnpm surface");
+    expect(command).toContain("search the repo for an equivalent helper");
+    expect(command).toContain("export it and reuse it; do not rewrite it");
   });
 
   it("augments a custom prompt with the surface preflight", () => {
     const command = buildCoderInvocation({
       coderCommand: "gnhf {prompt}",
-      combo,
+      combo: comboWithSurfaceScript(),
       prompt: "fix the flaky test only",
     });
     expect(command).toContain("fix the flaky test only");

@@ -167,8 +167,8 @@ defaults to the persistent coder window; raw event output never replaces the
 coder role), opt-in runner
 progress status lines
 (`COMBO_CHEN_RUNNER_PROGRESS=1`), mandatory Treehouse-backed worktree
-leases, coder surface preflight (every coder prompt includes `pnpm surface`
-to avoid duplicating existing helpers), reviewer anti-slop guardrails
+leases, coder helper preflight (use `pnpm surface` when the target repo exposes
+it; otherwise search before adding helpers), reviewer anti-slop guardrails
 (duplicate helper check, config plausibility, surface budget awareness),
 anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
 `pnpm surface`), and `needs-human-report` operational metrics.

@@ -12,7 +12,7 @@
     "dev": "tsdown --watch",
     "release:assets": "pnpm build && node dist/release-assets.mjs",
     "slop:check": "sg scan --rule .slop/rules/core-no-child-process.yml src/core --globs '!**/*.test.ts' --error",
-    "slop:report": "jscpd src --format typescript --silent --no-colors --no-tips && sg scan --rule .slop/rules/script-string-assertion.yml src/core/combo.test.ts src/cli/gate.test.ts --warning --max-results 20",
+    "slop:report": "jscpd src --format typescript --ignore '**/*.test.ts' --silent --no-colors --no-tips; sg scan --rule .slop/rules/core-no-infra-verbs.yml src/core --globs '!**/*.test.ts' --warning; sg scan --rule .slop/rules/script-string-assertion.yml src --globs '**/*.test.ts' --warning",
     "surface": "sg outline --items structure --type function --view names src --globs '!**/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude='.worktrees/**' --exclude='.tmp/**' --exclude='e2e/**'",

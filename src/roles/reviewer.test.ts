@@ -78,7 +78,7 @@ describe("defaultReviewerPrompt", () => {
     const prompt = defaultReviewerPrompt({ combo, prUrl, reviewerInstructions });
 
     expect(prompt).toContain("Anti-slop checks");
-    expect(prompt).toContain("pnpm surface");
+    expect(prompt).toContain("pnpm surface or an equivalent repo search");
     expect(prompt).toContain("equivalent helper already exists");
     expect(prompt).toContain("who/when/why in the PR");
     expect(prompt).toContain("compatibility path without a removal issue or date");
