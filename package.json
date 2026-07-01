@@ -11,6 +11,9 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "release:assets": "pnpm build && node dist/release-assets.mjs",
+    "slop:check": "sg scan --rule .slop/rules/core-no-child-process.yml src/core --globs '!**/*.test.ts' --error",
+    "slop:report": "jscpd src --format typescript --silent --no-colors --no-tips && sg scan --rule .slop/rules/script-string-assertion.yml src/core/combo.test.ts src/cli/gate.test.ts --warning --max-results 20",
+    "surface": "sg outline --items structure --type function --view names src --globs '!**/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude='.worktrees/**' --exclude='.tmp/**' --exclude='e2e/**'",
     "test:e2e": "pnpm build && vitest run e2e --exclude='.worktrees/**' --exclude='.tmp/**'",
@@ -22,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "jscpd": "^5.0.11",
     "tsdown": "^0.21.0",
     "typescript": "^5.8.0",
     "vitest": "^4.0.0"

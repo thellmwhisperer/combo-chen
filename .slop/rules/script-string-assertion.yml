@@ -1,0 +1,9 @@
+id: script-string-assertion
+language: TypeScript
+rule:
+  pattern: expect($TARGET).toContain($VALUE)
+constraints:
+  TARGET:
+    regex: "script|runner"
+message: script/runner toContain assertions freeze internal strings; prefer contract behavior
+severity: warning

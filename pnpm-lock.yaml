@@ -18,6 +18,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.20
+      jscpd:
+        specifier: ^5.0.11
+        version: 5.0.11
       tsdown:
         specifier: ^0.21.0
         version: 0.21.10(typescript@5.9.3)
@@ -352,6 +355,36 @@ packages:
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
+  cpd-darwin-arm64@5.0.11:
+    resolution: {integrity: sha512-3QvH+4Dv7A7esVFM2tsRVWN3kn9EDu8dMYog6gYAVsCtxEf4xyxAwS/ef6LjC7/dh4+ATADFbg3H09A2fD//Qw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  cpd-darwin-x64@5.0.11:
+    resolution: {integrity: sha512-OvgM2ps0OFR5jUzx7+FK9URdJGxUzzM5KKk2F1V3vf1LooGDKwkivfIDyKsqEwp37zcbyUo7COvBpJXOT0dZmQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  cpd-linux-arm64-gnu@5.0.11:
+    resolution: {integrity: sha512-pXMINibAeruglni8ZajlXEefZHDs7QFSG+vPtkBDu7uiIMpNU8aoktgO2vP+PbIRFD0vHkqTMb64kDtIOqQcwQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  cpd-linux-x64-gnu@5.0.11:
+    resolution: {integrity: sha512-rQ7DuF0lH1HLzjGxlE0aEP2ycfhXgZH/CLSeS7FXNJ38lRVp+iXkrlcrrY6mC4WW/NgbL+DkF7/0lv3tFvGmvg==}
+    cpu: [x64]
+    os: [linux]
+
+  cpd-linux-x64-musl@5.0.11:
+    resolution: {integrity: sha512-Yh+7Go5+fA++I5ssAZg7gUkDCT5CxnzCPvrspbwDrfnwaY6nNM5g1C6Vs0+GJhsspuAKwydJl4nf7jkxzMwRQw==}
+    cpu: [x64]
+    os: [linux]
+
+  cpd-windows-x64-msvc@5.0.11:
+    resolution: {integrity: sha512-uV6w85qdfE0WJsrLcGw9A4Kv9ovSnlXZCybMK0esvuiJ7clgaZmDiDPozt5PvrOOShkK/NxzTZSORBSdVnquHA==}
+    cpu: [x64]
+    os: [win32]
+
   defu@6.1.7:
     resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
 
@@ -405,6 +438,11 @@ packages:
   import-without-cache@0.3.3:
     resolution: {integrity: sha512-bDxwDdF04gm550DfZHgffvlX+9kUlcz32UD0AeBTmVPFiWkrexF2XVmiuFFbDhiFuP8fQkrkvI2KdSNPYWAXkQ==}
     engines: {node: '>=20.19.0'}
+
+  jscpd@5.0.11:
+    resolution: {integrity: sha512-NfLrFJHRM6rIf3oVcdZ4sfhMVop1qxi5r8aC99lpj55YC8hiWaN4VmzU2wcXTwoAo+NS4npXPs9EVEQJ6jyRlg==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   jsesc@3.1.0:
     resolution: {integrity: sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA==}
@@ -978,6 +1016,24 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
+  cpd-darwin-arm64@5.0.11:
+    optional: true
+
+  cpd-darwin-x64@5.0.11:
+    optional: true
+
+  cpd-linux-arm64-gnu@5.0.11:
+    optional: true
+
+  cpd-linux-x64-gnu@5.0.11:
+    optional: true
+
+  cpd-linux-x64-musl@5.0.11:
+    optional: true
+
+  cpd-windows-x64-msvc@5.0.11:
+    optional: true
+
   defu@6.1.7: {}
 
   detect-libc@2.1.2: {}
@@ -1008,6 +1064,15 @@ snapshots:
   hookable@6.1.1: {}
 
   import-without-cache@0.3.3: {}
+
+  jscpd@5.0.11:
+    optionalDependencies:
+      cpd-darwin-arm64: 5.0.11
+      cpd-darwin-x64: 5.0.11
+      cpd-linux-arm64-gnu: 5.0.11
+      cpd-linux-x64-gnu: 5.0.11
+      cpd-linux-x64-musl: 5.0.11
+      cpd-windows-x64-msvc: 5.0.11
 
   jsesc@3.1.0: {}
 
