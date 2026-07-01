@@ -350,6 +350,7 @@ export function buildNoMistakesGatekeeperRunScript(
     "  gate_config_failed=1",
     "fi",
     "if [ \"$gate_config_failed\" = \"1\" ] && [ \"$gatekeeper_raw_code\" != \"0\" ]; then",
+    "  gatekeeper_inner_code=1",
     "  if [ -n \"${gatekeeper_log:-}\" ]; then",
     "    : > \"${gatekeeper_log}.gate_config_failed\"",
     "  fi",
