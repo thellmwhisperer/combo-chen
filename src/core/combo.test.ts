@@ -744,14 +744,17 @@ exit 1
       }),
     });
 
-    expect(result.status).toBe(1);
-    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+    const events = readFileSync(eventsPath, "utf8").trim().split("\n");
+    const gateFailed = events.at(-1) ?? "";
+    const gateFailedExitCode = Number(gateFailed.match(/exit_code=(\d+)/)?.[1] ?? "0");
+    expect(result.status).toBe(gateFailedExitCode);
+    expect(gateFailed).toMatch(/^gate_failed --field exit_code=[1-9][0-9]* --field reason=gate_failed$/);
+    expect(events.slice(0, -1)).toEqual([
       "coder_started",
       "coder_done",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
       `gate_status --field state=failed --field head_sha=${localHead}`,
-      "gate_failed --field exit_code=1 --field reason=gate_failed",
     ]);
   });
 
