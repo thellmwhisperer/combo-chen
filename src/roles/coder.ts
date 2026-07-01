@@ -52,7 +52,10 @@ export const CODER_THREAD_ARTIFACT = "coder-thread.json";
 export const LEGACY_ROWER_THREAD_ARTIFACT = "rower-thread.json";
 const SURFACE_PREFLIGHT =
   "Before writing any new helper, run pnpm surface. " +
-  "si el helper existe como privado en otro módulo, expórtalo y reúsalo; no lo reescribas.";
+  "If the helper exists as private in another module, export it and reuse it; do not rewrite it.";
+const GENERIC_HELPER_PREFLIGHT =
+  "Before writing any new helper, search the repo for an equivalent helper. " +
+  "If an equivalent private helper exists in another module, export it and reuse it; do not rewrite it.";
 
 export interface CoderThreadArtifact {
   agent: "codex";
@@ -93,7 +96,10 @@ export function buildCoderInvocation(input: CoderInput): string {
       "buildCoderInvocation requires an explicit prompt for plan-backed combos (issueUrl is empty); pass a prompt override",
     );
   }
-  const prompt = `${input.prompt ?? defaultPrompt(input.combo.issueUrl)} ${SURFACE_PREFLIGHT}`;
+  const preflight = repoHasSurfaceScript(input.combo.repoDir)
+    ? SURFACE_PREFLIGHT
+    : GENERIC_HELPER_PREFLIGHT;
+  const prompt = `${input.prompt ?? defaultPrompt(input.combo.issueUrl)} ${preflight}`;
   return renderCommand(input.coderCommand, {
     issue_url: input.combo.issueUrl,
     worktree: input.combo.worktree,
@@ -103,6 +109,20 @@ export function buildCoderInvocation(input: CoderInput): string {
   });
 }
 // -/ 2/3
+
+function repoHasSurfaceScript(repoDir: string): boolean {
+  const packageJsonPath = join(repoDir, "package.json");
+  if (!existsSync(packageJsonPath)) return false;
+  try {
+    const packageJson: unknown = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    if (packageJson === null || typeof packageJson !== "object") return false;
+    const scripts = (packageJson as { scripts?: unknown }).scripts;
+    if (scripts === null || typeof scripts !== "object") return false;
+    return typeof (scripts as Record<string, unknown>)["surface"] === "string";
+  } catch {
+    return false;
+  }
+}
 
 // -- 3/3 CORE · Thread artifact extraction + persistence --
 export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undefined {

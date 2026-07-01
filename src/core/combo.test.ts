@@ -746,9 +746,8 @@ exit 1
 
     const events = readFileSync(eventsPath, "utf8").trim().split("\n");
     const gateFailed = events.at(-1) ?? "";
-    const gateFailedExitCode = Number(gateFailed.match(/exit_code=(\d+)/)?.[1] ?? "0");
-    expect(result.status).toBe(gateFailedExitCode);
-    expect(gateFailed).toMatch(/^gate_failed --field exit_code=[1-9][0-9]* --field reason=gate_failed$/);
+    expect(result.status).toBe(1);
+    expect(gateFailed).toBe("gate_failed --field exit_code=1 --field reason=gate_failed");
     expect(events.slice(0, -1)).toEqual([
       "coder_started",
       "coder_done",

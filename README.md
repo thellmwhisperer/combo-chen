@@ -595,11 +595,13 @@ combo-chen ships with code-level anti-slop probes to prevent agent slop during
 autonomous runs:
 
 - `pnpm slop:check` — ast-grep rule that forbids `node:child_process` imports in
-  `src/core/` (execution belongs in `cli/`, `roles/`, or `infra/`).
-- `pnpm slop:report` — jscpd duplication report plus ast-grep scan for
-  `toContain` assertions on script/runner strings that freeze internal details.
+  `src/core/` (execution belongs in `cli/`, `roles/`, or `infra/`); this runs in
+  CI and no-mistakes lint.
+- `pnpm slop:report` — report-only jscpd duplication scan for non-test source,
+  plus ast-grep warnings for infra verbs in `src/core/` and `toContain`
+  assertions on script/runner strings that freeze internal details.
 - `pnpm surface` — ast-grep structure outline of all functions across `src/`,
-  used by the coder preflight to avoid duplicating existing helpers.
+  used by the coder preflight when the target repo exposes the script.
 
 ## Status
 
@@ -638,8 +640,8 @@ gatekeeper and reviewer are precreated at launch; coder-response target
 defaults to the persistent coder window; raw event output never replaces the
 coder role), opt-in runner
 progress status lines
-(`COMBO_CHEN_RUNNER_PROGRESS=1`), coder surface preflight (every coder prompt
-includes `pnpm surface` to avoid duplicating existing helpers), reviewer
+(`COMBO_CHEN_RUNNER_PROGRESS=1`), coder helper preflight (use `pnpm surface`
+when the target repo exposes it; otherwise search before adding helpers), reviewer
 anti-slop guardrails (duplicate helper check, config plausibility, surface
 budget awareness), and `needs-human-report` operational metrics.
 
