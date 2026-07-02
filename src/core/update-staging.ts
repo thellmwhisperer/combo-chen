@@ -23,13 +23,13 @@
  *   INTERNALS
  *   ---------
  *   resolveChecksumsText, expectedChecksumForAsset, failWithCleanup, cleanupPartial, sha256Hex, toBuffer,
- *   errorMessage, validateSafePathComponent.
+ *   validateSafePathComponent.
  *
  * @exports UpdateDownloadKind, UpdateDownloadRequest, UpdateExtractionInput, UpdateExtractionResult,
  *   UpdateStagingDeps, ResolvedUpdateAsset, ResolvedUpdateChecksums, ResolvedUpdateStagingPlan,
  *   StagedUpdateArtifact, UpdateStagingErrorCode, UpdateStagingCleanup, UpdateStagingError,
  *   stageResolvedUpdate
- * @deps node:{crypto,path}, ../infra/release-artifacts, ./update-contract
+ * @deps node:{crypto,path}, ../infra/release-artifacts, ./guards, ./update-contract
  */
 import { createHash } from "node:crypto";
 import { join } from "node:path";

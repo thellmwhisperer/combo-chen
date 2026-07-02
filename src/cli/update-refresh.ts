@@ -19,10 +19,10 @@
  *
  *   INTERNALS
  *   ---------
- *   uncertainRuntimeLine, commandFailureText, plural, errorMessage
+ *   uncertainRuntimeLine, commandFailureText, plural
  *
  * @exports PostUpdateRefreshInput, PostUpdateRefreshResult, refreshPostUpdateLocalState
- * @deps ../core/active-runtime, ./display
+ * @deps ../core/{active-runtime,guards}, ./display
  */
 import type { ActiveComboRuntimeDetection } from "../core/active-runtime.js";
 import { errorMessage } from "../core/guards.js";

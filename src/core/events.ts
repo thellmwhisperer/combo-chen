@@ -35,7 +35,7 @@
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, appendEvents, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
- * @deps node:fs, node:path
+ * @deps node:fs, node:path, ./guards
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";

@@ -18,7 +18,7 @@
  *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease
  *
  * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, GateLeaseHeartbeatResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease, heartbeatGateLease
- * @deps node:{fs,path}
+ * @deps node:{fs,path}, ./guards
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
