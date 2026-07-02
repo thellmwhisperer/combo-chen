@@ -22,7 +22,7 @@
  *   reconcileCombo, hasPrClosedNeedsHuman, readPrViewForReconcile, report
  *
  * @exports ReconcileDeps, reconcileCombos
- * @deps ../core/{events,runtime-ledger,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
+ * @deps ../core/{events,guards,runtime-ledger,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
  */
 import { appendEvent, readEvents } from "../core/events.js";
 import { errorMessage } from "../core/guards.js";
