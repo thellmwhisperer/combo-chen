@@ -712,7 +712,7 @@ export function createProgram(deps: Deps): Command {
       const home = comboHome(deps.env);
       await reconcileCombos({ deps, home, apply: true, quiet: true, mergedTeardown: false });
       const gateLeases = readGateLeases(home);
-      const combos = listCombos(home);
+      const combos = listCombos(home, (id, error) => deps.out(`skipped ${id}: ${errorMessage(error)}`));
       if (combos.length === 0) {
         if (gateLeases.length > 0) deps.out(`active gate leases: ${formatGateLeaseStatus(gateLeases)}`);
         deps.out("no combos. start one: combo-chen run --issue <url> (or --plan <file>)");
@@ -782,7 +782,7 @@ export function createProgram(deps: Deps): Command {
       if (options.recordOutcome && format === "json") {
         throw new Error("--record-outcome cannot be combined with --format json");
       }
-      const combos = listCombos(home).filter((combo) => {
+      const combos = listCombos(home, (id, error) => deps.out(`skipped ${id}: ${errorMessage(error)}`)).filter((combo) => {
         if (options.name !== undefined && combo.id !== options.name) return false;
         if (issueFilter === undefined) return true;
         try {
