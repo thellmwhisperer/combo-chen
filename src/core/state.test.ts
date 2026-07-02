@@ -119,6 +119,22 @@ describe("combo records", () => {
     expect(skipped).toEqual(["no-created-at"]);
   });
 
+  it("treats a combo record whose id mismatches its directory as corrupt", () => {
+    const base = home();
+    const dir = runDirFor(base, "dir-name");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "combo.json"),
+      `${JSON.stringify({ id: "other-id", createdAt: "2026-06-10T00:00:00.000Z" })}\n`,
+    );
+
+    expect(() => listCombos(base)).toThrow(ComboStateError);
+
+    const skipped: string[] = [];
+    expect(listCombos(base, (id) => skipped.push(id))).toEqual([]);
+    expect(skipped).toEqual(["dir-name"]);
+  });
+
   it("skips corrupted combo records when onCorrupt is provided", () => {
     const base = home();
     const combo = {

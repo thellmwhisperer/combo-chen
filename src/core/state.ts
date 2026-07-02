@@ -153,6 +153,11 @@ export function listCombos(
       if (typeof combo.id !== "string" || combo.id === "" || typeof combo.createdAt !== "string") {
         throw new ComboStateError(`combo record at ${dir} is missing id or createdAt`);
       }
+      // Consumers rebuild the run dir from combo.id, so an id that does not
+      // match its directory silently points them at the wrong run.
+      if (combo.id !== entry.name) {
+        throw new ComboStateError(`combo record at ${dir} has mismatched id "${combo.id}"`);
+      }
       combos.push(combo);
     } catch (error) {
       if (!onCorrupt) throw error;
