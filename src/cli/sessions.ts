@@ -23,7 +23,7 @@
  *   windowSet, tmuxFailureText, isMissingSession
  *
  * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CODER_RESPONDING_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
- * @deps ../core/{combo,state}, ../infra/tmux
+ * @deps ../core/{combo,guards,state}, ../infra/tmux
  */
 import { shellQuote } from "../core/combo.js";
 import { errorMessage } from "../core/guards.js";
