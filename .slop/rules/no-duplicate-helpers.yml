@@ -3,16 +3,30 @@
 # six copies already existed; isRecord had 5 copies, isErrnoException 2, and
 # latestPrUrl 3 variants. Canonical homes: src/core/guards.ts (errorMessage,
 # isRecord, isErrnoException) and src/core/events.ts (latestPrUrlFromEvents).
+# Covers function declarations plus const/let arrow-function and
+# function-expression forms so the easy bypasses fail too.
 id: no-duplicate-helpers
 language: TypeScript
 files:
   - "src/**"
 ignores:
   - "src/core/guards.ts"
+  - "src/core/events.ts"
 rule:
-  kind: function_declaration
-  has:
-    field: name
-    regex: ^(errorMessage|isRecord|isErrnoException|latestPrUrl)$
+  any:
+    - kind: function_declaration
+      has:
+        field: name
+        regex: ^(errorMessage|isRecord|isErrnoException|latestPrUrl|latestPrUrlFromEvents)$
+    - kind: variable_declarator
+      all:
+        - has:
+            field: name
+            regex: ^(errorMessage|isRecord|isErrnoException|latestPrUrl|latestPrUrlFromEvents)$
+        - has:
+            field: value
+            any:
+              - kind: arrow_function
+              - kind: function_expression
 message: duplicated helper; import errorMessage/isRecord/isErrnoException from src/core/guards.ts or latestPrUrlFromEvents from src/core/events.ts
 severity: error
