@@ -24,7 +24,8 @@
  *   │ runDirFor            Resolve run dir for a combo id             │
  *   │ writeCombo           Persist a ComboRecord to disk              │
  *   │ readCombo            Load a ComboRecord from disk               │
- *   │ listCombos           Enumerate all persisted combos             │
+ *   │ listCombos           Enumerate persisted combos; optional       │
+ *   │                        onCorrupt(err) sinks corruption errors    │
  *   │ describeWorkItem     Derive stable source/title display facts   │
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
  *   │ WorkItemDescriptor   Display-safe work item source/title shape  │

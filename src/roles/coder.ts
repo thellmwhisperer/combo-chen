@@ -1,6 +1,6 @@
 /**
  * @overview Coder adapter: turns config + combo facts into a gnhf command.
- *   Extracts Codex thread IDs for resume. ~170 lines, 9 exports.
+ *   Extracts Codex thread IDs for resume. ~195 lines, 9 exports.
  *
  *   READING GUIDE
  *   ─────────────

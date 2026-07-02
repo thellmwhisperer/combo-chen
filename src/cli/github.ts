@@ -25,7 +25,7 @@
  *   reviewerVerdictsFromItems, rollupSignal, parseIssueView
  *
  * @exports GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict, PrView, blockingReadyMergeState, parsePrView, fetchForensicsGithubFacts
- * @deps ../core/gh-api, ../core/pr-url, ./checks
+ * @deps ../core/gh-api, ../core/guards, ../core/pr-url, ./checks
  */
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { isRecord } from "../core/guards.js";
