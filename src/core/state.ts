@@ -148,7 +148,11 @@ export function listCombos(
     const dir = join(runsDir, entry.name);
     if (!existsSync(join(dir, RECORD))) continue;
     try {
-      combos.push(readCombo(dir));
+      const combo = readCombo(dir);
+      if (typeof combo.id !== "string" || combo.id === "" || typeof combo.createdAt !== "string") {
+        throw new ComboStateError(`combo record at ${dir} is missing id or createdAt`);
+      }
+      combos.push(combo);
     } catch (error) {
       if (!onCorrupt) throw error;
       onCorrupt(entry.name, error);

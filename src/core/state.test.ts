@@ -106,6 +106,19 @@ describe("combo records", () => {
     expect(() => listCombos(base)).toThrow();
   });
 
+  it("treats schema-invalid combo records as corrupt", () => {
+    const base = home();
+    const dir = runDirFor(base, "no-created-at");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "combo.json"), `${JSON.stringify({ id: "no-created-at" })}\n`);
+
+    expect(() => listCombos(base)).toThrow(ComboStateError);
+
+    const skipped: string[] = [];
+    expect(listCombos(base, (id) => skipped.push(id))).toEqual([]);
+    expect(skipped).toEqual(["no-created-at"]);
+  });
+
   it("skips corrupted combo records when onCorrupt is provided", () => {
     const base = home();
     const combo = {
