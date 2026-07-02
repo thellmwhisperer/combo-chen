@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @overview combo-chen CLI router — ~1200 lines, 24 commands, dependency wiring only.
+ * @overview combo-chen CLI router — ~1200 lines, 25 commands, dependency wiring only.
  *
  *   READING GUIDE
  *   -------------
@@ -27,7 +27,7 @@
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
- *   ../core/{combo,events,gate-lease,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,director,gatekeeper},
+ *   ../core/{combo,events,gate-lease,guards,runtime-ledger,state,work-plan}, ../infra/{config-snapshot,release-metadata,tmux}, ../roles/{coder,director,gatekeeper},
  *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./passive-update, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
@@ -47,6 +47,7 @@ import {
   type EventName,
 } from "../core/events.js";
 import { readGateLeases } from "../core/gate-lease.js";
+import { errorMessage } from "../core/guards.js";
 import { buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import {
   comboHome,
@@ -677,6 +678,32 @@ export function createProgram(deps: Deps): Command {
     });
 
   program
+    .command("needs-human-report")
+    .description("Report needs_human counts by journal reason")
+    .action(() => {
+      const home = comboHome(deps.env);
+      const counts = new Map<string, number>();
+      let total = 0;
+      const combos = listCombos(home, (id, error) => deps.out(`skipped ${id}: ${errorMessage(error)}`));
+      for (const combo of combos) {
+        try {
+          for (const event of readEvents(runDirFor(home, combo.id))) {
+            if (event.event !== "needs_human") continue;
+            const reason = typeof event["reason"] === "string" ? event["reason"] : "unknown";
+            counts.set(reason, (counts.get(reason) ?? 0) + 1);
+            total += 1;
+          }
+        } catch (error) {
+          deps.out(`skipped ${combo.id}: ${errorMessage(error)}`);
+        }
+      }
+      deps.out(`needs_human total: ${total}`);
+      for (const [reason, count] of Array.from(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+        deps.out(`${reason}: ${count}`);
+      }
+    });
+
+  program
     .command("status")
     .description("Show the parallel capsule dashboard; marks merged combos closure-pending and auto-closes closed PR salvage cases")
     .option("--deep", "Probe downstream no-mistakes/GitHub recovery state")
@@ -685,7 +712,7 @@ export function createProgram(deps: Deps): Command {
       const home = comboHome(deps.env);
       await reconcileCombos({ deps, home, apply: true, quiet: true, mergedTeardown: false });
       const gateLeases = readGateLeases(home);
-      const combos = listCombos(home);
+      const combos = listCombos(home, (id, error) => deps.out(`skipped ${id}: ${errorMessage(error)}`));
       if (combos.length === 0) {
         if (gateLeases.length > 0) deps.out(`active gate leases: ${formatGateLeaseStatus(gateLeases)}`);
         deps.out("no combos. start one: combo-chen run --issue <url> (or --plan <file>)");
@@ -755,7 +782,7 @@ export function createProgram(deps: Deps): Command {
       if (options.recordOutcome && format === "json") {
         throw new Error("--record-outcome cannot be combined with --format json");
       }
-      const combos = listCombos(home).filter((combo) => {
+      const combos = listCombos(home, (id, error) => deps.out(`skipped ${id}: ${errorMessage(error)}`)).filter((combo) => {
         if (options.name !== undefined && combo.id !== options.name) return false;
         if (issueFilter === undefined) return true;
         try {

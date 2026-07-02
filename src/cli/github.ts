@@ -25,9 +25,10 @@
  *   reviewerVerdictsFromItems, rollupSignal, parseIssueView
  *
  * @exports GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict, PrView, blockingReadyMergeState, parsePrView, fetchForensicsGithubFacts
- * @deps ../core/gh-api, ../core/pr-url, ./checks
+ * @deps ../core/gh-api, ../core/guards, ../core/pr-url, ./checks
  */
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
+import { isRecord } from "../core/guards.js";
 import { parseGitHubPullRequestUrl } from "../core/pr-url.js";
 import { checkNameMatchesAny } from "./checks.js";
 
@@ -575,7 +576,4 @@ function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
 // -/ 5/5

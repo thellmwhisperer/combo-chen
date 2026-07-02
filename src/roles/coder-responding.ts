@@ -1,7 +1,7 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
  *   journal and delivers prompts to the coder tmux window via paste-buffer.
- *   Reads only; never mutates GitHub or the repo. ~300 lines, 11 exports.
+ *   Reads only; never mutates GitHub or the repo. ~310 lines, 10 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -26,7 +26,6 @@
  *   │ buildCoderRespondingResumeCommand Resume coder from thread_id     │
  *   │ buildReviewNudgePrompt        Render nudge prompt from template   │
  *   │ readCoderThreadArtifact       Load persisted thread_id            │
- *   │ latestPrUrl                   Find pr_opened URL in journal       │
  *   │ parsePullRequestUrl           Parse PR URL → {owner,repo,number}  │
  *   │ readGhArray                   gh api --paginate → parsed array    │
  *   │ signalFromComment             Extract signal from comment JSON    │
@@ -34,12 +33,12 @@
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ReviewCommentSignal, routedReviewCommentUrls, artifactNameFor,   │
  *   │ bodyText, meaningfulLines, isExternalAgentRetriggerBookkeeping,  │
- *   │ isExternalAgentRateLimitComment, isPinnedLgtmReview, isRecord    │
+ *   │ isExternalAgentRateLimitComment, isPinnedLgtmReview              │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, latestPrUrl, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
- * @deps node:fs, node:path, ../core/events, ../core/gh-api, ../core/pr-url, ../infra/config,
- *   ../infra/tmux, ./coder
+ * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
+ * @deps node:fs, node:path, ../core/events, ../core/gh-api, ../core/guards, ../core/pr-url,
+ *   ../infra/config, ../infra/tmux, ./coder
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +46,7 @@ import { join } from "node:path";
 import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
+import { isRecord } from "../core/guards.js";
 import {
   parseGitHubPullRequestUrl,
   type GitHubPullRequestRef,
@@ -164,15 +164,6 @@ export function routeReviewComments(input: {
   return routed;
 }
 
-export function latestPrUrl(events: ComboEvent[]): string | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]!;
-    if (event.event === "pr_opened" && typeof event.url === "string") {
-      return event.url;
-    }
-  }
-  return undefined;
-}
 // -/ 2/4
 
 // -- 3/4 CORE · fetchReviewCommentSignals + PR URL parsing --
@@ -317,7 +308,4 @@ function isPinnedLgtmReview(body: string): boolean {
   return /^\s*lgtm\s*@\s*[0-9a-f]{7,40}\s*(?:\r?\n|$)/i.test(body);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
 // -/ 4/4

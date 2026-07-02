@@ -22,9 +22,10 @@
  *   reconcileCombo, hasPrClosedNeedsHuman, readPrViewForReconcile, report
  *
  * @exports ReconcileDeps, reconcileCombos
- * @deps ../core/{events,runtime-ledger,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
+ * @deps ../core/{events,guards,runtime-ledger,state}, ../infra/{config-snapshot,tmux}, ./github, ./lifecycle, ./reviewer, ./sessions
  */
 import { appendEvent, readEvents } from "../core/events.js";
+import { errorMessage } from "../core/guards.js";
 import { listCombos, readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import type { TmuxResult } from "../infra/tmux.js";
@@ -66,7 +67,9 @@ export async function reconcileCombos(input: {
   let reported = false;
   const combos =
     input.comboId === undefined
-      ? listCombos(input.home)
+      ? listCombos(input.home, (id, error) => {
+          if (!input.quiet) input.deps.out(`skipped corrupt combo ${id}: ${errorMessage(error)}`);
+        })
       : [readCombo(runDirFor(input.home, input.comboId))];
   for (const combo of combos) {
     const outcome = await reconcileCombo({

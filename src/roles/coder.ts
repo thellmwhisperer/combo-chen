@@ -1,10 +1,11 @@
 /**
- * @overview Coder adapter: turns config + combo facts into a gnhf command.
- *   Extracts Codex thread IDs for resume. ~165 lines, 9 exports.
+ * @overview Coder adapter: turns config + combo facts into a gnhf command,
+ *   appends the helper-surface preflight, and extracts Codex thread IDs for
+ *   resume. ~195 lines, 9 exports.
  *
  *   READING GUIDE
  *   ─────────────
- *   1. Start at buildCoderInvocation     ← the command the runner executes
+ *   1. Start at buildCoderInvocation     ← command rendering + helper preflight
  *   2. persistCoderThreadArtifact         ← captures thread_id for resume
  *   3. extractCodexThreadIdFromJsonl      ← parses gnhf JSONL for thread
  *   4. defaultPrompt / defaultWorkPlanPrompt ← read when tracing prompt shape
@@ -12,12 +13,13 @@
  *   MAIN FLOW
  *   ─────────
  *   cli/main.ts → buildCoderInvocation({coderCommand, combo, prompt?})
+ *     → repoHasSurfaceScript chooses pnpm surface or generic helper search
  *     → renderCommand(template, {issue_url, worktree, repo, branch, prompt})
  *     → runner.sh executes the command
  *     → emit "coder_done" → persistCoderThreadArtifact extracts thread_id
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
- *   │ buildCoderInvocation       Render the coder command from template     │
+ *   │ buildCoderInvocation       Render command and append helper preflight │
  *   │ persistCoderThreadArtifact Extract + store thread_id for resume       │
  *   │ extractCodexThreadIdFromJsonl Parse gnhf JSONL → thread_id           │
  *   │ defaultPrompt              Standard issue objective prompt            │
@@ -27,6 +29,7 @@
  *   │ CODER_THREAD_ARTIFACT      Coder thread artifact filename              │
  *   │ LEGACY_ROWER_THREAD_ARTIFACT Legacy rower thread artifact filename     │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
+ *   │ repoHasSurfaceScript       Detect target repo support for pnpm surface│
  *   │ latestGnhfIterationJsonl   Find newest iteration-1.jsonl in .gnhf    │
  *   └────────────────────────────────────────────────────────────────────────┘
  *
@@ -50,6 +53,12 @@ import type { WorkPlan } from "../core/work-plan.js";
 // -- 1/3 HELPER · Types + constants + defaultPrompt --
 export const CODER_THREAD_ARTIFACT = "coder-thread.json";
 export const LEGACY_ROWER_THREAD_ARTIFACT = "rower-thread.json";
+const SURFACE_PREFLIGHT =
+  "Before writing any new helper, run pnpm surface. " +
+  "If the helper exists as private in another module, export it and reuse it; do not rewrite it.";
+const GENERIC_HELPER_PREFLIGHT =
+  "Before writing any new helper, search the repo for an equivalent helper. " +
+  "If an equivalent private helper exists in another module, export it and reuse it; do not rewrite it.";
 
 export interface CoderThreadArtifact {
   agent: "codex";
@@ -90,7 +99,10 @@ export function buildCoderInvocation(input: CoderInput): string {
       "buildCoderInvocation requires an explicit prompt for plan-backed combos (issueUrl is empty); pass a prompt override",
     );
   }
-  const prompt = input.prompt ?? defaultPrompt(input.combo.issueUrl);
+  const preflight = repoHasSurfaceScript(input.combo.worktree)
+    ? SURFACE_PREFLIGHT
+    : GENERIC_HELPER_PREFLIGHT;
+  const prompt = `${input.prompt ?? defaultPrompt(input.combo.issueUrl)} ${preflight}`;
   return renderCommand(input.coderCommand, {
     issue_url: input.combo.issueUrl,
     worktree: input.combo.worktree,
@@ -100,6 +112,20 @@ export function buildCoderInvocation(input: CoderInput): string {
   });
 }
 // -/ 2/3
+
+function repoHasSurfaceScript(worktree: string): boolean {
+  const packageJsonPath = join(worktree, "package.json");
+  if (!existsSync(packageJsonPath)) return false;
+  try {
+    const packageJson: unknown = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    if (packageJson === null || typeof packageJson !== "object") return false;
+    const scripts = (packageJson as { scripts?: unknown }).scripts;
+    if (scripts === null || typeof scripts !== "object") return false;
+    return typeof (scripts as Record<string, unknown>)["surface"] === "string";
+  } catch {
+    return false;
+  }
+}
 
 // -- 3/3 CORE · Thread artifact extraction + persistence --
 export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undefined {

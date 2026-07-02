@@ -23,18 +23,19 @@
  *   INTERNALS
  *   ---------
  *   resolveChecksumsText, expectedChecksumForAsset, failWithCleanup, cleanupPartial, sha256Hex, toBuffer,
- *   errorMessage, validateSafePathComponent.
+ *   validateSafePathComponent.
  *
  * @exports UpdateDownloadKind, UpdateDownloadRequest, UpdateExtractionInput, UpdateExtractionResult,
  *   UpdateStagingDeps, ResolvedUpdateAsset, ResolvedUpdateChecksums, ResolvedUpdateStagingPlan,
  *   StagedUpdateArtifact, UpdateStagingErrorCode, UpdateStagingCleanup, UpdateStagingError,
  *   stageResolvedUpdate
- * @deps node:{crypto,path}, ../infra/release-artifacts, ./update-contract
+ * @deps node:{crypto,path}, ../infra/release-artifacts, ./guards, ./update-contract
  */
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import { RELEASE_CHECKSUMS_FILE } from "../infra/release-artifacts.js";
+import { errorMessage } from "./guards.js";
 import { lookupUpdateChecksum, parseUpdateChecksums } from "./update-contract.js";
 
 // -- 1/3 HELPER · staging contracts --
@@ -373,10 +374,6 @@ function sha256Hex(data: Uint8Array): string {
 
 function toBuffer(data: Uint8Array | string): Buffer {
   return typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function validateSafePathComponent(name: string): string {

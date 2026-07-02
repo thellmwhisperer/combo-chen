@@ -17,7 +17,7 @@
  * @exports none (test file)
  * @deps vitest, node:{fs,os,path}, ./state
  */
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -95,5 +95,66 @@ describe("combo records", () => {
 
   it("lists nothing when the home does not exist yet", () => {
     expect(listCombos(join(home(), "nope"))).toEqual([]);
+  });
+
+  it("throws on a corrupted combo record by default", () => {
+    const base = home();
+    const dir = runDirFor(base, "bad-combo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "combo.json"), "{not json\n");
+
+    expect(() => listCombos(base)).toThrow();
+  });
+
+  it("treats schema-invalid combo records as corrupt", () => {
+    const base = home();
+    const dir = runDirFor(base, "no-created-at");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "combo.json"), `${JSON.stringify({ id: "no-created-at" })}\n`);
+
+    expect(() => listCombos(base)).toThrow(ComboStateError);
+
+    const skipped: string[] = [];
+    expect(listCombos(base, (id) => skipped.push(id))).toEqual([]);
+    expect(skipped).toEqual(["no-created-at"]);
+  });
+
+  it("treats a combo record whose id mismatches its directory as corrupt", () => {
+    const base = home();
+    const dir = runDirFor(base, "dir-name");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "combo.json"),
+      `${JSON.stringify({ id: "other-id", createdAt: "2026-06-10T00:00:00.000Z" })}\n`,
+    );
+
+    expect(() => listCombos(base)).toThrow(ComboStateError);
+
+    const skipped: string[] = [];
+    expect(listCombos(base, (id) => skipped.push(id))).toEqual([]);
+    expect(skipped).toEqual(["dir-name"]);
+  });
+
+  it("skips corrupted combo records when onCorrupt is provided", () => {
+    const base = home();
+    const combo = {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    };
+    writeCombo(runDirFor(base, combo.id), combo);
+    const badDir = runDirFor(base, "bad-combo");
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, "combo.json"), "{not json\n");
+
+    const skipped: string[] = [];
+    const combos = listCombos(base, (id) => skipped.push(id));
+
+    expect(combos.map((c) => c.id)).toEqual(["o-r-7"]);
+    expect(skipped).toEqual(["bad-combo"]);
   });
 });

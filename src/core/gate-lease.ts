@@ -18,10 +18,12 @@
  *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease
  *
  * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, GateLeaseHeartbeatResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease, heartbeatGateLease
- * @deps node:{fs,path}
+ * @deps node:{fs,path}, ./guards
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { isErrnoException } from "./guards.js";
 
 // -- 1/2 HELPER · types and paths --
 export interface GateLeaseOwner {
@@ -253,7 +255,4 @@ function isStaleLease(lease: GateLeaseRecord, now: Date, staleAfterMs: number): 
   return now.getTime() - heartbeatMs > staleAfterMs;
 }
 
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
-}
 // -/ 2/2

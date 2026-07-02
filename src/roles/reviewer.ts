@@ -1,7 +1,7 @@
 /**
  * @overview Reviewer adapter: renders the configured reviewer command with
- *   PR facts and the frozen review contract. The loop mechanics live in the
- *   orchestrator; this module owns what a reviewer session is told to do.
+ *   PR facts plus the frozen review and anti-slop contract. The loop mechanics
+ *   live in the orchestrator; this module owns the reviewer instructions.
  *   ~135 lines, 8 exports.
  *
  *   READING GUIDE
@@ -20,7 +20,7 @@
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ buildReviewerInvocation   Render reviewer command from template    │
  *   │ assertReviewerCommandSafe Reject compound reviewer shell commands │
- *   │ defaultReviewerPrompt     Standard review contract prompt         │
+ *   │ defaultReviewerPrompt     Standard review + anti-slop prompt      │
  *   │ incrementalReviewerPrompt Delta-only re-review prompt             │
  *   │ ReviewerInvocationError   Reviewer command safety error           │
  *   │ ReviewerInput             Shape for buildReviewerInvocation       │
@@ -94,6 +94,9 @@ export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
     'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',
     "On a new push, treat any earlier LGTM as stale and re-review only the delta since the last reviewed SHA.",
     "If anything is intent-touching, emit needs_human instead of deciding product intent.",
+    "Anti-slop checks: if a helper was added, verify pnpm surface or an equivalent repo search was consulted and route code 1 when an equivalent helper already exists.",
+    "Route code 1 for new config without who/when/why in the PR, any compatibility path without a removal issue or date, and script-string assertions that should be contract tests.",
+    "Treat many new top-level functions or exports in one module as a surface budget breach unless the PR justifies the shape.",
     'Submit reviews with one allowlist-friendly command: gh pr review <pr-url> --comment --body "<body>".',
     "Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||.",
     "Run one plain command per tool call; if a command fails, inspect that single failure and continue with the next plain command.",

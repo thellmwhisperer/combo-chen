@@ -1,0 +1,16 @@
+id: core-no-child-process
+language: TypeScript
+rule:
+  any:
+    - pattern: import { $$$ } from "node:child_process"
+    - pattern: import { $$$ } from "child_process"
+    - pattern: import * as $$$ from "node:child_process"
+    - pattern: import * as $$$ from "child_process"
+    - pattern: import "node:child_process"
+    - pattern: import "child_process"
+    - pattern: import("node:child_process")
+    - pattern: import("child_process")
+    - pattern: require("node:child_process")
+    - pattern: require("child_process")
+message: core/ must not spawn subprocesses; execution belongs in cli/, roles/, or infra/
+severity: error
