@@ -1,10 +1,11 @@
 /**
- * @overview Coder adapter: turns config + combo facts into a gnhf command.
- *   Extracts Codex thread IDs for resume. ~195 lines, 9 exports.
+ * @overview Coder adapter: turns config + combo facts into a gnhf command,
+ *   appends the helper-surface preflight, and extracts Codex thread IDs for
+ *   resume. ~195 lines, 9 exports.
  *
  *   READING GUIDE
  *   ─────────────
- *   1. Start at buildCoderInvocation     ← the command the runner executes
+ *   1. Start at buildCoderInvocation     ← command rendering + helper preflight
  *   2. persistCoderThreadArtifact         ← captures thread_id for resume
  *   3. extractCodexThreadIdFromJsonl      ← parses gnhf JSONL for thread
  *   4. defaultPrompt / defaultWorkPlanPrompt ← read when tracing prompt shape
@@ -12,12 +13,13 @@
  *   MAIN FLOW
  *   ─────────
  *   cli/main.ts → buildCoderInvocation({coderCommand, combo, prompt?})
+ *     → repoHasSurfaceScript chooses pnpm surface or generic helper search
  *     → renderCommand(template, {issue_url, worktree, repo, branch, prompt})
  *     → runner.sh executes the command
  *     → emit "coder_done" → persistCoderThreadArtifact extracts thread_id
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
- *   │ buildCoderInvocation       Render the coder command from template     │
+ *   │ buildCoderInvocation       Render command and append helper preflight │
  *   │ persistCoderThreadArtifact Extract + store thread_id for resume       │
  *   │ extractCodexThreadIdFromJsonl Parse gnhf JSONL → thread_id           │
  *   │ defaultPrompt              Standard issue objective prompt            │
@@ -27,6 +29,7 @@
  *   │ CODER_THREAD_ARTIFACT      Coder thread artifact filename              │
  *   │ LEGACY_ROWER_THREAD_ARTIFACT Legacy rower thread artifact filename     │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
+ *   │ repoHasSurfaceScript       Detect target repo support for pnpm surface│
  *   │ latestGnhfIterationJsonl   Find newest iteration-1.jsonl in .gnhf    │
  *   └────────────────────────────────────────────────────────────────────────┘
  *

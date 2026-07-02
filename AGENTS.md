@@ -104,7 +104,9 @@ automatically. In both cases, combo-chen propagates the config in two phases:
     retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
     120, 1 s delay). The gate runs in parallel with the config copy watcher,
     but a successful gate that finishes before the config copy completes is
-    rejected so validation stays deterministic.
+    rejected so validation stays deterministic. A config-copy failure remains
+    a gate failure even when no-mistakes output would otherwise match the
+    checks-passed plus context-canceled recovery path.
 
 Do not remove the tracked repo-level `.no-mistakes.yaml`; update it only when
 the shared validation commands intentionally change.

@@ -1,7 +1,7 @@
 /**
  * @overview Reviewer adapter: renders the configured reviewer command with
- *   PR facts and the frozen review contract. The loop mechanics live in the
- *   orchestrator; this module owns what a reviewer session is told to do.
+ *   PR facts plus the frozen review and anti-slop contract. The loop mechanics
+ *   live in the orchestrator; this module owns the reviewer instructions.
  *   ~135 lines, 8 exports.
  *
  *   READING GUIDE
@@ -20,7 +20,7 @@
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ buildReviewerInvocation   Render reviewer command from template    │
  *   │ assertReviewerCommandSafe Reject compound reviewer shell commands │
- *   │ defaultReviewerPrompt     Standard review contract prompt         │
+ *   │ defaultReviewerPrompt     Standard review + anti-slop prompt      │
  *   │ incrementalReviewerPrompt Delta-only re-review prompt             │
  *   │ ReviewerInvocationError   Reviewer command safety error           │
  *   │ ReviewerInput             Shape for buildReviewerInvocation       │

@@ -14,7 +14,7 @@
  *   MAIN FLOW
  *   ─────────
  *   cli/main.ts → parseIssueUrl → comboIdFromIssueUrl → comboHome → runDirFor
- *     → writeCombo(record) → readCombo reads it back for status/attach/etc.
+ *     → writeCombo(record) → readCombo/listCombos validate the id/run-dir contract.
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ parseIssueUrl        Parse GitHub issue URL → {owner,repo,number} │
@@ -24,14 +24,16 @@
  *   │ runDirFor            Resolve run dir for a combo id             │
  *   │ writeCombo           Persist a ComboRecord to disk              │
  *   │ readCombo            Load a ComboRecord from disk               │
- *   │ listCombos           Enumerate persisted combos; optional       │
+ *   │ listCombos           Enumerate persisted combos; validates      │
+ *   │                        combo.id === directory name; optional     │
  *   │                        onCorrupt(err) sinks corruption errors    │
  *   │ describeWorkItem     Derive stable source/title display facts   │
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
  *   │ WorkItemDescriptor   Display-safe work item source/title shape  │
  *   │ cleanOptional        Trim optional strings to undefined          │
  *   │ IssueRef             Parsed GitHub issue owner/repo/number       │
- *   │ ComboStateError      Thrown on malformed URLs, missing records  │
+ *   │ ComboStateError      Thrown on malformed URLs, missing/corrupt  │
+ *   │                        records, or id/directory mismatches       │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ISSUE_URL, slugForComboId, shortSourceHash                       │
  *   └──────────────────────────────────────────────────────────────────┘
