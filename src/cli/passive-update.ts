@@ -28,7 +28,7 @@
  *
  *   INTERNALS
  *   ---------
- *   passiveUpdateLookupTimeoutMs, isPassiveUpdateCacheEntry, isRecord, optionalStringField, nodeErrorCode.
+ *   passiveUpdateLookupTimeoutMs, isPassiveUpdateCacheEntry, isPlainRecord, optionalStringField, nodeErrorCode.
  *
  * @exports PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV, DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS,
  *   PassiveUpdateCliCacheEntry, PassiveUpdateCliDeps, passiveUpdateCachePath, defaultPassiveUpdateCommandDeps,
@@ -174,7 +174,7 @@ function passiveUpdateLookupTimeoutMs(env: Record<string, string | undefined>): 
 }
 
 function isPassiveUpdateCacheEntry(value: unknown): value is PassiveUpdateCliCacheEntry {
-  if (!isRecord(value)) return false;
+  if (!isPlainRecord(value)) return false;
   return value["schemaVersion"] === 1 &&
     typeof value["checkedAt"] === "string" &&
     (value["mode"] === "stable" || value["mode"] === "beta") &&
@@ -190,11 +190,11 @@ function optionalStringField(record: Record<string, unknown>, key: string): bool
   return record[key] === undefined || typeof record[key] === "string";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function nodeErrorCode(error: unknown): string | undefined {
-  return isRecord(error) && typeof error["code"] === "string" ? error["code"] : undefined;
+  return isPlainRecord(error) && typeof error["code"] === "string" ? error["code"] : undefined;
 }
 // -/ 3/3

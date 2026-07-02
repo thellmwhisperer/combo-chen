@@ -35,6 +35,7 @@ import { join } from "node:path";
 
 import { deriveStatus, type ComboStatus, type Phase } from "./combo.js";
 import { readEvents, type ComboEvent } from "./events.js";
+import { errorMessage } from "./guards.js";
 import { readRuntimeLedger, type RuntimeRoleWindows } from "./runtime-ledger.js";
 import { readCombo, type ComboRecord } from "./state.js";
 
@@ -267,7 +268,4 @@ function detectionError(
   };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 // -/ 3/3

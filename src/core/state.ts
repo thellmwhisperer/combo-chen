@@ -136,7 +136,10 @@ export function readCombo(runDir: string): ComboRecord {
   return JSON.parse(readFileSync(path, "utf8")) as ComboRecord;
 }
 
-export function listCombos(home: string): ComboRecord[] {
+export function listCombos(
+  home: string,
+  onCorrupt?: (id: string, error: unknown) => void,
+): ComboRecord[] {
   const runsDir = join(home, "runs");
   if (!existsSync(runsDir)) return [];
   const combos: ComboRecord[] = [];
@@ -144,7 +147,12 @@ export function listCombos(home: string): ComboRecord[] {
     if (!entry.isDirectory()) continue;
     const dir = join(runsDir, entry.name);
     if (!existsSync(join(dir, RECORD))) continue;
-    combos.push(readCombo(dir));
+    try {
+      combos.push(readCombo(dir));
+    } catch (error) {
+      if (!onCorrupt) throw error;
+      onCorrupt(entry.name, error);
+    }
   }
   return combos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

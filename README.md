@@ -594,10 +594,13 @@ through env, TOML, then fallback defaults.
 combo-chen ships with code-level anti-slop probes to prevent agent slop during
 autonomous runs:
 
-- `pnpm slop:check` — ast-grep rule that forbids `node:child_process` imports in
-  `src/core/` (execution belongs in `cli/`, `roles/`, or `infra/`); this runs in
-  CI and no-mistakes lint.
-- `pnpm slop:report` — report-only jscpd duplication scan for non-test source,
+- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint: an
+  ast-grep rule that forbids `node:child_process` imports in `src/core/`
+  (execution belongs in `cli/`, `roles/`, or `infra/`), a no-duplicate-helpers
+  tombstone rule (helpers consolidated into `src/core/guards.ts` must not be
+  redefined elsewhere), and a jscpd duplication ratchet (`--threshold 2`) that
+  fails when non-test duplication grows past the current baseline.
+- `pnpm slop:report` — verbose jscpd clone listing for non-test source,
   plus ast-grep warnings for infra verbs in `src/core/` and `toContain`
   assertions on script/runner strings that freeze internal details.
 - `pnpm surface` — ast-grep structure outline of all functions across `src/`,

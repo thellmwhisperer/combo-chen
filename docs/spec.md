@@ -815,6 +815,12 @@ The project also ships with static slop probes under `.slop/rules/`:
 - **core-no-child-process** (`error`): forbids `node:child_process` imports in
   `src/core/` — execution belongs in `cli/`, `roles/`, or `infra/`. This is the
   hard CI/no-mistakes gate.
+- **no-duplicate-helpers** (`error`): tombstone for helpers that were
+  duplicated across modules and consolidated into `src/core/guards.ts`
+  (`errorMessage`, `isRecord`, `isErrnoException`) and `src/core/events.ts`
+  (`latestPrUrlFromEvents`). Redefining one of these names outside its
+  canonical home fails the gate. Cite: PR #247 reintroduced a private
+  `errorMessage` while six copies already existed.
 - **core-no-infra-verbs** (`warning`): reports existing string-level layer
   leakage in `src/core/` (`no-mistakes`, `git push`, `tmux`, shell scripts).
   It is deliberately report-only until the current runner-generation debt is
@@ -825,9 +831,11 @@ The project also ships with static slop probes under `.slop/rules/`:
 
 These are surfaced in the package scripts:
 
-- `pnpm slop:check` — enforces the core-no-child-process rule on `src/core`
-  with `--error`, excluding test files; CI and no-mistakes lint run this.
-- `pnpm slop:report` — runs a non-test jscpd duplication report and warning
+- `pnpm slop:check` — enforces core-no-child-process and no-duplicate-helpers
+  with `--error` (excluding test files) and gates non-test jscpd duplication
+  with `--threshold 2`, a ratchet pinned just above the current 1.99%
+  baseline so new duplication fails; CI and no-mistakes lint run this.
+- `pnpm slop:report` — runs a verbose non-test jscpd clone listing and warning
   scans for core infra verbs plus script-string-assertion violations in tests.
 - `pnpm surface` — outputs the function-level structure outline of all
   non-test TypeScript files under `src/`.
