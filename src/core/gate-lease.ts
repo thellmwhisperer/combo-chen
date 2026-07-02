@@ -23,6 +23,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isErrnoException } from "./guards.js";
+
 // -- 1/2 HELPER · types and paths --
 export interface GateLeaseOwner {
   comboId: string;
@@ -253,7 +255,4 @@ function isStaleLease(lease: GateLeaseRecord, now: Date, staleAfterMs: number): 
   return now.getTime() - heartbeatMs > staleAfterMs;
 }
 
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
-}
 // -/ 2/2

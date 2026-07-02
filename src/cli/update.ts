@@ -38,6 +38,7 @@ import {
   detectActiveComboRuntime,
   type ActiveComboRuntimeDetection,
 } from "../core/active-runtime.js";
+import { errorMessage, isRecord } from "../core/guards.js";
 import { comboHome } from "../core/state.js";
 import {
   classifyInstallTarget,
@@ -452,10 +453,6 @@ function archiveRootName(assetFileName: string, archiveFiles: readonly string[])
   return rootName;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function requiredString(value: Record<string, unknown>, names: string[], label: string): string {
   const found = optionalString(value, names);
   if (found === undefined || found.length === 0) throw new Error(`GitHub ${label} is required`);
@@ -481,7 +478,4 @@ function assertAutoReplaceableInstallTarget(path: string): void {
   }
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 // -/ 3/3

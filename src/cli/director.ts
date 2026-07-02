@@ -28,16 +28,15 @@
  *   worker recovery helpers, human-hold helpers, retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../core/{events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./checks, ./closure, ./coder, ./director-watch-status, ./gate, ./github, ./pr-labels, ./reviewer, ./sessions, ./worker-monitor
+ * @deps ../core/{combo,events,gh-api,state}, ../infra/{config-snapshot,tmux}, ./checks, ./closure, ./coder, ./director-watch-status, ./gate, ./github, ./pr-labels, ./reviewer, ./sessions, ./worker-monitor
  */
 import { deriveStatus } from "../core/combo.js";
-import { appendEvent, appendEvents, readEvents, type ComboEvent } from "../core/events.js";
+import { appendEvent, appendEvents, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import { createGhApiCache } from "../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
 import { captureWindowArgs, listWindowsArgs } from "../infra/tmux.js";
 import type { TmuxResult } from "../infra/tmux.js";
-import { latestPrUrl } from "../roles/coder-responding.js";
 import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
 import { checkRollupSucceeded, externalReviewSkippedByConfiguredAgent, requiredChecksSucceeded } from "./checks.js";
 import { closeMergedCombo } from "./closure.js";
@@ -117,7 +116,7 @@ export async function tickDirector(input: {
     workerSummaries = [summary];
     deps.out(`director: ${summary}`);
   } else if (workerWindows.length > 0) {
-    const prAlreadyOpened = latestPrUrl(events) !== undefined;
+    const prAlreadyOpened = latestPrUrlFromEvents(events) !== undefined;
     const workerInspection = inspectWorkerPanes({
       deps,
       combo,
@@ -150,7 +149,7 @@ export async function tickDirector(input: {
       if (recovered) {
         events = statusEvents;
       } else {
-        const prUrl = latestPrUrl(statusEvents);
+        const prUrl = latestPrUrlFromEvents(statusEvents);
         if (prUrl === undefined) {
           emitTickComplete({
             deps,
@@ -172,7 +171,7 @@ export async function tickDirector(input: {
     }
   }
 
-  const openedPrUrl = latestPrUrl(events);
+  const openedPrUrl = latestPrUrlFromEvents(events);
   if (openedPrUrl === undefined) {
     emitTickComplete({
       deps,
@@ -241,7 +240,7 @@ export async function tickDirector(input: {
 
   nudgeReviewComments({ deps, home, comboId, ghApiCache });
 
-  const prUrl = latestPrUrl(readEvents(runDir)) ?? openedPrUrl;
+  const prUrl = latestPrUrlFromEvents(readEvents(runDir)) ?? openedPrUrl;
   if (prUrl !== undefined) {
     try {
       const gateCheck = runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
@@ -342,7 +341,7 @@ function emitTickComplete(input: {
 }): void {
   const events = input.events ?? readEvents(input.runDir);
   const now = new Date();
-  const prUrl = latestPrUrl(events);
+  const prUrl = latestPrUrlFromEvents(events);
   const pr = prUrl === undefined ? undefined : directorWatchPrSnapshot(input.deps, prUrl, now);
   input.deps.out(
     buildDirectorWatchStatusLine({
@@ -475,7 +474,7 @@ function roleWindowCaptureLooksIdle(windowName: string, lines: string[]): boolea
 }
 
 function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
-  if (latestPrUrl(events) !== undefined) {
+  if (latestPrUrlFromEvents(events) !== undefined) {
     const workerWindows = [REVIEWER_WINDOW];
     if (coderRespondingWindowName !== CODER_WINDOW || hasRoutedCoderPrompt(events)) {
       workerWindows.push(coderRespondingWindowName);
@@ -645,7 +644,7 @@ function latestPrePrGateFailureState(
   events: ComboEvent[],
   retryAttempts: number,
 ): InitialGateRetryState | undefined {
-  if (latestPrUrl(events) !== undefined) return undefined;
+  if (latestPrUrlFromEvents(events) !== undefined) return undefined;
   if (!events.some((event) => event.event === "coder_done")) return undefined;
 
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -867,7 +866,7 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   let events = readEvents(runDir);
   const combo = readCombo(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const prUrl = latestPrUrl(events);
+  const prUrl = latestPrUrlFromEvents(events);
   if (prUrl === undefined) return;
   if (!canReconcileGateFromGithub(events) || livePinnedLgtmSha(events) === undefined) return;
 

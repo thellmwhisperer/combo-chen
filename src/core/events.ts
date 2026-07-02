@@ -40,6 +40,8 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { isErrnoException } from "./guards.js";
+
 // -- 1/4 CORE · Event catalogue + types ← START HERE --
 export class ComboEventError extends Error {}
 
@@ -264,9 +266,6 @@ export function appendEvents(
   });
 }
 
-function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error;
-}
 // -/ 2/4
 
 // -- 3/4 CORE · readEvents + canonicalEventName --

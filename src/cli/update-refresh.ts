@@ -25,6 +25,7 @@
  * @deps ../core/active-runtime, ./display
  */
 import type { ActiveComboRuntimeDetection } from "../core/active-runtime.js";
+import { errorMessage } from "../core/guards.js";
 import { formatComboList, sanitizeToken } from "./display.js";
 
 // -- 1/2 HELPER · refresh result contract --
@@ -111,7 +112,4 @@ function plural(label: string, count: number): string {
   return count === 1 ? label : `${label}s`;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 // -/ 2/2

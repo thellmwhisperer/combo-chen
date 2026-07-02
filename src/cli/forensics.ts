@@ -21,13 +21,13 @@
  *
  *   INTERNALS
  *   ---------
- *   durationBetween, latestEvent, latestPrUrl, formatDuration, incident, shortSha
+ *   durationBetween, latestEvent, formatDuration, incident, shortSha
  *
  * @exports ForensicsSignalState, ForensicsGithubPrFacts, ForensicsGithubIssueFacts, ForensicsTmuxFacts, ForensicsComboInput, ForensicsIncident, ForensicsComboReport, analyzeForensicsCombo, renderForensicsMarkdown, renderForensicsOutcomeMarkdown
  * @deps ../core/{combo,events,state}, ./gate, ./reviewer
  */
 import { deriveStatus, type Phase } from "../core/combo.js";
-import type { ComboEvent } from "../core/events.js";
+import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import { describeWorkItem, type ComboRecord, type WorkItemDescriptor } from "../core/state.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
@@ -140,7 +140,7 @@ export interface ForensicsComboReport {
 export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComboReport {
   const { combo, events } = input;
   const status = deriveStatus(events);
-  const prUrl = input.github?.pr?.url ?? latestPrUrl(events);
+  const prUrl = input.github?.pr?.url ?? latestPrUrlFromEvents(events);
   const headSha = input.github?.pr?.headSha;
   const localHeadSha = input.local?.worktreeHeadSha;
   const probedReviewerSha = input.github?.pr?.reviewerPinnedSha;
@@ -391,22 +391,12 @@ function followUpBugs(report: ForensicsComboReport): string {
   return report.incidents.length === 0 ? "none recorded" : "not recorded; inspect failures above";
 }
 
-function latestPrUrl(events: ComboEvent[]): string | undefined {
-  return latestStringField(events, "pr_opened", "url");
-}
-
 function latestEvent<T extends ComboEvent["event"]>(events: ComboEvent[], name: T): ComboEvent | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
     if (event.event === name) return event;
   }
   return undefined;
-}
-
-function latestStringField(events: ComboEvent[], name: ComboEvent["event"], field: string): string | undefined {
-  const match = latestEvent(events, name);
-  const value = match?.[field];
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 function durationField<K extends string>(key: K, start: string | undefined, end: string | undefined): Partial<Record<K, number>> {

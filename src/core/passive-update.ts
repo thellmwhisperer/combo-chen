@@ -33,6 +33,7 @@
  *   isPassiveUpdateDisabled, isPassiveUpdateCacheFresh, checkPassiveUpdate
  * @deps ./update-contract, ./update-resolver
  */
+import { errorMessage } from "./guards.js";
 import type { CurrentBuildMetadata } from "./update-contract.js";
 import {
   resolveReadOnlyUpdatePlan,
@@ -229,7 +230,4 @@ function cachedSummary(entry: PassiveUpdateCacheEntry): PassiveUpdateCacheEntry 
   return { ...entry };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 // -/ 3/3

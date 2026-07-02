@@ -1,0 +1,18 @@
+# Tombstones for helpers that were duplicated across modules and consolidated.
+# Cite: PR #247 reintroduced a private errorMessage in src/cli/main.ts while
+# six copies already existed; isRecord had 5 copies, isErrnoException 2, and
+# latestPrUrl 3 variants. Canonical homes: src/core/guards.ts (errorMessage,
+# isRecord, isErrnoException) and src/core/events.ts (latestPrUrlFromEvents).
+id: no-duplicate-helpers
+language: TypeScript
+files:
+  - "src/**"
+ignores:
+  - "src/core/guards.ts"
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    regex: ^(errorMessage|isRecord|isErrnoException|latestPrUrl)$
+message: duplicated helper; import errorMessage/isRecord/isErrnoException from src/core/guards.ts or latestPrUrlFromEvents from src/core/events.ts
+severity: error

@@ -31,7 +31,7 @@
  *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./passive-update, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
@@ -47,6 +47,7 @@ import {
   type EventName,
 } from "../core/events.js";
 import { readGateLeases } from "../core/gate-lease.js";
+import { errorMessage } from "../core/guards.js";
 import { buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import {
   comboHome,
@@ -683,7 +684,8 @@ export function createProgram(deps: Deps): Command {
       const home = comboHome(deps.env);
       const counts = new Map<string, number>();
       let total = 0;
-      for (const combo of listReportCombos(home, deps.out)) {
+      const combos = listCombos(home, (id, error) => deps.out(`skipped ${id}: ${errorMessage(error)}`));
+      for (const combo of combos) {
         try {
           for (const event of readEvents(runDirFor(home, combo.id))) {
             if (event.event !== "needs_human") continue;
@@ -1174,25 +1176,6 @@ function collectLocalWorktreeHeadSha(deps: Pick<Deps, "git">, combo: Pick<ComboR
   } catch {
     return undefined;
   }
-}
-
-function listReportCombos(home: string, out: (line: string) => void): ComboRecord[] {
-  const runsDir = join(home, "runs");
-  if (!existsSync(runsDir)) return [];
-  const combos: ComboRecord[] = [];
-  for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    try {
-      combos.push(readCombo(join(runsDir, entry.name)));
-    } catch (error) {
-      out(`skipped ${entry.name}: ${errorMessage(error)}`);
-    }
-  }
-  return combos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function isDirectRun(metaUrl: string, argv1: string | undefined): boolean {
