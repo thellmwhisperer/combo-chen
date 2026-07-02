@@ -599,7 +599,10 @@ autonomous runs:
   (execution belongs in `cli/`, `roles/`, or `infra/`), a no-duplicate-helpers
   tombstone rule (helpers consolidated into `src/core/guards.ts` must not be
   redefined elsewhere), and a jscpd duplication ratchet (`--threshold 2`) that
-  fails when non-test duplication grows past the current baseline.
+  fails when non-test duplication grows past the current baseline. The ratchet
+  is a deliberate hard-fail with little headroom (baseline 1.99%): a PR that
+  trips it must remove duplication or raise the threshold explicitly in the
+  same PR with justification.
 - `pnpm slop:report` — verbose jscpd clone listing for non-test source,
   plus ast-grep warnings for infra verbs in `src/core/` and `toContain`
   assertions on script/runner strings that freeze internal details.
