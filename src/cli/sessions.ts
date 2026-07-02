@@ -26,6 +26,7 @@
  * @deps ../core/{combo,state}, ../infra/tmux
  */
 import { shellQuote } from "../core/combo.js";
+import { errorMessage } from "../core/guards.js";
 import { type ComboRecord, listCombos } from "../core/state.js";
 import {
   hasSessionArgs,
@@ -183,7 +184,7 @@ export function resolveAttachCombo(
   home: string,
   name: string | undefined,
 ): ComboRecord {
-  const combos = listCombos(home);
+  const combos = listCombos(home, (id, error) => process.stderr.write(`combo-chen: skipped corrupt combo ${id}: ${errorMessage(error)}\n`));
   if (name !== undefined) {
     const combo = combos.find((candidate) => candidate.id === name);
     if (!combo) throw new Error(`No combo named "${name}"`);
