@@ -19,6 +19,22 @@
 * **anti-slop:** Consolidate duplicated helpers into canonical homes: `errorMessage` (6 copies), `isRecord` (4 identical copies), and `isErrnoException` (2 copies) move to `src/core/guards.ts`; `latestPrUrl` variants collapse into `latestPrUrlFromEvents` from `src/core/events.ts`. `pnpm slop:check` now also enforces a no-duplicate-helpers tombstone rule and a jscpd duplication ratchet (`--threshold 2`), so reintroducing a consolidated helper or growing non-test duplication fails the gate.
 
 
+## [0.0.69](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.68...combo-chen-v0.0.69) (2026-07-02)
+
+
+### Features
+
+* add anti-slop surface probes ([c24a06a](https://github.com/thellmwhisperer/combo-chen/commit/c24a06ad3c73c2524f49a4cdd38054e1171ead5f))
+* **anti-slop:** add surface probes, consolidate guards, and harden reviewer ([9f3d32c](https://github.com/thellmwhisperer/combo-chen/commit/9f3d32cbad47933a692dc77effa02390aba835b4))
+
+
+### Bug Fixes
+
+* address CodeRabbit review on surface detection and combo record validation ([5a30bbc](https://github.com/thellmwhisperer/combo-chen/commit/5a30bbc5ea8de7d0eb6cac5943117bcdcaad6242))
+* harden no-duplicate-helpers tombstone against arrow and const forms ([f761ace](https://github.com/thellmwhisperer/combo-chen/commit/f761acea5c89bd6cb994552abcdc9d03db42896a))
+* tighten anti-slop probes ([e69289f](https://github.com/thellmwhisperer/combo-chen/commit/e69289f3226b5edcb461a4eeb54ec11f6a329d14))
+* treat combo records with mismatched id as corrupt in listCombos ([4327c8d](https://github.com/thellmwhisperer/combo-chen/commit/4327c8dc193bde61cb9cdac92f3b74919ff9a951))
+
 ## [0.0.68](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.67...combo-chen-v0.0.68) (2026-06-28)
 
 
