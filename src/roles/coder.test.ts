@@ -58,12 +58,16 @@ function seedGnhfRun(worktree: string): void {
 
 function comboWithSurfaceScript(): typeof combo {
   const repoDir = tempDir("coder-surface-repo-");
-  mkdirSync(repoDir, { recursive: true });
+  const worktree = join(repoDir, ".worktrees", "issue-7");
+  mkdirSync(worktree, { recursive: true });
+  // The coder runs inside the worktree, so surface detection must read the
+  // worktree's package.json: the repo checkout may diverge from the branch.
+  writeFileSync(join(repoDir, "package.json"), JSON.stringify({ scripts: {} }));
   writeFileSync(
-    join(repoDir, "package.json"),
+    join(worktree, "package.json"),
     JSON.stringify({ scripts: { surface: "sg outline --items structure src" } }),
   );
-  return { ...combo, repoDir, worktree: join(repoDir, ".worktrees", "issue-7") };
+  return { ...combo, repoDir, worktree };
 }
 
 // -- 1/3 CORE · Prompt generation + invocation ← START HERE --

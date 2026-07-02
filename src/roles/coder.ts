@@ -96,7 +96,7 @@ export function buildCoderInvocation(input: CoderInput): string {
       "buildCoderInvocation requires an explicit prompt for plan-backed combos (issueUrl is empty); pass a prompt override",
     );
   }
-  const preflight = repoHasSurfaceScript(input.combo.repoDir)
+  const preflight = repoHasSurfaceScript(input.combo.worktree)
     ? SURFACE_PREFLIGHT
     : GENERIC_HELPER_PREFLIGHT;
   const prompt = `${input.prompt ?? defaultPrompt(input.combo.issueUrl)} ${preflight}`;
@@ -110,8 +110,8 @@ export function buildCoderInvocation(input: CoderInput): string {
 }
 // -/ 2/3
 
-function repoHasSurfaceScript(repoDir: string): boolean {
-  const packageJsonPath = join(repoDir, "package.json");
+function repoHasSurfaceScript(worktree: string): boolean {
+  const packageJsonPath = join(worktree, "package.json");
   if (!existsSync(packageJsonPath)) return false;
   try {
     const packageJson: unknown = JSON.parse(readFileSync(packageJsonPath, "utf8"));
