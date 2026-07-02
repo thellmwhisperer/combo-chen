@@ -25,21 +25,18 @@
  *
  *   INTERNALS
  *   ---------
- *   isRecord, upperString, checkSignalIsReviewSkipped, checkLabels, comment helpers
+ *   upperString, checkSignalIsReviewSkipped, checkLabels, comment helpers
  *
  * @exports checkName, checkNameMatchesAny, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, externalReviewSkippedByConfiguredAgent
- * @deps none
+ * @deps ../core/guards
  */
+import { isRecord } from "../core/guards.js";
 
 // -- 1/2 HELPER · Scalar readers and status predicates --
 const SUCCESSFUL_CHECK_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED"]);
 const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
 const EXTERNAL_REVIEW_SKIPPED_PATTERN =
   /\b(review\s+limit\s+reached|review\s+skipped|couldn'?t start this review|rate[-\s]?limit(?:ed)?)\b/i;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object";
-}
 
 function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;

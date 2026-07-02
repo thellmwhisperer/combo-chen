@@ -11,6 +11,9 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "release:assets": "pnpm build && node dist/release-assets.mjs",
+    "slop:check": "sg scan --rule .slop/rules/core-no-child-process.yml src/core --globs '!**/*.test.ts' --error && sg scan --rule .slop/rules/no-duplicate-helpers.yml src --globs '!**/*.test.ts' --error && jscpd src --format typescript --ignore '**/*.test.ts' --threshold 2 --silent --no-colors --no-tips",
+    "slop:report": "jscpd src --format typescript --ignore '**/*.test.ts' --silent --no-colors --no-tips; sg scan --rule .slop/rules/core-no-infra-verbs.yml src/core --globs '!**/*.test.ts' --warning; sg scan --rule .slop/rules/script-string-assertion.yml src --globs '**/*.test.ts' --warning",
+    "surface": "sg outline --items structure --type function --view names src --globs '!**/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude='.worktrees/**' --exclude='.tmp/**' --exclude='e2e/**'",
     "test:e2e": "pnpm build && vitest run e2e --exclude='.worktrees/**' --exclude='.tmp/**'",
@@ -21,7 +24,9 @@
     "smol-toml": "^1.3.0"
   },
   "devDependencies": {
+    "@ast-grep/cli": "^0.44.0",
     "@types/node": "^22.0.0",
+    "jscpd": "^5.0.11",
     "tsdown": "^0.21.0",
     "typescript": "^5.8.0",
     "vitest": "^4.0.0"

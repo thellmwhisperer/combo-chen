@@ -104,7 +104,9 @@ automatically. In both cases, combo-chen propagates the config in two phases:
     retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
     120, 1 s delay). The gate runs in parallel with the config copy watcher,
     but a successful gate that finishes before the config copy completes is
-    rejected so validation stays deterministic.
+    rejected so validation stays deterministic. A config-copy failure remains
+    a gate failure even when no-mistakes output would otherwise match the
+    checks-passed plus context-canceled recovery path.
 
 Do not remove the tracked repo-level `.no-mistakes.yaml`; update it only when
 the shared validation commands intentionally change.
@@ -116,8 +118,8 @@ the shared validation commands intentionally change.
 - Keep operational values configurable through env, TOML, then fallback.
 - Use focused tests for orchestration contracts and broaden only when shared
   behavior changes.
-- Validate with `pnpm test`, `pnpm typecheck`, `pnpm build`, and
-  `git diff --check` before committing.
+- Validate with `pnpm test`, `pnpm typecheck`, `pnpm build`,
+  `pnpm slop:check`, and `git diff --check` before committing.
 - Use short conventional commits. No co-authors.
 
 ## Sherpa Navigation
@@ -164,9 +166,13 @@ human-readable tmux topology (fixed tmux role topology: journal, director,
 coder, gatekeeper, reviewer, and director-watch in that stable order;
 gatekeeper and reviewer are precreated at launch; coder-response target
 defaults to the persistent coder window; raw event output never replaces the
-coder role), and opt-in runner
+coder role), opt-in runner
 progress status lines
-(`COMBO_CHEN_RUNNER_PROGRESS=1`), and mandatory Treehouse-backed worktree
-leases.
-Deferred: preflight scoring, counterfactual
+(`COMBO_CHEN_RUNNER_PROGRESS=1`), mandatory Treehouse-backed worktree
+leases, coder helper preflight (use `pnpm surface` when the target repo exposes
+it; otherwise search before adding helpers), reviewer anti-slop guardrails
+(duplicate helper check, config plausibility, surface budget awareness),
+anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
+`pnpm surface`), and `needs-human-report` operational metrics.
+Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.

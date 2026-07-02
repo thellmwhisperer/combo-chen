@@ -10,9 +10,9 @@ schema must conform to it, not the other way around.
 | Role | Does | Never does | Default agent |
 | --- | --- | --- | --- |
 | **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
-| **coder** | implements the work item (phase 1); the same thread resumes in responding mode for review comments (phase 3) | merge, deploy | codex via gnhf |
+| **coder** | implements the work item (phase 1); the same thread resumes in responding mode for review comments (phase 3). Before writing any new helper, the coder runs `pnpm surface` when the target repo exposes it, otherwise searches for existing equivalents. | merge, deploy | codex via gnhf |
 | **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. For plan-backed combos, {issue_pr_intent} carries the rendered work-plan intent; other issue-specific placeholders are unsupported and cause a config error. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR with configured prompt text, emits machine-readable verdict codes (0–3), incrementally until merge | review its own changes | claude |
+| **reviewer** | reviews the PR with configured prompt text, emits machine-readable verdict codes (0–3), incrementally until merge. Includes anti-slop checks: duplicate helpers, config plausibility, surface budget, and contract test assertions. | review its own changes | claude |
 | **merge** | the decision slot | — | human (hard default) |
 
 Validation at launch (hard failures, the combo refuses to start):
@@ -174,7 +174,9 @@ contains `outcome: checks-passed` and a later `context canceled`, generated
 runner, initial-retry, and post-address gate scripts treat that as recovered
 success evidence. They emit `gate_status state=idle` with
 `recovery=checks_passed_context_canceled` and continue the normal PR detection
-or post-address validation path instead of journaling `gate_failed`.
+or post-address validation path instead of journaling `gate_failed`. This
+recovery is disabled when the generated gate script marked a repo-config copy
+failure; configuration propagation failures remain gate failures.
 When the local combo worktree HEAD differs from the current GitHub PR head,
 `status --deep` and `forensics` surface the drift explicitly as a warning with
 a recommended next action (fetch PR head for review or sync the combo
@@ -233,6 +235,9 @@ never overwrite an existing config. In
 combo-chen, `.no-mistakes.yaml` is intentionally tracked as shared
 test/lint/build policy; user-local secrets and operator preferences stay in
 ignored config or environment outside that file.
+If the daemon worktree copy fails, the gate is a deterministic failure even
+when no-mistakes output would otherwise match the checks-passed plus
+context-canceled recovery pattern.
 
 ## 4. Coder responding contract
 
@@ -292,6 +297,20 @@ ignored config or environment outside that file.
   Verdict codes 0, 1, and 2 are idempotent per head SHA (no duplicate events
   for the same code and SHA). Code 3 (`needs_human`) is also guarded against
   duplicate journaling for the same `reason` + `sha` combination.
+
+  The reviewer prompt also includes anti-slop guardrails that apply
+  regardless of the verdict code path:
+  - **Duplicate helpers:** verify `pnpm surface` or an equivalent repo search
+    was consulted; route code 1 when an equivalent helper already exists.
+  - **Config plausibility:** route code 1 for new config without
+    who/when/why in the PR body, and any compatibility path without a
+    removal issue or date.
+  - **Contract tests:** route code 1 for script/runner string assertions
+    that should be rewritten as behavior-based contract tests.
+  - **Surface budget:** treat many new top-level functions or exports in
+    one module as a surface budget breach unless the PR justifies the shape.
+  - Coder prompt overrides are augmented with the helper preflight so custom
+    prompts do not bypass duplicate-helper discovery.
 
 - The reviewer may also emit a plain `lgtm` (required field `sha`) to journal
   the reviewed commit; the LGTM is pinned to that SHA and must come from a
@@ -441,6 +460,10 @@ ignored config or environment outside that file.
   Duplicate `pr_opened` append attempts for the same PR URL in one combo return
   the existing event and do not write a second line, preserving one PR-open
   transition even when retry paths re-emit the same fact.
+  The `combo.json` `id` is an exact directory invariant: it must match the
+  `runs/<combo-id>` directory entry. Readers derive run paths from `combo.id`,
+  so mismatches are corrupt state and list operations fail unless the caller
+  explicitly supplies a corruption handler.
 - The director-watch polling loop, post-address gates, reviewer activation,
   park/resume, reconcile teardown, `status --deep`, and forensics all read
   runtime config from the launch-time `config.snapshot.json` in the run
@@ -516,6 +539,13 @@ ignored config or environment outside that file.
   as stale. Parked combos are exempt from this check because the missing session
   is expected. Terminal historical rows are hidden unless the operator passes
   `status --all`.
+- `combo-chen needs-human-report` scans all combo journals and reports
+  `needs_human` event counts grouped by reason (e.g. `worker_stalled`,
+  `gate_decision`, `gate_failed`). It is an operational metrics tool that
+  helps operators spot systemic escalations across multiple combos without
+  reading individual journal files. Corrupt combo records are skipped with a
+  `skipped <combo-id>: <reason>` line so one bad run directory does not block
+  the aggregate report.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
@@ -781,6 +811,45 @@ after the run has a PR link and head SHA.
   AGENTS.md is the testing brain.
 - Anti-scope: combos are for issue-sized work. Typo-sized changes belong in
   direct sessions, not pipelines.
+
+### Code-level anti-slop surface probes
+
+Every coder prompt includes a helper preflight instruction: before writing any
+new helper, the coder must run `pnpm surface` when the target repo exposes the
+script, otherwise search the repo for an equivalent function. If one exists in
+another module, the coder must export and reuse it instead of rewriting it.
+This prevents agent slop from accumulating duplicate helpers across combination
+runs without assuming every target repo is combo-chen.
+
+The project also ships with static slop probes under `.slop/rules/`:
+
+- **core-no-child-process** (`error`): forbids `node:child_process` imports in
+  `src/core/` — execution belongs in `cli/`, `roles/`, or `infra/`. This is the
+  hard CI/no-mistakes gate.
+- **no-duplicate-helpers** (`error`): tombstone for helpers that were
+  duplicated across modules and consolidated into `src/core/guards.ts`
+  (`errorMessage`, `isRecord`, `isErrnoException`) and `src/core/events.ts`
+  (`latestPrUrlFromEvents`). Redefining one of these names outside its
+  canonical home fails the gate. Cite: PR #247 reintroduced a private
+  `errorMessage` while six copies already existed.
+- **core-no-infra-verbs** (`warning`): reports existing string-level layer
+  leakage in `src/core/` (`no-mistakes`, `git push`, `tmux`, shell scripts).
+  It is deliberately report-only until the current runner-generation debt is
+  refactored.
+- **script-string-assertion** (`warning`): flags `toContain` assertions on
+  script/runner targets that freeze internal strings; prefer contract
+  behavior assertions.
+
+These are surfaced in the package scripts:
+
+- `pnpm slop:check` — enforces core-no-child-process and no-duplicate-helpers
+  with `--error` (excluding test files) and gates non-test jscpd duplication
+  with `--threshold 2`, a ratchet pinned just above the current 1.99%
+  baseline so new duplication fails; CI and no-mistakes lint run this.
+- `pnpm slop:report` — runs a verbose non-test jscpd clone listing and warning
+  scans for core infra verbs plus script-string-assertion violations in tests.
+- `pnpm surface` — outputs the function-level structure outline of all
+  non-test TypeScript files under `src/`.
 
 ## 8d. PR label projection
 

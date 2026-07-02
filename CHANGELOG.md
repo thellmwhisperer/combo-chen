@@ -11,6 +11,12 @@
 * **topology:** Consolidate combo tmux topology into persistent role windows: coder, journal, director, gatekeeper, and reviewer. Fixes [#235](https://github.com/thellmwhisperer/combo-chen/issues/235).
 * **update:** Post-update daemon and runner refresh after successful active update. Fixes [#193](https://github.com/thellmwhisperer/combo-chen/issues/193).
 * **pr-labels:** Make combo PR label projection single-writer and idempotent. Read-only commands (`status`, `status --deep`, `status --deep --all`) no longer mutate GitHub labels or journal `pr_labels_updated` events; only the canonical mutation path (`director-watch`/`director-tick`) writes labels. Fixes [#241](https://github.com/thellmwhisperer/combo-chen/issues/241).
+* **anti-slop:** Add code-level anti-slop surface probes: `pnpm slop:check` (ast-grep rule forbidding child_process imports in `src/core/`), `pnpm slop:report` (jscpd duplication scan + warning scans for infra-verb leakage and script-string assertions), and `pnpm surface` (ast-grep structure outline). Wired into CI and no-mistakes lint. Fixes [#247](https://github.com/thellmwhisperer/combo-chen/issues/247).
+* **coder:** Append a helper surface preflight to every coder prompt. Uses `pnpm surface` when the target repo exposes the script, otherwise a generic repo search for equivalent helpers. Custom prompts are augmented, not replaced.
+* **reviewer:** Add anti-slop guardrails to the reviewer prompt: duplicate helper detection via surface checks, config plausibility (who/when/why), script-string contract test assertions, and surface budget awareness.
+* **cli:** Add `combo-chen needs-human-report` command that scans all combo journals and reports `needs_human` event counts grouped by reason. Resilient to corrupted combos.
+* **gatekeeper:** Fix gatekeeper exit code when config copy fails so the gate correctly reports failure.
+* **anti-slop:** Consolidate duplicated helpers into canonical homes: `errorMessage` (6 copies), `isRecord` (4 identical copies), and `isErrnoException` (2 copies) move to `src/core/guards.ts`; `latestPrUrl` variants collapse into `latestPrUrlFromEvents` from `src/core/events.ts`. `pnpm slop:check` now also enforces a no-duplicate-helpers tombstone rule and a jscpd duplication ratchet (`--threshold 2`), so reintroducing a consolidated helper or growing non-test duplication fails the gate.
 
 
 ## [0.0.68](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.67...combo-chen-v0.0.68) (2026-06-28)

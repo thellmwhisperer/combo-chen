@@ -1,0 +1,7 @@
+id: core-no-infra-verbs
+language: TypeScript
+rule:
+  kind: string
+  regex: "no-mistakes|git push|tmux |\\.sh\\b"
+message: core/ references infra verbs; move shell/git/tmux execution to cli/, roles/, or infra/
+severity: warning

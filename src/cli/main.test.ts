@@ -179,6 +179,20 @@ async function exec(deps: Deps, argv: string[]): Promise<void> {
   await program.parseAsync(["node", "combo-chen", ...argv]);
 }
 
+function seedNeedsHumanCombo(homeDir: string): string {
+  const dir = runDirFor(homeDir, "o-r-needs");
+  writeCombo(dir, {
+    id: "o-r-needs",
+    issueUrl: "https://github.com/o/r/issues/7",
+    repoDir: "/repos/r",
+    worktree: "/repos/r/.worktrees/issue-7",
+    branch: "combo/issue-7",
+    tmuxSession: "combo-chen-o-r-needs",
+    createdAt: "2026-06-11T10:00:00.000Z",
+  });
+  return dir;
+}
+
 function seedCodexGnhfRun(worktree: string): void {
   const gnhfRun = join(worktree, ".gnhf", "runs", "implement-github-iss-e6510c");
   mkdirSync(gnhfRun, { recursive: true });
@@ -219,6 +233,37 @@ describe("command surface", () => {
     expect(createProgram(deps).version()).toBe(formatReleaseMetadata(releaseMetadata));
   });
 
+  it("reports needs_human counts by reason", async () => {
+    const h = home();
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h, [PASSIVE_UPDATE_DISABLE_ENV]: "1" } });
+    const runDir = seedNeedsHumanCombo(h);
+    appendEvent(runDir, "needs_human", { reason: "worker_stalled" });
+    appendEvent(runDir, "needs_human", { reason: "worker_stalled" });
+    appendEvent(runDir, "needs_human", { reason: "gate_decision" });
+
+    await exec(deps, ["needs-human-report"]);
+
+    expect(out).toContain("needs_human total: 3");
+    expect(out).toContain("worker_stalled: 2");
+    expect(out).toContain("gate_decision: 1");
+  });
+
+  it("skips corrupted combos in needs_human reports", async () => {
+    const h = home();
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h, [PASSIVE_UPDATE_DISABLE_ENV]: "1" } });
+    const runDir = seedNeedsHumanCombo(h);
+    appendEvent(runDir, "needs_human", { reason: "worker_stalled" });
+    const badDir = runDirFor(h, "bad-combo");
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, "combo.json"), "{not json\n");
+
+    await exec(deps, ["needs-human-report"]);
+
+    expect(out.some((line) => line.startsWith("skipped bad-combo:"))).toBe(true);
+    expect(out).toContain("needs_human total: 1");
+    expect(out).toContain("worker_stalled: 1");
+  });
+
   it("exposes the configured command surface", () => {
     const { deps } = fakeDeps();
     const names = createProgram(deps)
@@ -240,6 +285,7 @@ describe("command surface", () => {
         "gate-lease",
         "gate-restart",
         "intent",
+        "needs-human-report",
         "reviewer-tick",
         "nudge-review-comments",
         "overture",

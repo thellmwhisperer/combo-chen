@@ -14,7 +14,7 @@
  *   MAIN FLOW
  *   ─────────
  *   cli/main.ts → parseIssueUrl → comboIdFromIssueUrl → comboHome → runDirFor
- *     → writeCombo(record) → readCombo reads it back for status/attach/etc.
+ *     → writeCombo(record) → readCombo/listCombos validate the id/run-dir contract.
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ parseIssueUrl        Parse GitHub issue URL → {owner,repo,number} │
@@ -24,13 +24,16 @@
  *   │ runDirFor            Resolve run dir for a combo id             │
  *   │ writeCombo           Persist a ComboRecord to disk              │
  *   │ readCombo            Load a ComboRecord from disk               │
- *   │ listCombos           Enumerate all persisted combos             │
+ *   │ listCombos           Enumerate persisted combos; validates      │
+ *   │                        combo.id === directory name; optional     │
+ *   │                        onCorrupt(err) sinks corruption errors    │
  *   │ describeWorkItem     Derive stable source/title display facts   │
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
  *   │ WorkItemDescriptor   Display-safe work item source/title shape  │
  *   │ cleanOptional        Trim optional strings to undefined          │
  *   │ IssueRef             Parsed GitHub issue owner/repo/number       │
- *   │ ComboStateError      Thrown on malformed URLs, missing records  │
+ *   │ ComboStateError      Thrown on malformed URLs, missing/corrupt  │
+ *   │                        records, or id/directory mismatches       │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ ISSUE_URL, slugForComboId, shortSourceHash                       │
  *   └──────────────────────────────────────────────────────────────────┘
@@ -136,7 +139,10 @@ export function readCombo(runDir: string): ComboRecord {
   return JSON.parse(readFileSync(path, "utf8")) as ComboRecord;
 }
 
-export function listCombos(home: string): ComboRecord[] {
+export function listCombos(
+  home: string,
+  onCorrupt?: (id: string, error: unknown) => void,
+): ComboRecord[] {
   const runsDir = join(home, "runs");
   if (!existsSync(runsDir)) return [];
   const combos: ComboRecord[] = [];
@@ -144,7 +150,21 @@ export function listCombos(home: string): ComboRecord[] {
     if (!entry.isDirectory()) continue;
     const dir = join(runsDir, entry.name);
     if (!existsSync(join(dir, RECORD))) continue;
-    combos.push(readCombo(dir));
+    try {
+      const combo = readCombo(dir);
+      if (typeof combo.id !== "string" || combo.id === "" || typeof combo.createdAt !== "string") {
+        throw new ComboStateError(`combo record at ${dir} is missing id or createdAt`);
+      }
+      // Consumers rebuild the run dir from combo.id, so an id that does not
+      // match its directory silently points them at the wrong run.
+      if (combo.id !== entry.name) {
+        throw new ComboStateError(`combo record at ${dir} has mismatched id "${combo.id}"`);
+      }
+      combos.push(combo);
+    } catch (error) {
+      if (!onCorrupt) throw error;
+      onCorrupt(entry.name, error);
+    }
   }
   return combos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

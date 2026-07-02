@@ -37,7 +37,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
+import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../core/events.js";
 import type { GhApiCache } from "../core/gh-api.js";
 import { runDirFor, readCombo } from "../core/state.js";
 import { shellQuote } from "../core/combo.js";
@@ -56,7 +56,6 @@ import {
   buildCoderRespondingResumeCommand,
   buildReviewNudgePrompt,
   fetchReviewCommentSignals,
-  latestPrUrl,
   readCoderThreadArtifact,
   routeReviewComments,
 } from "../roles/coder-responding.js";
@@ -251,7 +250,7 @@ export function nudgeReviewComments(input: {
   const { deps, home, comboId, ghApiCache } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
-  const prUrl = latestPrUrl(readEvents(runDir));
+  const prUrl = latestPrUrlFromEvents(readEvents(runDir));
   if (prUrl === undefined) {
     throw new Error(`No pr_opened event for combo "${comboId}"`);
   }

@@ -41,7 +41,8 @@ combo-chen makes the process explicit.
    If the initial gate fails before a PR opens, the director auto-retries it up to
    a configurable limit. When no-mistakes exits non-zero after publishing but the
    gate log shows `outcome: checks-passed` with a later `context canceled`, the
-   generated scripts treat that as recovered success instead of `gate_failed`.
+   generated scripts treat that as recovered success instead of `gate_failed`,
+   unless the repo `.no-mistakes.yaml` copy into the daemon worktree failed.
 5. A reviewer comments with a machine-readable verdict block (codes: 0=OK/LGTM,
    1=mechanical fix→coder, 2=ambiguous→director, 3=needs human) and/or a
    SHA-pinned LGTM verdict.
@@ -270,6 +271,8 @@ worktrees, then from the worktree into the no-mistakes daemon's active run
 worktree before each gate, so validation stays deterministic. The daemon copy
 polls with up to
 `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` retries (default 120, 1 s delay).
+If the daemon copy cannot complete, the gate fails instead of accepting an
+otherwise-recoverable no-mistakes result.
 
 ## Release Artifacts
 
@@ -427,6 +430,7 @@ combo-chen run --issue <issue-url> [--repo <dir>] [--base <ref>] [--prompt <text
 combo-chen run --plan <file> [--repo <dir>] [--base <ref>] [--prompt <text>]
 combo-chen update [--beta] [-y|--yes]
 combo-chen status [--deep] [--all]
+combo-chen needs-human-report
 combo-chen attach -n <combo-id>
 combo-chen events --follow -n <combo-id>
 combo-chen park -n <combo-id>
@@ -445,6 +449,10 @@ Treehouse/worktree/branch/tmux availability, no-mistakes status, and coder/revie
 command safety. A blocked check prints an `X` and exits before any launch
 resources are created. Run it standalone to verify readiness, or let `run`
 consume it automatically.
+
+`needs-human-report` scans all combo journals and reports a summary of
+`needs_human` event counts grouped by reason. Corrupt combo records are skipped
+with a `skipped <combo-id>: <reason>` line instead of stopping the report.
 
 ### Recovery Commands
 
@@ -540,6 +548,8 @@ Important files:
 
 - `overture.json`: launch runway check results before worktree/tmux/branch creation.
 - `combo.json`: repo, worktree, branch, tmux identity, and work-item source metadata.
+  Its `id` must exactly match the `<combo-id>` directory name; readers rebuild
+  run paths from that id, so mismatches are treated as corrupt state.
 - `journal.jsonl`: the source of truth. Includes `pr_labels_updated` events
   that record every PR label mutation with metadata (PR URL, head SHA, old/new
   labels, reason) for auditability.
@@ -578,12 +588,34 @@ without collapsing the roles that make the result trustworthy.
 ```bash
 pnpm test
 pnpm typecheck
+pnpm slop:check
 pnpm build
 git diff --check
 ```
 
 Behavior changes should be test-first. Keep operational values configurable
 through env, TOML, then fallback defaults.
+
+### Anti-Slop Surface
+
+combo-chen ships with code-level anti-slop probes to prevent agent slop during
+autonomous runs:
+
+- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint: an
+  ast-grep rule that forbids `node:child_process` imports in `src/core/`
+  (execution belongs in `cli/`, `roles/`, or `infra/`), a no-duplicate-helpers
+  tombstone rule (helpers consolidated into `src/core/guards.ts` and
+  `latestPrUrlFromEvents` from `src/core/events.ts` must not be redefined
+  elsewhere), and a jscpd duplication ratchet (`--threshold 2`) that
+  fails when non-test duplication grows past the current baseline. The ratchet
+  is a deliberate hard-fail with little headroom (baseline 1.99%): a PR that
+  trips it must remove duplication or raise the threshold explicitly in the
+  same PR with justification.
+- `pnpm slop:report` — verbose jscpd clone listing for non-test source,
+  plus ast-grep warnings for infra verbs in `src/core/` and `toContain`
+  assertions on script/runner strings that freeze internal details.
+- `pnpm surface` — ast-grep structure outline of all functions across `src/`,
+  used by the coder preflight when the target repo exposes the script.
 
 ## Status
 
@@ -620,11 +652,14 @@ human-readable tmux topology (fixed tmux role topology: journal, director,
 coder, gatekeeper, reviewer, and director-watch in that stable order;
 gatekeeper and reviewer are precreated at launch; coder-response target
 defaults to the persistent coder window; raw event output never replaces the
-coder role), and opt-in runner
+coder role), opt-in runner
 progress status lines
-(`COMBO_CHEN_RUNNER_PROGRESS=1`).
+(`COMBO_CHEN_RUNNER_PROGRESS=1`), coder helper preflight (use `pnpm surface`
+when the target repo exposes it; otherwise search before adding helpers), reviewer
+anti-slop guardrails (duplicate helper check, config plausibility, surface
+budget awareness), and `needs-human-report` operational metrics.
 
-Deferred: preflight scoring, counterfactual automerge logs, and ACP role driving.
+Deferred: issue preflight scoring, counterfactual automerge logs, and ACP role driving.
 
 ## License
 
