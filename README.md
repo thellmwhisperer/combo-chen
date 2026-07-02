@@ -41,7 +41,8 @@ combo-chen makes the process explicit.
    If the initial gate fails before a PR opens, the director auto-retries it up to
    a configurable limit. When no-mistakes exits non-zero after publishing but the
    gate log shows `outcome: checks-passed` with a later `context canceled`, the
-   generated scripts treat that as recovered success instead of `gate_failed`.
+   generated scripts treat that as recovered success instead of `gate_failed`,
+   unless the repo `.no-mistakes.yaml` copy into the daemon worktree failed.
 5. A reviewer comments with a machine-readable verdict block (codes: 0=OK/LGTM,
    1=mechanical fix→coder, 2=ambiguous→director, 3=needs human) and/or a
    SHA-pinned LGTM verdict.
@@ -270,6 +271,8 @@ worktrees, then from the worktree into the no-mistakes daemon's active run
 worktree before each gate, so validation stays deterministic. The daemon copy
 polls with up to
 `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` retries (default 120, 1 s delay).
+If the daemon copy cannot complete, the gate fails instead of accepting an
+otherwise-recoverable no-mistakes result.
 
 ## Release Artifacts
 
@@ -448,7 +451,8 @@ resources are created. Run it standalone to verify readiness, or let `run`
 consume it automatically.
 
 `needs-human-report` scans all combo journals and reports a summary of
-`needs_human` event counts grouped by reason.
+`needs_human` event counts grouped by reason. Corrupt combo records are skipped
+with a `skipped <combo-id>: <reason>` line instead of stopping the report.
 
 ### Recovery Commands
 
@@ -544,6 +548,8 @@ Important files:
 
 - `overture.json`: launch runway check results before worktree/tmux/branch creation.
 - `combo.json`: repo, worktree, branch, tmux identity, and work-item source metadata.
+  Its `id` must exactly match the `<combo-id>` directory name; readers rebuild
+  run paths from that id, so mismatches are treated as corrupt state.
 - `journal.jsonl`: the source of truth. Includes `pr_labels_updated` events
   that record every PR label mutation with metadata (PR URL, head SHA, old/new
   labels, reason) for auditability.
@@ -582,6 +588,7 @@ without collapsing the roles that make the result trustworthy.
 ```bash
 pnpm test
 pnpm typecheck
+pnpm slop:check
 pnpm build
 git diff --check
 ```
@@ -597,8 +604,9 @@ autonomous runs:
 - `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint: an
   ast-grep rule that forbids `node:child_process` imports in `src/core/`
   (execution belongs in `cli/`, `roles/`, or `infra/`), a no-duplicate-helpers
-  tombstone rule (helpers consolidated into `src/core/guards.ts` must not be
-  redefined elsewhere), and a jscpd duplication ratchet (`--threshold 2`) that
+  tombstone rule (helpers consolidated into `src/core/guards.ts` and
+  `latestPrUrlFromEvents` from `src/core/events.ts` must not be redefined
+  elsewhere), and a jscpd duplication ratchet (`--threshold 2`) that
   fails when non-test duplication grows past the current baseline. The ratchet
   is a deliberate hard-fail with little headroom (baseline 1.99%): a PR that
   trips it must remove duplication or raise the threshold explicitly in the

@@ -174,7 +174,9 @@ contains `outcome: checks-passed` and a later `context canceled`, generated
 runner, initial-retry, and post-address gate scripts treat that as recovered
 success evidence. They emit `gate_status state=idle` with
 `recovery=checks_passed_context_canceled` and continue the normal PR detection
-or post-address validation path instead of journaling `gate_failed`.
+or post-address validation path instead of journaling `gate_failed`. This
+recovery is disabled when the generated gate script marked a repo-config copy
+failure; configuration propagation failures remain gate failures.
 When the local combo worktree HEAD differs from the current GitHub PR head,
 `status --deep` and `forensics` surface the drift explicitly as a warning with
 a recommended next action (fetch PR head for review or sync the combo
@@ -233,6 +235,9 @@ never overwrite an existing config. In
 combo-chen, `.no-mistakes.yaml` is intentionally tracked as shared
 test/lint/build policy; user-local secrets and operator preferences stay in
 ignored config or environment outside that file.
+If the daemon worktree copy fails, the gate is a deterministic failure even
+when no-mistakes output would otherwise match the checks-passed plus
+context-canceled recovery pattern.
 
 ## 4. Coder responding contract
 
@@ -455,6 +460,10 @@ ignored config or environment outside that file.
   Duplicate `pr_opened` append attempts for the same PR URL in one combo return
   the existing event and do not write a second line, preserving one PR-open
   transition even when retry paths re-emit the same fact.
+  The `combo.json` `id` is an exact directory invariant: it must match the
+  `runs/<combo-id>` directory entry. Readers derive run paths from `combo.id`,
+  so mismatches are corrupt state and list operations fail unless the caller
+  explicitly supplies a corruption handler.
 - The director-watch polling loop, post-address gates, reviewer activation,
   park/resume, reconcile teardown, `status --deep`, and forensics all read
   runtime config from the launch-time `config.snapshot.json` in the run
@@ -534,7 +543,9 @@ ignored config or environment outside that file.
   `needs_human` event counts grouped by reason (e.g. `worker_stalled`,
   `gate_decision`, `gate_failed`). It is an operational metrics tool that
   helps operators spot systemic escalations across multiple combos without
-  reading individual journal files.
+  reading individual journal files. Corrupt combo records are skipped with a
+  `skipped <combo-id>: <reason>` line so one bad run directory does not block
+  the aggregate report.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
