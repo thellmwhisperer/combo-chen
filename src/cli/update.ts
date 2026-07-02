@@ -27,7 +27,7 @@
  *   reportPostUpdateRefresh, postUpdateDaemonRefreshTimeoutMs, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
- * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}, ./{display,update-refresh}
+ * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,guards,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}, ./{display,update-refresh}
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

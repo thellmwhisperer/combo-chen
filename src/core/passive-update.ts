@@ -26,12 +26,12 @@
  *
  *   INTERNALS
  *   ---------
- *   passiveSummaryFromPlan, cachedSummary, errorMessage.
+ *   passiveSummaryFromPlan, cachedSummary.
  *
  * @exports PASSIVE_UPDATE_DISABLE_ENV, DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS, PassiveUpdatePlanStatus,
  *   PassiveUpdateCacheEntry, PassiveUpdateCheckInput, PassiveUpdateCheckResult,
  *   isPassiveUpdateDisabled, isPassiveUpdateCacheFresh, checkPassiveUpdate
- * @deps ./update-contract, ./update-resolver
+ * @deps ./guards, ./update-contract, ./update-resolver
  */
 import { errorMessage } from "./guards.js";
 import type { CurrentBuildMetadata } from "./update-contract.js";

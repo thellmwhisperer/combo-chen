@@ -25,10 +25,10 @@
  *
  *   INTERNALS
  *   ---------
- *   inspectRunDir, activeComboFromState, statusFor, detectionError, errorMessage
+ *   inspectRunDir, activeComboFromState, statusFor, detectionError
  *
  * @exports ActiveComboRuntimeDetectionStatus, ActiveComboRuntimeDetectorInput, ActiveComboRuntimeDetection, DetectedActiveComboRuntime, StaleComboRuntimeState, ActiveComboRuntimeDetectionError, ActiveRuntimeStaleReason, detectActiveComboRuntime
- * @deps node:{fs,path}, ./combo, ./events, ./runtime-ledger, ./state
+ * @deps node:{fs,path}, ./combo, ./events, ./guards, ./runtime-ledger, ./state
  */
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
