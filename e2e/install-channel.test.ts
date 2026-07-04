@@ -229,6 +229,12 @@ describe("combo-chen update over an install.sh layout", () => {
     const version = runInstalledCli(link, ["--version"]);
     expect(version.status).toBe(0);
     expect(lines.join("\n")).toContain("9.9.9");
+    // The bin symlink must survive replacement: the updater swaps the real
+    // versioned executable, so the layout stays auto-replaceable next time.
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    const after = classifyInstallTarget({ path: link });
+    expect(after.kind).toBe("release_archive");
+    expect(after.autoReplaceable).toBe(true);
   });
 });
 // -/ 3/3
