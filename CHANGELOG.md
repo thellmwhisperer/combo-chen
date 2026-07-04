@@ -18,6 +18,9 @@
 * **gatekeeper:** Fix gatekeeper exit code when config copy fails so the gate correctly reports failure.
 * **anti-slop:** Consolidate duplicated helpers into canonical homes: `errorMessage` (6 copies), `isRecord` (4 identical copies), and `isErrnoException` (2 copies) move to `src/core/guards.ts`; `latestPrUrl` variants collapse into `latestPrUrlFromEvents` from `src/core/events.ts`. `pnpm slop:check` now also enforces a no-duplicate-helpers tombstone rule and a jscpd duplication ratchet (`--threshold 2`), so reintroducing a consolidated helper or growing non-test duplication fails the gate.
 
+### Bug Fixes
+
+* **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 
 ## [0.0.69](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.68...combo-chen-v0.0.69) (2026-07-02)
 
