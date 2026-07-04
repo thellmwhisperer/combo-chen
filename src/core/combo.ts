@@ -50,6 +50,8 @@ import { readFileSync } from "node:fs";
 import type { ComboEvent } from "./events.js";
 import type { ComboRecord } from "./state.js";
 
+declare const __COMBO_CHEN_RUNNER_TEMPLATE__: string | undefined;
+
 export type Phase = "SETUP" | "CODING" | "GATING" | "REVIEWING" | "READY" | "STOPPED" | "STALLED";
 
 export interface ComboStatus {
@@ -454,7 +456,11 @@ function buildGateLeaseScript(input: Pick<RunnerInput, "gateLeaseAcquire" | "gat
   return lines.join("\n") + "\n";
 }
 
-const RUNNER_TEMPLATE = readFileSync(new URL("./runner-template.sh", import.meta.url), "utf8");
+// Build define keeps dist/cli.mjs self-contained; source/test runs read the sibling file.
+const RUNNER_TEMPLATE =
+  typeof __COMBO_CHEN_RUNNER_TEMPLATE__ === "string"
+    ? __COMBO_CHEN_RUNNER_TEMPLATE__
+    : readFileSync(new URL("./runner-template.sh", import.meta.url), "utf8");
 
 function renderRunnerTemplate(values: Record<string, string>): string {
   let rendered = RUNNER_TEMPLATE;
