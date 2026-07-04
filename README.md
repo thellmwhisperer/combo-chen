@@ -127,7 +127,31 @@ Requirements:
 - GitHub CLI (`gh`) authenticated for the target repo
 - the agent tools configured for your coder, gatekeeper, and reviewer roles
 
-Install from source:
+Install from a release tarball (recommended):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thellmwhisperer/combo-chen/main/install.sh | sh
+```
+
+The installer resolves the latest GitHub release for your platform, verifies
+the sha256 against `checksums.txt` before touching anything, extracts under
+`~/.combo-chen/versions/combo-chen-vX.Y.Z/`, and symlinks
+`~/.local/bin/combo-chen`. That layout is exactly the `release_archive`
+install target `combo-chen update` auto-replaces, so one install keeps itself
+current. Re-running the installer is idempotent and previous version
+directories stay on disk. Flags: `--version X.Y.Z`, `--repo OWNER/NAME`,
+`--prefix DIR`, `--bin-dir DIR`, and `--archive FILE --checksums FILE` for
+offline installs. The installer never overwrites a non-symlink `combo-chen` on
+your bin dir.
+
+Uninstall:
+
+```bash
+rm ~/.local/bin/combo-chen
+rm -rf ~/.combo-chen/versions
+```
+
+Install from source (contributors):
 
 ```bash
 git clone https://github.com/thellmwhisperer/combo-chen.git
@@ -139,13 +163,13 @@ pnpm build
 Run a combo from a GitHub issue:
 
 ```bash
-node dist/cli.mjs run --issue https://github.com/owner/repo/issues/123 --repo /path/to/repo --base origin/main
+combo-chen run --issue https://github.com/owner/repo/issues/123 --repo /path/to/repo --base origin/main
 ```
 
 Or from a local work-plan file:
 
 ```bash
-node dist/cli.mjs run --plan plan.md --repo /path/to/repo --base origin/main
+combo-chen run --plan plan.md --repo /path/to/repo --base origin/main
 ```
 
 Work plans are markdown files with required `## Acceptance Criteria` and optional
@@ -155,8 +179,8 @@ section 9 for the full work-plan contract.
 Watch it:
 
 ```bash
-node dist/cli.mjs status
-node dist/cli.mjs events -n owner-repo-123 --follow
+combo-chen status
+combo-chen events -n owner-repo-123 --follow
 ```
 
 `run` exits after setup. Launch it from a clean source checkout; the required
@@ -165,6 +189,9 @@ branch defaults to `main` and can be overridden with `[run].source_branch` or
 default, or from `--base <ref>` when you need an explicit recovery/test base.
 The actual work continues inside tmux. Use `status`, `events`, or
 `tmux list-sessions` to see the live run.
+
+From a contributor source checkout that has not installed the `combo-chen`
+binary, use `node dist/cli.mjs` in place of `combo-chen`.
 
 ## Example Config
 
@@ -300,6 +327,9 @@ directly:
 - The `release-assets` workflow runs for published and prereleased GitHub
   releases and uploads `dist/release/*.tar.gz` plus
   `dist/release/checksums.txt` to the release.
+- Published release tags may be plain `vX.Y.Z` tags or release-please
+  component tags such as `combo-chen-vX.Y.Z`; the updater normalizes both forms
+  before asset lookup.
 
 `combo-chen update` queries GitHub Releases, compares the current embedded build
 metadata with the latest eligible release, and prints the current,
@@ -321,6 +351,11 @@ isolated staging directory, and then hands the staged release archive to the
 atomic replacement primitive. Checksum, download, and extraction failures are
 explicit: the command reports failures before replacement and leaves the
 previous installation intact.
+
+When the active command is reached through an installer-created bin symlink, it
+resolves the real versioned executable and replaces that file so the symlinked
+`release_archive` layout remains updateable.
+
 Unsupported source checkouts and package-manager dev shims fail with useful
 non-auto-replaceable errors. When a newer candidate exists, the command checks
 persisted active combo runtime state. Active or uncertain runtime state prints a
@@ -370,7 +405,8 @@ machine-readable.
 U0, U1, U2, and U3 together span the updater contract from release identity
 through release resolution, verified staging, and replacement eligibility.  U0
 is the read-only vocabulary layer: it defines shared types and pure helpers for
-release tag/version normalization, current build versus candidate comparison,
+release tag/version normalization (plain versions, `vX.Y.Z`, and
+`combo-chen-vX.Y.Z` component tags), current build versus candidate comparison,
 platform asset selection, sha256sum-compatible checksum lookup, obvious install
 target classification, active combo state, and the aggregate
 `ReadOnlyUpdatePlan`.
@@ -406,8 +442,8 @@ capsules.
 U3 (`replaceInstallTargetFromStagedArtifact`) implements install target and
 atomic replacement for staged release archive installs.  This means source
 checkouts and package-manager dev shims are non-auto-replaceable; only release
-archive paths shaped like `combo-chen-vX.Y.Z/bin/combo-chen` are eligible for
-replacement.
+archive installs whose real executable path is shaped like
+`combo-chen-vX.Y.Z/bin/combo-chen` are eligible for replacement.
 
 U2 and U3 do not resolve releases, restart active combo capsules, or mutate
 active combo runtime state.

@@ -23,14 +23,15 @@
  *
  *   INTERNALS
  *   ---------
- *   detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning, activeRuntimeConfirmationError,
- *   reportPostUpdateRefresh, postUpdateDaemonRefreshTimeoutMs, parseRelease, parseAsset, defaultExtractArchive, commandError.
+ *   resolveInstallTargetPath, detectActiveRuntimeForUpdate, enforceActiveRuntimeSafety, activeRuntimeWarning,
+ *   activeRuntimeConfirmationError, reportPostUpdateRefresh, postUpdateDaemonRefreshTimeoutMs, parseRelease,
+ *   parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
  * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,guards,state,release-artifacts,update-contract,update-install,update-resolver,update-staging}, ../infra/release-metadata, ./{display,update-refresh}
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -110,6 +111,18 @@ export interface UpdateCommandOptions {
   deps: UpdateCommandDeps;
 }
 
+// Replacement must target the real versioned executable, not a bin-dir
+// symlink: renaming over the symlink would turn it into a regular file and
+// leave future updates classifying the install as unknown.
+function resolveInstallTargetPath(argv1: string): string {
+  if (argv1.length === 0) return argv1;
+  try {
+    return realpathSync(argv1);
+  } catch {
+    return argv1;
+  }
+}
+
 export function defaultUpdateCommandDeps(input: {
   gh: UpdateCommandDeps["gh"];
   out: UpdateCommandDeps["out"];
@@ -122,7 +135,7 @@ export function defaultUpdateCommandDeps(input: {
     current: releaseMetadata,
     platform: process.platform,
     arch: process.arch,
-    installTargetPath: input.argv1 ?? process.argv[1] ?? "",
+    installTargetPath: resolveInstallTargetPath(input.argv1 ?? process.argv[1] ?? ""),
     makeStagingDir: () => mkdtempSync(join(tmpdir(), "combo-chen-update-")),
     async download(request) {
       const response = await fetch(request.url, { signal: AbortSignal.timeout(UPDATE_DOWNLOAD_TIMEOUT_MS) });

@@ -17,10 +17,12 @@
 * **cli:** Add `combo-chen needs-human-report` command that scans all combo journals and reports `needs_human` event counts grouped by reason. Resilient to corrupted combos.
 * **gatekeeper:** Fix gatekeeper exit code when config copy fails so the gate correctly reports failure.
 * **anti-slop:** Consolidate duplicated helpers into canonical homes: `errorMessage` (6 copies), `isRecord` (4 identical copies), and `isErrnoException` (2 copies) move to `src/core/guards.ts`; `latestPrUrl` variants collapse into `latestPrUrlFromEvents` from `src/core/events.ts`. `pnpm slop:check` now also enforces a no-duplicate-helpers tombstone rule and a jscpd duplication ratchet (`--threshold 2`), so reintroducing a consolidated helper or growing non-test duplication fails the gate.
+* **install:** Add a checksum-verified tarball install channel with `install.sh`, versioned `release_archive` layout, idempotent reinstalls, offline archive support, and updater-compatible bin symlink. Fixes [#250](https://github.com/thellmwhisperer/combo-chen/issues/250).
 
 ### Bug Fixes
 
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
+* **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
 ## [0.0.70](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.69...combo-chen-v0.0.70) (2026-07-04)
 
