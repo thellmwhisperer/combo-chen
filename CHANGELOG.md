@@ -22,6 +22,14 @@
 
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 
+## [0.0.70](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.69...combo-chen-v0.0.70) (2026-07-04)
+
+
+### Bug Fixes
+
+* **cli:** make release archives self-contained ([a60a5d2](https://github.com/thellmwhisperer/combo-chen/commit/a60a5d23b302c59463af0f9e26670cc7f441d0ff))
+* **release:** ship a self-contained cli artifact that runs from the archive ([af9a5ba](https://github.com/thellmwhisperer/combo-chen/commit/af9a5ba601e48e4d3024c36212d82010111f53a9))
+
 ## [0.0.69](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.68...combo-chen-v0.0.69) (2026-07-02)
 
 
