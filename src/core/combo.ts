@@ -17,7 +17,7 @@
  *   main.run()
  *     → buildRunnerScript(input)     ← generates the shell script
  *       → buildNoMistakesMirrorPublishScript() when gate mirror intent exists
- *       → renderRunnerTemplate() with src/core/runner-template.sh
+ *       → renderRunnerTemplate() with the bundled or source runner-template.sh
  *       → shellQuote() for safety
  *     → writes runner.sh to disk
  *     → tmux executes it
