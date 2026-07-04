@@ -1,7 +1,7 @@
 /**
  * @overview tmux plumbing: pure argument builders + one system-calling
  *   executor. Builders are pinned by tests; tmux() touches the OS. ~150
- *   lines, 17 exports.
+ *   lines, 15 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -17,7 +17,6 @@
  *
  *   ┌─ PUBLIC API ───────────────────────────────────────────────────────┐
  *   │ tmux                    Execute a tmux command, return TmuxResult   │
- *   │ hasSession              Convenience: tmux has-session → boolean     │
  *   │ newSessionArgs          Build args for new-session -d              │
  *   │ newWindowArgs           Build args for new-window                  │
  *   │ splitWindowArgs         Legacy; split-window (journal pane) arg builder       │
@@ -31,19 +30,18 @@
  *   │ renameWindowArgs        Build args for rename-window              │
  *   │ nudgeWindowArgs         Build paste-buffer nudge command list      │
  *   │ TmuxResult              {status, stdout, stderr} shape             │
- *   │ TmuxError               Thrown when tmux binary is absent          │
  *   ├─ INTERNALS ────────────────────────────────────────────────────────┤
  *   │ nudgeBufferName         Namespaced buffer name for nudgeWindowArgs │
  *   │ JOURNAL_PANE_HEIGHT     Legacy; journals live in a dedicated window │
  *   └────────────────────────────────────────────────────────────────────┘
  *
- * @exports TmuxError, JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux, hasSession
+ * @exports JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux
  * @deps node:child_process
  */
 import { spawnSync } from "node:child_process";
 
 // -- 1/3 HELPER · Pure arg builders --
-export class TmuxError extends Error {}
+class TmuxError extends Error {}
 
 export const JOURNAL_PANE_HEIGHT = 12;
 
@@ -143,7 +141,4 @@ export function tmux(args: string[]): TmuxResult {
   };
 }
 
-export function hasSession(session: string): boolean {
-  return tmux(hasSessionArgs(session)).status === 0;
-}
 // -/ 3/3

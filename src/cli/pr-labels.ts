@@ -15,16 +15,16 @@
  *
  *   PUBLIC API
  *   ----------
- *   COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection,
+ *   ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection,
  *   ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult
- *   projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
+ *   projectComboPrLabels, diffComboPrLabels, syncComboPrLabels
  *
  *   INTERNALS
  *   ---------
- *   orderedLabels, combo label provisioning, current work label, stale/conflict/current-head predicates,
+ *   COMBO_PR_LABELS, isComboPrLabel, orderedLabels, combo label provisioning, current work label, stale/conflict/current-head predicates,
  *   GH label parsing
  *
- * @exports COMBO_PR_LABELS, ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels, isComboPrLabel
+ * @exports ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels
  * @deps node:child_process, ../core/events, ./checks, ./gate, ./github, ./reviewer
  */
 import { execSync } from "node:child_process";
@@ -41,7 +41,7 @@ import type { GhRunner } from "./github.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
 // -- 1/4 CORE - label catalogue + public types <- START HERE --
-export const COMBO_PR_LABELS = [
+const COMBO_PR_LABELS = [
   "combo:working-coder",
   "combo:working-reviewer",
   "combo:working-gate",
@@ -149,7 +149,7 @@ export interface SyncComboPrLabelsResult {
 const COMBO_PR_LABEL_SET = new Set<string>(COMBO_PR_LABELS);
 const PR_LABEL_VIEW_FIELDS = "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels";
 
-export function isComboPrLabel(label: string): label is ComboPrLabel {
+function isComboPrLabel(label: string): label is ComboPrLabel {
   return COMBO_PR_LABEL_SET.has(label);
 }
 // -/ 1/4

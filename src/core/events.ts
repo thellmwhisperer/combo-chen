@@ -31,10 +31,10 @@
  *   │ existingPrOpenedEvent  Suppresses duplicate PR-open records       │
  *   │ normalizeEvent         Canonicalize event names on read           │
  *   │ sleep                 Abortable setTimeout wrapper                │
- *   │ EVENT_TYPES / LEGACY_EVENT_ALIASES / CanonicalEventName etc.     │
+ *   │ EVENT_TYPES / CanonicalEventName / legacy alias normalization     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, LEGACY_EVENT_ALIASES, LegacyEventName, EventName, ComboEvent, journalPath, appendEvent, appendEvents, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
+ * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, EventName, ComboEvent, journalPath, appendEvent, appendEvents, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
  * @deps node:fs, node:path, ./guards
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -93,7 +93,7 @@ export const EVENT_TYPES = {
 
 export type CanonicalEventName = keyof typeof EVENT_TYPES;
 
-export const LEGACY_EVENT_ALIASES = {
+const LEGACY_EVENT_ALIASES = {
   rower_started: "coder_started",
   rower_done: "coder_done",
   rower_failed: "coder_failed",
@@ -103,7 +103,7 @@ export const LEGACY_EVENT_ALIASES = {
   rower_retry: "coder_retry",
 } as const satisfies Record<string, CanonicalEventName>;
 
-export type LegacyEventName = keyof typeof LEGACY_EVENT_ALIASES;
+type LegacyEventName = keyof typeof LEGACY_EVENT_ALIASES;
 export type EventName = CanonicalEventName | LegacyEventName;
 
 export interface ComboEvent {

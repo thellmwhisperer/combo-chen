@@ -1,6 +1,6 @@
 /**
  * @overview Local installer replacement primitives for staged update artifacts.
- *   ~150 lines, 5 exports, guards release-archive install targets and swaps the CLI executable.
+ *   ~150 lines, 4 exports, guards release-archive install targets and swaps the CLI executable.
  *
  *   READING GUIDE
  *   -------------
@@ -14,7 +14,6 @@
  *
  *   PUBLIC API
  *   ----------
- *   STAGED_INSTALL_EXECUTABLE          Staged executable path inside an extracted artifact.
  *   InstallReplacementInput           Target path plus staged artifact root.
  *   InstallReplacementResult          Replacement facts returned after success.
  *   InstallReplacementDeps            Injectable filesystem operations for failure tests.
@@ -24,8 +23,8 @@
  *   ---------
  *   defaultInstallReplacementDeps, nonEmptyPath, assertFile, temporarySiblingPath, cleanupTemporary.
  *
- * @exports STAGED_INSTALL_EXECUTABLE, InstallReplacementInput, InstallReplacementResult,
- *   InstallReplacementDeps, replaceInstallTargetFromStagedArtifact
+ * @exports InstallReplacementInput, InstallReplacementResult, InstallReplacementDeps,
+ *   replaceInstallTargetFromStagedArtifact
  * @deps node:{crypto,fs,path}, ./update-contract
  */
 import { randomUUID } from "node:crypto";
@@ -35,7 +34,7 @@ import { dirname, join } from "node:path";
 import { classifyInstallTarget, type InstallTargetClassification } from "./update-contract.js";
 
 // -- 1/3 HELPER · update install replacement types --
-export const STAGED_INSTALL_EXECUTABLE = "bin/combo-chen";
+const STAGED_INSTALL_EXECUTABLE = "bin/combo-chen";
 
 export interface InstallReplacementInput {
   targetPath: string;

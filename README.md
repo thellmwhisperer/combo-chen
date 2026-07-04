@@ -214,11 +214,11 @@ SHA-pinned reviewer LGTM gate and have their machine-readable verdict blocks
 accepted for routing; by default this is the active reviewer agent name.
 Verdict code 0 also requires a `lgtm @ <sha>` pin in the review body.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
-present with exact `SUCCESS`; by default this includes `CodeRabbit`, and a
-skipped CodeRabbit review is not a READY success. These external checks are not
-reviewer approval.
-The example config uses CodeRabbit for combo-chen dogfood; keep the four
-external-review settings in sync when replacing it with another bot.
+present with exact `SUCCESS`; the runtime default is empty, and the example
+dogfood config below opts into `CodeRabbit`. A skipped CodeRabbit review is not
+a READY success. These external checks are not reviewer approval.
+Keep the four external-review settings in sync when replacing CodeRabbit with
+another bot.
 `[external_review].commands` names PR-comment commands the director posts once
 per current head after the active reviewer emits LGTM, typically to trigger
 external review bots whose checks are listed under `[ready]`.

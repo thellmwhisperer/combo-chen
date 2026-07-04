@@ -136,5 +136,19 @@ describe("release docs", () => {
     expect(spec).not.toContain("director-watch loop and `status --deep` keep GitHub PR labels in sync");
     expect(spec).not.toContain("`director-watch` or `status-deep`");
   });
+
+  it("documents CodeRabbit as dogfood configuration rather than runtime default", () => {
+    const readme = normalizeDoc(readDoc("README.md"));
+    const spec = normalizeDoc(readDoc("docs/spec.md"));
+
+    for (const doc of [readme, spec]) {
+      expect(doc).toContain("runtime default");
+      expect(doc).toContain("empty");
+      expect(doc).toContain("CodeRabbit");
+      expect(doc).toContain("dogfood");
+      expect(doc).not.toContain("by default this includes `CodeRabbit`");
+      expect(doc).not.toContain("The default required READY check list includes `CodeRabbit`");
+    }
+  });
 });
 // -/ 2/2

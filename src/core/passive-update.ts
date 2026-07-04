@@ -1,6 +1,6 @@
 /**
  * @overview Quiet passive update-check contract with cache, TTL, and env disable handling.
- *   ~230 lines, 9 exports, reuses the read-only release resolver without writing to stdout/stderr.
+ *   ~230 lines, 7 exports, reuses the read-only release resolver without writing to stdout/stderr.
  *
  *   READING GUIDE
  *   -------------
@@ -20,17 +20,14 @@
  *   PassiveUpdateCacheEntry             Persistable passive result summary.
  *   PassiveUpdateCheckInput             Injectable passive-check boundary.
  *   PassiveUpdateCheckResult            Quiet result returned to callers.
- *   isPassiveUpdateDisabled             Env parsing helper.
- *   isPassiveUpdateCacheFresh           TTL/current-version cache predicate.
  *   checkPassiveUpdate                  Passive check implementation.
  *
  *   INTERNALS
  *   ---------
- *   passiveSummaryFromPlan, cachedSummary.
+ *   isPassiveUpdateDisabled, isPassiveUpdateCacheFresh, passiveSummaryFromPlan, cachedSummary.
  *
  * @exports PASSIVE_UPDATE_DISABLE_ENV, DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS, PassiveUpdatePlanStatus,
- *   PassiveUpdateCacheEntry, PassiveUpdateCheckInput, PassiveUpdateCheckResult,
- *   isPassiveUpdateDisabled, isPassiveUpdateCacheFresh, checkPassiveUpdate
+ *   PassiveUpdateCacheEntry, PassiveUpdateCheckInput, PassiveUpdateCheckResult, checkPassiveUpdate
  * @deps ./guards, ./update-contract, ./update-resolver
  */
 import { errorMessage } from "./guards.js";
@@ -165,7 +162,7 @@ export async function checkPassiveUpdate(input: PassiveUpdateCheckInput): Promis
 
 // -- 3/3 HELPER · Disable, TTL, summary, and quiet error adapters --
 /** Parse the passive-update disable knob. Empty, 0, false, off, and no keep checks enabled. */
-export function isPassiveUpdateDisabled(env: Record<string, string | undefined>): boolean {
+function isPassiveUpdateDisabled(env: Record<string, string | undefined>): boolean {
   const raw = env[PASSIVE_UPDATE_DISABLE_ENV];
   if (raw === undefined) return false;
   const normalized = raw.trim().toLowerCase();
@@ -173,7 +170,7 @@ export function isPassiveUpdateDisabled(env: Record<string, string | undefined>)
 }
 
 /** True only when a cache entry is for the same current build, mode, and unexpired TTL window. */
-export function isPassiveUpdateCacheFresh(input: {
+function isPassiveUpdateCacheFresh(input: {
   entry: PassiveUpdateCacheEntry;
   current: CurrentBuildMetadata;
   mode: UpdateReleaseResolverMode;

@@ -17,7 +17,7 @@
  *   ----------
  *   GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions
  *   PostAddressGateCheckResult
- *   GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE
+ *   GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE
  *   buildGatekeeperAttachCommand, startGatekeeperWindow
  *   ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus
  *   latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig
@@ -30,7 +30,7 @@
  *   buildInitialGateRetryScript, gateStatusIdleScript, shellScript, renderGatekeeperCommand,
  *   buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
- * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, GATE_RUNNER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
+ * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
  * @deps node:{fs,path}, ../core/{combo,events,state}, ../infra/{config-snapshot,tmux}, ../roles/gatekeeper, ./github, ./sessions, ./work-plan
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
@@ -55,6 +55,7 @@ import {
   buildWorkPlanPrIntent,
 } from "../roles/gatekeeper.js";
 import { fetchIssueDetails } from "./github.js";
+import { GATE_RUNNER_WINDOW, windowSet } from "./sessions.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "./work-plan.js";
 
 // -- 1/5 HELPER · Types and constants --
@@ -85,7 +86,6 @@ export type PostAddressGateCheckResult =
   | { status: "idle"; reason: string; headSha?: string };
 
 export const GATEKEEPER_WINDOW = "gatekeeper";
-export const GATE_RUNNER_WINDOW = "gate-runner";
 export const NO_MISTAKES_CONFIG_FILE = ".no-mistakes.yaml";
 // -/ 1/5
 
@@ -586,7 +586,7 @@ function runCommandInGatekeeperWindow(
         `${listed.stderr.trim() || "unknown error"}`,
     );
   }
-  const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  const windows = windowSet(listed.stdout);
   if (windows.has(GATE_RUNNER_WINDOW)) {
     const killed = deps.tmux(killWindowArgs(combo.tmuxSession, GATE_RUNNER_WINDOW));
     if (killed.status !== 0) {
