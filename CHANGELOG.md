@@ -24,6 +24,19 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.71](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.70...combo-chen-v0.0.71) (2026-07-04)
+
+
+### Features
+
+* **install:** tarball install channel with checksum-verified install.sh ([ca05514](https://github.com/thellmwhisperer/combo-chen/commit/ca0551406d1fd9ba7de2e49bfedd0c6dcc781225))
+* **install:** tarball install channel with checksum-verified install.sh ([3aa408b](https://github.com/thellmwhisperer/combo-chen/commit/3aa408beee949a09a1958326654c5ced021ec153)), closes [#250](https://github.com/thellmwhisperer/combo-chen/issues/250)
+
+
+### Bug Fixes
+
+* **update:** resolve symlinked install targets before replacement ([72b3eee](https://github.com/thellmwhisperer/combo-chen/commit/72b3eee4e1ea0d67bb5046e7eec9e79c24f97667))
+
 ## [0.0.70](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.69...combo-chen-v0.0.70) (2026-07-04)
 
 
