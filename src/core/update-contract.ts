@@ -17,7 +17,7 @@
  *
  *   PUBLIC API
  *   ----------
- *   normalizeReleaseVersion       Normalize v-prefixed and plain release versions.
+ *   normalizeReleaseVersion       Normalize plain versions, v-tags, and component tags.
  *   selectUpdateAsset             Select the expected archive for a target platform.
  *   parseUpdateChecksums          Parse sha256sum-compatible checksums.txt text.
  *   lookupUpdateChecksum          Look up an expected checksum by exact asset filename.
@@ -193,7 +193,7 @@ const RELEASE_ARCHIVE_BIN_PATTERN = /(?:^|\/)(combo-chen-v[^/]+)\/bin\/combo-che
 // -/ 1/3
 
 // -- 2/3 CORE · normalizeReleaseVersion + asset/checksum/install selection + compareReleaseCandidate <- START HERE --
-/** Normalize a combo-chen release tag or version into canonical comparable fields. */
+/** Normalize plain, v-prefixed, or release-please component tags into comparable fields. */
 export function normalizeReleaseVersion(input: string): NormalizedReleaseVersion {
   const trimmed = input.trim();
   const match = RELEASE_VERSION_PATTERN.exec(trimmed);
