@@ -43,7 +43,11 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { releaseAssetFileName, releaseArchiveRoot } from "../src/core/release-artifacts.js";
+import {
+  releaseAssetFileName,
+  releaseArchiveRoot,
+  type ReleaseTarget,
+} from "../src/core/release-artifacts.js";
 import { classifyInstallTarget } from "../src/core/update-contract.js";
 import { defaultUpdateCommandDeps, runUpdateCommand } from "../src/cli/update.js";
 import { produceReleaseAssets } from "../src/infra/release-producer.js";
@@ -53,7 +57,7 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const installScript = join(repoRoot, "install.sh");
 const packageVersion = (JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version: string })
   .version;
-const TARGET = { platform: "darwin", arch: "arm64" };
+const TARGET = currentShellTarget();
 
 const cleanupDirs: string[] = [];
 
@@ -61,6 +65,32 @@ function tempDir(label: string): string {
   const dir = mkdtempSync(join(tmpdir(), `combo-chen-install-e2e-${label}-`));
   cleanupDirs.push(dir);
   return dir;
+}
+
+function currentShellTarget(): ReleaseTarget {
+  const platformName = shellOutput("uname", ["-s"]);
+  const archName = shellOutput("uname", ["-m"]);
+  const platform =
+    platformName === "Darwin"
+      ? "darwin"
+      : platformName === "Linux"
+        ? "linux"
+        : undefined;
+  const arch =
+    archName === "arm64" || archName === "aarch64"
+      ? "arm64"
+      : archName === "x86_64" || archName === "amd64"
+        ? "x64"
+        : undefined;
+  if (platform === undefined) throw new Error(`unsupported install test platform: ${platformName}`);
+  if (arch === undefined) throw new Error(`unsupported install test architecture: ${archName}`);
+  return { platform, arch };
+}
+
+function shellOutput(command: string, args: string[]): string {
+  const result = spawnSync(command, args, { encoding: "utf8", timeout: 30_000 });
+  if (result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr}`);
+  return result.stdout.trim();
 }
 
 /** Produce a release archive; cliMarker appends bytes so replacement is provable. */
