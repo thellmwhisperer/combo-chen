@@ -127,7 +127,30 @@ Requirements:
 - GitHub CLI (`gh`) authenticated for the target repo
 - the agent tools configured for your coder, gatekeeper, and reviewer roles
 
-Install from source:
+Install from a release tarball (recommended):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thellmwhisperer/combo-chen/main/install.sh | sh
+```
+
+The installer resolves the latest GitHub release for your platform, verifies
+the sha256 against `checksums.txt` before touching anything, extracts under
+`~/.combo-chen/versions/combo-chen-vX.Y.Z/`, and symlinks
+`~/.local/bin/combo-chen`. That layout is exactly the `release_archive`
+install target `combo-chen update` auto-replaces, so one install keeps itself
+current. Re-running the installer is idempotent and previous version
+directories stay on disk. Flags: `--version X.Y.Z`, `--prefix DIR`,
+`--bin-dir DIR`, and `--archive FILE --checksums FILE` for offline installs.
+The installer never overwrites a non-symlink `combo-chen` on your bin dir.
+
+Uninstall:
+
+```bash
+rm ~/.local/bin/combo-chen
+rm -rf ~/.combo-chen/versions
+```
+
+Install from source (contributors):
 
 ```bash
 git clone https://github.com/thellmwhisperer/combo-chen.git

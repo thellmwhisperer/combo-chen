@@ -184,8 +184,9 @@ export interface ReadOnlyUpdatePlan {
   readOnly: true;
 }
 
+// Accepts plain versions, v-tags, and release-please component tags (combo-chen-vX.Y.Z).
 const RELEASE_VERSION_PATTERN =
-  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+  /^(?:combo-chen-)?v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const CHECKSUM_LINE_PATTERN = /^([0-9A-Fa-f]{64}) [ *](.+)$/;
 const DEV_SHIM_PATTERN = /(?:^|\/)node_modules\/\.bin\/combo-chen(?:\.cmd)?$/;
 const RELEASE_ARCHIVE_BIN_PATTERN = /(?:^|\/)(combo-chen-v[^/]+)\/bin\/combo-chen$/;
