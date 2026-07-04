@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~830 lines, 16 exports.
+ *   Repo wins on policy, user wins on local setup. ~830 lines, 12 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -21,19 +21,18 @@
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────┐
  *   │ loadConfig                Cascade: defaults → user → repo → env   │
  *   │ renderCommand             Substitute {placeholders} with safe vals │
- *   │ defaultUserConfigPath     XDG-aware path to user config.toml      │
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
  *   │ DEFAULT_WORKER_RECOVERY_ATTEMPTS Fallback recovery budget           │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
  *   │ pickNonEmptyString, pickStringArray, normalize*Aliases,         │
- *   │ DEFAULTS, PLACEHOLDER, gnhf safety predicates                   │
+ *   │ DEFAULTS, PLACEHOLDER, defaultUserConfigPath, gnhf safety predicates │
  *   │ ComboConfigError, ComboRoles, ComboLimits,                     │
  *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_CODER_COMMAND, DEFAULT_CODER_STOP_WHEN, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_DIRECTOR_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, defaultUserConfigPath, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -134,10 +133,10 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
 const DEFAULT_REVIEWER_PROMPT = "";
 export const DEFAULT_WORKER_RECOVERY_ATTEMPTS = 2;
-export const DEFAULT_CODER_STOP_WHEN =
+const DEFAULT_CODER_STOP_WHEN =
   "Every acceptance criterion stated in the work item is met and the full test suite is green. " +
   "If the work item lists no explicit criteria: the reproduction it describes is fixed, a new test pins that fix, and the suite is green.";
-export const DEFAULT_CODER_COMMAND = [
+const DEFAULT_CODER_COMMAND = [
   "npx -y gnhf@0.1.41",
   "--agent codex",
   "--max-iterations 12",
@@ -148,7 +147,7 @@ export const DEFAULT_CODER_COMMAND = [
 ].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
   "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent} --skip=ci";
-export const DEFAULT_DIRECTOR_COMMAND = "claude {prompt}";
+const DEFAULT_DIRECTOR_COMMAND = "claude {prompt}";
 export const DEFAULT_PERMISSION_PROMPT_PATTERNS = [
   "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
   "^\\s*(?:Allow|Approve|Confirm)\\?\\s*\\[[yn]/[yn]\\]\\s*$",
@@ -233,7 +232,7 @@ const DEFAULTS = {
 // -/ 1/4
 
 // -- 2/4 HELPER · Parsing helpers (TOML read, merge, pick) --
-export function defaultUserConfigPath(): string {
+function defaultUserConfigPath(): string {
   const xdg = process.env["XDG_CONFIG_HOME"];
   const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".config");
   return join(base, "combo-chen", "config.toml");

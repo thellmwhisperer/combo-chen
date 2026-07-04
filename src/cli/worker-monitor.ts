@@ -52,7 +52,7 @@ import {
   listWindowsArgs,
   type TmuxResult,
 } from "../infra/tmux.js";
-import { idleRoleWindowCommand } from "./sessions.js";
+import { idleRoleWindowCommand, windowSet } from "./sessions.js";
 
 // -- 1/1 CORE · inspectWorkerPanes <- START HERE --
 export interface WorkerMonitorDeps {
@@ -130,10 +130,6 @@ export function resetWorkerSnapshot(runDir: string, worker: string): void {
 
 function paneFingerprint(pane: string): string {
   return createHash("sha256").update(pane).digest("hex");
-}
-
-function activeWindowNames(stdout: string): Set<string> {
-  return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
 }
 
 function paneLooksLikeIdleRoleWindow(worker: string, pane: string): boolean {
@@ -319,7 +315,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     return { escalated: true, summaries, findings };
   }
 
-  const active = activeWindowNames(listed.stdout);
+  const active = windowSet(listed.stdout);
   const snapshot = readSnapshot(runDir);
   const stallTicks = input.stallTicks ?? DEFAULT_STALL_TICKS;
   const recoverableStalledWorkers = new Set(input.recoverableStalledWorkers ?? []);

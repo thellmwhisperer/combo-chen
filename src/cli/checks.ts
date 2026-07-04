@@ -1,12 +1,12 @@
 /**
  * @overview GitHub check-rollup helpers for CI and configured READY checks.
- *   ~165 lines, 7 exports, provider-name matching without provider-specific logic.
+ *   ~165 lines, 5 exports, provider-name matching without provider-specific logic.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at checkRollupSucceeded       <- CI success excluding required READY checks.
  *   2. Then requiredChecksSucceeded        <- every configured READY check succeeds.
- *   3. Read checkName/checkSignal*         <- low-level parsing helpers.
+ *   3. Read checkSignal*                   <- low-level parsing helpers.
  *
  *   MAIN FLOW
  *   ---------
@@ -14,9 +14,7 @@
  *
  *   PUBLIC API
  *   ----------
- *   checkName                 Concatenate useful rollup labels.
  *   checkNameMatchesAny       Exact match against any useful rollup label.
- *   checkSignalSucceeded      Broad success predicate for CI rollup.
  *   checkSignalIsSuccess      Exact SUCCESS predicate for required READY checks.
  *   checkRollupSucceeded      True when normal CI checks pass or only required checks remain.
  *   requiredChecksSucceeded   True when every configured READY check succeeds.
@@ -25,9 +23,9 @@
  *
  *   INTERNALS
  *   ---------
- *   upperString, checkSignalIsReviewSkipped, checkLabels, comment helpers
+ *   upperString, checkSignalSucceeded, checkSignalIsReviewSkipped, checkLabels, comment helpers
  *
- * @exports checkName, checkNameMatchesAny, checkSignalSucceeded, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, externalReviewSkippedByConfiguredAgent
+ * @exports checkNameMatchesAny, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, externalReviewSkippedByConfiguredAgent
  * @deps ../core/guards
  */
 import { isRecord } from "../core/guards.js";
@@ -87,11 +85,7 @@ function authorMatchesConfiguredAgent(login: string, agents: string[]): boolean 
   );
 }
 
-export function checkName(item: unknown): string {
-  return checkLabels(item).join(" ");
-}
-
-export function checkSignalSucceeded(item: unknown): boolean {
+function checkSignalSucceeded(item: unknown): boolean {
   if (!isRecord(item)) return false;
   if (checkSignalIsReviewSkipped(item)) return false;
   const conclusion = upperString(item["conclusion"]);

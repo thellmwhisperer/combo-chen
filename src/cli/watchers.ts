@@ -1,5 +1,5 @@
 /**
- * @overview Watch-loop command helpers. ~93 lines, 4 exports, director watcher shell.
+ * @overview Watch-loop command helpers. ~93 lines, 3 exports, director watcher shell.
  *
  *   READING GUIDE
  *   -------------
@@ -14,15 +14,14 @@
  *   PUBLIC API
  *   ----------
  *   resolvePollMs                 Parse COMBO_CHEN_POLL_MS.
- *   REVIEWER_TRANSIENT_FAILURE    Prefix watched as transient failure marker.
  *   reviewerTransientFailure      Format transient reviewer messages.
  *   buildDirectorWatchCommand     Render director-watch shell loop.
  *
  *   INTERNALS
  *   ---------
- *   REVIEWER_TRANSIENT_EXIT_CODE
+ *   REVIEWER_TRANSIENT_FAILURE, REVIEWER_TRANSIENT_EXIT_CODE
  *
- * @exports resolvePollMs, REVIEWER_TRANSIENT_FAILURE, reviewerTransientFailure, buildDirectorWatchCommand
+ * @exports resolvePollMs, reviewerTransientFailure, buildDirectorWatchCommand
  * @deps ../core/combo
  */
 import { shellQuote } from "../core/combo.js";
@@ -36,7 +35,7 @@ export function resolvePollMs(env: Record<string, string | undefined>): number |
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-export const REVIEWER_TRANSIENT_FAILURE = "reviewer: transient_failure:";
+const REVIEWER_TRANSIENT_FAILURE = "reviewer: transient_failure:";
 const REVIEWER_TRANSIENT_EXIT_CODE = 75;
 
 export function reviewerTransientFailure(message: string): string {

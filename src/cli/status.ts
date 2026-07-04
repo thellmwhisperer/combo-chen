@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~275 lines, 10 exports, parsers for deep recovery status and gate lease visibility.
+ *   ~275 lines, 9 exports, parsers for deep recovery status and gate lease visibility.
  *
  *   READING GUIDE
  *   -------------
@@ -16,7 +16,6 @@
  *   PUBLIC API
  *   ----------
  *   PR_READY_FOR_REVIEWER       Downstream phrase for review-ready PRs.
- *   PR_CONFLICT_REBASE_REQUIRED Downstream phrase for conflict recovery.
  *   NO_MISTAKES_RUNNING         Downstream phrase prefix for active no-mistakes.
  *   AWAITING_REVIEW_GATE        Downstream phrase prefix for no-mistakes gates.
  *   CommandResult                 Process result shape for injected command runners.
@@ -28,9 +27,9 @@
  *
  *   INTERNALS
  *   ---------
- *   summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine, shortSha, prHeadDriftStatus
+ *   PR_CONFLICT_REBASE_REQUIRED, summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine, shortSha, prHeadDriftStatus
  *
- * @exports PR_READY_FOR_REVIEWER, PR_CONFLICT_REBASE_REQUIRED, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
+ * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
  * @deps ../core/events, ../core/gate-lease, ../core/state, ./checks, ./gate, ./github
  */
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
@@ -41,7 +40,7 @@ import { shaMatchesHead } from "./gate.js";
 import { blockingReadyMergeState, latestGitHubLgtmSha, parsePrView, type GhRunner } from "./github.js";
 
 export const PR_READY_FOR_REVIEWER = "PR ready for reviewer";
-export const PR_CONFLICT_REBASE_REQUIRED = "PR conflict: rebase required";
+const PR_CONFLICT_REBASE_REQUIRED = "PR conflict: rebase required";
 export const NO_MISTAKES_RUNNING = "no-mistakes running";
 export const AWAITING_REVIEW_GATE = "awaiting review gate";
 
