@@ -43,7 +43,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -225,6 +225,18 @@ describe("command surface", () => {
     const script = "/repo/combo#chen/src/cli/main.ts";
 
     expect(isDirectRun(pathToFileURL(script).href, script)).toBe(true);
+  });
+
+  it("detects direct execution when argv[1] reaches the module through a symlink", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-direct-run-"));
+    const target = join(dir, "combo-chen-real");
+    const link = join(dir, "combo-chen");
+    writeFileSync(target, "");
+    symlinkSync(target, link);
+
+    expect(isDirectRun(pathToFileURL(target).href, link)).toBe(true);
+
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it("exposes release build metadata through the version flag", () => {

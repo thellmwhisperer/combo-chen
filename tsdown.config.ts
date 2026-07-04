@@ -10,7 +10,7 @@
  *   MAIN FLOW
  *   ---------
  *   package/git/env metadata -> releaseDefines -> tsdown define -> dist bundles
- *   src/core/runner-template.sh -> copyRunnerTemplatePlugin -> dist/runner-template.sh
+ *   src/core/runner-template.sh -> runnerTemplateDefine -> inlined into dist/cli.mjs
  *
  *   PUBLIC API
  *   ----------
@@ -18,13 +18,13 @@
  *
  *   INTERNALS
  *   ---------
- *   packageVersion, gitCommit, buildDate, sourceDateEpochIso, copyRunnerTemplatePlugin.
+ *   packageVersion, gitCommit, buildDate, sourceDateEpochIso, runnerTemplateDefine.
  *
  * @exports default
  * @deps tsdown, node:{child_process,fs}
  */
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsdown";
 
 // -- 1/2 HELPER · release metadata define values --
@@ -64,26 +64,34 @@ const releaseDefines = {
   __COMBO_CHEN_BUILD_DATE__: JSON.stringify(buildDate()),
 };
 
-const copyRunnerTemplatePlugin = {
-  name: "copy-runner-template",
-  writeBundle(): void {
-    mkdirSync("dist", { recursive: true });
-    copyFileSync("src/core/runner-template.sh", "dist/runner-template.sh");
-  },
+const runnerTemplateDefine = {
+  __COMBO_CHEN_RUNNER_TEMPLATE__: JSON.stringify(
+    readFileSync(new URL("./src/core/runner-template.sh", import.meta.url), "utf8"),
+  ),
 };
 // -/ 1/2
 
 // -- 2/2 CORE · tsdown config <- START HERE --
-export default defineConfig({
-  entry: {
-    cli: "src/cli/main.ts",
-    "release-assets": "src/scripts/release-assets.ts",
+// Separate builds keep each dist entry single-file: a shared multi-entry build
+// splits common modules into a chunk the release archive would have to ship.
+export default defineConfig([
+  {
+    entry: { cli: "src/cli/main.ts" },
+    format: "esm",
+    outDir: "dist",
+    clean: true,
+    dts: false,
+    define: { ...releaseDefines, ...runnerTemplateDefine },
+    // Release archives run without node_modules; bundle runtime deps in.
+    noExternal: () => true,
   },
-  format: "esm",
-  outDir: "dist",
-  clean: true,
-  dts: false,
-  define: releaseDefines,
-  plugins: [copyRunnerTemplatePlugin],
-});
+  {
+    entry: { "release-assets": "src/scripts/release-assets.ts" },
+    format: "esm",
+    outDir: "dist",
+    clean: false,
+    dts: false,
+    define: releaseDefines,
+  },
+]);
 // -/ 2/2

@@ -31,7 +31,7 @@
  *   ./args, ./closure, ./coder, ./director, ./director-prompt, ./forensics, ./gate, ./gate-lease, ./github, ./overture, ./park, ./passive-update, ./reconcile, ./resume, ./reviewer, ./sessions, ./status, ./update, ./work-plan, ./watchers
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
@@ -1180,7 +1180,15 @@ function collectLocalWorktreeHeadSha(deps: Pick<Deps, "git">, combo: Pick<ComboR
 
 export function isDirectRun(metaUrl: string, argv1: string | undefined): boolean {
   if (!argv1) return false;
-  return metaUrl === pathToFileURL(argv1).href || argv1.endsWith("cli.mjs");
+  if (metaUrl === pathToFileURL(argv1).href || argv1.endsWith("cli.mjs")) return true;
+  // Node resolves the entry module to its realpath, so a symlinked argv[1]
+  // (release install shims, macOS /var -> /private/var) never matches the raw
+  // URL comparison above.
+  try {
+    return realpathSync(fileURLToPath(metaUrl)) === realpathSync(argv1);
+  } catch {
+    return false;
+  }
 }
 
 const directRun = isDirectRun(import.meta.url, process.argv[1]);
