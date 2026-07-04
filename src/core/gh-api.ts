@@ -1,7 +1,7 @@
 /**
  * @overview Shared GitHub CLI API reader. Owns paginated `gh api` parsing,
  *   short-lived endpoint caches, and failure classification for callers that
- *   poll the same PR from multiple orchestration phases. ~125 lines, 8 exports.
+ *   poll the same PR from multiple orchestration phases. ~125 lines, 7 exports.
  *
  *   READING GUIDE
  *   -------------
@@ -15,13 +15,13 @@
  *   PUBLIC API
  *   ----------
  *   GhApiCache, GhCommandResult, GhCommandRunner, GhFailureKind,
- *   GhFailureClassification, createGhApiCache, classifyGhFailure, readGhArray
+ *   GhFailureClassification, createGhApiCache, readGhArray
  *
  *   INTERNALS
  *   ---------
- *   formatGhFailure
+ *   classifyGhFailure, formatGhFailure
  *
- * @exports GhApiCache, GhCommandResult, GhCommandRunner, GhFailureKind, GhFailureClassification, createGhApiCache, classifyGhFailure, readGhArray
+ * @exports GhApiCache, GhCommandResult, GhCommandRunner, GhFailureKind, GhFailureClassification, createGhApiCache, readGhArray
  * @deps none
  */
 
@@ -48,7 +48,7 @@ export function createGhApiCache(): GhApiCache {
   return new Map();
 }
 
-export function classifyGhFailure(result: GhCommandResult): GhFailureClassification {
+function classifyGhFailure(result: GhCommandResult): GhFailureClassification {
   const detail = result.stderr.trim() || "unknown error";
   const text = detail.toLowerCase();
   if (/\brate[-\s]?limit(?:ed)?\b|secondary rate limit|api rate limit/.test(text)) {
