@@ -584,13 +584,14 @@ when it is alive. The reviewer/director-watch path also records the live
     PRs: it can record the missing `merged` fact, but it does not run teardown
     or append `combo_closed`.
 
-## 8a. Release artifact contract
+## 8a. Release artifact and install contract
 
-The release channel is the producer side of the active updater. A release build
-carries inspectable metadata: `combo-chen --version` reports the package
-version, commit, and build date embedded by the bundler. Automation supplies
-`COMBO_CHEN_COMMIT` and `COMBO_CHEN_BUILD_DATE`; local builds use deterministic
-fallbacks where configured and otherwise mark unknown/current values.
+The release channel is the producer and installer side of the active updater. A
+release build carries inspectable metadata: `combo-chen --version` reports the
+package version, commit, and build date embedded by the bundler. Automation
+supplies `COMBO_CHEN_COMMIT` and `COMBO_CHEN_BUILD_DATE`; local builds use
+deterministic fallbacks where configured and otherwise mark unknown/current
+values.
 
 Assets are platform archives named
 `combo-chen-vX.Y.Z-<platform>-<arch>.tar.gz`. The default release targets are
@@ -613,6 +614,20 @@ timestamp, then uploads `dist/release/*.tar.gz` and
 `dist/release/checksums.txt` to that release. This release asset contract feeds
 the active `combo-chen update` command directly.
 
+Published release tags may be plain `vX.Y.Z` tags or release-please component
+tags such as `combo-chen-vX.Y.Z`; the updater normalizes both forms before
+asset lookup.
+
+`install.sh` is the supported tarball install channel. The default remote path
+resolves the latest GitHub release, downloads the platform archive plus
+`checksums.txt`, verifies the SHA-256 digest before touching the install
+prefix, extracts under `~/.combo-chen/versions/combo-chen-vX.Y.Z/`, and
+symlinks `~/.local/bin/combo-chen` to the versioned executable. Flags allow a
+specific `--version`, an alternate `--repo`, custom `--prefix` and `--bin-dir`,
+or an offline `--archive FILE --checksums FILE` pair. Re-running is idempotent,
+previous version directories remain on disk, and an existing non-symlink bin
+target is never overwritten.
+
 The active command queries GitHub Releases, compares the current embedded build
 metadata with the selected release candidate, and reports the current,
 update-available, unsupported, or failure state. Stable mode ignores
@@ -634,6 +649,11 @@ isolated staging directory, and hands the staged release archive to the atomic
 replacement primitive. Checksum, download, and extraction failures are
 explicit: the command reports failures before replacement and leaves the
 previous installation intact.
+
+When invoked through an installer-created bin symlink, the active update command
+resolves the real versioned executable and replaces that file, preserving the
+symlink so the installed layout remains classifiable as `release_archive`.
+
 Replacement errors are contained by the U3 atomic replacement primitive.
 Unsupported source checkouts and package-manager dev shims fail before staging
 with useful non-auto-replaceable errors. When a newer candidate exists, the
@@ -694,6 +714,10 @@ parsing and looking up sha256sum-compatible `checksums.txt` entries,
 classifying obvious local install targets, recording active combo state, and
 assembling a `ReadOnlyUpdatePlan`.
 
+Normalization accepts plain versions, `vX.Y.Z` tags, and release-please
+component tags (`combo-chen-vX.Y.Z`) so every published release tag can be
+compared before asset lookup.
+
 U72-A adds the internal active-runtime detector API at
 `src/core/active-runtime.ts`. `detectActiveComboRuntime({ home, cli })` scans
 only persisted combo state under `COMBO_CHEN_HOME/runs`: `combo.json`,
@@ -708,7 +732,8 @@ capsules. It does not add passive update notices, archive staging, binary
 replacement, or live capsule restart behavior. This means source checkouts and
 package-manager dev shims are non-auto-replaceable; the U3 replacement primitive
 (`replaceInstallTargetFromStagedArtifact`) only considers release archive
-installs whose executable path is under `combo-chen-vX.Y.Z/bin/combo-chen`.
+installs whose real executable path is under
+`combo-chen-vX.Y.Z/bin/combo-chen`.
 
 ### U1 release resolver and latest/beta check flow
 

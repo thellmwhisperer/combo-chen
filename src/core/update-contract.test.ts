@@ -60,6 +60,17 @@ describe("update contract release identity", () => {
     });
   });
 
+  it("normalizes release-please component-prefixed tags", () => {
+    expect(normalizeReleaseVersion("combo-chen-v0.0.70")).toMatchObject({
+      input: "combo-chen-v0.0.70",
+      version: "0.0.70",
+      channel: "stable",
+      major: 0,
+      minor: 0,
+      patch: 70,
+    });
+  });
+
   it("normalizes prerelease combo-chen release tags and versions", () => {
     expect(normalizeReleaseVersion("v2.0.0-beta.3")).toEqual({
       input: "v2.0.0-beta.3",
