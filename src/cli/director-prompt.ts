@@ -24,7 +24,7 @@
  *
  *   INTERNALS
  *   ---------
- *   requiredText, promptSha, promptPreview, windowSet
+ *   requiredText, promptSha, promptPreview
  *
  * @exports PromptTarget, DirectorPromptDeps, buildDirectorPrompt, directorPromptTarget, sendPromptToTarget, promptDirector
  * @deps node:crypto, ../core/{combo,events,runtime-ledger,state}, ../infra/tmux, ./sessions
@@ -36,7 +36,7 @@ import { appendEvent, readEvents } from "../core/events.js";
 import { readRuntimeLedger } from "../core/runtime-ledger.js";
 import { describeWorkItem, readCombo, runDirFor, type ComboRecord } from "../core/state.js";
 import { listWindowsArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
-import { DIRECTOR_WINDOW } from "./sessions.js";
+import { DIRECTOR_WINDOW, windowSet } from "./sessions.js";
 
 // -- 1/3 HELPER · Types and deterministic prompt text --
 export interface PromptTarget {
@@ -123,9 +123,6 @@ export function sendPromptToTarget(input: {
   }
 }
 
-function windowSet(stdout: string): Set<string> {
-  return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
-}
 // -/ 2/3
 
 // -- 3/3 CORE · promptDirector command integration --

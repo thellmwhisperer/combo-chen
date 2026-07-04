@@ -1,5 +1,5 @@
 /**
- * @overview Coder-response CLI helpers. ~450 lines, 11 exports, review, conflict, worker recovery, and PR-head sync routing.
+ * @overview Coder-response CLI helpers. ~450 lines, 10 exports, review, conflict, worker recovery, and PR-head sync routing.
  *
  *   READING GUIDE
  *   -------------
@@ -22,16 +22,15 @@
  *   PrConflictNudge            PR conflict recovery prompt facts.
  *   activateCoder              Start coder responding mode.
  *   nudgeReviewComments        Route fresh review comments to the coder.
- *   buildPrConflictNudgePrompt Render deterministic conflict/sync-recovery prompt.
  *   nudgePrConflict            Route a dirty/conflicting or out-of-sync PR to coder responding.
  *   recoverStuckWorker         Recreate coder responding and replay the last prompt.
  *   recoverDeadCoder           Recreate the initial coder runner before a PR exists.
  *
  *   INTERNALS
  *   ---------
- *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow, latestRoutedCoderPrompt
+ *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow, buildPrConflictNudgePrompt, latestRoutedCoderPrompt
  *
- * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StuckWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, buildPrConflictNudgePrompt, nudgePrConflict, recoverStuckWorker, recoverDeadCoder
+ * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StuckWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, nudgePrConflict, recoverStuckWorker, recoverDeadCoder
  * @deps ../core/{combo,events,gh-api,state}, ../infra/{config-snapshot,tmux}, ../roles/coder-responding, ./gate, ./sessions
  */
 import { existsSync } from "node:fs";
@@ -60,7 +59,7 @@ import {
   routeReviewComments,
 } from "../roles/coder-responding.js";
 import { latestPublishedGateSha, syncNoMistakesMirror } from "./gate.js";
-import { CODER_WINDOW, ensureWindowPresent, killWindowIfPresent } from "./sessions.js";
+import { CODER_WINDOW, ensureWindowPresent, killWindowIfPresent, windowSet } from "./sessions.js";
 
 // -- 1/3 HELPER · Dependency contracts --
 export interface ActivateCoderDeps {
@@ -139,7 +138,7 @@ function ensureCoderRespondingWindow(input: {
         `${listed.stderr.trim() || "unknown error"}`,
     );
   }
-  const windows = new Set(listed.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  const windows = windowSet(listed.stdout);
   if (windows.has(input.windowName)) {
     const panes = input.deps.tmux(listPanesArgs(input.combo.tmuxSession, input.windowName, "#{pane_dead}"));
     if (panes.status !== 0) {
@@ -299,7 +298,7 @@ export function nudgeReviewComments(input: {
   }
 }
 
-export function buildPrConflictNudgePrompt(conflict: PrConflictNudge): string {
+function buildPrConflictNudgePrompt(conflict: PrConflictNudge): string {
   if (conflict.mergeState === "LOCAL_OUT_OF_SYNC") {
     return [
       "Local PR head sync recovery for coder responding mode:",

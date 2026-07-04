@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for coder-response CLI helpers. ~890 lines, activate, nudge, and recovery flows. (no-mistakes(document): Sync Sherpa line counts in 3 test files)
+ * @overview Unit tests for coder-response CLI helpers. ~890 lines, activate, nudge, and recovery flows.
  *
  *   READING GUIDE
  *   -------------

@@ -27,7 +27,7 @@
  *   reportPostUpdateRefresh, postUpdateDaemonRefreshTimeoutMs, parseRelease, parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
- * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,guards,state,update-contract,update-install,update-resolver,update-staging}, ../infra/{release-artifacts,release-metadata}, ./{display,update-refresh}
+ * @deps node:{child_process,fs,os,path}, ../core/{active-runtime,guards,state,release-artifacts,update-contract,update-install,update-resolver,update-staging}, ../infra/release-metadata, ./{display,update-refresh}
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -61,7 +61,7 @@ import {
   type UpdateExtractionInput,
   type UpdateExtractionResult,
 } from "../core/update-staging.js";
-import { RELEASE_CHECKSUMS_FILE } from "../infra/release-artifacts.js";
+import { RELEASE_CHECKSUMS_FILE } from "../core/release-artifacts.js";
 import { releaseMetadata } from "../infra/release-metadata.js";
 import {
   refreshPostUpdateLocalState,

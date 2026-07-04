@@ -1,6 +1,6 @@
 /**
  * @overview Deterministic launch runway for combo creation. ~480 lines,
- *   8 exports, checks launch inputs/resources before worker windows start.
+ *   6 exports, checks launch inputs/resources before worker windows start.
  *
  *   READING GUIDE
  *   -------------
@@ -14,8 +14,6 @@
  *
  *   PUBLIC API
  *   ----------
- *   OVERTURE_ARTIFACT       Stable run-dir artifact filename.
- *   OvertureBlockedError    Error raised when any check blocks launch.
  *   OvertureDeps            Injected process adapters.
  *   OvertureCheck           One machine-readable check result.
  *   OverturePreparation     Full prepared launch context for run.
@@ -25,11 +23,11 @@
  *
  *   INTERNALS
  *   ---------
- *   readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
+ *   OVERTURE_ARTIFACT, OvertureBlockedError, readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
  *   checkBaseRef, checkTreehouseAvailable, checkBranchFree,
  *   checkNoMistakesRunway, runDirReusable, writeOvertureArtifact
  *
- * @exports OVERTURE_ARTIFACT, OvertureBlockedError, OvertureDeps, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
+ * @exports OvertureDeps, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
  * @deps node:{crypto,fs,path}, ../core/{state,work-plan}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./status, ./work-plan
  */
 import { createHash } from "node:crypto";
@@ -61,7 +59,7 @@ import { fetchIssueDetails, remoteSlug, type GhRunner, type IssueDetails } from 
 import { parseNoMistakesAxiStatus } from "./status.js";
 
 // -- 1/3 HELPER · Types and local work-plan reading --
-export const OVERTURE_ARTIFACT = "overture.json";
+const OVERTURE_ARTIFACT = "overture.json";
 
 type CommandResult = { status: number; stdout: string; stderr: string };
 
@@ -358,7 +356,7 @@ function checkNoMistakesRunway(
 // -/ 2/3
 
 // -- 3/3 CORE · prepareOverture, renderOvertureChecklist, assertOverturePassed <- START HERE --
-export class OvertureBlockedError extends Error {}
+class OvertureBlockedError extends Error {}
 
 export function prepareOverture(input: PrepareOvertureInput): OverturePreparation {
   const hasIssue = input.issueUrl !== undefined;

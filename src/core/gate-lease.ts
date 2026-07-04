@@ -15,9 +15,9 @@
  *   PUBLIC API
  *   ----------
  *   GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult
- *   DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease
+ *   readGateLease, readGateLeases, acquireGateLease, releaseGateLease
  *
- * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, GateLeaseHeartbeatResult, DEFAULT_GATE_LEASE_STALE_MS, gateLeaseDir, readGateLease, readGateLeases, acquireGateLease, releaseGateLease, heartbeatGateLease
+ * @exports GateLeaseOwner, GateLeaseRecord, GateLeaseAcquireResult, GateLeaseReleaseResult, GateLeaseHeartbeatResult, readGateLease, readGateLeases, acquireGateLease, releaseGateLease, heartbeatGateLease
  * @deps node:{fs,path}, ./guards
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -49,13 +49,13 @@ export type GateLeaseReleaseResult =
   | { state: "missing" }
   | { state: "not_owner"; lease: GateLeaseRecord };
 
-export const DEFAULT_GATE_LEASE_STALE_MS = 30 * 60 * 1000;
+const DEFAULT_GATE_LEASE_STALE_MS = 30 * 60 * 1000;
 
 const GATE_LEASE_DIR = "gate-leases.lock";
 const LEGACY_GATE_LEASE_DIR = "gate-lease.lock";
 const GATE_LEASE_RECORD = "lease.json";
 
-export function gateLeaseDir(home: string, branch?: string): string {
+function gateLeaseDir(home: string, branch?: string): string {
   if (branch === undefined) return join(home, GATE_LEASE_DIR);
   return join(home, GATE_LEASE_DIR, encodeURIComponent(branch));
 }

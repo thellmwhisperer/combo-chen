@@ -14,15 +14,15 @@
  *
  *   PUBLIC API
  *   ----------
- *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, legacy window constants, SessionDeps
- *   KillComboSessionResult
+ *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, SessionDeps
+ *   KillComboSessionResult, windowSet
  *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
- *   windowSet, tmuxFailureText, isMissingSession
+ *   tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CODER_RESPONDING_WINDOW, SessionDeps, KillComboSessionResult, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, SessionDeps, KillComboSessionResult, windowSet, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
  * @deps ../core/{combo,guards,state}, ../infra/tmux
  */
 import { shellQuote } from "../core/combo.js";
@@ -46,7 +46,7 @@ export const REVIEWER_WINDOW = "reviewer";
 export const REVIEWER_WATCH_WINDOW = "reviewer-watch";
 export const DIRECTOR_WATCH_WINDOW = "director-watch";
 export const GATE_RUNNER_WINDOW = "gate-runner";
-export const CODER_RESPONDING_WINDOW = "coder-responding";
+const CODER_RESPONDING_WINDOW = "coder-responding";
 
 export interface SessionDeps {
   tmux: (args: string[]) => TmuxResult;
@@ -100,7 +100,7 @@ export function killWindowIfPresent(
   }
 }
 
-function windowSet(stdout: string): Set<string> {
+export function windowSet(stdout: string): Set<string> {
   return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
 }
 

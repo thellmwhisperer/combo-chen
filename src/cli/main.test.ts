@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~8350 lines. (fix(topology): stabilize combo role windows)
+ *   deps so tests run without a real terminal or network. ~8350 lines.
  *
  *   READING GUIDE
  *   ─────────────

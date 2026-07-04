@@ -1,0 +1,11 @@
+id: core-no-infra-import
+language: TypeScript
+rule:
+  kind: string
+  regex: "(?:\\.\\./)+infra(?:/|['\"]|$)"
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+message: core/ imports or re-exports infra/; move shared contracts into core/ or inject infra from cli/
+severity: error
