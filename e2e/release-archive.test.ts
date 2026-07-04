@@ -30,6 +30,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
+import { PASSIVE_UPDATE_DISABLE_ENV } from "../src/core/passive-update.js";
 import { releaseArchiveRoot } from "../src/infra/release-artifacts.js";
 import { produceReleaseAssets } from "../src/infra/release-producer.js";
 
@@ -57,7 +58,7 @@ function runExtractedCli(archiveDir: string, args: string[], env: Record<string,
   return spawnSync(process.execPath, [join(archiveDir, "bin", "combo-chen"), ...args], {
     encoding: "utf8",
     timeout: 30_000,
-    env: { ...process.env, ...env },
+    env: { ...process.env, [PASSIVE_UPDATE_DISABLE_ENV]: "1", ...env },
   });
 }
 
