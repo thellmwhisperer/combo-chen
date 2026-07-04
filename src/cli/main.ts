@@ -16,7 +16,7 @@
  *   ----------
  *   createProgram     Build the Commander program and wire command handlers.
  *   defaultDeps       Provide production adapters for command handlers.
- *   isDirectRun       Compare the current module URL against argv[1].
+ *   isDirectRun       Detect direct execution through URL, cli.mjs, or realpath.
  *   Deps              Dependency interface used by CLI handlers and tests.
  *   resolvePollMs                 Re-exported watcher cadence helper for compatibility.
  *   buildDirectorWatchCommand     Re-exported director watcher helper for compatibility.

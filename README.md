@@ -288,8 +288,11 @@ directly:
   `combo-chen-vX.Y.Z-<platform>-<arch>.tar.gz`; the default targets are
   `darwin-arm64`, `darwin-x64`, `linux-arm64`, and `linux-x64`.
 - Each archive expands under `combo-chen-vX.Y.Z/` and installs the executable
-  CLI at `bin/combo-chen`, sourced from `dist/cli.mjs`, plus package metadata,
+  CLI at `bin/combo-chen`, built from `dist/cli.mjs`, plus package metadata,
   README, LICENSE, and `combo-chen.example.toml`.
+- The installed CLI is self-contained: runtime dependencies and the runner
+  template are bundled into `dist/cli.mjs`, so extracted archives run without
+  `node_modules`, sibling `dist` chunks, or `dist/runner-template.sh`.
 - `checksums.txt` is sha256sum-compatible, sorted by filename, and covers every
   uploaded `.tar.gz` asset.
 - `pnpm release:assets` builds the CLI and writes reproducible archives plus
