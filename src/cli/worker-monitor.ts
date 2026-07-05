@@ -28,7 +28,8 @@
  *   INTERNALS
  *   ---------
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
- *   hasPermissionPrompt, autoApprovePermissionPrompt, workerRecoveryAttempts,
+ *   hasPermissionPrompt, hasGnhfTerminalFailure, newestGnhfLogPath, coderGnhfProgressAge,
+ *   gnhfRunEndRecorded, autoApprovePermissionPrompt, workerRecoveryAttempts,
  *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
@@ -84,23 +85,48 @@ type WorkerSnapshot = Record<string, WorkerSnapshotEntry>;
 
 const SNAPSHOT_FILE = "worker-panes.json";
 const DEFAULT_STALL_TICKS = 3;
-function coderGnhfProgressAge(worktree: string): number | undefined {
+function newestGnhfLogPath(worktree: string): string | undefined {
   const runsDir = join(worktree, ".gnhf", "runs");
   if (!existsSync(runsDir)) return undefined;
   let newest = 0;
+  let newestPath: string | undefined;
   try {
     for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const logPath = join(runsDir, entry.name, "gnhf.log");
       if (!existsSync(logPath)) continue;
       const mtimeMs = statSync(logPath).mtimeMs;
-      if (mtimeMs > newest) newest = mtimeMs;
+      if (mtimeMs > newest) {
+        newest = mtimeMs;
+        newestPath = logPath;
+      }
     }
   } catch {
     return undefined;
   }
-  if (newest === 0) return undefined;
-  return Date.now() - newest;
+  return newestPath;
+}
+
+function coderGnhfProgressAge(worktree: string): number | undefined {
+  const logPath = newestGnhfLogPath(worktree);
+  if (logPath === undefined) return undefined;
+  try {
+    return Date.now() - statSync(logPath).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+//    gnhf appends orchestrator:end in a finally whenever the loop ends; only a
+//    hard kill skips it. Its absence in a fresh log means the run is alive.
+function gnhfRunEndRecorded(worktree: string): boolean | undefined {
+  const logPath = newestGnhfLogPath(worktree);
+  if (logPath === undefined) return undefined;
+  try {
+    return readFileSync(logPath, "utf8").includes('"event":"orchestrator:end"');
+  } catch {
+    return undefined;
+  }
 }
 
 function snapshotPath(runDir: string): string {
@@ -432,6 +458,21 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     }
 
     if (worker === "coder" && hasGnhfTerminalFailure(pane)) {
+      // The pane fingerprint alone is not terminal evidence: gnhf's footer
+      // shows "gnhf again to resume" while healthy, and codex streams interim
+      // contract JSON with "success": false throughout an iteration. Only the
+      // orchestrator log can confirm the run actually ended.
+      const endRecorded = combo.worktree ? gnhfRunEndRecorded(combo.worktree) : undefined;
+      const progressAge = combo.worktree ? coderGnhfProgressAge(combo.worktree) : undefined;
+      const progressMaxAgeMs = input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000;
+      const runStillActive =
+        endRecorded === false && progressAge !== undefined && progressAge < progressMaxAgeMs;
+      if (runStillActive) {
+        summaries.push(
+          `worker ${worker}: pane matched gnhf terminal fingerprint but the gnhf run is still active, not dead`,
+        );
+        continue;
+      }
       findings.push(recordFinding({
         runDir,
         deps,

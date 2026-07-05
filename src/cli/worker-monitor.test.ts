@@ -311,6 +311,60 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContainEqual(expect.stringContaining("worker coder gnhf stopped without success"));
   });
 
+  it("does not kill a live coder whose pane matches the terminal fingerprint", () => {
+    const { record, runDir } = combo();
+    // Healthy gnhf state: the TUI footer is always visible and codex streams
+    // interim contract JSON ("not done yet") throughout an iteration.
+    const gnhfRunDir = join(record.worktree, ".gnhf", "runs", "implement-github-iss-live");
+    mkdirSync(gnhfRunDir, { recursive: true });
+    writeFileSync(
+      join(gnhfRunDir, "gnhf.log"),
+      '{"event":"iteration:start","iteration":1}\n{"event":"agent:run:start","iteration":1}\n',
+    );
+    const { deps, out } = fakeDeps({
+      coder: [
+        '{"success":false,"summary":"Starting on the red test for issue 154."}',
+        "[ctrl+c to stop, gnhf again to resume]",
+        "",
+      ].join("\n"),
+    });
+
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"] });
+
+    expect(result.escalated).toBe(false);
+    expect(readEvents(runDir)).toEqual([]);
+    expect(out).toContainEqual(expect.stringContaining("gnhf run is still active"));
+  });
+
+  it("reports gnhf terminal failures when the orchestrator log recorded the end", () => {
+    const { record, runDir } = combo();
+    const gnhfRunDir = join(record.worktree, ".gnhf", "runs", "implement-github-iss-ended");
+    mkdirSync(gnhfRunDir, { recursive: true });
+    writeFileSync(
+      join(gnhfRunDir, "gnhf.log"),
+      '{"event":"iteration:start","iteration":2}\n{"event":"orchestrator:end","status":"stopped","successCount":0}\n',
+    );
+    const { deps } = fakeDeps({
+      coder: [
+        '{"success":false,"summary":"Could not finish."}',
+        "[ctrl+c to stop, gnhf again to resume]",
+        "",
+      ].join("\n"),
+    });
+
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"] });
+
+    expect(result.escalated).toBe(true);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_dead",
+        worker: "coder",
+        detail: "gnhf stopped without success",
+      }),
+    );
+  });
+
   it("trusts journaled coder completion over a dead-looking initial pane", () => {
     const { record, runDir } = combo();
     appendEvent(runDir, "coder_started", {});
