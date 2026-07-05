@@ -24,7 +24,7 @@ reviews:
   changed_files_summary: false
   sequence_diagrams: false
   estimate_code_review_effort: false
-  assess_linked_issues: false
+  assess_linked_issues: true
   related_issues: false
   related_prs: false
   suggested_labels: false
@@ -44,7 +44,7 @@ reviews:
     shellcheck:
       enabled: true
     ast-grep:
-      essential_rules: true
+      essential_rules: false
     markdownlint:
       enabled: false
     languagetool:
