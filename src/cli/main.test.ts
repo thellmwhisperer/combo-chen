@@ -62,7 +62,7 @@ import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadat
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
 import { GATEKEEPER_WINDOW } from "./gate.js";
-import { buildDirectorWatchCommand, createProgram, isDirectRun, type Deps } from "./main.js";
+import { buildDirectorWatchCommand, createProgram, defaultDeps, isDirectRun, type Deps } from "./main.js";
 import { PASSIVE_UPDATE_CACHE_FILE } from "./passive-update.js";
 import { refreshPostUpdateLocalState } from "./update-refresh.js";
 
@@ -221,6 +221,10 @@ function writeExecutable(path: string, body: string): void {
   chmodSync(path, 0o755);
 }
 describe("command surface", () => {
+  it("wires the production team identity resolver into default deps", () => {
+    expect(defaultDeps().resolveTeamIdentity).toEqual(expect.any(Function));
+  });
+
   it("detects direct source execution when argv[1] needs file URL escaping", () => {
     const script = "/repo/combo#chen/src/cli/main.ts";
 

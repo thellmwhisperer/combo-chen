@@ -135,6 +135,7 @@ import {
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, formatGateLeaseStatus, type CommandResult } from "./status.js";
+import { resolveConfiguredTeamIdentity } from "./team-identity.js";
 import { defaultUpdateCommandDeps, runUpdateCommand, type UpdateCommandDeps } from "./update.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan, WORK_PLAN_ARTIFACT } from "./work-plan.js";
 import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
@@ -190,6 +191,7 @@ export function defaultDeps(): Deps {
       const result = spawnSync("no-mistakes", args, { cwd, encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
+    resolveTeamIdentity: resolveConfiguredTeamIdentity,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     issueExists: (issueUrl) => {
       const result = spawnSync("gh", ["issue", "view", issueUrl, "--json", "number"], {
