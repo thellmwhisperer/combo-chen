@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~3070 lines, log-derived regressions.
+ *   and process shims for external services. ~3200 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -46,9 +46,8 @@ import { CODER_THREAD_ARTIFACT } from "../src/roles/coder.js";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const cliPath = join(repoRoot, "dist", "cli.mjs");
 const LAUNCH_TIMEOUT_MS = 20_000;
-const GATE_COMMAND_TIMEOUT_MS = 20_000;
-const E2E_TEST_TIMEOUT_MS = 30_000;
 const LIFECYCLE_TEST_TIMEOUT_MS = 30_000;
+const CONFIG_COPY_E2E_RUN_DELAY_MS = 2_500;
 
 interface RunResult {
   status: number;
@@ -91,11 +90,11 @@ interface HarnessOptions {
   missingComboLabelsOnFirstAdd?: boolean;
   workerStallTicks?: number;
   workPlanExtra?: string[];
+  permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
   coderRole?: string;
   coderCommand?: string;
   coderResumeCommand?: string;
   teamLines?: string[];
-  permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
 }
 
 interface ComboRecordJson {
@@ -659,9 +658,9 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
   it("executes the generated runner and copies no-mistakes config into the active gate worktree", () => {
     const harness = prepareHarness({
       executeRunner: true,
-      activeNoMistakes: true,
-      gatekeeperCommand: "no-mistakes axi run --intent e2e-initial-gate",
-      noMistakesRunDelayMs: 1200,
+      activateNoMistakesOnAxiRun: true,
+      gatekeeperCommand: "no-mistakes axi run --intent e2e-initial",
+      noMistakesRunDelayMs: CONFIG_COPY_E2E_RUN_DELAY_MS,
     });
     harness.env.COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS = "5";
     harness.env.COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED = "1";
@@ -697,13 +696,13 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, E2E_TEST_TIMEOUT_MS);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("resumes a broken combo when no-mistakes creates the run only after gate restart", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
       gatekeeperCommand: 'no-mistakes daemon start && no-mistakes axi run --intent "{issue_pr_intent}"',
-      noMistakesRunDelayMs: 1200,
+      noMistakesRunDelayMs: CONFIG_COPY_E2E_RUN_DELAY_MS,
       quoteNoMistakesRunId: true,
       workPlanExtra: [
         "",
@@ -732,7 +731,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
           COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         },
-        timeoutMs: GATE_COMMAND_TIMEOUT_MS,
+        timeoutMs: LIFECYCLE_TEST_TIMEOUT_MS,
       });
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
       const tmuxAfterRestart = readJsonLines<LogEntryJson>(harness.logs.tmux);
@@ -761,18 +760,18 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, E2E_TEST_TIMEOUT_MS);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("aborts a stale same-branch no-mistakes run before a restarted gate while preserving other branches", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
       gatekeeperCommand: 'no-mistakes daemon start && no-mistakes axi run --intent "{issue_pr_intent}"',
-      noMistakesRunDelayMs: 0,
+      noMistakesRunDelayMs: CONFIG_COPY_E2E_RUN_DELAY_MS,
     });
     let passed = false;
 
     try {
-      const { combo } = launchPlanCombo(harness);
+      const { combo, runDir } = launchPlanCombo(harness);
       const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
       const tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
       const comboSession = tmuxState.sessions[combo.tmuxSession];
@@ -804,7 +803,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
           COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         },
-        timeoutMs: GATE_COMMAND_TIMEOUT_MS,
+        timeoutMs: LIFECYCLE_TEST_TIMEOUT_MS,
       });
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
 
@@ -821,8 +820,9 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
         env: harness.env,
       }).stdout;
       expect(gatekeeperPane).toContain("no-mistakes attach --run");
-      expect(gatekeeperPane).toContain("attached e2e-run");
       expect(gatekeeperPane).not.toContain("attached stale-same-branch");
+      const gatekeeperLog = readFileSync(join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.log`), "utf8");
+      expect(gatekeeperLog).toContain("outcome: checks-passed");
 
       const noMistakesCalls = readJsonLines<LogEntryJson>(harness.logs.noMistakes);
       const abortIndex = noMistakesCalls.findIndex((entry) => entry.args.join(" ") === "axi abort");
@@ -837,7 +837,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
         expect.arrayContaining([
           expect.objectContaining({ id: "stale-same-branch", branch: combo.branch, status: "cancelled" }),
           expect.objectContaining({ id: "live-other-branch", branch: "combo/issue-241", status: "running" }),
-          expect.objectContaining({ id: "e2e-run", branch: combo.branch, head: headSha, status: "active" }),
+          expect.objectContaining({ id: "e2e-run", branch: combo.branch, head: headSha, status: "succeeded" }),
         ]),
       );
 
@@ -846,7 +846,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, E2E_TEST_TIMEOUT_MS);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("keeps polling an unchanged gatekeeper pane while no-mistakes reports an active branch run", () => {
     const harness = prepareHarness({ activeNoMistakes: true, workerStallTicks: 2 });
@@ -885,7 +885,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("keeps polling an unchanged reviewer pane while an external review request is in flight", () => {
     const harness = prepareHarness({ workerStallTicks: 2 });
@@ -944,7 +944,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("keeps polling an unchanged reviewer pane after a reviewer artifact is journaled", () => {
     const harness = prepareHarness({ workerStallTicks: 2 });
@@ -990,13 +990,13 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("recreates a missing tmux room before restarting the initial gate", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
       gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-resume",
-      noMistakesRunDelayMs: 1200,
+      noMistakesRunDelayMs: CONFIG_COPY_E2E_RUN_DELAY_MS,
       quoteNoMistakesRunId: true,
     });
     let passed = false;
@@ -1014,7 +1014,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
           COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         },
-        timeoutMs: GATE_COMMAND_TIMEOUT_MS,
+        timeoutMs: LIFECYCLE_TEST_TIMEOUT_MS,
       });
       expect(restart.stdout).toContain("recreated tmux session");
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
@@ -1075,7 +1075,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, E2E_TEST_TIMEOUT_MS);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("closes a merged combo even when the tmux session already disappeared", () => {
     const harness = prepareHarness();
@@ -1678,7 +1678,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, E2E_TEST_TIMEOUT_MS);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("recovers a stalled coder responding worker before escalating needs_human", () => {
     const harness = prepareHarness({ workerStallTicks: 2, coderRespondingWindowName: "coder-responding" });
@@ -2097,7 +2097,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       failNoMistakesAxiRun: true,
       gatekeeperAttachTimeoutSeconds: 5,
       gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-post-address",
-      noMistakesRunDelayMs: 1200,
+      noMistakesRunDelayMs: CONFIG_COPY_E2E_RUN_DELAY_MS,
     });
     let passed = false;
 
@@ -2152,7 +2152,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
         },
         encoding: "utf8",
-        timeout: GATE_COMMAND_TIMEOUT_MS,
+        timeout: LIFECYCLE_TEST_TIMEOUT_MS,
       });
       const paneOutput = `${pane.stdout ?? ""}\n${pane.stderr ?? ""}`;
 
@@ -2174,7 +2174,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, E2E_TEST_TIMEOUT_MS);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("normalizes post-address checks-passed context cancellation through director-tick", () => {
     const harness = prepareHarness({
@@ -2184,7 +2184,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       externalCommentAgents: ["coderabbitai"],
       failNoMistakesAttach: true,
       gatekeeperCommand: "no-mistakes daemon start && no-mistakes axi run --intent e2e-post-address",
-      noMistakesRunDelayMs: 1200,
+      noMistakesRunDelayMs: CONFIG_COPY_E2E_RUN_DELAY_MS,
     });
     let passed = false;
 
@@ -2240,7 +2240,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
           E2E_HEAD_SHA: localSha,
         },
         encoding: "utf8",
-        timeout: GATE_COMMAND_TIMEOUT_MS,
+        timeout: LIFECYCLE_TEST_TIMEOUT_MS,
       });
       const paneOutput = `${pane.stdout ?? ""}\n${pane.stderr ?? ""}`;
 
@@ -2269,7 +2269,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, E2E_TEST_TIMEOUT_MS);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 
   it("routes local sync recovery instead of post-address gating from a worktree behind the PR head", () => {
     const harness = prepareHarness({ externalCommentAgents: ["coderabbitai"] });
@@ -3098,7 +3098,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
 });
 // -/ 2/3
 
@@ -3192,10 +3192,10 @@ function prepareGitRepo(repo: string, origin: string): void {
 }
 
 function writeRepoConfig(repo: string, options: HarnessOptions): void {
-  const gatekeeperCommand = options.gatekeeperCommand ?? "true";
   const coderRole = options.coderRole ?? "e2e-coder";
   const coderCommand = options.coderCommand ?? "e2e-coder";
   const coderResumeCommand = options.coderResumeCommand ?? "true";
+  const gatekeeperCommand = options.gatekeeperCommand ?? "true";
   const externalCommentAgents = options.externalCommentAgents ?? [];
   const externalReviewCommands = options.externalReviewCommands ?? [];
   const readyRequiredChecks = options.readyRequiredChecks ?? [];
@@ -3215,17 +3215,17 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
       `coder = ${JSON.stringify(coderRole)}`,
       'reviewer = ["e2e-reviewer"]',
       "",
-      ...(options.teamLines === undefined || options.teamLines.length === 0
-        ? []
-        : [
-            ...options.teamLines,
-            "",
-          ]),
       ...(options.reviewerLogins === undefined
         ? []
         : [
             "[reviewer]",
             `logins = ${JSON.stringify(options.reviewerLogins)}`,
+            "",
+          ]),
+      ...(options.teamLines === undefined || options.teamLines.length === 0
+        ? []
+        : [
+            ...options.teamLines,
             "",
           ]),
       `[coder.${coderRole}]`,
