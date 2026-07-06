@@ -886,6 +886,14 @@ The project also ships with static slop probes under `.slop/rules/`:
   (`latestPrUrlFromEvents`). Redefining one of these names outside its
   canonical home fails the gate. Cite: PR #247 reintroduced a private
   `errorMessage` while six copies already existed.
+- **no-commit-fragments-in-comments** (`error`): blocks conventional-commit
+  subject fragments (`fix(...)`, `feat(...)`, etc.) in `src/` and `e2e/`
+  comments. Navigator comments should describe the code, not carry stale
+  commit subjects left behind by agent edits.
+- **no-unconfigurable-operational-constants** (`error`): enforces that
+  timeout, age, and interval constants (`_MS`, `_TIMEOUT`, `_MAX_AGE`) in
+  non-test source have env or repo config paths; hardcoded operational
+  constants are only allowed when explicitly blessed.
 - **core-no-infra-verbs** (`warning`): reports existing string-level layer
   leakage in `src/core/` (`no-mistakes`, `git push`, `tmux`, shell scripts).
   It is deliberately report-only until the current runner-generation debt is
@@ -896,8 +904,9 @@ The project also ships with static slop probes under `.slop/rules/`:
 
 These are surfaced in the package scripts:
 
-- `pnpm slop:check` — enforces core-no-child-process and no-duplicate-helpers
-  with `--error` (excluding test files) and gates non-test jscpd duplication
+- `pnpm slop:check` — enforces core-no-child-process, no-duplicate-helpers,
+  no-commit-fragments-in-comments, and no-unconfigurable-operational-constants
+  with `--error` and gates non-test jscpd duplication
   with `--threshold 2`, a ratchet pinned just above the current 1.99%
   baseline so new duplication fails; CI and no-mistakes lint run this.
 - `pnpm slop:report` — runs a verbose non-test jscpd clone listing and warning
