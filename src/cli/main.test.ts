@@ -1,6 +1,6 @@
 /**
  * @overview Integration tests for the combo-chen CLI. Uses fake tmux/git/gh
- *   deps so tests run without a real terminal or network. ~8350 lines.
+ *   deps so tests run without a real terminal or network. ~8400 lines.
  *
  *   READING GUIDE
  *   ─────────────
@@ -3512,6 +3512,44 @@ describe("run", () => {
       resource: "team",
       detail: expect.stringContaining("gatekeeper | no-mistakes/claude/opus | no-mistakes/claude/opus | match"),
     });
+  });
+
+  it("passes overture with the production resolver for a declared gnhf codex coder", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const operatorHome = home();
+    const codexHome = home();
+    mkdirSync(join(operatorHome, ".gnhf"), { recursive: true });
+    writeFileSync(
+      join(operatorHome, ".gnhf", "config.yml"),
+      [
+        "agentArgsOverride:",
+        "  codex:",
+        "    - --profile",
+        "    - sitter",
+      ].join("\n"),
+    );
+    writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5"\n');
+    writeFileSync(join(codexHome, "sitter.config.toml"), 'model = "gpt-5.5"\n');
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        "[team.coder]",
+        'binary = "npx"',
+        'agent = "gnhf/codex"',
+        'model = "gpt-5.5"',
+      ].join("\n"),
+    );
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h, HOME: operatorHome, CODEX_HOME: codexHome },
+      resolveTeamIdentity: defaultDeps().resolveTeamIdentity,
+    });
+
+    await exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir]);
+
+    const rendered = out.join("\n");
+    expect(rendered).toContain("OK team_identity: team");
+    expect(rendered).toContain("coder | npx/gnhf/codex/gpt-5.5 | npx/gnhf/codex/gpt-5.5 | match");
   });
 
   it("fails overture when the resolved gatekeeper agent mismatches the declared team", async () => {

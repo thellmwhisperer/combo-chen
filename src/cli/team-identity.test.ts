@@ -1,10 +1,11 @@
 /**
- * @overview Unit tests for production team identity resolution. ~115 lines,
- *   pins no-mistakes gatekeeper config parsing before overture consumes it.
+ * @overview Unit tests for production team identity resolution. ~150 lines,
+ *   pins Codex/gnhf and no-mistakes config parsing before overture consumes it.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at no-mistakes gatekeeper resolver tests.
+ *   1. Start at codex/gnhf resolver tests.
+ *   2. Then no-mistakes gatekeeper resolver tests.
  *
  * @exports none
  * @deps vitest, node:{fs,os,path}, ./team-identity
@@ -74,6 +75,55 @@ function config(): ComboConfig {
 }
 
 describe("production team identity resolver", () => {
+  it("resolves a direct codex model from the selected profile config", () => {
+    const codexHome = tempHome();
+    writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5"\n');
+    writeFileSync(join(codexHome, "sitter.config.toml"), 'model = "gpt-5.5"\n');
+
+    const resolved = resolveConfiguredTeamIdentity("director", {
+      config: {
+        ...config(),
+        directorCommand: "codex --profile sitter exec {prompt}",
+      },
+      declared: { binary: "codex", agent: "codex", model: "gpt-5.5" },
+      repoDir: codexHome,
+      env: { CODEX_HOME: codexHome },
+    });
+
+    expect(resolved).toEqual({
+      role: "director",
+      identity: { binary: "codex", agent: "codex", model: "gpt-5.5" },
+    });
+  });
+
+  it("resolves the gnhf-wrapped codex coder model from gnhf agent args", () => {
+    const home = tempHome();
+    const codexHome = tempHome();
+    mkdirSync(join(home, ".gnhf"), { recursive: true });
+    writeFileSync(
+      join(home, ".gnhf", "config.yml"),
+      [
+        "agentArgsOverride:",
+        "  codex:",
+        "    - -m",
+        "    - gpt-5.4",
+      ].join("\n"),
+    );
+    writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5"\n');
+
+    const resolved = resolveConfiguredTeamIdentity("coder", {
+      config: config(),
+      declared: { binary: "npx", agent: "gnhf/codex", model: "gpt-5.4" },
+      repoDir: home,
+      env: { HOME: home, CODEX_HOME: codexHome },
+    });
+
+    expect(resolved).toEqual({
+      role: "coder",
+      identity: { binary: "npx", agent: "gnhf/codex", model: "gpt-5.4" },
+    });
+  });
+
   it("resolves a direct claude director model from the command line", () => {
     const resolved = resolveConfiguredTeamIdentity("director", {
       config: {

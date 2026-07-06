@@ -1,34 +1,37 @@
 /**
- * @overview Production team identity resolvers. ~240 lines, resolves the
+ * @overview Production team identity resolvers. ~330 lines, resolves the
  *   effective tool identity surfaces that overture verifies before launch.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveConfiguredTeamIdentity <- resolver entrypoint.
  *   2. Then noMistakesIdentity               <- gatekeeper config parser.
- *   3. Then directCommandIdentity            <- direct role command parser.
- *   4. Then opencodeIdentity                 <- resolved opencode config.
- *   5. Finish at small YAML helpers           <- narrow scalar/list parsing.
+ *   3. Then directCommandIdentity            <- direct/gnhf role command parser.
+ *   4. Then codexIdentity                    <- Codex command/config model resolution.
+ *   5. Then opencodeIdentity                 <- resolved opencode config.
+ *   6. Finish at small YAML helpers           <- narrow scalar/list parsing.
  *
  *   PUBLIC API
  *   ----------
  *   resolveConfiguredTeamIdentity  Production TeamIdentityResolver for default deps.
  *
  * @exports resolveConfiguredTeamIdentity
- * @deps node:{child_process,fs,path}, ../core/guards, ../infra/config, ./overture
+ * @deps node:{child_process,fs,path}, smol-toml, ../core/guards, ../infra/config, ./overture
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { parse as parseToml } from "smol-toml";
 
 import { errorMessage, isRecord } from "../core/guards.js";
-import type { ComboConfig, ComboTeamIdentity, ComboTeamRole } from "../infra/config.js";
+import { hasGnhfCommand, type ComboConfig, type ComboTeamIdentity, type ComboTeamRole } from "../infra/config.js";
 import type { TeamIdentityResolver } from "./overture.js";
 
 // -- 1/1 CORE · production resolver <- START HERE --
 const DEFAULT_CLAUDE_MODEL = "fable";
 const DEFAULT_UNPINNED_MODEL = "default";
 const DEFAULT_TEAM_IDENTITY_TOOL_TIMEOUT_MS = 5000;
+const DEFAULT_GNHF_AGENT = "claude";
 type DirectRole = Exclude<ComboTeamRole, "gatekeeper">;
 
 export const resolveConfiguredTeamIdentity: TeamIdentityResolver = (role, input) => {
@@ -76,6 +79,8 @@ function directCommandIdentity(
   env: Record<string, string | undefined>,
 ): ComboTeamIdentity | undefined {
   const binary = commandBinary(command);
+  if (hasGnhfCommand(command)) return gnhfIdentity(command, env);
+  if (binary === "codex") return codexIdentity(command, env);
   if (binary === "opencode") return opencodeIdentity(command, repoDir, env);
   if (binary !== "claude") return undefined;
   return {
@@ -89,6 +94,88 @@ function commandBinary(command: string): string | undefined {
   const token = /^\s*(?:"(?<double>[^"]+)"|'(?<single>[^']+)'|(?<bare>\S+))/.exec(command)?.groups;
   const binary = token?.["double"] ?? token?.["single"] ?? token?.["bare"];
   return binary === undefined ? undefined : nonEmpty(basename(binary));
+}
+
+function gnhfIdentity(command: string, env: Record<string, string | undefined>): ComboTeamIdentity | undefined {
+  const config = readGnhfConfig(env);
+  const agent = agentFromCommand(command) ?? (config === undefined ? undefined : topLevelScalar(config, "agent")) ?? DEFAULT_GNHF_AGENT;
+  if (agent !== "codex") return undefined;
+  const codexArgs = config === undefined ? [] : listValueFromNestedKey(config, "agentArgsOverride", "codex") ?? [];
+  return {
+    binary: commandBinary(command) ?? "gnhf",
+    agent: "gnhf/codex",
+    model: codexModelFromArgs(codexArgs, env),
+  };
+}
+
+function readGnhfConfig(env: Record<string, string | undefined>): string | undefined {
+  const path = gnhfConfigPath(env);
+  if (path === undefined || !existsSync(path)) return undefined;
+  return readFileSync(path, "utf8");
+}
+
+function gnhfConfigPath(env: Record<string, string | undefined>): string | undefined {
+  const home = nonEmpty(env.HOME ?? env.USERPROFILE);
+  return home === undefined ? undefined : join(home, ".gnhf", "config.yml");
+}
+
+function codexIdentity(command: string, env: Record<string, string | undefined>): ComboTeamIdentity {
+  return {
+    binary: "codex",
+    agent: "codex",
+    model: codexModelFromCommand(command, env),
+  };
+}
+
+function codexModelFromCommand(command: string, env: Record<string, string | undefined>): string {
+  return requireCodexModel(
+    modelFromCommand(command) ??
+      configModelFromCommand(command) ??
+      codexModelFromConfig(env, profileFromCommand(command)),
+  );
+}
+
+function codexModelFromArgs(args: string[], env: Record<string, string | undefined>): string {
+  return requireCodexModel(
+    modelFromArgs(args) ??
+      configModelFromArgs(args) ??
+      codexModelFromConfig(env, profileFromArgs(args)),
+  );
+}
+
+function requireCodexModel(model: string | undefined): string {
+  if (model === undefined) {
+    throw new Error("codex config is missing model; pin the effective model before launch");
+  }
+  return model;
+}
+
+function codexModelFromConfig(env: Record<string, string | undefined>, profile: string | undefined): string | undefined {
+  const home = codexHome(env);
+  const baseModel = codexConfigModel(join(home, "config.toml"), false);
+  const profileModel = profile === undefined ? undefined : codexConfigModel(join(home, `${profile}.config.toml`), true);
+  return profileModel ?? baseModel;
+}
+
+function codexHome(env: Record<string, string | undefined>): string {
+  const explicit = nonEmpty(env.CODEX_HOME);
+  if (explicit !== undefined) return explicit;
+  const home = nonEmpty(env.HOME ?? env.USERPROFILE);
+  if (home === undefined) throw new Error("HOME unavailable for codex config lookup");
+  return join(home, ".codex");
+}
+
+function codexConfigModel(path: string, required: boolean): string | undefined {
+  if (!existsSync(path)) {
+    if (required) throw new Error(`codex profile config not found at ${path}`);
+    return undefined;
+  }
+  try {
+    const parsed = parseToml(readFileSync(path, "utf8"));
+    return isRecord(parsed) ? stringField(parsed, "model") : undefined;
+  } catch (error) {
+    throw new Error(`codex config ${path} is invalid TOML: ${errorMessage(error)}`);
+  }
 }
 
 function noMistakesModel(raw: string, agent: string): string {
@@ -172,18 +259,68 @@ function identityPartsFromModel(model: string, defaultAgent: string): { agent: s
 function modelFromArgs(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
-    if (arg === "--model") return args[i + 1];
+    if (arg === "--model" || arg === "-m") return nonEmpty(args[i + 1]);
     if (arg.startsWith("--model=")) return nonEmpty(arg.slice("--model=".length));
+    if (arg.startsWith("-m=")) return nonEmpty(arg.slice("-m=".length));
   }
   return undefined;
 }
 
 function modelFromCommand(command: string): string | undefined {
-  return flagValueFromCommand(command, "model");
+  return flagValueFromCommand(command, "model") ?? shortFlagValueFromCommand(command, "m");
 }
 
 function agentFromCommand(command: string): string | undefined {
   return flagValueFromCommand(command, "agent");
+}
+
+function profileFromArgs(args: string[]): string | undefined {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "--profile" || arg === "-p") return nonEmpty(args[i + 1]);
+    if (arg.startsWith("--profile=")) return nonEmpty(arg.slice("--profile=".length));
+    if (arg.startsWith("-p=")) return nonEmpty(arg.slice("-p=".length));
+  }
+  return undefined;
+}
+
+function profileFromCommand(command: string): string | undefined {
+  return flagValueFromCommand(command, "profile") ?? shortFlagValueFromCommand(command, "p");
+}
+
+function configModelFromArgs(args: string[]): string | undefined {
+  let model: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    const value =
+      arg === "--config" || arg === "-c"
+        ? args[i + 1]
+        : arg.startsWith("--config=")
+          ? arg.slice("--config=".length)
+          : arg.startsWith("-c=")
+            ? arg.slice("-c=".length)
+            : undefined;
+    const parsed = value === undefined ? undefined : codexModelFromConfigOverride(value);
+    if (parsed !== undefined) model = parsed;
+  }
+  return model;
+}
+
+function configModelFromCommand(command: string): string | undefined {
+  return codexModelFromConfigOverride(flagValueFromCommand(command, "config") ?? "") ??
+    codexModelFromConfigOverride(shortFlagValueFromCommand(command, "c") ?? "");
+}
+
+function codexModelFromConfigOverride(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("model")) return undefined;
+  try {
+    const parsed = parseToml(trimmed);
+    return isRecord(parsed) ? stringField(parsed, "model") : undefined;
+  } catch {
+    const raw = /^model\s*=\s*(.*)$/.exec(trimmed)?.[1];
+    return raw === undefined ? undefined : yamlScalar(raw);
+  }
 }
 
 function flagValueFromCommand(command: string, flag: string): string | undefined {
@@ -191,6 +328,14 @@ function flagValueFromCommand(command: string, flag: string): string | undefined
   return (
     new RegExp(`(?:^|\\s)--${escapedFlag}=(?<value>"[^"]+"|'[^']+'|\\S+)`).exec(command)?.groups?.["value"] ??
     new RegExp(`(?:^|\\s)--${escapedFlag}\\s+(?<value>"[^"]+"|'[^']+'|\\S+)`).exec(command)?.groups?.["value"]
+  )?.replace(/^["']|["']$/g, "");
+}
+
+function shortFlagValueFromCommand(command: string, flag: string): string | undefined {
+  const escapedFlag = escapeRegExp(flag);
+  return (
+    new RegExp(`(?:^|\\s)-${escapedFlag}=(?<value>"[^"]+"|'[^']+'|\\S+)`).exec(command)?.groups?.["value"] ??
+    new RegExp(`(?:^|\\s)-${escapedFlag}\\s+(?<value>"[^"]+"|'[^']+'|\\S+)`).exec(command)?.groups?.["value"]
   )?.replace(/^["']|["']$/g, "");
 }
 
