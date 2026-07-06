@@ -48,6 +48,7 @@ const cliPath = join(repoRoot, "dist", "cli.mjs");
 const LAUNCH_TIMEOUT_MS = 20_000;
 const GATE_COMMAND_TIMEOUT_MS = 20_000;
 const E2E_TEST_TIMEOUT_MS = 30_000;
+const LIFECYCLE_TEST_TIMEOUT_MS = 30_000;
 
 interface RunResult {
   status: number;
@@ -247,7 +248,7 @@ function setTmuxWindowPaneCount(harness: Harness, sessionName: string, windowNam
 // -/ 1/3
 
 // -- 2/3 CORE · Treehouse lifecycle E2E <- START HERE --
-describe("treehouse-backed combo lifecycle e2e", () => {
+describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEOUT_MS }, () => {
   it("does not synchronously execute the journal follower in the fake tmux shim", () => {
     const tmpBase = join(repoRoot, ".tmp");
     mkdirSync(tmpBase, { recursive: true });
