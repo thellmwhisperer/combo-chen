@@ -3048,6 +3048,56 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
   });
+
+  it("flags an unchanged coder pane when the fresh gnhf log already ended", () => {
+    const harness = prepareHarness({ workerStallTicks: 2 });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "coder_started"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      const gnhfRunsDir = join(combo.worktree, ".gnhf", "runs", "e2e-gnhf-ended");
+      mkdirSync(gnhfRunsDir, { recursive: true });
+      writeFileSync(
+        join(gnhfRunsDir, "gnhf.log"),
+        [
+          '{"event":"iteration:start","iteration":3}',
+          '{"event":"orchestrator:end","status":"stopped","successCount":0}',
+          "",
+        ].join("\n"),
+      );
+
+      const gnhfPane = [
+        "22:00:00  ·  15.2M in  ·  45K out  ·  0 commits",
+        "iteration 3  working...",
+      ].join("\n");
+      const tickEnv = { ...harness.env, E2E_TMUX_CAPTURE_CODER: gnhfPane };
+
+      run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+
+      expect(tick.stdout).toContain("no orchestrator evidence");
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toContainEqual(
+        expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, 15_000);
 });
 // -/ 2/3
 

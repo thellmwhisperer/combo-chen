@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~730 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~970 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -924,6 +924,44 @@ describe("inspectWorkerPanes", () => {
     expect(out).not.toContainEqual(expect.stringContaining("worker_stalled"));
     const events = readEvents(runDir);
     expect(events.filter((e) => e.event === "needs_human" && e["reason"] === "worker_stalled")).toHaveLength(0);
+  });
+
+  it("does not treat a fresh ended gnhf log as active coder stall evidence", () => {
+    const { record, runDir } = combo();
+    const gnhfRunsDir = join(record.worktree, ".gnhf", "runs", "implement-github-iss-ended");
+    mkdirSync(gnhfRunsDir, { recursive: true });
+    writeFileSync(
+      join(gnhfRunsDir, "gnhf.log"),
+      [
+        '{"event":"iteration:start","iteration":3}',
+        '{"event":"orchestrator:end","status":"stopped","successCount":0}',
+        "",
+      ].join("\n"),
+    );
+
+    const out: string[] = [];
+    const unchangedPane = "gnhf v0.1.41\niteration 3\nspinner...";
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "12345", stderr: "" };
+        if (args[0] === "capture-pane") return { status: 0, stdout: unchangedPane, stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    expect(
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"], stallTicks: 2 }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"], stallTicks: 2 });
+
+    expect(result.escalated).toBe(true);
+    expect(result.summaries).toContain("worker coder: unchanged_ticks=2; no orchestrator evidence");
+    expect(out).toContainEqual(expect.stringContaining("no orchestrator evidence"));
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
+    );
   });
 });
 // -/ 1/1
