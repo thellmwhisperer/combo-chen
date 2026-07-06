@@ -1,5 +1,5 @@
 /**
- * @overview Production team identity resolvers. ~175 lines, resolves the
+ * @overview Production team identity resolvers. ~240 lines, resolves the
  *   effective tool identity surfaces that overture verifies before launch.
  *
  *   READING GUIDE
@@ -7,29 +7,33 @@
  *   1. Start at resolveConfiguredTeamIdentity <- resolver entrypoint.
  *   2. Then noMistakesIdentity               <- gatekeeper config parser.
  *   3. Then directCommandIdentity            <- direct role command parser.
- *   4. Finish at small YAML helpers           <- narrow scalar/list parsing.
+ *   4. Then opencodeIdentity                 <- resolved opencode config.
+ *   5. Finish at small YAML helpers           <- narrow scalar/list parsing.
  *
  *   PUBLIC API
  *   ----------
  *   resolveConfiguredTeamIdentity  Production TeamIdentityResolver for default deps.
  *
  * @exports resolveConfiguredTeamIdentity
- * @deps node:{fs,path}, ../infra/config, ./overture
+ * @deps node:{child_process,fs,path}, ../core/guards, ../infra/config, ./overture
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { errorMessage, isRecord } from "../core/guards.js";
 import type { ComboConfig, ComboTeamIdentity, ComboTeamRole } from "../infra/config.js";
 import type { TeamIdentityResolver } from "./overture.js";
 
 // -- 1/1 CORE · production resolver <- START HERE --
 const DEFAULT_CLAUDE_MODEL = "fable";
 const DEFAULT_UNPINNED_MODEL = "default";
+const DEFAULT_TEAM_IDENTITY_TOOL_TIMEOUT_MS = 5000;
 type DirectRole = Exclude<ComboTeamRole, "gatekeeper">;
 
 export const resolveConfiguredTeamIdentity: TeamIdentityResolver = (role, input) => {
   if (role !== "gatekeeper") {
-    const identity = directCommandIdentity(commandForRole(role, input.config));
+    const identity = directCommandIdentity(commandForRole(role, input.config), input.repoDir, input.env);
     return identity === undefined ? undefined : { role, identity };
   }
   return {
@@ -66,8 +70,13 @@ function commandForRole(role: DirectRole, config: ComboConfig): string {
   return config.directorCommand;
 }
 
-function directCommandIdentity(command: string): ComboTeamIdentity | undefined {
+function directCommandIdentity(
+  command: string,
+  repoDir: string,
+  env: Record<string, string | undefined>,
+): ComboTeamIdentity | undefined {
   const binary = commandBinary(command);
+  if (binary === "opencode") return opencodeIdentity(command, repoDir, env);
   if (binary !== "claude") return undefined;
   return {
     binary,
@@ -96,6 +105,70 @@ function noMistakesModel(raw: string, agent: string): string {
   return DEFAULT_UNPINNED_MODEL;
 }
 
+function opencodeIdentity(
+  command: string,
+  repoDir: string,
+  env: Record<string, string | undefined>,
+): ComboTeamIdentity {
+  const model =
+    modelFromCommand(command) ??
+    opencodeModelFromConfig(opencodeResolvedConfig(repoDir, env), agentFromCommand(command));
+  const normalizedModel = nonEmpty(model);
+  if (normalizedModel === undefined) throw new Error("opencode resolved config is missing model");
+  const parts = identityPartsFromModel(normalizedModel, "opencode");
+  return {
+    binary: "opencode",
+    agent: parts.agent,
+    model: parts.model,
+  };
+}
+
+function opencodeResolvedConfig(repoDir: string, env: Record<string, string | undefined>): unknown {
+  const result = spawnSync("opencode", ["debug", "config"], {
+    cwd: repoDir,
+    encoding: "utf8",
+    env,
+    timeout: teamIdentityToolTimeoutMs(env),
+  });
+  if (result.error !== undefined) {
+    throw new Error(`opencode debug config failed: ${errorMessage(result.error)}`);
+  }
+  if ((result.status ?? 1) !== 0) {
+    const detail = nonEmpty(result.stderr) ?? nonEmpty(result.stdout) ?? `exit ${result.status ?? "unknown"}`;
+    throw new Error(`opencode debug config failed: ${detail}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`opencode debug config returned invalid JSON: ${errorMessage(error)}`);
+  }
+}
+
+function teamIdentityToolTimeoutMs(env: Record<string, string | undefined>): number {
+  const parsed = Number.parseInt(env.COMBO_CHEN_TEAM_IDENTITY_TOOL_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TEAM_IDENTITY_TOOL_TIMEOUT_MS;
+}
+
+function opencodeModelFromConfig(config: unknown, commandAgent: string | undefined): string | undefined {
+  if (!isRecord(config)) return undefined;
+  return opencodeAgentModel(config["agent"], commandAgent) ?? stringField(config, "model");
+}
+
+function opencodeAgentModel(agentConfig: unknown, commandAgent: string | undefined): string | undefined {
+  if (commandAgent === undefined || !isRecord(agentConfig)) return undefined;
+  const selectedAgent = agentConfig[commandAgent];
+  return isRecord(selectedAgent) ? stringField(selectedAgent, "model") : undefined;
+}
+
+function identityPartsFromModel(model: string, defaultAgent: string): { agent: string; model: string } {
+  const separator = model.indexOf("/");
+  if (separator <= 0 || separator >= model.length - 1) return { agent: defaultAgent, model };
+  return {
+    agent: model.slice(0, separator),
+    model: model.slice(separator + 1),
+  };
+}
+
 function modelFromArgs(args: string[]): string | undefined {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
@@ -106,10 +179,24 @@ function modelFromArgs(args: string[]): string | undefined {
 }
 
 function modelFromCommand(command: string): string | undefined {
+  return flagValueFromCommand(command, "model");
+}
+
+function agentFromCommand(command: string): string | undefined {
+  return flagValueFromCommand(command, "agent");
+}
+
+function flagValueFromCommand(command: string, flag: string): string | undefined {
+  const escapedFlag = escapeRegExp(flag);
   return (
-    /(?:^|\s)--model=(?<model>"[^"]+"|'[^']+'|\S+)/.exec(command)?.groups?.["model"] ??
-    /(?:^|\s)--model\s+(?<model>"[^"]+"|'[^']+'|\S+)/.exec(command)?.groups?.["model"]
+    new RegExp(`(?:^|\\s)--${escapedFlag}=(?<value>"[^"]+"|'[^']+'|\\S+)`).exec(command)?.groups?.["value"] ??
+    new RegExp(`(?:^|\\s)--${escapedFlag}\\s+(?<value>"[^"]+"|'[^']+'|\\S+)`).exec(command)?.groups?.["value"]
   )?.replace(/^["']|["']$/g, "");
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? nonEmpty(value) : undefined;
 }
 
 function topLevelScalar(raw: string, key: string): string | undefined {
