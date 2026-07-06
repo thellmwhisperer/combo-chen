@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~520 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
+ * @overview Worker pane monitor. ~530 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -30,6 +30,7 @@
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
  *   hasPermissionPrompt, hasGnhfTerminalFailure, newestGnhfLogPath, coderGnhfProgressAge,
  *   gnhfRunEndRecorded, autoApprovePermissionPrompt, workerRecoveryAttempts, gatekeeperRunActive,
+ *   reviewerOrchestratorEvidence,
  *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
@@ -255,6 +256,17 @@ function gatekeeperRunActive(deps: WorkerMonitorDeps, combo: ComboRecord): boole
   } catch {
     return false;
   }
+}
+
+function reviewerOrchestratorEvidence(events: ComboEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]!;
+    if (event.event === "ready_for_merge" || event.event === "lgtm_stale" || event.event === "pr_opened") {
+      return undefined;
+    }
+    if (event.event === "external_review_requested") return "external review active";
+  }
+  return undefined;
 }
 
 export function appendWorkerEscalation(
@@ -527,6 +539,13 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     if (worker === "gatekeeper" && gatekeeperRunActive(deps, combo)) {
       summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; gate run active`);
       continue;
+    }
+    if (worker === "reviewer") {
+      const evidence = reviewerOrchestratorEvidence(events);
+      if (evidence !== undefined) {
+        summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; ${evidence}`);
+        continue;
+      }
     }
     summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; no orchestrator evidence`);
     findings.push(recordFinding({
