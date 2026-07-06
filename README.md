@@ -696,7 +696,7 @@ heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
 justification), explicit coder terminal outcomes (`coder_done` trust over dead-looking panes) before worker recovery, pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
-stalled coder-response recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
+stalled coder-response recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, orchestrator evidence consulted before worker stall escalation (gnhf run active, gate run active, external review active, reviewer artifact recent), current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (fixed tmux role topology: journal, director,
 coder, gatekeeper, reviewer, and director-watch in that stable order;
