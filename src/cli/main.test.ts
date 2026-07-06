@@ -3471,6 +3471,113 @@ describe("run", () => {
     });
   });
 
+  it("passes overture when declared team identity matches the resolved gatekeeper", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        "[team.gatekeeper]",
+        'binary = "no-mistakes"',
+        'agent = "claude"',
+        'model = "opus"',
+      ].join("\n"),
+    );
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      resolveTeamIdentity: (role) => ({
+        role,
+        identity: { binary: "no-mistakes", agent: "claude", model: "opus" },
+      }),
+    });
+
+    await exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir]);
+
+    const rendered = out.join("\n");
+    expect(rendered).toContain("OK team_identity: team");
+    expect(rendered).toContain("gatekeeper | no-mistakes/claude/opus | no-mistakes/claude/opus | match");
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(true);
+    expect(artifact.checks).toContainEqual({
+      id: "team_identity",
+      status: "ok",
+      resource: "team",
+      detail: expect.stringContaining("gatekeeper | no-mistakes/claude/opus | no-mistakes/claude/opus | match"),
+    });
+  });
+
+  it("fails overture when the resolved gatekeeper agent mismatches the declared team", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        "[team.gatekeeper]",
+        'binary = "no-mistakes"',
+        'agent = "claude"',
+        'model = "opus"',
+      ].join("\n"),
+    );
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      resolveTeamIdentity: (role) => ({
+        role,
+        identity: { binary: "no-mistakes", agent: "codex", model: "opus" },
+      }),
+    });
+
+    await expect(exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /team_identity/,
+    );
+
+    const rendered = out.join("\n");
+    expect(rendered).toContain("X team_identity: team");
+    expect(rendered).toContain("gatekeeper | no-mistakes/claude/opus | no-mistakes/codex/opus | mismatch");
+
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; resource: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(false);
+    expect(artifact.checks).toContainEqual({
+      id: "team_identity",
+      status: "failed",
+      resource: "team",
+      detail: expect.stringContaining("gatekeeper | no-mistakes/claude/opus | no-mistakes/codex/opus | mismatch"),
+    });
+  });
+
+  it("fails overture when only the resolved team model mismatches", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        "[team.reviewer]",
+        'binary = "opencode"',
+        'agent = "claude"',
+        'model = "opus"',
+      ].join("\n"),
+    );
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      resolveTeamIdentity: (role) => ({
+        role,
+        identity: { binary: "opencode", agent: "claude", model: "sonnet" },
+      }),
+    });
+
+    await expect(exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /team_identity/,
+    );
+
+    expect(out.join("\n")).toContain("reviewer | opencode/claude/opus | opencode/claude/sonnet | mismatch");
+  });
+
   it("runs overture directly for a clean local work plan and records the full resource ledger", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
