@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for production team identity resolution. ~80 lines,
+ * @overview Unit tests for production team identity resolution. ~115 lines,
  *   pins no-mistakes gatekeeper config parsing before overture consumes it.
  *
  *   READING GUIDE
@@ -65,6 +65,37 @@ function config(): ComboConfig {
 }
 
 describe("production team identity resolver", () => {
+  it("resolves a direct claude director model from the command line", () => {
+    const resolved = resolveConfiguredTeamIdentity("director", {
+      config: {
+        ...config(),
+        directorCommand: "claude --model opus {prompt}",
+      },
+      declared: { binary: "claude", agent: "claude", model: "opus" },
+      repoDir: "/repo",
+      env: {},
+    });
+
+    expect(resolved).toEqual({
+      role: "director",
+      identity: { binary: "claude", agent: "claude", model: "opus" },
+    });
+  });
+
+  it("resolves an unpinned direct claude reviewer as fable", () => {
+    const resolved = resolveConfiguredTeamIdentity("reviewer", {
+      config: config(),
+      declared: { binary: "claude", agent: "claude", model: "fable" },
+      repoDir: "/repo",
+      env: {},
+    });
+
+    expect(resolved).toEqual({
+      role: "reviewer",
+      identity: { binary: "claude", agent: "claude", model: "fable" },
+    });
+  });
+
   it("resolves the no-mistakes gatekeeper agent and model from its global config", () => {
     const home = tempHome();
     mkdirSync(join(home, ".no-mistakes"), { recursive: true });

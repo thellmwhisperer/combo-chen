@@ -1,12 +1,13 @@
 /**
- * @overview Production team identity resolvers. ~145 lines, resolves the
+ * @overview Production team identity resolvers. ~175 lines, resolves the
  *   effective tool identity surfaces that overture verifies before launch.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveConfiguredTeamIdentity <- resolver entrypoint.
  *   2. Then noMistakesIdentity               <- gatekeeper config parser.
- *   3. Finish at small YAML helpers           <- narrow scalar/list parsing.
+ *   3. Then directCommandIdentity            <- direct role command parser.
+ *   4. Finish at small YAML helpers           <- narrow scalar/list parsing.
  *
  *   PUBLIC API
  *   ----------
@@ -16,17 +17,21 @@
  * @deps node:{fs,path}, ../infra/config, ./overture
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
-import type { ComboTeamIdentity } from "../infra/config.js";
+import type { ComboConfig, ComboTeamIdentity, ComboTeamRole } from "../infra/config.js";
 import type { TeamIdentityResolver } from "./overture.js";
 
 // -- 1/1 CORE · production resolver <- START HERE --
 const DEFAULT_CLAUDE_MODEL = "fable";
 const DEFAULT_UNPINNED_MODEL = "default";
+type DirectRole = Exclude<ComboTeamRole, "gatekeeper">;
 
 export const resolveConfiguredTeamIdentity: TeamIdentityResolver = (role, input) => {
-  if (role !== "gatekeeper") return undefined;
+  if (role !== "gatekeeper") {
+    const identity = directCommandIdentity(commandForRole(role, input.config));
+    return identity === undefined ? undefined : { role, identity };
+  }
   return {
     role,
     identity: noMistakesIdentity(input.env),
@@ -53,6 +58,28 @@ function noMistakesConfigPath(env: Record<string, string | undefined>): string {
   const home = env.HOME ?? env.USERPROFILE;
   if (home === undefined || home.trim() === "") throw new Error("HOME unavailable for no-mistakes config lookup");
   return join(home, ".no-mistakes", "config.yaml");
+}
+
+function commandForRole(role: DirectRole, config: ComboConfig): string {
+  if (role === "coder") return config.coderCommand;
+  if (role === "reviewer") return config.reviewerCommand;
+  return config.directorCommand;
+}
+
+function directCommandIdentity(command: string): ComboTeamIdentity | undefined {
+  const binary = commandBinary(command);
+  if (binary !== "claude") return undefined;
+  return {
+    binary,
+    agent: "claude",
+    model: modelFromCommand(command) ?? DEFAULT_CLAUDE_MODEL,
+  };
+}
+
+function commandBinary(command: string): string | undefined {
+  const token = /^\s*(?:"(?<double>[^"]+)"|'(?<single>[^']+)'|(?<bare>\S+))/.exec(command)?.groups;
+  const binary = token?.["double"] ?? token?.["single"] ?? token?.["bare"];
+  return binary === undefined ? undefined : nonEmpty(basename(binary));
 }
 
 function noMistakesModel(raw: string, agent: string): string {
