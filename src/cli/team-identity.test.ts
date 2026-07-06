@@ -9,7 +9,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ./team-identity
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,6 +19,15 @@ import { resolveConfiguredTeamIdentity } from "./team-identity.js";
 
 function tempHome(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-team-"));
+}
+
+function fakeOpencodeBin(configJson: string): string {
+  const bin = join(tempHome(), "bin");
+  mkdirSync(bin, { recursive: true });
+  const executable = join(bin, "opencode");
+  writeFileSync(executable, `#!/bin/sh\nprintf '%s\\n' '${configJson}'\n`);
+  chmodSync(executable, 0o755);
+  return bin;
 }
 
 function config(): ComboConfig {
@@ -93,6 +102,46 @@ describe("production team identity resolver", () => {
     expect(resolved).toEqual({
       role: "reviewer",
       identity: { binary: "claude", agent: "claude", model: "fable" },
+    });
+  });
+
+  it("resolves a direct opencode reviewer model from opencode resolved config", () => {
+    const bin = fakeOpencodeBin(JSON.stringify({ model: "claude/opus" }));
+    const repoDir = tempHome();
+
+    const resolved = resolveConfiguredTeamIdentity("reviewer", {
+      config: {
+        ...config(),
+        reviewerCommand: "opencode run {prompt}",
+      },
+      declared: { binary: "opencode", agent: "claude", model: "opus" },
+      repoDir,
+      env: { PATH: bin },
+    });
+
+    expect(resolved).toEqual({
+      role: "reviewer",
+      identity: { binary: "opencode", agent: "claude", model: "opus" },
+    });
+  });
+
+  it("resolves an opencode agent-specific model when the command pins --agent", () => {
+    const bin = fakeOpencodeBin(JSON.stringify({ model: "claude/sonnet", agent: { reviewer: { model: "claude/opus" } } }));
+    const repoDir = tempHome();
+
+    const resolved = resolveConfiguredTeamIdentity("reviewer", {
+      config: {
+        ...config(),
+        reviewerCommand: "opencode run --agent reviewer {prompt}",
+      },
+      declared: { binary: "opencode", agent: "claude", model: "opus" },
+      repoDir,
+      env: { PATH: bin },
+    });
+
+    expect(resolved).toEqual({
+      role: "reviewer",
+      identity: { binary: "opencode", agent: "claude", model: "opus" },
     });
   });
 
