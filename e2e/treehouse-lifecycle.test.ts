@@ -945,6 +945,52 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   }, 15_000);
 
+  it("keeps polling an unchanged reviewer pane after a reviewer artifact is journaled", () => {
+    const harness = prepareHarness({ workerStallTicks: 2 });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const headSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      const tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      const reviewerWindow = tmuxState.sessions[combo.tmuxSession]?.windows.reviewer;
+      expect(reviewerWindow).toBeDefined();
+      reviewerWindow!.panes = 1;
+      reviewerWindow!.visibleText = "review complete; waiting for director...\n";
+      writeFileSync(harness.env.E2E_TMUX_STATE!, `${JSON.stringify(tmuxState, null, 2)}\n`);
+
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "pr_opened", "--field", `url=${prUrl}`], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "lgtm", "--field", `sha=${headSha}`], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      const tickEnv = { ...harness.env, E2E_PR_STATE: "OPEN", E2E_HEAD_SHA: headSha };
+
+      run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+
+      expect(tick.stdout).toContain("reviewer artifact recent");
+      expect(tick.stdout).not.toContain("worker reviewer unchanged pane for 2 ticks");
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events.some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled")).toBe(false);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, 15_000);
+
   it("recreates a missing tmux room before restarting the initial gate", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
