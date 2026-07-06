@@ -523,9 +523,20 @@ context-canceled recovery pattern.
   normally. Before `pr_opened`, dead `coder` workers are recovered first:
   the director restarts the persisted runner and journals
   `worker_recovered reason=worker_dead`. After a PR is open, dead workers
-  journal `needs_human reason=worker_dead`. `worker_stalled` normally
-  escalates the same way, except stalled coder responding mode is recovered
-  first. When the permission policy is `auto-approve-known-safe`, the monitor
+   journal `needs_human reason=worker_dead`. `worker_stalled` normally
+   escalates the same way, except stalled coder responding mode is recovered
+   first. Before escalating, the monitor consults worker-appropriate
+   orchestrator evidence (the first "provably working" pattern):
+   for the coder, a gnhf run whose log is recent and has not recorded
+   `orchestrator:end` ("gnhf run active"); for the gatekeeper, a no-mistakes
+   run attributed to the combo branch with an active status ("gate run
+   active"); for the reviewer, an `lgtm` or `external_review_requested`
+   journal event that has not been superseded by `ready_for_merge`,
+   `lgtm_stale`, or `pr_opened` ("reviewer artifact recent" or "external
+   review active"). Only when no orchestrator evidence is available ("no
+   orchestrator evidence") does the unchanged-pane counter escalate to
+   `needs_human reason=worker_stalled`. When the permission policy is
+   `auto-approve-known-safe`, the monitor
   sends `y` + Enter to the matched tmux window and journals
   `worker_recovered reason=worker_permission_prompt`; persistent prompts count
   toward `[monitor].worker_recovery_attempts` before escalating. When the
@@ -556,9 +567,11 @@ context-canceled recovery pattern.
   `needs_human` event counts grouped by reason (e.g. `worker_stalled`,
   `gate_decision`, `gate_failed`). It is an operational metrics tool that
   helps operators spot systemic escalations across multiple combos without
-  reading individual journal files. Corrupt combo records are skipped with a
-  `skipped <combo-id>: <reason>` line so one bad run directory does not block
-  the aggregate report.
+  reading individual journal files. When `worker_stalled` appears, it also
+  reports the ratio of stalled escalations that reached normal completion before
+  another `needs_human`. Corrupt combo records are skipped with a `skipped
+  <combo-id>: <reason>` line so one bad run directory does not block the
+  aggregate report.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
@@ -873,6 +886,14 @@ The project also ships with static slop probes under `.slop/rules/`:
   (`latestPrUrlFromEvents`). Redefining one of these names outside its
   canonical home fails the gate. Cite: PR #247 reintroduced a private
   `errorMessage` while six copies already existed.
+- **no-commit-fragments-in-comments** (`error`): blocks conventional-commit
+  subject fragments (`fix(...)`, `feat(...)`, etc.) in `src/` and `e2e/`
+  comments. Navigator comments should describe the code, not carry stale
+  commit subjects left behind by agent edits.
+- **no-unconfigurable-operational-constants** (`error`): enforces that
+  timeout, age, and interval constants (`_MS`, `_TIMEOUT`, `_MAX_AGE`) in
+  non-test source have env or repo config paths; hardcoded operational
+  constants are only allowed when explicitly blessed.
 - **core-no-infra-verbs** (`warning`): reports existing string-level layer
   leakage in `src/core/` (`no-mistakes`, `git push`, `tmux`, shell scripts).
   It is deliberately report-only until the current runner-generation debt is
@@ -883,8 +904,9 @@ The project also ships with static slop probes under `.slop/rules/`:
 
 These are surfaced in the package scripts:
 
-- `pnpm slop:check` — enforces core-no-child-process and no-duplicate-helpers
-  with `--error` (excluding test files) and gates non-test jscpd duplication
+- `pnpm slop:check` — enforces core-no-child-process, no-duplicate-helpers,
+  no-commit-fragments-in-comments, and no-unconfigurable-operational-constants
+  with `--error` and gates non-test jscpd duplication
   with `--threshold 2`, a ratchet pinned just above the current 1.99%
   baseline so new duplication fails; CI and no-mistakes lint run this.
 - `pnpm slop:report` — runs a verbose non-test jscpd clone listing and warning

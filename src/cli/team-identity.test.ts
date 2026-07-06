@@ -70,6 +70,7 @@ function config(): ComboConfig {
     workerPermissionPromptPatterns: [],
     workerPermissionPromptPolicy: "escalate",
     coderGnhfProgressMaxAgeMs: 60000,
+    gatekeeperStatusTimeoutMs: 5000,
     sourceBranch: "main",
   };
 }

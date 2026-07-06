@@ -23,7 +23,7 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation, isParked, collectLocalWorktreeHeadSha; Treehouse lease acquisition/rollback; forensics option parsing/outcome recording; hidden command wiring for runner/reviewer/coder/gatekeeper.
+ *   cliInvocation, isParked, collectLocalWorktreeHeadSha; needs-human report aggregation; Treehouse lease acquisition/rollback; forensics option parsing/outcome recording; hidden command wiring for runner/reviewer/coder/gatekeeper.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
  * @deps commander, node:{child_process,fs,path,url},
@@ -150,7 +150,7 @@ export interface Deps {
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: UpdateCommandDeps["gh"];
-  noMistakes: (args: string[], cwd: string) => CommandResult;
+  noMistakes: (args: string[], cwd: string, options?: { timeoutMs?: number }) => CommandResult;
   resolveTeamIdentity?: TeamIdentityResolver;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
@@ -187,9 +187,14 @@ export function defaultDeps(): Deps {
       const stderr = (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr };
     },
-    noMistakes: (args, cwd) => {
-      const result = spawnSync("no-mistakes", args, { cwd, encoding: "utf8" });
-      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    noMistakes: (args, cwd, options) => {
+      const result = spawnSync("no-mistakes", args, {
+        cwd,
+        encoding: "utf8",
+        ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+      });
+      const stderr = (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr };
     },
     resolveTeamIdentity: resolveConfiguredTeamIdentity,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -213,6 +218,38 @@ function isParked(events: ComboEvent[]): boolean {
 
 function commandFailureText(result: { stdout: string; stderr: string }): string {
   return result.stderr.trim() || result.stdout.trim() || "unknown error";
+}
+
+const NORMAL_COMPLETION_EVENTS = new Set<ComboEvent["event"]>([
+  "ready_for_merge",
+  "merged",
+  "combo_closed",
+]);
+
+function needsHumanReason(event: ComboEvent): string | undefined {
+  if (event.event !== "needs_human") return undefined;
+  return typeof event["reason"] === "string" ? event["reason"] : "unknown";
+}
+
+function workerStalledNormalCompletionCount(events: ComboEvent[]): { total: number; completedWithoutHuman: number } {
+  let total = 0;
+  let completedWithoutHuman = 0;
+  for (let index = 0; index < events.length; index += 1) {
+    if (needsHumanReason(events[index]!) !== "worker_stalled") continue;
+    total += 1;
+    if (hasNormalCompletionBeforeNextHumanRequest(events, index + 1)) {
+      completedWithoutHuman += 1;
+    }
+  }
+  return { total, completedWithoutHuman };
+}
+
+function hasNormalCompletionBeforeNextHumanRequest(events: ComboEvent[], startIndex: number): boolean {
+  for (const event of events.slice(startIndex)) {
+    if (NORMAL_COMPLETION_EVENTS.has(event.event)) return true;
+    if (event.event === "needs_human") return false;
+  }
+  return false;
 }
 
 function treehouseLeasePath(stdout: string): string {
@@ -695,12 +732,18 @@ export function createProgram(deps: Deps): Command {
       const home = comboHome(deps.env);
       const counts = new Map<string, number>();
       let total = 0;
+      let workerStalledTotal = 0;
+      let workerStalledCompletedWithoutHuman = 0;
       const combos = listCombos(home, (id, error) => deps.out(`skipped ${id}: ${errorMessage(error)}`));
       for (const combo of combos) {
         try {
-          for (const event of readEvents(runDirFor(home, combo.id))) {
+          const events = readEvents(runDirFor(home, combo.id));
+          const stalledCompletion = workerStalledNormalCompletionCount(events);
+          workerStalledTotal += stalledCompletion.total;
+          workerStalledCompletedWithoutHuman += stalledCompletion.completedWithoutHuman;
+          for (const event of events) {
             if (event.event !== "needs_human") continue;
-            const reason = typeof event["reason"] === "string" ? event["reason"] : "unknown";
+            const reason = needsHumanReason(event) ?? "unknown";
             counts.set(reason, (counts.get(reason) ?? 0) + 1);
             total += 1;
           }
@@ -711,6 +754,11 @@ export function createProgram(deps: Deps): Command {
       deps.out(`needs_human total: ${total}`);
       for (const [reason, count] of Array.from(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
         deps.out(`${reason}: ${count}`);
+      }
+      if (workerStalledTotal > 0) {
+        deps.out(
+          `worker_stalled followed by normal completion without human action: ${workerStalledCompletedWithoutHuman}/${workerStalledTotal}`,
+        );
       }
     });
 

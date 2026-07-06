@@ -1,0 +1,31 @@
+# Tombstone for hardcoded operational constants that should flow through config.
+# Cite: PR #268 / 2026-07-06 wave introduced GATEKEEPER_STATUS_TIMEOUT_MS as a
+# bare timeout constant in src/cli/worker-monitor.ts; operational timeouts must
+# have env/repo config paths. Existing blessed constants are:
+# UPDATE_DOWNLOAD_TIMEOUT_MS (src/cli/update.ts, env-backed),
+# DEFAULT_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS (src/cli/update.ts),
+# DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS (src/cli/passive-update.ts),
+# JOURNAL_APPEND_LOCK_TIMEOUT_MS/JOURNAL_APPEND_LOCK_STALE_MS/JOURNAL_APPEND_LOCK_POLL_MS
+# (src/core/events.ts), DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS (src/core/passive-update.ts),
+# and DEFAULT_GATE_LEASE_STALE_MS (src/core/gate-lease.ts).
+id: no-unconfigurable-operational-constants
+language: TypeScript
+files:
+  - "src/**"
+ignores:
+  - "src/**/*.test.ts"
+rule:
+  kind: variable_declarator
+  all:
+    - has:
+        field: name
+        regex: '^[A-Z0-9_]*(?:_MS|_TIMEOUT|_MAX_AGE)[A-Z0-9_]*$'
+    - has:
+        field: value
+        regex: '^\s*[0-9]'
+  not:
+    has:
+      field: name
+      regex: '^(UPDATE_DOWNLOAD_TIMEOUT_MS|DEFAULT_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS|DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS|JOURNAL_APPEND_LOCK_TIMEOUT_MS|JOURNAL_APPEND_LOCK_STALE_MS|JOURNAL_APPEND_LOCK_POLL_MS|DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS|DEFAULT_GATE_LEASE_STALE_MS|DEFAULT_TEAM_IDENTITY_TOOL_TIMEOUT_MS)$'
+message: operational timeout/age constants must be configurable; add an env/repo config path or explicitly bless the constant
+severity: error

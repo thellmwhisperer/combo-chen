@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -51,34 +51,12 @@ function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function configWaitMs() {
-  const value = Number.parseInt(process.env.E2E_NO_MISTAKES_CONFIG_WAIT_MS || "0", 10);
-  return Number.isFinite(value) && value > 0 ? value : 0;
-}
-
-function comboConfigCopyDone() {
-  try {
-    return readdirSync(process.cwd()).some((entry) => entry.startsWith(".combo-chen-no-mistakes-config-copy."));
-  } catch {
-    return false;
-  }
-}
-
-function waitForCopiedConfig(state) {
-  const waitMs = configWaitMs();
-  if (waitMs <= 0) return;
-  if (!activeRunForCurrentBranch(state)) return;
-
-  const { runDir } = ensureRunDir();
-  const configPath = join(runDir, ".no-mistakes.yaml");
-  const deadline = Date.now() + waitMs;
-  while (!existsSync(configPath) && Date.now() < deadline) {
-    sleep(Math.min(50, Math.max(1, deadline - Date.now())));
-  }
-
-  const doneDeadline = Date.now() + Math.min(1000, Math.max(0, deadline - Date.now()));
-  while (existsSync(configPath) && !comboConfigCopyDone() && Date.now() < doneDeadline) {
-    sleep(Math.min(50, Math.max(1, doneDeadline - Date.now())));
+function waitForConfigCopy(runDir) {
+  if (!existsSync(join(process.cwd(), ".no-mistakes.yaml"))) return;
+  const timeout = Number.parseInt(process.env.E2E_NO_MISTAKES_CONFIG_WAIT_MS || "5000", 10);
+  const deadline = Date.now() + (Number.isFinite(timeout) ? timeout : 5000);
+  while (!existsSync(join(runDir, ".no-mistakes.yaml")) && Date.now() < deadline) {
+    sleep(50);
   }
 }
 
@@ -169,6 +147,7 @@ if (args[0] === "axi" && args[1] === "abort") {
 }
 
 if (args[0] === "axi" && args[1] === "run") {
+  let activeRunDir = "";
   if (process.env.E2E_NO_MISTAKES_ACTIVATE_ON_AXI_RUN === "1") {
     const state = load();
     setCurrentBranchRun(state, {
@@ -178,9 +157,9 @@ if (args[0] === "axi" && args[1] === "run") {
       status: "active",
     });
     save(state);
-    ensureRunDir();
+    activeRunDir = ensureRunDir().runDir;
   }
-  waitForCopiedConfig(load());
+  if (activeRunDir) waitForConfigCopy(activeRunDir);
   const delay = Number.parseInt(process.env.E2E_NO_MISTAKES_RUN_DELAY_MS || "250", 10);
   if (Number.isFinite(delay) && delay > 0) sleep(delay);
   if (process.env.E2E_NO_MISTAKES_FAIL_AXI_RUN === "1") {
@@ -200,6 +179,12 @@ if (args[0] === "axi" && args[1] === "run") {
     process.stdout.write("outcome: checks-passed\n");
     process.stdout.write("ci.log: context canceled\n");
     process.exit(1);
+  }
+  {
+    const state = load();
+    markCurrentBranchRun(state, "succeeded");
+    state.active = false;
+    save(state);
   }
   process.stdout.write("outcome: checks-passed\n");
   process.exit(0);

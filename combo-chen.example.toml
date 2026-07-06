@@ -192,11 +192,18 @@ command = "claude {prompt}"
 # Environment overrides: COMBO_CHEN_WORKER_STALL_TICKS,
 # COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS,
 # COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS,
-# COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY.
+# COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY,
+# COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS,
+# COMBO_CHEN_GATEKEEPER_STATUS_TIMEOUT_MS.
 worker_stall_ticks = 3
 # Stalled or permission-prompted coder-responding workers are recreated and
 # re-prompted this many times before needs_human is journaled.
 worker_recovery_attempts = 2
+# Max age of the most-recent gnhf.log mtime (ms) before a coder pane is
+# considered unlikely to be actively progressing.
+coder_gnhf_progress_max_age_ms = 600000
+# Timeout for probing no-mistakes to check gatekeeper orchestrator evidence (ms).
+gatekeeper_status_timeout_ms = 5000
 permission_prompt_policy = "escalate" # one of: escalate, auto-approve-known-safe, recreate-non-interactive
 permission_prompt_patterns = [
   '^\s*Do you want to (?:proceed|continue)\?\s*(?:\[[yn]/[yn]\])?\s*$',

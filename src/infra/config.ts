@@ -126,6 +126,8 @@ export interface ComboConfig {
   workerPermissionPromptPolicy: WorkerPermissionPromptPolicy;
   /** Max age of the gnhf.log mtime (ms) to consider the coder actively progressing. */
   coderGnhfProgressMaxAgeMs: number;
+  /** Timeout for probing no-mistakes gatekeeper status evidence (ms). */
+  gatekeeperStatusTimeoutMs: number;
   /** Required source checkout branch for `combo-chen run`. */
   sourceBranch: string;
   /** Optional launch contract declaring the expected effective role identities. */
@@ -240,6 +242,7 @@ const DEFAULTS = {
     permission_prompt_patterns: DEFAULT_PERMISSION_PROMPT_PATTERNS,
     permission_prompt_policy: "escalate",
     coder_gnhf_progress_max_age_ms: 10 * 60 * 1000,
+    gatekeeper_status_timeout_ms: 5000,
   },
   run: {
     source_branch: "main",
@@ -669,6 +672,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"] !== undefined) {
     monitorTable["coder_gnhf_progress_max_age_ms"] = env["COMBO_CHEN_CODER_GNHF_PROGRESS_MAX_AGE_MS"];
   }
+  if (env["COMBO_CHEN_GATEKEEPER_STATUS_TIMEOUT_MS"] !== undefined) {
+    monitorTable["gatekeeper_status_timeout_ms"] = env["COMBO_CHEN_GATEKEEPER_STATUS_TIMEOUT_MS"];
+  }
   if (env["COMBO_CHEN_READY_REQUIRED_CHECKS"] !== undefined) {
     readyTable["required_checks"] = parseEnvStringArray(
       env["COMBO_CHEN_READY_REQUIRED_CHECKS"],
@@ -857,6 +863,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       monitorTable,
       "coder_gnhf_progress_max_age_ms",
       DEFAULTS.monitor.coder_gnhf_progress_max_age_ms,
+      "[monitor]",
+    ),
+    gatekeeperStatusTimeoutMs: pickPositiveInteger(
+      monitorTable,
+      "gatekeeper_status_timeout_ms",
+      DEFAULTS.monitor.gatekeeper_status_timeout_ms,
       "[monitor]",
     ),
     sourceBranch: pickNonEmptyString(runTable["source_branch"], "run.source_branch"),
