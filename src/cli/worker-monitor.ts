@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~490 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
+ * @overview Worker pane monitor. ~520 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -29,11 +29,11 @@
  *   ---------
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
  *   hasPermissionPrompt, hasGnhfTerminalFailure, newestGnhfLogPath, coderGnhfProgressAge,
- *   gnhfRunEndRecorded, autoApprovePermissionPrompt, workerRecoveryAttempts,
+ *   gnhfRunEndRecorded, autoApprovePermissionPrompt, workerRecoveryAttempts, gatekeeperRunActive,
  *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
  * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
- * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}, ./sessions
+ * @deps node:{crypto,fs,path}, ../core/{events,state}, ../infra/{config,tmux}, ./sessions, ./status
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -54,11 +54,13 @@ import {
   type TmuxResult,
 } from "../infra/tmux.js";
 import { idleRoleWindowCommand, windowSet } from "./sessions.js";
+import { noMistakesAxiStatusActive, parseNoMistakesAxiStatus } from "./status.js";
 
 // -- 1/1 CORE · inspectWorkerPanes <- START HERE --
 export interface WorkerMonitorDeps {
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
+  noMistakes?: (args: string[], cwd: string) => TmuxResult;
 }
 
 export type WorkerPaneReason = "worker_permission_prompt" | "worker_dead" | "worker_stalled";
@@ -241,6 +243,18 @@ function hasEscalation(runDir: string, reason: string, worker: string): boolean 
       event["reason"] === reason &&
       event["worker"] === worker,
   );
+}
+
+function gatekeeperRunActive(deps: WorkerMonitorDeps, combo: ComboRecord): boolean {
+  if (deps.noMistakes === undefined) return false;
+  try {
+    const status = deps.noMistakes(["axi", "status"], combo.worktree);
+    if (status.status !== 0) return false;
+    const facts = parseNoMistakesAxiStatus(status.stdout);
+    return facts.branch === combo.branch && noMistakesAxiStatusActive(facts);
+  } catch {
+    return false;
+  }
 }
 
 export function appendWorkerEscalation(
@@ -491,33 +505,39 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       ? previous.unchangedTicks + 1
       : 1;
     snapshot[worker] = { fingerprint, unchangedTicks };
-    summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}`);
-
-    if (unchangedTicks >= stallTicks) {
-      // Before flagging a coder as stalled, check if gnhf is alive and
-      // progressing. The gnhf spinner while codex reasons makes the pane
-      // appear unchanged, but gnhf.log written by the orchestrator shows
-      // real activity.
-      const isCoder = worker === "coder";
-      const gnhfAlive = isCoder && combo.worktree
-        ? (coderGnhfProgressAge(combo.worktree) ?? Infinity) < (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
-        : false;
-      if (isCoder && gnhfAlive) {
-        summaries.push(
-          `worker ${worker}: unchanged_ticks=${unchangedTicks} but gnhf is actively progressing, not stalled`,
-        );
-        continue;
-      }
-      findings.push(recordFinding({
-        runDir,
-        deps,
-        worker,
-        reason: "worker_stalled",
-        detail: `unchanged pane for ${unchangedTicks} ticks`,
-        deferNeedsHuman: recoverableStalledWorkers.has(worker),
-      }));
-      escalated = true;
+    if (unchangedTicks < stallTicks) {
+      summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}`);
+      continue;
     }
+
+    // Before flagging a coder as stalled, check if gnhf is alive and
+    // progressing. The gnhf spinner while codex reasons makes the pane
+    // appear unchanged, but gnhf.log written by the orchestrator shows
+    // real activity.
+    const isCoder = worker === "coder";
+    const gnhfAlive = isCoder && combo.worktree
+      ? (coderGnhfProgressAge(combo.worktree) ?? Infinity) < (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
+      : false;
+    if (isCoder && gnhfAlive) {
+      summaries.push(
+        `worker ${worker}: unchanged_ticks=${unchangedTicks}; gnhf run active; gnhf is actively progressing, not stalled`,
+      );
+      continue;
+    }
+    if (worker === "gatekeeper" && gatekeeperRunActive(deps, combo)) {
+      summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; gate run active`);
+      continue;
+    }
+    summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; no orchestrator evidence`);
+    findings.push(recordFinding({
+      runDir,
+      deps,
+      worker,
+      reason: "worker_stalled",
+      detail: `unchanged pane for ${unchangedTicks} ticks`,
+      deferNeedsHuman: recoverableStalledWorkers.has(worker),
+    }));
+    escalated = true;
   }
 
   writeSnapshot(runDir, snapshot);
