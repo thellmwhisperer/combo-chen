@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2590 lines, log-derived regressions.
+ *   and process shims for external services. ~3050 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -88,6 +88,10 @@ interface HarnessOptions {
   missingComboLabelsOnFirstAdd?: boolean;
   workerStallTicks?: number;
   workPlanExtra?: string[];
+  coderRole?: string;
+  coderCommand?: string;
+  coderResumeCommand?: string;
+  teamLines?: string[];
   permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
 }
 
@@ -347,6 +351,68 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       }
     }
   });
+
+  it("launches with declared gnhf codex team identity resolved from tool configs", () => {
+    const coderIdentity = { binary: "npx", agent: "gnhf/codex", model: "gpt-5.5" };
+    const harness = prepareHarness({
+      coderRole: "codex",
+      coderCommand: [
+        "npx -y gnhf@0.1.41",
+        "--agent codex",
+        "--max-iterations 12",
+        "--stop-when done",
+        "--prevent-sleep on",
+        "--meteor-frequency 0",
+        "--current-branch {prompt}",
+      ].join(" "),
+      teamLines: [
+        "[team.coder]",
+        `binary = ${JSON.stringify(coderIdentity.binary)}`,
+        `agent = ${JSON.stringify(coderIdentity.agent)}`,
+        `model = ${JSON.stringify(coderIdentity.model)}`,
+      ],
+    });
+    const operatorHome = join(harness.root, "operator-home");
+    const codexHome = join(harness.root, "codex-home");
+    let passed = false;
+
+    try {
+      mkdirSync(join(operatorHome, ".gnhf"), { recursive: true });
+      mkdirSync(codexHome, { recursive: true });
+      writeFileSync(
+        join(operatorHome, ".gnhf", "config.yml"),
+        [
+          "agentArgsOverride:",
+          "  codex:",
+          "    - --profile",
+          "    - sitter",
+        ].join("\n"),
+      );
+      writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5"\n');
+      writeFileSync(join(codexHome, "sitter.config.toml"), 'model = "gpt-5.5"\n');
+      harness.env.HOME = operatorHome;
+      harness.env.CODEX_HOME = codexHome;
+
+      const { launch, runDir } = launchPlanCombo(harness);
+
+      expect(launch.stdout).toContain("OK team_identity: team");
+      expect(launch.stdout).toContain("coder | npx/gnhf/codex/gpt-5.5 | npx/gnhf/codex/gpt-5.5 | match");
+      expect(readJson<{ resolvedTeam?: unknown }>(join(runDir, "config.snapshot.json")).resolvedTeam).toEqual({
+        coder: coderIdentity,
+      });
+      expect(readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"))).toContainEqual(
+        expect.objectContaining({ event: "team", roles: { coder: coderIdentity } }),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) {
+        rmSync(harness.root, { recursive: true, force: true });
+      } else {
+        process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+      }
+    }
+  }, LAUNCH_TIMEOUT_MS);
 
   it("auto-closes a GitHub-merged combo from a director tick without a manual closure command", () => {
     const harness = prepareHarness();
@@ -2886,6 +2952,9 @@ function prepareGitRepo(repo: string, origin: string): void {
 
 function writeRepoConfig(repo: string, options: HarnessOptions): void {
   const gatekeeperCommand = options.gatekeeperCommand ?? "true";
+  const coderRole = options.coderRole ?? "e2e-coder";
+  const coderCommand = options.coderCommand ?? "e2e-coder";
+  const coderResumeCommand = options.coderResumeCommand ?? "true";
   const externalCommentAgents = options.externalCommentAgents ?? [];
   const externalReviewCommands = options.externalReviewCommands ?? [];
   const readyRequiredChecks = options.readyRequiredChecks ?? [];
@@ -2902,9 +2971,15 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
     join(repo, "combo-chen.toml"),
     [
       "[roles]",
-      'coder = "e2e-coder"',
+      `coder = ${JSON.stringify(coderRole)}`,
       'reviewer = ["e2e-reviewer"]',
       "",
+      ...(options.teamLines === undefined || options.teamLines.length === 0
+        ? []
+        : [
+            ...options.teamLines,
+            "",
+          ]),
       ...(options.reviewerLogins === undefined
         ? []
         : [
@@ -2912,9 +2987,9 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
             `logins = ${JSON.stringify(options.reviewerLogins)}`,
             "",
           ]),
-      "[coder.e2e-coder]",
-      'command = "e2e-coder"',
-      'resume_command = "true"',
+      `[coder.${coderRole}]`,
+      `command = ${JSON.stringify(coderCommand)}`,
+      `resume_command = ${JSON.stringify(coderResumeCommand)}`,
       "",
       "[reviewer.e2e-reviewer]",
       'command = "true"',

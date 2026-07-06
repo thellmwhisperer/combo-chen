@@ -21,6 +21,7 @@
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────┐
  *   │ loadConfig                Cascade: defaults → user → repo → env   │
  *   │ renderCommand             Substitute {placeholders} with safe vals │
+ *   │ hasGnhfCommand            Detect configured gnhf wrapper commands  │
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
  *   │ DEFAULT_WORKER_RECOVERY_ATTEMPTS Fallback recovery budget           │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
@@ -32,7 +33,7 @@
  *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -432,7 +433,7 @@ function assertValidRegexPatterns(patterns: string[], description: string): void
   }
 }
 
-function hasGnhfCommand(command: string): boolean {
+export function hasGnhfCommand(command: string): boolean {
   return /(?:^|\s)(?:\S*\/)?gnhf(?:@[-\w.]+)?(?:\s|$)/.test(command);
 }
 
