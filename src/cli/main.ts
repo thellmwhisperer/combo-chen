@@ -350,6 +350,7 @@ export function createProgram(deps: Deps): Command {
 
       let { combo } = overture;
       const { config, issue, issueDetails, runDir, workPlan } = overture;
+      const resolvedTeam = overture.result.resolvedTeam;
       try {
         combo = acquireTreehouseWorktree({ deps, combo, baseRef: options.base });
       } catch (error) {
@@ -416,7 +417,10 @@ export function createProgram(deps: Deps): Command {
           deps.out(`no-mistakes: copied local config to ${worktree}/${NO_MISTAKES_CONFIG_FILE}`);
         }
         writeCombo(runDir, combo);
-        writeConfigSnapshot(runDir, config);
+        writeConfigSnapshot(
+          runDir,
+          resolvedTeam === undefined ? config : { ...config, resolvedTeam },
+        );
         writeFileSync(join(runDir, WORK_PLAN_ARTIFACT), renderWorkPlanMarkdown(workPlan));
         writeRuntimeLedger(
           runDir,
@@ -453,6 +457,9 @@ export function createProgram(deps: Deps): Command {
           branch: combo.branch,
           tmux: session,
         });
+        if (resolvedTeam !== undefined) {
+          appendEvent(runDir, "team", { roles: resolvedTeam });
+        }
       } catch (error) {
         rmSync(runDir, { recursive: true, force: true });
         rollbackTreehouseLaunch(deps, combo);
