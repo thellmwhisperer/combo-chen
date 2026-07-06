@@ -847,6 +847,45 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   }, E2E_TEST_TIMEOUT_MS);
 
+  it("keeps polling an unchanged gatekeeper pane while no-mistakes reports an active branch run", () => {
+    const harness = prepareHarness({ activeNoMistakes: true, workerStallTicks: 2 });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      const gatekeeperWindow = tmuxState.sessions[combo.tmuxSession]?.windows.gatekeeper;
+      expect(gatekeeperWindow).toBeDefined();
+      gatekeeperWindow!.panes = 1;
+      gatekeeperWindow!.visibleText = "validating quietly...\n";
+      writeFileSync(harness.env.E2E_TMUX_STATE!, `${JSON.stringify(tmuxState, null, 2)}\n`);
+
+      run(process.execPath, [cliPath, "emit", "-n", combo.id, "gate_started"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+
+      expect(tick.stdout).toContain("gate run active");
+      expect(tick.stdout).not.toContain("worker gatekeeper unchanged pane for 2 ticks");
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events.some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled")).toBe(false);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, 15_000);
+
   it("recreates a missing tmux room before restarting the initial gate", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,

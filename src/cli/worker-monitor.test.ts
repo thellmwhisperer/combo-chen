@@ -281,9 +281,59 @@ describe("inspectWorkerPanes", () => {
     expect(
       inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated,
     ).toBe(false);
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 });
+
+    expect(result.escalated).toBe(true);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; no orchestrator evidence");
+  });
+
+  it("does not flag a stalled-looking gatekeeper when no-mistakes has an active run for the combo branch", () => {
+    const { record, runDir } = combo();
+    const { deps, out } = fakeDeps({
+      gatekeeper: "validating quietly...\n",
+    });
+    const noMistakesDeps: WorkerMonitorDeps = {
+      ...deps,
+      noMistakes: (args, cwd) => {
+        expect(args).toEqual(["axi", "status"]);
+        expect(cwd).toBe(record.worktree);
+        return {
+          status: 0,
+          stdout: [
+            "id: e2e-run",
+            `  branch: ${record.branch}`,
+            "  status: active",
+            "steps[0]{",
+            "  test,running",
+            "}",
+            "",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    };
+
     expect(
-      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated,
-    ).toBe(true);
+      inspectWorkerPanes({
+        deps: noMistakesDeps,
+        combo: record,
+        runDir,
+        workerWindows: ["gatekeeper"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.summaries).toContain("worker gatekeeper: unchanged_ticks=2; gate run active");
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("gate run active"));
   });
 
   it("reports gnhf terminal failures as dead workers", () => {
