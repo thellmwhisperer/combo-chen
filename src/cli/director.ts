@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~970 lines, 5 exports, initial-gate retry and pre/post-PR orchestration. (fix(labels): ignore idle reviewer windows)
+ * @overview Director CLI helpers. ~970 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -128,6 +128,7 @@ export async function tickDirector(input: {
       workerWindows,
       stallTicks: config.workerStallTicks,
       coderGnhfProgressMaxAgeMs: config.coderGnhfProgressMaxAgeMs,
+      gatekeeperStatusTimeoutMs: config.gatekeeperStatusTimeoutMs,
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
       recoverableStalledWorkers: prAlreadyOpened ? [config.coderRespondingWindowName] : [],
       recoverablePermissionPromptWorkers: config.workerPermissionPromptPolicy === "recreate-non-interactive"
