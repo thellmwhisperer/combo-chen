@@ -1,6 +1,6 @@
 /**
  * @overview Status helpers for local combo rows plus downstream no-mistakes/GitHub facts.
- *   ~275 lines, 9 exports, parsers for deep recovery status and gate lease visibility.
+ *   ~285 lines, 10 exports, parsers for deep recovery status and gate lease visibility.
  *
  *   READING GUIDE
  *   -------------
@@ -22,6 +22,7 @@
  *   NoMistakesAxiStatus           Parsed subset of no-mistakes status output.
  *   formatGateLeaseStatus         Compact branch-scoped gate lease owner display.
  *   parseNoMistakesAxiStatus      Extract branch, run state, active step, gate IDs, respond command.
+ *   noMistakesAxiStatusActive     True when parsed no-mistakes facts prove an active gate.
  *   deepNoMistakesStatus          Run no-mistakes and return a concise downstream status string.
  *   deepComboStatus               Prefer live no-mistakes state, otherwise summarize GitHub PR readiness.
  *
@@ -29,7 +30,7 @@
  *   ---------
  *   PR_CONFLICT_REBASE_REQUIRED, summarizeNoMistakesStatus, deepGithubPrStatus, cleanScalar, unquote, firstLine, shortSha, prHeadDriftStatus
  *
- * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, deepNoMistakesStatus, deepComboStatus
+ * @exports PR_READY_FOR_REVIEWER, NO_MISTAKES_RUNNING, AWAITING_REVIEW_GATE, CommandResult, NoMistakesAxiStatus, formatGateLeaseStatus, parseNoMistakesAxiStatus, noMistakesAxiStatusActive, deepNoMistakesStatus, deepComboStatus
  * @deps ../core/events, ../core/gate-lease, ../core/state, ./checks, ./gate, ./github
  */
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
@@ -126,22 +127,24 @@ export function parseNoMistakesAxiStatus(raw: string): NoMistakesAxiStatus {
     }
     if (/^\S/.test(line) && !/^[-\w]+:/.test(line.trim())) table = undefined;
 
-    const branch = /^\s{2}branch:\s*(.+)\s*$/.exec(line);
-    if (branch?.[1] !== undefined) {
-      facts.branch = cleanScalar(branch[1]);
-      continue;
-    }
+    if (table === undefined) {
+      const branch = /^\s*branch:\s*(.+)\s*$/.exec(line);
+      if (branch?.[1] !== undefined) {
+        facts.branch = cleanScalar(branch[1]);
+        continue;
+      }
 
-    const status = /^\s{2}status:\s*(.+)\s*$/.exec(line);
-    if (status?.[1] !== undefined) {
-      facts.runStatus = cleanScalar(status[1]).toLowerCase();
-      continue;
-    }
+      const status = /^\s*status:\s*(.+)\s*$/.exec(line);
+      if (status?.[1] !== undefined) {
+        facts.runStatus = cleanScalar(status[1]).toLowerCase();
+        continue;
+      }
 
-    const findings = /^\s{2}findings:\s*(.+)\s*$/.exec(line);
-    if (findings?.[1] !== undefined) {
-      facts.findingsSummary = cleanScalar(findings[1]);
-      continue;
+      const findings = /^\s*findings:\s*(.+)\s*$/.exec(line);
+      if (findings?.[1] !== undefined) {
+        facts.findingsSummary = cleanScalar(findings[1]);
+        continue;
+      }
     }
 
     const outcome = /^\s*outcome:\s*(.+)\s*$/.exec(line);
@@ -173,12 +176,24 @@ export function parseNoMistakesAxiStatus(raw: string): NoMistakesAxiStatus {
 // -/ 2/4
 
 // -- 3/4 CORE · deepNoMistakesStatus --
+function hasAwaitingFindingsSummary(facts: NoMistakesAxiStatus): boolean {
+  const awaitingCount = /\b(\d+)\s+await/i.exec(facts.findingsSummary ?? "")?.[1];
+  return awaitingCount !== undefined && Number(awaitingCount) > 0;
+}
+
+export function noMistakesAxiStatusActive(facts: NoMistakesAxiStatus): boolean {
+  return (
+    facts.outcome === "awaiting_approval" ||
+    hasAwaitingFindingsSummary(facts) ||
+    facts.awaitingFindingIds.length > 0 ||
+    (facts.runStatus !== undefined && ACTIVE_STATUSES.has(facts.runStatus))
+  );
+}
+
 function summarizeNoMistakesStatus(facts: NoMistakesAxiStatus, branch: string): string | undefined {
   if (facts.branch !== undefined && facts.branch !== branch) return undefined;
 
-  const awaitingCount = /\b(\d+)\s+await/i.exec(facts.findingsSummary ?? "")?.[1];
-  const hasAwaitingSummary = awaitingCount !== undefined && Number(awaitingCount) > 0;
-  if (facts.outcome === "awaiting_approval" || hasAwaitingSummary || facts.awaitingFindingIds.length > 0) {
+  if (facts.outcome === "awaiting_approval" || hasAwaitingFindingsSummary(facts) || facts.awaitingFindingIds.length > 0) {
     const ids = facts.awaitingFindingIds.length > 0 ? `: ${facts.awaitingFindingIds.join(", ")}` : "";
     const respond = facts.nextStep !== undefined ? `; respond: ${facts.nextStep}` : "";
     return `${AWAITING_REVIEW_GATE}${ids}${respond}`;

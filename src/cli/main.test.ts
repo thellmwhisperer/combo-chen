@@ -264,6 +264,27 @@ describe("command surface", () => {
     expect(out).toContain("gate_decision: 1");
   });
 
+  it("reports worker_stalled events that later completed normally without another human request", async () => {
+    const h = home();
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h, [PASSIVE_UPDATE_DISABLE_ENV]: "1" } });
+    const runDir = seedNeedsHumanCombo(h);
+    appendEvent(runDir, "needs_human", { reason: "worker_stalled", worker: "gatekeeper" });
+    appendEvent(runDir, "ready_for_merge", {
+      sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      pr_url: "https://github.com/o/r/pull/7",
+    });
+    appendEvent(runDir, "needs_human", { reason: "worker_stalled", worker: "reviewer" });
+    appendEvent(runDir, "needs_human", { reason: "gate_decision" });
+    appendEvent(runDir, "ready_for_merge", {
+      sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      pr_url: "https://github.com/o/r/pull/7",
+    });
+
+    await exec(deps, ["needs-human-report"]);
+
+    expect(out).toContain("worker_stalled followed by normal completion without human action: 1/2");
+  });
+
   it("skips corrupted combos in needs_human reports", async () => {
     const h = home();
     const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h, [PASSIVE_UPDATE_DISABLE_ENV]: "1" } });

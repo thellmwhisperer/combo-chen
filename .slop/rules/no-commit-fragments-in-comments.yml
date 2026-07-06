@@ -1,0 +1,15 @@
+# Tombstone for leaked commit-subject fragments in navigational comments.
+# Cite: PR #268 / 2026-07-06 wave leaked conventional-commit fragments into
+# Sherpa @overview headers (`fix(...)` text) while resolving worker stall
+# evidence. Comments should describe the code, not carry stale commit subjects.
+# Covers src/ and e2e/ comments so future agent edits cannot preserve this slop.
+id: no-commit-fragments-in-comments
+language: TypeScript
+files:
+  - "src/**"
+  - "e2e/**"
+rule:
+  kind: comment
+  regex: '\b(?:fix|feat|chore|docs|test|refactor|perf|build|ci|style|revert)(?:\([^\r\n)]*\)|!?:)'
+message: comment contains a conventional-commit fragment; remove stale commit subject text from comments
+severity: error

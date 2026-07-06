@@ -22,6 +22,8 @@
 
 ### Bug Fixes
 
+* **director:** Consult orchestrator evidence before escalating unchanged worker panes so gatekeeper runs in-flight, active external reviews, and recent reviewer artifacts prevent false `worker_stalled` escalations. Fixes [#261](https://github.com/thellmwhisperer/combo-chen/issues/261).
+
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 

@@ -1,19 +1,38 @@
 /**
- * @overview Unit tests for status downstream summaries. ~130 lines, focused on
+ * @overview Unit tests for status downstream summaries. ~150 lines, focused on
  *   GitHub PR recovery hints used by status --deep.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at describe("deepComboStatus") <- CLI-facing downstream phrases.
+ *   1. Start at parseNoMistakesAxiStatus tests <- no-mistakes parser contract.
+ *   2. Then describe("deepComboStatus")     <- CLI-facing downstream phrases.
  *
  * @exports none
  * @deps vitest, ./status
  */
 import { describe, expect, it } from "vitest";
 
-import { deepComboStatus } from "./status.js";
+import { deepComboStatus, noMistakesAxiStatusActive, parseNoMistakesAxiStatus } from "./status.js";
 
 // -- 1/1 CORE · deepComboStatus --
+describe("parseNoMistakesAxiStatus", () => {
+  it("accepts unindented branch and status fields", () => {
+    const facts = parseNoMistakesAxiStatus(
+      [
+        "id: e2e-run",
+        "branch: combo/issue-7",
+        "head: abc123",
+        "status: active",
+        "",
+      ].join("\n"),
+    );
+
+    expect(facts.branch).toBe("combo/issue-7");
+    expect(facts.runStatus).toBe("active");
+    expect(noMistakesAxiStatusActive(facts)).toBe(true);
+  });
+});
+
 describe("deepComboStatus", () => {
   it("surfaces dirty or conflicting GitHub mergeability before stale READY can hide it", () => {
     const combo = {

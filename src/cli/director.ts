@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~970 lines, 5 exports, initial-gate retry and pre/post-PR orchestration. (fix(labels): ignore idle reviewer windows)
+ * @overview Director CLI helpers. ~970 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -68,7 +68,11 @@ export interface DirectorDeps {
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
-  noMistakes: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  noMistakes: (
+    args: string[],
+    cwd: string,
+    options?: { timeoutMs?: number },
+  ) => { status: number; stdout: string; stderr: string };
   sleep: (ms: number) => Promise<void>;
 }
 // -/ 1/3
@@ -124,6 +128,7 @@ export async function tickDirector(input: {
       workerWindows,
       stallTicks: config.workerStallTicks,
       coderGnhfProgressMaxAgeMs: config.coderGnhfProgressMaxAgeMs,
+      gatekeeperStatusTimeoutMs: config.gatekeeperStatusTimeoutMs,
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
       recoverableStalledWorkers: prAlreadyOpened ? [config.coderRespondingWindowName] : [],
       recoverablePermissionPromptWorkers: config.workerPermissionPromptPolicy === "recreate-non-interactive"

@@ -498,8 +498,10 @@ resources are created. Run it standalone to verify readiness, or let `run`
 consume it automatically.
 
 `needs-human-report` scans all combo journals and reports a summary of
-`needs_human` event counts grouped by reason. Corrupt combo records are skipped
-with a `skipped <combo-id>: <reason>` line instead of stopping the report.
+`needs_human` event counts grouped by reason. For `worker_stalled`, it also
+prints how many stalled escalations later reached normal completion before
+another human request. Corrupt combo records are skipped with a
+`skipped <combo-id>: <reason>` line instead of stopping the report.
 
 ### Recovery Commands
 
@@ -649,16 +651,19 @@ through env, TOML, then fallback defaults.
 combo-chen ships with code-level anti-slop probes to prevent agent slop during
 autonomous runs:
 
-- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint: an
-  ast-grep rule that forbids `node:child_process` imports in `src/core/`
+- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint:
+  ast-grep rules that forbid `node:child_process` imports in `src/core/`
   (execution belongs in `cli/`, `roles/`, or `infra/`), a no-duplicate-helpers
   tombstone rule (helpers consolidated into `src/core/guards.ts` and
   `latestPrUrlFromEvents` from `src/core/events.ts` must not be redefined
-  elsewhere), and a jscpd duplication ratchet (`--threshold 2`) that
-  fails when non-test duplication grows past the current baseline. The ratchet
-  is a deliberate hard-fail with little headroom (baseline 1.99%): a PR that
-  trips it must remove duplication or raise the threshold explicitly in the
-  same PR with justification.
+  elsewhere), a no-commit-fragments-in-comments rule (conventional-commit
+  subject fragments leaked into navigational comments), a
+  no-unconfigurable-operational-constants rule (hardcoded timeout/age
+  constants without config paths), and a jscpd duplication ratchet
+  (`--threshold 2`) that fails when non-test duplication grows past the
+  current baseline. The ratchet is a deliberate hard-fail with little headroom
+  (baseline 1.99%): a PR that trips it must remove duplication or raise the
+  threshold explicitly in the same PR with justification.
 - `pnpm slop:report` — verbose jscpd clone listing for non-test source,
   plus ast-grep warnings for infra verbs in `src/core/` and `toContain`
   assertions on script/runner strings that freeze internal details.
@@ -694,7 +699,7 @@ heartbeat, promptable director window inside each combo capsule (non-polling
 contract, prompted by director-watch only for ambiguity or uncoded recovery),
 wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
 justification), explicit coder terminal outcomes (`coder_done` trust over dead-looking panes) before worker recovery, pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
-stalled coder-response recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, current-head READY agreement with base-advance conflict
+stalled coder-response recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, orchestrator evidence consulted before worker stall escalation (gnhf run active, gate run active, external review active, reviewer artifact recent), current-head READY agreement with base-advance conflict
 detection, live GitHub PR label projection with mutation journaling,
 human-readable tmux topology (fixed tmux role topology: journal, director,
 coder, gatekeeper, reviewer, and director-watch in that stable order;

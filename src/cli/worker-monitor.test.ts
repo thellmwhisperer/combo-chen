@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~730 lines, permission
+ * @overview Unit tests for worker pane monitoring. ~970 lines, permission
  *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
@@ -281,9 +281,245 @@ describe("inspectWorkerPanes", () => {
     expect(
       inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated,
     ).toBe(false);
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 });
+
+    expect(result.escalated).toBe(true);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; no orchestrator evidence");
+  });
+
+  it("does not flag a stalled-looking gatekeeper when no-mistakes has an active run for the combo branch", () => {
+    const { record, runDir } = combo();
+    const { deps, out } = fakeDeps({
+      gatekeeper: "validating quietly...\n",
+    });
+    const noMistakesDeps: WorkerMonitorDeps = {
+      ...deps,
+      noMistakes: (args, cwd) => {
+        expect(args).toEqual(["axi", "status"]);
+        expect(cwd).toBe(record.worktree);
+        return {
+          status: 0,
+          stdout: [
+            "id: e2e-run",
+            `  branch: ${record.branch}`,
+            "  status: active",
+            "steps[0]{",
+            "  test,running",
+            "}",
+            "",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    };
+
     expect(
-      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated,
-    ).toBe(true);
+      inspectWorkerPanes({
+        deps: noMistakesDeps,
+        combo: record,
+        runDir,
+        workerWindows: ["gatekeeper"],
+        stallTicks: 2,
+        gatekeeperStatusTimeoutMs: 5000,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 5000,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.summaries).toContain("worker gatekeeper: unchanged_ticks=2; gate run active");
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("gate run active"));
+  });
+
+  it("bounds the gatekeeper no-mistakes status probe and continues stall handling when it fails", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      gatekeeper: "validating quietly...\n",
+    });
+    const timeouts: Array<number | undefined> = [];
+    const noMistakesDeps: WorkerMonitorDeps = {
+      ...deps,
+      noMistakes: (_args, _cwd, options?: { timeoutMs?: number }) => {
+        timeouts.push(options?.timeoutMs);
+        return { status: 1, stdout: "", stderr: "spawnSync no-mistakes ETIMEDOUT" };
+      },
+    };
+
+    expect(
+      inspectWorkerPanes({
+        deps: noMistakesDeps,
+        combo: record,
+        runDir,
+        workerWindows: ["gatekeeper"],
+        stallTicks: 2,
+        gatekeeperStatusTimeoutMs: 5000,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 5000,
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(timeouts).toHaveLength(1);
+    expect(timeouts[0]).toBeGreaterThan(0);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "gatekeeper" }),
+    );
+  });
+
+  it("uses the configured gatekeeper status timeout for no-mistakes evidence", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      gatekeeper: "validating quietly...\n",
+    });
+    const timeouts: number[] = [];
+    const noMistakesDeps: WorkerMonitorDeps = {
+      ...deps,
+      noMistakes: (_args, _cwd, options?: { timeoutMs?: number }) => {
+        if (options?.timeoutMs !== undefined) timeouts.push(options.timeoutMs);
+        return {
+          status: 0,
+          stdout: [
+            "id: e2e-run",
+            `branch: ${record.branch}`,
+            "status: active",
+            "",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    };
+
+    inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 1234,
+    });
+    const result = inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 1234,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(timeouts).toEqual([1234]);
+  });
+
+  it("does not flag a stalled-looking reviewer while an external review request is in flight", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "external_review_requested", {
+      sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      command: "@coderabbitai review",
+      pr_url: "https://github.com/o/r/pull/7",
+    });
+    const { deps, out } = fakeDeps({
+      reviewer: "waiting for external review...\n",
+    });
+
+    expect(
+      inspectWorkerPanes({
+        deps,
+        combo: record,
+        runDir,
+        workerWindows: ["reviewer"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; external review active");
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("external review active"));
+  });
+
+  it("does not flag a stalled-looking reviewer after a recent reviewer artifact", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "lgtm", { sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
+    const { deps, out } = fakeDeps({
+      reviewer: "review complete; waiting for director...\n",
+    });
+
+    expect(
+      inspectWorkerPanes({
+        deps,
+        combo: record,
+        runDir,
+        workerWindows: ["reviewer"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; reviewer artifact recent");
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("reviewer artifact recent"));
+  });
+
+  it("does not use stale reviewer artifacts as active reviewer evidence", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "lgtm", { sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+    appendEvent(runDir, "lgtm_stale", {
+      old_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      new_sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    });
+    const { deps } = fakeDeps({
+      reviewer: "reviewing new head...\n",
+    });
+
+    expect(
+      inspectWorkerPanes({
+        deps,
+        combo: record,
+        runDir,
+        workerWindows: ["reviewer"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; no orchestrator evidence");
   });
 
   it("reports gnhf terminal failures as dead workers", () => {
@@ -775,6 +1011,44 @@ describe("inspectWorkerPanes", () => {
     expect(out).not.toContainEqual(expect.stringContaining("worker_stalled"));
     const events = readEvents(runDir);
     expect(events.filter((e) => e.event === "needs_human" && e["reason"] === "worker_stalled")).toHaveLength(0);
+  });
+
+  it("does not treat a fresh ended gnhf log as active coder stall evidence", () => {
+    const { record, runDir } = combo();
+    const gnhfRunsDir = join(record.worktree, ".gnhf", "runs", "implement-github-iss-ended");
+    mkdirSync(gnhfRunsDir, { recursive: true });
+    writeFileSync(
+      join(gnhfRunsDir, "gnhf.log"),
+      [
+        '{"event":"iteration:start","iteration":3}',
+        '{"event":"orchestrator:end","status":"stopped","successCount":0}',
+        "",
+      ].join("\n"),
+    );
+
+    const out: string[] = [];
+    const unchangedPane = "gnhf v0.1.41\niteration 3\nspinner...";
+    const deps: WorkerMonitorDeps = {
+      out: (line) => out.push(line),
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "12345", stderr: "" };
+        if (args[0] === "capture-pane") return { status: 0, stdout: unchangedPane, stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+
+    expect(
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"], stallTicks: 2 }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"], stallTicks: 2 });
+
+    expect(result.escalated).toBe(true);
+    expect(result.summaries).toContain("worker coder: unchanged_ticks=2; no orchestrator evidence");
+    expect(out).toContainEqual(expect.stringContaining("no orchestrator evidence"));
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
+    );
   });
 });
 // -/ 1/1
