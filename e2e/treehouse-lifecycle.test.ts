@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~3050 lines, log-derived regressions.
+ *   and process shims for external services. ~3070 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -282,6 +282,44 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       expect(result.status).toBe(0);
       const state = readJson<TmuxStateJson>(statePath);
       expect(Object.keys(state.sessions["combo-chen-shim-regression"]?.windows ?? {})).toEqual(["journal"]);
+      passed = true;
+    } finally {
+      if (passed) rmSync(root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${root}\n`);
+    }
+  });
+
+  it("returns success after fake tmux creates a window whose command exits nonzero", () => {
+    const tmpBase = join(repoRoot, ".tmp");
+    mkdirSync(tmpBase, { recursive: true });
+    const root = mkdtempSync(join(tmpBase, "e2e-tmux-shim-"));
+    const statePath = join(root, "tmux-state.json");
+    const sessionName = "combo-chen-shim-window-status";
+    let passed = false;
+
+    try {
+      const env = {
+        ...process.env,
+        E2E_TMUX_RUN_NEW_SESSION: "1",
+        E2E_TMUX_STATE: statePath,
+      };
+      const tmuxShim = join(repoRoot, "e2e", "fixtures", "shims", "tmux.mjs");
+      const session = spawnSync(process.execPath, [tmuxShim, "new-session", "-d", "-s", sessionName, "-n", "journal", "true"], {
+        cwd: repoRoot,
+        env,
+        encoding: "utf8",
+      });
+      expect(session.status).toBe(0);
+
+      const result = spawnSync(
+        process.execPath,
+        [tmuxShim, "new-window", "-t", sessionName, "-n", "coder", `${process.execPath} -e "process.exit(7)"`],
+        { cwd: repoRoot, env, encoding: "utf8" },
+      );
+
+      expect(result.status).toBe(0);
+      const state = readJson<TmuxStateJson>(statePath);
+      expect(Object.keys(state.sessions[sessionName]?.windows ?? {})).toContain("coder");
       passed = true;
     } finally {
       if (passed) rmSync(root, { recursive: true, force: true });
