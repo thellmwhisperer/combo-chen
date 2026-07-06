@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~570 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
+ * @overview Worker pane monitor. ~570 lines, detects permission prompts,
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -88,7 +88,6 @@ type WorkerSnapshot = Record<string, WorkerSnapshotEntry>;
 
 const SNAPSHOT_FILE = "worker-panes.json";
 const DEFAULT_STALL_TICKS = 3;
-const GATEKEEPER_STATUS_TIMEOUT_MS = 5_000;
 function newestGnhfLogPath(worktree: string): string | undefined {
   const runsDir = join(worktree, ".gnhf", "runs");
   if (!existsSync(runsDir)) return undefined;
@@ -247,11 +246,12 @@ function hasEscalation(runDir: string, reason: string, worker: string): boolean 
   );
 }
 
-function gatekeeperRunActive(deps: WorkerMonitorDeps, combo: ComboRecord): boolean {
+function gatekeeperRunActive(deps: WorkerMonitorDeps, combo: ComboRecord, timeoutMs: number | undefined): boolean {
+  if (timeoutMs === undefined) return false;
   if (deps.noMistakes === undefined) return false;
   try {
     const status = deps.noMistakes(["axi", "status"], combo.worktree, {
-      timeoutMs: GATEKEEPER_STATUS_TIMEOUT_MS,
+      timeoutMs,
     });
     if (status.status !== 0) return false;
     const facts = parseNoMistakesAxiStatus(status.stdout);
@@ -319,6 +319,7 @@ export interface WorkerPaneMonitorInput {
   workerWindows: string[];
   stallTicks?: number;
   coderGnhfProgressMaxAgeMs?: number;
+  gatekeeperStatusTimeoutMs?: number;
   recoverableDeadWorkers?: string[];
   recoverableStalledWorkers?: string[];
   recoverablePermissionPromptWorkers?: string[];
@@ -541,7 +542,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       );
       continue;
     }
-    if (worker === "gatekeeper" && gatekeeperRunActive(deps, combo)) {
+    if (worker === "gatekeeper" && gatekeeperRunActive(deps, combo, input.gatekeeperStatusTimeoutMs)) {
       summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; gate run active`);
       continue;
     }

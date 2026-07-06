@@ -320,6 +320,7 @@ describe("inspectWorkerPanes", () => {
         runDir,
         workerWindows: ["gatekeeper"],
         stallTicks: 2,
+        gatekeeperStatusTimeoutMs: 5000,
       }).escalated,
     ).toBe(false);
     const result = inspectWorkerPanes({
@@ -328,6 +329,7 @@ describe("inspectWorkerPanes", () => {
       runDir,
       workerWindows: ["gatekeeper"],
       stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 5000,
     });
 
     expect(result.escalated).toBe(false);
@@ -357,6 +359,7 @@ describe("inspectWorkerPanes", () => {
         runDir,
         workerWindows: ["gatekeeper"],
         stallTicks: 2,
+        gatekeeperStatusTimeoutMs: 5000,
       }).escalated,
     ).toBe(false);
     const result = inspectWorkerPanes({
@@ -365,6 +368,7 @@ describe("inspectWorkerPanes", () => {
       runDir,
       workerWindows: ["gatekeeper"],
       stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 5000,
     });
 
     expect(result.escalated).toBe(true);
@@ -373,6 +377,50 @@ describe("inspectWorkerPanes", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "gatekeeper" }),
     );
+  });
+
+  it("uses the configured gatekeeper status timeout for no-mistakes evidence", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      gatekeeper: "validating quietly...\n",
+    });
+    const timeouts: number[] = [];
+    const noMistakesDeps: WorkerMonitorDeps = {
+      ...deps,
+      noMistakes: (_args, _cwd, options?: { timeoutMs?: number }) => {
+        if (options?.timeoutMs !== undefined) timeouts.push(options.timeoutMs);
+        return {
+          status: 0,
+          stdout: [
+            "id: e2e-run",
+            `branch: ${record.branch}`,
+            "status: active",
+            "",
+          ].join("\n"),
+          stderr: "",
+        };
+      },
+    };
+
+    inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 1234,
+    });
+    const result = inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+      gatekeeperStatusTimeoutMs: 1234,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(timeouts).toEqual([1234]);
   });
 
   it("does not flag a stalled-looking reviewer while an external review request is in flight", () => {

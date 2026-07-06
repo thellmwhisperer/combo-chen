@@ -648,6 +648,36 @@ describe("loadConfig", () => {
     }
   });
 
+  it("loads the gatekeeper status timeout from monitor config, env, and defaults", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[monitor]\ngatekeeper_status_timeout_ms = 2500\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.gatekeeperStatusTimeoutMs).toBe(2500);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_GATEKEEPER_STATUS_TIMEOUT_MS: "7500" },
+    });
+    expect(envConfig.gatekeeperStatusTimeoutMs).toBe(7500);
+
+    const defaultConfig = loadConfig({
+      repoDir: tempDir(),
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: {},
+    });
+    expect(defaultConfig.gatekeeperStatusTimeoutMs).toBe(5000);
+
+    for (const value of ["0", "-1", "1.5", '"nope"']) {
+      const invalidRepoDir = tempDir();
+      writeToml(invalidRepoDir, "combo-chen.toml", `[monitor]\ngatekeeper_status_timeout_ms = ${value}\n`);
+      expect(() =>
+        loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+      ).toThrow(/gatekeeper_status_timeout_ms/);
+    }
+  });
+
   it("loads the worker stall recovery budget from repo monitor config or env", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", "[monitor]\nworker_recovery_attempts = 4\n");
