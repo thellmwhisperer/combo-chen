@@ -876,7 +876,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       });
 
       expect(tick.stdout).toContain("gate run active");
-      expect(tick.stdout).not.toContain("worker gatekeeper unchanged pane for 2 ticks");
+      expect(tick.stdout).not.toContain("no orchestrator evidence");
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
       expect(events.some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled")).toBe(false);
 
@@ -935,7 +935,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       });
 
       expect(tick.stdout).toContain("external review active");
-      expect(tick.stdout).not.toContain("worker reviewer unchanged pane for 2 ticks");
+      expect(tick.stdout).not.toContain("no orchestrator evidence");
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
       expect(events.some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled")).toBe(false);
 
@@ -981,7 +981,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
       });
 
       expect(tick.stdout).toContain("reviewer artifact recent");
-      expect(tick.stdout).not.toContain("worker reviewer unchanged pane for 2 ticks");
+      expect(tick.stdout).not.toContain("no orchestrator evidence");
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
       expect(events.some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled")).toBe(false);
 
