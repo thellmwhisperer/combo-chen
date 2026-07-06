@@ -523,9 +523,20 @@ context-canceled recovery pattern.
   normally. Before `pr_opened`, dead `coder` workers are recovered first:
   the director restarts the persisted runner and journals
   `worker_recovered reason=worker_dead`. After a PR is open, dead workers
-  journal `needs_human reason=worker_dead`. `worker_stalled` normally
-  escalates the same way, except stalled coder responding mode is recovered
-  first. When the permission policy is `auto-approve-known-safe`, the monitor
+   journal `needs_human reason=worker_dead`. `worker_stalled` normally
+   escalates the same way, except stalled coder responding mode is recovered
+   first. Before escalating, the monitor consults worker-appropriate
+   orchestrator evidence (the first "provably working" pattern):
+   for the coder, a gnhf run whose log is recent and has not recorded
+   `orchestrator:end` ("gnhf run active"); for the gatekeeper, a no-mistakes
+   run attributed to the combo branch with an active status ("gate run
+   active"); for the reviewer, an `lgtm` or `external_review_requested`
+   journal event that has not been superseded by `ready_for_merge`,
+   `lgtm_stale`, or `pr_opened` ("reviewer artifact recent" or "external
+   review active"). Only when no orchestrator evidence is available ("no
+   orchestrator evidence") does the unchanged-pane counter escalate to
+   `needs_human reason=worker_stalled`. When the permission policy is
+   `auto-approve-known-safe`, the monitor
   sends `y` + Enter to the matched tmux window and journals
   `worker_recovered reason=worker_permission_prompt`; persistent prompts count
   toward `[monitor].worker_recovery_attempts` before escalating. When the
