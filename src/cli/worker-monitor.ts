@@ -1,5 +1,5 @@
 /**
- * @overview Worker pane monitor. ~530 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
+ * @overview Worker pane monitor. ~570 lines, detects permission prompts, (fix(e2e): prevent lifecycle harness deadlocks)
  *   terminal worker holds, dead panes, and unchanged panes before the director
  *   silently waits.
  *
@@ -529,7 +529,8 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     // real activity.
     const isCoder = worker === "coder";
     const gnhfAlive = isCoder && combo.worktree
-      ? (coderGnhfProgressAge(combo.worktree) ?? Infinity) < (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
+      ? gnhfRunEndRecorded(combo.worktree) === false &&
+        (coderGnhfProgressAge(combo.worktree) ?? Infinity) < (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
       : false;
     if (isCoder && gnhfAlive) {
       summaries.push(
