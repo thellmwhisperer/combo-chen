@@ -431,6 +431,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
       ? failed("tmux_session_free", session, "session already exists")
       : ok("tmux_session_free", session),
     ok("config_parses", input.repoDir),
+    ...(config.team === undefined ? [ok("team_identity", "team", "undeclared; identity check skipped")] : []),
   ];
   try {
     assertSafeCoderInvocation(config.coderCommand, { requireGnhf: config.roles.coder === "codex" });
