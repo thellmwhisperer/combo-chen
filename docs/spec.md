@@ -556,9 +556,11 @@ context-canceled recovery pattern.
   `needs_human` event counts grouped by reason (e.g. `worker_stalled`,
   `gate_decision`, `gate_failed`). It is an operational metrics tool that
   helps operators spot systemic escalations across multiple combos without
-  reading individual journal files. Corrupt combo records are skipped with a
-  `skipped <combo-id>: <reason>` line so one bad run directory does not block
-  the aggregate report.
+  reading individual journal files. When `worker_stalled` appears, it also
+  reports the ratio of stalled escalations that reached normal completion before
+  another `needs_human`. Corrupt combo records are skipped with a `skipped
+  <combo-id>: <reason>` line so one bad run directory does not block the
+  aggregate report.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.

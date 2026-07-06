@@ -498,8 +498,10 @@ resources are created. Run it standalone to verify readiness, or let `run`
 consume it automatically.
 
 `needs-human-report` scans all combo journals and reports a summary of
-`needs_human` event counts grouped by reason. Corrupt combo records are skipped
-with a `skipped <combo-id>: <reason>` line instead of stopping the report.
+`needs_human` event counts grouped by reason. For `worker_stalled`, it also
+prints how many stalled escalations later reached normal completion before
+another human request. Corrupt combo records are skipped with a
+`skipped <combo-id>: <reason>` line instead of stopping the report.
 
 ### Recovery Commands
 
