@@ -313,7 +313,7 @@ function configModelFromCommand(command: string): string | undefined {
 
 function codexModelFromConfigOverride(value: string): string | undefined {
   const trimmed = value.trim();
-  if (!trimmed.startsWith("model")) return undefined;
+  if (!/^model(?:\s|=)/.test(trimmed)) return undefined;
   try {
     const parsed = parseToml(trimmed);
     return isRecord(parsed) ? stringField(parsed, "model") : undefined;
