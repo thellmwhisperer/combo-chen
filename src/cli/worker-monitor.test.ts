@@ -336,6 +336,45 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContainEqual(expect.stringContaining("gate run active"));
   });
 
+  it("bounds the gatekeeper no-mistakes status probe and continues stall handling when it fails", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({
+      gatekeeper: "validating quietly...\n",
+    });
+    const timeouts: Array<number | undefined> = [];
+    const noMistakesDeps: WorkerMonitorDeps = {
+      ...deps,
+      noMistakes: (_args, _cwd, options?: { timeoutMs?: number }) => {
+        timeouts.push(options?.timeoutMs);
+        return { status: 1, stdout: "", stderr: "spawnSync no-mistakes ETIMEDOUT" };
+      },
+    };
+
+    expect(
+      inspectWorkerPanes({
+        deps: noMistakesDeps,
+        combo: record,
+        runDir,
+        workerWindows: ["gatekeeper"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps: noMistakesDeps,
+      combo: record,
+      runDir,
+      workerWindows: ["gatekeeper"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(timeouts).toHaveLength(1);
+    expect(timeouts[0]).toBeGreaterThan(0);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "gatekeeper" }),
+    );
+  });
+
   it("does not flag a stalled-looking reviewer while an external review request is in flight", () => {
     const { record, runDir } = combo();
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
