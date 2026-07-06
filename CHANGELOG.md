@@ -18,6 +18,7 @@
 * **gatekeeper:** Fix gatekeeper exit code when config copy fails so the gate correctly reports failure.
 * **anti-slop:** Consolidate duplicated helpers into canonical homes: `errorMessage` (6 copies), `isRecord` (4 identical copies), and `isErrnoException` (2 copies) move to `src/core/guards.ts`; `latestPrUrl` variants collapse into `latestPrUrlFromEvents` from `src/core/events.ts`. `pnpm slop:check` now also enforces a no-duplicate-helpers tombstone rule and a jscpd duplication ratchet (`--threshold 2`), so reintroducing a consolidated helper or growing non-test duplication fails the gate.
 * **install:** Add a checksum-verified tarball install channel with `install.sh`, versioned `release_archive` layout, idempotent reinstalls, offline archive support, and updater-compatible bin symlink. Fixes [#250](https://github.com/thellmwhisperer/combo-chen/issues/250).
+* **overture:** Verify declared team identities (`[team]` block in `combo-chen.toml`) before launch. Resolves each role's effective binary → agent → model identity from the tool's own config and hard-fails on mismatch. Resolved identities are journaled as a `team` event and frozen in the config snapshot so director-watch can flag mid-run identity drift. Undeclared teams keep current behavior. Fixes [#260](https://github.com/thellmwhisperer/combo-chen/issues/260).
 
 ### Bug Fixes
 

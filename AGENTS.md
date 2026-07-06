@@ -134,7 +134,9 @@ Source files carry Sherpa-style navigable headers:
 ## Status
 
 v0 implements the work-item-to-PR loop under the parallelize-first operating
-contract: deterministic overture launch runway,
+contract: deterministic overture launch runway with declared team identity
+check (opt-in `[team]` block, resolves effective role identities,
+hard-fails on mismatch, journals `team` event),
 coder/gnhf, no-mistakes initial and
 post-address gates with automatic initial-gate retry, reviewer with
 machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,

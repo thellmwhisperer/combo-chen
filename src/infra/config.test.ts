@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for config loading and command rendering. ~945 lines,
+ * @overview Unit tests for config loading and command rendering. ~1020 lines,
  *   testing the env → repo → user → fallback cascade, legacy role alias
  *   mapping, validation rejections, and the renderCommand placeholder engine.
  *
@@ -207,6 +207,53 @@ describe("loadConfig", () => {
         env: { COMBO_CHEN_DIRECTOR_COMMAND: "env-director {prompt}" },
       }).directorCommand,
     ).toBe("env-director {prompt}");
+  });
+
+  it("loads declared team identities when the repo opts in", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[team.coder]",
+        'binary = "npx"',
+        'agent = "gnhf/codex"',
+        'model = "gpt-5"',
+        "",
+        "[team.gatekeeper]",
+        'binary = "no-mistakes"',
+        'agent = "claude"',
+        'model = "opus"',
+        "",
+        "[team.reviewer]",
+        'binary = "opencode"',
+        'agent = "claude"',
+        'model = "opus"',
+        "",
+        "[team.director]",
+        'binary = "claude"',
+        'agent = "claude"',
+        'model = "sonnet"',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.team).toEqual({
+      coder: { binary: "npx", agent: "gnhf/codex", model: "gpt-5" },
+      gatekeeper: { binary: "no-mistakes", agent: "claude", model: "opus" },
+      reviewer: { binary: "opencode", agent: "claude", model: "opus" },
+      director: { binary: "claude", agent: "claude", model: "sonnet" },
+    });
+  });
+
+  it("rejects incomplete declared team identities", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[team.reviewer]\nbinary = \"opencode\"\nagent = \"claude\"\n");
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /team\.reviewer\.model must be a non-empty string/,
+    );
   });
 
   it("lets env override reviewer GitHub logins", () => {

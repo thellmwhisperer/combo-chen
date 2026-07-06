@@ -231,6 +231,14 @@ command = "claude {prompt}"
 [director]
 # Promptable interactive director window; director-watch owns polling.
 command = "claude {prompt}"
+
+# [team] declares the expected effective identity per role. Overture resolves each
+# tool's actual config and fails on mismatch. Undeclared: current behavior, noted
+# in the checklist. Uncomment and tune for each role you want to pin.
+# [team.coder]
+# binary = "npx"
+# agent = "gnhf/codex"
+# model = "gpt-5.5"
 ```
 
 Reviewer commands must submit reviews with a single inline
@@ -484,8 +492,8 @@ combo-chen director-prompt -n <combo-id> --reason <reason> <message...>
 `overture` checks the launch runway before spending agent tokens or creating
 tmux sessions. It runs the same deterministic checks that `run` executes
 internally: work item readability, repo/issue match, clean checkout, base ref,
-Treehouse/worktree/branch/tmux availability, no-mistakes status, and coder/reviewer
-command safety. A blocked check prints an `X` and exits before any launch
+Treehouse/worktree/branch/tmux availability, no-mistakes status, team identity
+(opt-in via `[team]` config), and coder/reviewer command safety. A blocked check prints an `X` and exits before any launch
 resources are created. Run it standalone to verify readiness, or let `run`
 consume it automatically.
 
@@ -589,9 +597,10 @@ Important files:
 - `combo.json`: repo, worktree, branch, tmux identity, and work-item source metadata.
   Its `id` must exactly match the `<combo-id>` directory name; readers rebuild
   run paths from that id, so mismatches are treated as corrupt state.
-- `journal.jsonl`: the source of truth. Includes `pr_labels_updated` events
-  that record every PR label mutation with metadata (PR URL, head SHA, old/new
-  labels, reason) for auditability.
+- `journal.jsonl`: the source of truth. Includes `team` events that record the
+  resolved role identities at launch, and `pr_labels_updated` events that record
+  every PR label mutation with metadata (PR URL, head SHA, old/new labels,
+  reason) for auditability.
 - `runtime-ledger.json`: machine-readable combo capsule resource ledger; written at launch, updated when PR/reviewer/director resources appear.
 - `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
 - `runner.sh`: generated initial runner.

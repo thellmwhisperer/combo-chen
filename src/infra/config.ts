@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~830 lines, 12 exports.
+ *   Repo wins on policy, user wins on local setup. ~880 lines, 15 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -21,6 +21,7 @@
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────┐
  *   │ loadConfig                Cascade: defaults → user → repo → env   │
  *   │ renderCommand             Substitute {placeholders} with safe vals │
+ *   │ hasGnhfCommand            Detect configured gnhf wrapper commands  │
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
  *   │ DEFAULT_WORKER_RECOVERY_ATTEMPTS Fallback recovery budget           │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
@@ -28,11 +29,11 @@
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
  *   │ pickNonEmptyString, pickStringArray, normalize*Aliases,         │
  *   │ DEFAULTS, PLACEHOLDER, defaultUserConfigPath, gnhf safety predicates │
- *   │ ComboConfigError, ComboRoles, ComboLimits,                     │
+ *   │ ComboConfigError, ComboRoles, ComboLimits, ComboTeam,          │
  *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -60,6 +61,16 @@ export interface ComboLimits {
   watchFailureLimit: number;
   watchBackoffMaxSeconds: number;
 }
+
+export type ComboTeamRole = "coder" | "gatekeeper" | "reviewer" | "director";
+
+export interface ComboTeamIdentity {
+  binary: string;
+  agent: string;
+  model: string;
+}
+
+export type ComboTeam = Partial<Record<ComboTeamRole, ComboTeamIdentity>>;
 
 export type WorkerPermissionPromptPolicy =
   | "auto-approve-known-safe"
@@ -117,6 +128,10 @@ export interface ComboConfig {
   coderGnhfProgressMaxAgeMs: number;
   /** Required source checkout branch for `combo-chen run`. */
   sourceBranch: string;
+  /** Optional launch contract declaring the expected effective role identities. */
+  team?: ComboTeam;
+  /** Launch-time effective role identities resolved during overture. */
+  resolvedTeam?: ComboTeam;
 }
 
 type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";
@@ -131,6 +146,8 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
   merge: "merge",
 };
 const ROLE_NAMES = new Set(Object.keys(ROLE_ALIASES));
+const TEAM_ROLE_NAMES = new Set<ComboTeamRole>(["coder", "gatekeeper", "reviewer", "director"]);
+const TEAM_IDENTITY_FIELDS = new Set(["binary", "agent", "model"]);
 const DEFAULT_REVIEWER_PROMPT = "";
 export const DEFAULT_WORKER_RECOVERY_ATTEMPTS = 2;
 const DEFAULT_CODER_STOP_WHEN =
@@ -284,6 +301,33 @@ function mergeRoles(base: ComboRoles, raw: unknown, source: string): ComboRoles 
   return merged;
 }
 
+function mergeTeam(base: ComboTeam | undefined, raw: unknown, source: string): ComboTeam {
+  const table = asTable(raw, `[team] in ${source}`);
+  const merged: ComboTeam = { ...(base ?? {}) };
+  for (const [role, value] of Object.entries(table)) {
+    if (!TEAM_ROLE_NAMES.has(role as ComboTeamRole)) {
+      throw new ComboConfigError(
+        `Unknown team role "${role}" in ${source}. Known team roles: ${[...TEAM_ROLE_NAMES].join(", ")}`,
+      );
+    }
+    const identity = asTable(value, `[team.${role}] in ${source}`);
+    for (const field of Object.keys(identity)) {
+      if (!TEAM_IDENTITY_FIELDS.has(field)) {
+        throw new ComboConfigError(
+          `Unknown team identity field "${field}" in [team.${role}] in ${source}. ` +
+            `Known fields: ${[...TEAM_IDENTITY_FIELDS].join(", ")}`,
+        );
+      }
+    }
+    merged[role as ComboTeamRole] = {
+      binary: pickNonEmptyString(identity["binary"], `team.${role}.binary`),
+      agent: pickNonEmptyString(identity["agent"], `team.${role}.agent`),
+      model: pickNonEmptyString(identity["model"], `team.${role}.model`),
+    };
+  }
+  return merged;
+}
+
 function pickNumber(table: TomlTable, key: string, fallback: number, where = "[limits]"): number {
   const value = table[key];
   if (value === undefined) return fallback;
@@ -389,7 +433,7 @@ function assertValidRegexPatterns(patterns: string[], description: string): void
   }
 }
 
-function hasGnhfCommand(command: string): boolean {
+export function hasGnhfCommand(command: string): boolean {
   return /(?:^|\s)(?:\S*\/)?gnhf(?:@[-\w.]+)?(?:\s|$)/.test(command);
 }
 
@@ -470,10 +514,14 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let reviewerLogins: string[] | undefined;
   let monitorTable: TomlTable = { ...DEFAULTS.monitor };
   let runTable: TomlTable = { ...DEFAULTS.run };
+  let team: ComboTeam | undefined;
 
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
       roles = mergeRoles(roles, layer.table["roles"], layer.source);
+    }
+    if (layer.table["team"] !== undefined) {
+      team = mergeTeam(team, layer.table["team"], layer.source);
     }
     if (layer.table["limits"] !== undefined) {
       limitsTable = {
@@ -812,6 +860,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "[monitor]",
     ),
     sourceBranch: pickNonEmptyString(runTable["source_branch"], "run.source_branch"),
+    ...(team !== undefined ? { team } : {}),
   };
 }
 // -/ 3/4

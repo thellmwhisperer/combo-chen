@@ -66,7 +66,7 @@ function runCommandSynchronously(command) {
   });
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
-  process.exit(result.status ?? 1);
+  return result.status ?? 1;
 }
 
 function requireWindow(target) {
