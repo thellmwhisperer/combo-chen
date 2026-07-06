@@ -3578,6 +3578,33 @@ describe("run", () => {
     expect(out.join("\n")).toContain("reviewer | opencode/claude/opus | opencode/claude/sonnet | mismatch");
   });
 
+  it("journals and snapshots the resolved team when launch identity is declared", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const gatekeeper = { binary: "no-mistakes", agent: "claude", model: "opus" };
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      [
+        "[team.gatekeeper]",
+        `binary = "${gatekeeper.binary}"`,
+        `agent = "${gatekeeper.agent}"`,
+        `model = "${gatekeeper.model}"`,
+      ].join("\n"),
+    );
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      resolveTeamIdentity: (role) => ({ role, identity: gatekeeper }),
+    });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const runDir = runDirFor(h, "o-r-7");
+    expect(readConfigSnapshot(runDir).resolvedTeam).toEqual({ gatekeeper });
+    const events = readEvents(runDir);
+    expect(events.map((event) => event.event).slice(0, 2)).toEqual(["combo_created", "team"]);
+    expect(events[1]).toMatchObject({ event: "team", roles: { gatekeeper } });
+  });
+
   it("runs overture directly for a clean local work plan and records the full resource ledger", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

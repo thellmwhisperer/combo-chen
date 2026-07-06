@@ -129,6 +129,8 @@ export interface ComboConfig {
   sourceBranch: string;
   /** Optional launch contract declaring the expected effective role identities. */
   team?: ComboTeam;
+  /** Launch-time effective role identities resolved during overture. */
+  resolvedTeam?: ComboTeam;
 }
 
 type CanonicalRoleName = "coder" | "gatekeeper" | "reviewer" | "merge";

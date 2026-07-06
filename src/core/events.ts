@@ -47,6 +47,7 @@ export class ComboEventError extends Error {}
 
 export const EVENT_TYPES = {
   combo_created: { required: ["issue_url"] },
+  team: { required: ["roles"] },
   coder_started: { required: [] },
   coder_done: { required: [] },
   coder_failed: { required: ["exit_code", "has_new_commits"] },
