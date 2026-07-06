@@ -25,6 +25,24 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.73](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.72...combo-chen-v0.0.73) (2026-07-06)
+
+
+### Features
+
+* **config:** Added the first issue [#260](https://github.com/thellmwhisperer/combo-chen/issues/260) slice by making `[team.<role>]` an opt-in parsed config contract with tests. ([8c7bb25](https://github.com/thellmwhisperer/combo-chen/commit/8c7bb25abb5f1e7b75338d90ad8badfc68306da8))
+* **overture:** Persisted verified declared team identities into both launch snapshots and the journal, with full local validation green. ([89743a1](https://github.com/thellmwhisperer/combo-chen/commit/89743a1ee6fac5c74e48b0d9ffbbb673f19f30fd))
+* **overture:** team identity check - resolve and verify effective role identities before launch ([2438361](https://github.com/thellmwhisperer/combo-chen/commit/24383611e95576f06e3e55579ece834eca7c6d55))
+* **team-identity:** Implemented the production no-mistakes gatekeeper team identity resolver slice and validated it with the full local suite plus build/slop checks. ([2a31ce5](https://github.com/thellmwhisperer/combo-chen/commit/2a31ce55692f06d18ef68e0bde725dbf5937a4d2))
+
+
+### Bug Fixes
+
+* **overture:** Added the undeclared-team overture checklist slice so repos without `[team]` remain opt-in while visibly recording that identity verification was skipped. ([81d296b](https://github.com/thellmwhisperer/combo-chen/commit/81d296b59cfb587b51e71916a14ca30dd021cebb))
+* **team-identity:** Added production opencode team-identity resolution and validated the slice with the full local check set. ([d02cab0](https://github.com/thellmwhisperer/combo-chen/commit/d02cab08add3152ad61a07c7869f574570a80486))
+* **team-identity:** Added the next production resolver slice so direct `claude` role commands resolve effective team identity before overture launch. ([2c873eb](https://github.com/thellmwhisperer/combo-chen/commit/2c873ebef282d81b117b2c20a87be24d4edea224))
+* **team-identity:** Implemented the remaining production Codex/gnhf team-identity resolver slice and pinned it with unit, CLI integration, and focused e2e coverage. ([80dc491](https://github.com/thellmwhisperer/combo-chen/commit/80dc4914ef8cf2fb523e959adedcabaa0c2ca811))
+
 ## [0.0.72](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.71...combo-chen-v0.0.72) (2026-07-05)
 
 
