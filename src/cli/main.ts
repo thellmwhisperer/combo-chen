@@ -150,7 +150,7 @@ export interface Deps {
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: UpdateCommandDeps["gh"];
-  noMistakes: (args: string[], cwd: string) => CommandResult;
+  noMistakes: (args: string[], cwd: string, options?: { timeoutMs?: number }) => CommandResult;
   resolveTeamIdentity?: TeamIdentityResolver;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
@@ -187,9 +187,14 @@ export function defaultDeps(): Deps {
       const stderr = (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr };
     },
-    noMistakes: (args, cwd) => {
-      const result = spawnSync("no-mistakes", args, { cwd, encoding: "utf8" });
-      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    noMistakes: (args, cwd, options) => {
+      const result = spawnSync("no-mistakes", args, {
+        cwd,
+        encoding: "utf8",
+        ...(options?.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
+      });
+      const stderr = (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
+      return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr };
     },
     resolveTeamIdentity: resolveConfiguredTeamIdentity,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

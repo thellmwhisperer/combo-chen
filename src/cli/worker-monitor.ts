@@ -61,7 +61,7 @@ import { noMistakesAxiStatusActive, parseNoMistakesAxiStatus } from "./status.js
 export interface WorkerMonitorDeps {
   out: (line: string) => void;
   tmux: (args: string[]) => TmuxResult;
-  noMistakes?: (args: string[], cwd: string) => TmuxResult;
+  noMistakes?: (args: string[], cwd: string, options?: { timeoutMs?: number }) => TmuxResult;
 }
 
 export type WorkerPaneReason = "worker_permission_prompt" | "worker_dead" | "worker_stalled";
@@ -88,6 +88,7 @@ type WorkerSnapshot = Record<string, WorkerSnapshotEntry>;
 
 const SNAPSHOT_FILE = "worker-panes.json";
 const DEFAULT_STALL_TICKS = 3;
+const GATEKEEPER_STATUS_TIMEOUT_MS = 5_000;
 function newestGnhfLogPath(worktree: string): string | undefined {
   const runsDir = join(worktree, ".gnhf", "runs");
   if (!existsSync(runsDir)) return undefined;
@@ -249,7 +250,9 @@ function hasEscalation(runDir: string, reason: string, worker: string): boolean 
 function gatekeeperRunActive(deps: WorkerMonitorDeps, combo: ComboRecord): boolean {
   if (deps.noMistakes === undefined) return false;
   try {
-    const status = deps.noMistakes(["axi", "status"], combo.worktree);
+    const status = deps.noMistakes(["axi", "status"], combo.worktree, {
+      timeoutMs: GATEKEEPER_STATUS_TIMEOUT_MS,
+    });
     if (status.status !== 0) return false;
     const facts = parseNoMistakesAxiStatus(status.stdout);
     return facts.branch === combo.branch && noMistakesAxiStatusActive(facts);

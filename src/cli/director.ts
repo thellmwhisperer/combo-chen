@@ -68,7 +68,11 @@ export interface DirectorDeps {
   git: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: (args: string[]) => { status: number; stdout: string; stderr: string };
-  noMistakes: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
+  noMistakes: (
+    args: string[],
+    cwd: string,
+    options?: { timeoutMs?: number },
+  ) => { status: number; stdout: string; stderr: string };
   sleep: (ms: number) => Promise<void>;
 }
 // -/ 1/3
