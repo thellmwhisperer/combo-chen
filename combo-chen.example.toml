@@ -17,6 +17,32 @@ gatekeeper = "no-mistakes"
 reviewer = ["claude"]              # validated: reviewer != coder
 merge = "human"                   # hard default: earn automerge with data first
 
+# Declare the expected effective identity per role. Each identity line pins
+# binary → agent → model; the overture check resolves the actual identity from
+# each tool's config (no-mistakes config, codex config.toml, opencode resolved
+# config, etc.) and hard-fails on mismatch. Undeclared teams keep current
+# behavior; the checklist notes the team is undeclared.
+# Uncomment and tune for each role whose identity you want to pin.
+# [team.coder]
+# binary = "npx"
+# agent = "gnhf/codex"
+# model = "gpt-5.5"
+#
+# [team.gatekeeper]
+# binary = "no-mistakes"
+# agent = "claude"
+# model = "opus"
+#
+# [team.reviewer]
+# binary = "opencode"
+# agent = "claude"
+# model = "opus"
+#
+# [team.director]
+# binary = "claude"
+# agent = "claude"
+# model = "opus"
+
 [coder.codex]
 # {placeholders}: issue_url, worktree, repo, branch, prompt. Each value is
 # substituted as a single-quoted shell token; don't add quotes around them.
