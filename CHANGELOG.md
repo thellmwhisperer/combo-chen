@@ -27,6 +27,18 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.74](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.73...combo-chen-v0.0.74) (2026-07-06)
+
+
+### Bug Fixes
+
+* **director:** consult orchestrator evidence before escalating stalled workers ([2f93b4b](https://github.com/thellmwhisperer/combo-chen/commit/2f93b4bc8118f5869287f3658065a5c25b08ac4f))
+* **needs-human-report:** Added the missing `needs-human-report` audit metric for `worker_stalled` false positives and validated the unit/build checks, but full e2e remains red so the loop should continue. ([921da34](https://github.com/thellmwhisperer/combo-chen/commit/921da34e7206ac4ec6d26bc0bec4ff2343985394))
+* **slop:** tombstone commit fragments and timeout constants ([fd32e4a](https://github.com/thellmwhisperer/combo-chen/commit/fd32e4a5d161bc5b36e034dba871a97a76343865))
+* **worker-monitor:** Added reviewer external-review stall evidence so unchanged reviewer panes no longer escalate while an external review request is in flight, with unit and e2e coverage plus green local validation. ([6268858](https://github.com/thellmwhisperer/combo-chen/commit/626885842dc4c8e056eb3bb31ca35acc85c84a80))
+* **worker-monitor:** bound gatekeeper status probe ([241a7f1](https://github.com/thellmwhisperer/combo-chen/commit/241a7f13459f42d5a45693b3f54f21cd192bf4b8))
+* **worker-monitor:** Tightened coder stall evidence so fresh gnhf logs only suppress `worker_stalled` when they have not recorded `orchestrator:end`. ([5739574](https://github.com/thellmwhisperer/combo-chen/commit/5739574d657c0ad33350c5dda7de53269ab1188a))
+
 ## [0.0.73](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.72...combo-chen-v0.0.73) (2026-07-06)
 
 
