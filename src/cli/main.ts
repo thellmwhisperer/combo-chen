@@ -107,6 +107,7 @@ import {
   assertOverturePassed,
   prepareOverture,
   renderOvertureChecklist,
+  type TeamIdentityResolver,
 } from "./overture.js";
 import { parkCombo } from "./park.js";
 import {
@@ -149,6 +150,7 @@ export interface Deps {
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: UpdateCommandDeps["gh"];
   noMistakes: (args: string[], cwd: string) => CommandResult;
+  resolveTeamIdentity?: TeamIdentityResolver;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
   update?: Partial<UpdateCommandDeps>;
