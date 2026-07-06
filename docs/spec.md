@@ -25,7 +25,19 @@ Validation at launch (hard failures, the combo refuses to start):
   source_checkout_clean, base_ref_resolved, treehouse_available,
   combo_id_valid, run_dir_free, branch_free, worktree_free, tmux_session_free, config_parses,
   coder_command_safe, reviewer_command_safe, no_mistakes_available,
-  no_mistakes_run_free, no_mistakes_config_predictable.
+  no_mistakes_run_free, no_mistakes_config_predictable, team_identity.
+- `team_identity` validates the declared `[team]` block against each role's
+  resolved effective identity. When `[team]` is configured in `combo-chen.toml`,
+  overture resolves the binary → agent → model surface for each declared role by
+  inspecting the tool's own config (no-mistakes `~/.no-mistakes/config.yaml` for
+  the gatekeeper, codex `config.toml`/profile for codex roles, opencode resolved
+  config for opencode, and command-line flags for direct claude commands). A
+  mismatch prints a table showing declared vs resolved and hard-fails the
+  overture. Undeclared teams keep current behavior; the checklist notes the team
+  is undeclared. When the team matches, a `team` event (payload `roles`) is
+  journaled and the resolved identities land in the launch config snapshot so
+  director-watch can flag mid-run identity drift (e.g. daemon config changed
+  under a live combo).
 - The result is written as a machine-readable `overture.json` artifact in the
   combo run directory when the run directory is available, recording all
   resources the run is allowed to create and every check result. A

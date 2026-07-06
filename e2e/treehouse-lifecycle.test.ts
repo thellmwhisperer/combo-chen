@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~2590 lines, log-derived regressions.
+ *   and process shims for external services. ~3070 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -46,6 +46,8 @@ import { CODER_THREAD_ARTIFACT } from "../src/roles/coder.js";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const cliPath = join(repoRoot, "dist", "cli.mjs");
 const LAUNCH_TIMEOUT_MS = 20_000;
+const GATE_COMMAND_TIMEOUT_MS = 20_000;
+const E2E_TEST_TIMEOUT_MS = 30_000;
 
 interface RunResult {
   status: number;
@@ -88,6 +90,10 @@ interface HarnessOptions {
   missingComboLabelsOnFirstAdd?: boolean;
   workerStallTicks?: number;
   workPlanExtra?: string[];
+  coderRole?: string;
+  coderCommand?: string;
+  coderResumeCommand?: string;
+  teamLines?: string[];
   permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
 }
 
@@ -285,6 +291,44 @@ describe("treehouse-backed combo lifecycle e2e", () => {
     }
   });
 
+  it("returns success after fake tmux creates a window whose command exits nonzero", () => {
+    const tmpBase = join(repoRoot, ".tmp");
+    mkdirSync(tmpBase, { recursive: true });
+    const root = mkdtempSync(join(tmpBase, "e2e-tmux-shim-"));
+    const statePath = join(root, "tmux-state.json");
+    const sessionName = "combo-chen-shim-window-status";
+    let passed = false;
+
+    try {
+      const env = {
+        ...process.env,
+        E2E_TMUX_RUN_NEW_SESSION: "1",
+        E2E_TMUX_STATE: statePath,
+      };
+      const tmuxShim = join(repoRoot, "e2e", "fixtures", "shims", "tmux.mjs");
+      const session = spawnSync(process.execPath, [tmuxShim, "new-session", "-d", "-s", sessionName, "-n", "journal", "true"], {
+        cwd: repoRoot,
+        env,
+        encoding: "utf8",
+      });
+      expect(session.status).toBe(0);
+
+      const result = spawnSync(
+        process.execPath,
+        [tmuxShim, "new-window", "-t", sessionName, "-n", "coder", `${process.execPath} -e "process.exit(7)"`],
+        { cwd: repoRoot, env, encoding: "utf8" },
+      );
+
+      expect(result.status).toBe(0);
+      const state = readJson<TmuxStateJson>(statePath);
+      expect(Object.keys(state.sessions[sessionName]?.windows ?? {})).toContain("coder");
+      passed = true;
+    } finally {
+      if (passed) rmSync(root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${root}\n`);
+    }
+  });
+
   it("launches a plan-backed combo in a leased git worktree and returns it on closure", () => {
     const harness = prepareHarness();
     let passed = false;
@@ -347,6 +391,68 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       }
     }
   });
+
+  it("launches with declared gnhf codex team identity resolved from tool configs", () => {
+    const coderIdentity = { binary: "npx", agent: "gnhf/codex", model: "gpt-5.5" };
+    const harness = prepareHarness({
+      coderRole: "codex",
+      coderCommand: [
+        "npx -y gnhf@0.1.41",
+        "--agent codex",
+        "--max-iterations 12",
+        "--stop-when done",
+        "--prevent-sleep on",
+        "--meteor-frequency 0",
+        "--current-branch {prompt}",
+      ].join(" "),
+      teamLines: [
+        "[team.coder]",
+        `binary = ${JSON.stringify(coderIdentity.binary)}`,
+        `agent = ${JSON.stringify(coderIdentity.agent)}`,
+        `model = ${JSON.stringify(coderIdentity.model)}`,
+      ],
+    });
+    const operatorHome = join(harness.root, "operator-home");
+    const codexHome = join(harness.root, "codex-home");
+    let passed = false;
+
+    try {
+      mkdirSync(join(operatorHome, ".gnhf"), { recursive: true });
+      mkdirSync(codexHome, { recursive: true });
+      writeFileSync(
+        join(operatorHome, ".gnhf", "config.yml"),
+        [
+          "agentArgsOverride:",
+          "  codex:",
+          "    - --profile",
+          "    - sitter",
+        ].join("\n"),
+      );
+      writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5"\n');
+      writeFileSync(join(codexHome, "sitter.config.toml"), 'model = "gpt-5.5"\n');
+      harness.env.HOME = operatorHome;
+      harness.env.CODEX_HOME = codexHome;
+
+      const { launch, runDir } = launchPlanCombo(harness);
+
+      expect(launch.stdout).toContain("OK team_identity: team");
+      expect(launch.stdout).toContain("coder | npx/gnhf/codex/gpt-5.5 | npx/gnhf/codex/gpt-5.5 | match");
+      expect(readJson<{ resolvedTeam?: unknown }>(join(runDir, "config.snapshot.json")).resolvedTeam).toEqual({
+        coder: coderIdentity,
+      });
+      expect(readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"))).toContainEqual(
+        expect.objectContaining({ event: "team", roles: { coder: coderIdentity } }),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) {
+        rmSync(harness.root, { recursive: true, force: true });
+      } else {
+        process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+      }
+    }
+  }, LAUNCH_TIMEOUT_MS);
 
   it("auto-closes a GitHub-merged combo from a director tick without a manual closure command", () => {
     const harness = prepareHarness();
@@ -550,7 +656,12 @@ describe("treehouse-backed combo lifecycle e2e", () => {
   });
 
   it("executes the generated runner and copies no-mistakes config into the active gate worktree", () => {
-    const harness = prepareHarness({ executeRunner: true, activeNoMistakes: true });
+    const harness = prepareHarness({
+      executeRunner: true,
+      activeNoMistakes: true,
+      gatekeeperCommand: "no-mistakes axi run --intent e2e-initial-gate",
+      noMistakesRunDelayMs: 1200,
+    });
     harness.env.COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS = "5";
     harness.env.COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED = "1";
     let passed = false;
@@ -585,7 +696,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, E2E_TEST_TIMEOUT_MS);
 
   it("resumes a broken combo when no-mistakes creates the run only after gate restart", () => {
     const harness = prepareHarness({
@@ -620,7 +731,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
           COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         },
-        timeoutMs: 10_000,
+        timeoutMs: GATE_COMMAND_TIMEOUT_MS,
       });
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
       const tmuxAfterRestart = readJsonLines<LogEntryJson>(harness.logs.tmux);
@@ -649,7 +760,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, E2E_TEST_TIMEOUT_MS);
 
   it("aborts a stale same-branch no-mistakes run before a restarted gate while preserving other branches", () => {
     const harness = prepareHarness({
@@ -692,7 +803,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
           COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         },
-        timeoutMs: 10_000,
+        timeoutMs: GATE_COMMAND_TIMEOUT_MS,
       });
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
 
@@ -734,7 +845,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, E2E_TEST_TIMEOUT_MS);
 
   it("recreates a missing tmux room before restarting the initial gate", () => {
     const harness = prepareHarness({
@@ -758,7 +869,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
           COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "5",
         },
-        timeoutMs: 10_000,
+        timeoutMs: GATE_COMMAND_TIMEOUT_MS,
       });
       expect(restart.stdout).toContain("recreated tmux session");
       expect(restart.stdout).toContain(`initial gate restarted for ${combo.id}`);
@@ -819,7 +930,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, E2E_TEST_TIMEOUT_MS);
 
   it("closes a merged combo even when the tmux session already disappeared", () => {
     const harness = prepareHarness();
@@ -1422,7 +1533,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, E2E_TEST_TIMEOUT_MS);
 
   it("recovers a stalled coder responding worker before escalating needs_human", () => {
     const harness = prepareHarness({ workerStallTicks: 2, coderRespondingWindowName: "coder-responding" });
@@ -1896,7 +2007,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
         },
         encoding: "utf8",
-        timeout: 15_000,
+        timeout: GATE_COMMAND_TIMEOUT_MS,
       });
       const paneOutput = `${pane.stdout ?? ""}\n${pane.stderr ?? ""}`;
 
@@ -1918,7 +2029,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, E2E_TEST_TIMEOUT_MS);
 
   it("normalizes post-address checks-passed context cancellation through director-tick", () => {
     const harness = prepareHarness({
@@ -1984,7 +2095,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
           E2E_HEAD_SHA: localSha,
         },
         encoding: "utf8",
-        timeout: 15_000,
+        timeout: GATE_COMMAND_TIMEOUT_MS,
       });
       const paneOutput = `${pane.stdout ?? ""}\n${pane.stderr ?? ""}`;
 
@@ -2013,7 +2124,7 @@ describe("treehouse-backed combo lifecycle e2e", () => {
       if (passed) rmSync(harness.root, { recursive: true, force: true });
       else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
     }
-  }, 15_000);
+  }, E2E_TEST_TIMEOUT_MS);
 
   it("routes local sync recovery instead of post-address gating from a worktree behind the PR head", () => {
     const harness = prepareHarness({ externalCommentAgents: ["coderabbitai"] });
@@ -2865,6 +2976,7 @@ function prepareHarness(options: HarnessOptions = {}): Harness {
       E2E_NO_MISTAKES_GATE: join(noMistakesRoot, "repos", "e2e.git"),
       E2E_NO_MISTAKES_LOG: logs.noMistakes,
       E2E_NO_MISTAKES_STATE: join(root, "no-mistakes-state.json"),
+      E2E_NO_MISTAKES_CONFIG_WAIT_MS: "4000",
       E2E_NO_MISTAKES_RUN_DELAY_MS: String(options.noMistakesRunDelayMs ?? 0),
       TREEHOUSE_NO_UPDATE_CHECK: "1",
     },
@@ -2886,6 +2998,9 @@ function prepareGitRepo(repo: string, origin: string): void {
 
 function writeRepoConfig(repo: string, options: HarnessOptions): void {
   const gatekeeperCommand = options.gatekeeperCommand ?? "true";
+  const coderRole = options.coderRole ?? "e2e-coder";
+  const coderCommand = options.coderCommand ?? "e2e-coder";
+  const coderResumeCommand = options.coderResumeCommand ?? "true";
   const externalCommentAgents = options.externalCommentAgents ?? [];
   const externalReviewCommands = options.externalReviewCommands ?? [];
   const readyRequiredChecks = options.readyRequiredChecks ?? [];
@@ -2902,9 +3017,15 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
     join(repo, "combo-chen.toml"),
     [
       "[roles]",
-      'coder = "e2e-coder"',
+      `coder = ${JSON.stringify(coderRole)}`,
       'reviewer = ["e2e-reviewer"]',
       "",
+      ...(options.teamLines === undefined || options.teamLines.length === 0
+        ? []
+        : [
+            ...options.teamLines,
+            "",
+          ]),
       ...(options.reviewerLogins === undefined
         ? []
         : [
@@ -2912,9 +3033,9 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
             `logins = ${JSON.stringify(options.reviewerLogins)}`,
             "",
           ]),
-      "[coder.e2e-coder]",
-      'command = "e2e-coder"',
-      'resume_command = "true"',
+      `[coder.${coderRole}]`,
+      `command = ${JSON.stringify(coderCommand)}`,
+      `resume_command = ${JSON.stringify(coderResumeCommand)}`,
       "",
       "[reviewer.e2e-reviewer]",
       'command = "true"',

@@ -107,6 +107,7 @@ import {
   assertOverturePassed,
   prepareOverture,
   renderOvertureChecklist,
+  type TeamIdentityResolver,
 } from "./overture.js";
 import { parkCombo } from "./park.js";
 import {
@@ -134,6 +135,7 @@ import {
   resolveAttachCombo,
 } from "./sessions.js";
 import { deepComboStatus, formatGateLeaseStatus, type CommandResult } from "./status.js";
+import { resolveConfiguredTeamIdentity } from "./team-identity.js";
 import { defaultUpdateCommandDeps, runUpdateCommand, type UpdateCommandDeps } from "./update.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan, WORK_PLAN_ARTIFACT } from "./work-plan.js";
 import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
@@ -149,6 +151,7 @@ export interface Deps {
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: UpdateCommandDeps["gh"];
   noMistakes: (args: string[], cwd: string) => CommandResult;
+  resolveTeamIdentity?: TeamIdentityResolver;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
   update?: Partial<UpdateCommandDeps>;
@@ -188,6 +191,7 @@ export function defaultDeps(): Deps {
       const result = spawnSync("no-mistakes", args, { cwd, encoding: "utf8" });
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
     },
+    resolveTeamIdentity: resolveConfiguredTeamIdentity,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     issueExists: (issueUrl) => {
       const result = spawnSync("gh", ["issue", "view", issueUrl, "--json", "number"], {
@@ -348,6 +352,7 @@ export function createProgram(deps: Deps): Command {
 
       let { combo } = overture;
       const { config, issue, issueDetails, runDir, workPlan } = overture;
+      const resolvedTeam = overture.result.resolvedTeam;
       try {
         combo = acquireTreehouseWorktree({ deps, combo, baseRef: options.base });
       } catch (error) {
@@ -414,7 +419,10 @@ export function createProgram(deps: Deps): Command {
           deps.out(`no-mistakes: copied local config to ${worktree}/${NO_MISTAKES_CONFIG_FILE}`);
         }
         writeCombo(runDir, combo);
-        writeConfigSnapshot(runDir, config);
+        writeConfigSnapshot(
+          runDir,
+          resolvedTeam === undefined ? config : { ...config, resolvedTeam },
+        );
         writeFileSync(join(runDir, WORK_PLAN_ARTIFACT), renderWorkPlanMarkdown(workPlan));
         writeRuntimeLedger(
           runDir,
@@ -451,6 +459,9 @@ export function createProgram(deps: Deps): Command {
           branch: combo.branch,
           tmux: session,
         });
+        if (resolvedTeam !== undefined) {
+          appendEvent(runDir, "team", { roles: resolvedTeam });
+        }
       } catch (error) {
         rmSync(runDir, { recursive: true, force: true });
         rollbackTreehouseLaunch(deps, combo);

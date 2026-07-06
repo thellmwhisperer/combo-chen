@@ -15,6 +15,7 @@
  *   PUBLIC API
  *   ----------
  *   OvertureDeps            Injected process adapters.
+ *   TeamIdentityResolver    Resolve effective role identity for declared teams.
  *   OvertureCheck           One machine-readable check result.
  *   OverturePreparation     Full prepared launch context for run.
  *   prepareOverture         Resolve work item/config/resources and write artifact.
@@ -25,9 +26,9 @@
  *   ---------
  *   OVERTURE_ARTIFACT, OvertureBlockedError, readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
  *   checkBaseRef, checkTreehouseAvailable, checkBranchFree,
- *   checkNoMistakesRunway, runDirReusable, writeOvertureArtifact
+ *   checkNoMistakesRunway, checkTeamIdentity, runDirReusable, writeOvertureArtifact
  *
- * @exports OvertureDeps, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
+ * @exports OvertureDeps, TeamIdentityResolution, TeamIdentityResolver, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
  * @deps node:{crypto,fs,path}, ../core/{state,work-plan}, ../infra/{config,tmux}, ../roles/reviewer, ./github, ./status, ./work-plan
  */
 import { createHash } from "node:crypto";
@@ -52,6 +53,9 @@ import {
   assertSafeCoderInvocation,
   loadConfig,
   type ComboConfig,
+  type ComboTeam,
+  type ComboTeamIdentity,
+  type ComboTeamRole,
 } from "../infra/config.js";
 import { hasSessionArgs, type TmuxResult } from "../infra/tmux.js";
 import { assertReviewerCommandSafe } from "../roles/reviewer.js";
@@ -63,6 +67,16 @@ const OVERTURE_ARTIFACT = "overture.json";
 
 type CommandResult = { status: number; stdout: string; stderr: string };
 
+export interface TeamIdentityResolution {
+  role: ComboTeamRole;
+  identity: ComboTeamIdentity;
+}
+
+export type TeamIdentityResolver = (
+  role: ComboTeamRole,
+  input: { config: ComboConfig; declared: ComboTeamIdentity; repoDir: string; env: Record<string, string | undefined> },
+) => TeamIdentityResolution | undefined;
+
 export interface OvertureDeps {
   env: Record<string, string | undefined>;
   git: (args: string[], cwd: string) => CommandResult;
@@ -71,6 +85,7 @@ export interface OvertureDeps {
   noMistakes: (args: string[], cwd: string) => CommandResult;
   tmux: (args: string[]) => TmuxResult;
   issueExists?: (issueUrl: string) => boolean;
+  resolveTeamIdentity?: TeamIdentityResolver;
 }
 
 export type OvertureCheckStatus = "ok" | "failed";
@@ -110,6 +125,7 @@ export interface OvertureResult {
   createdAt: string;
   artifactPath?: string;
   resources: OvertureResources;
+  resolvedTeam?: ComboTeam;
   checks: OvertureCheck[];
 }
 
@@ -260,6 +276,71 @@ function checkConfigFilePredictable(repoDir: string, worktree: string): Overture
   return ok("no_mistakes_config_predictable", `${source} -> ${join(worktree, ".no-mistakes.yaml")}`);
 }
 
+const TEAM_ROLE_ORDER: ComboTeamRole[] = ["coder", "gatekeeper", "reviewer", "director"];
+
+function identityLabel(identity: ComboTeamIdentity | undefined): string {
+  if (identity === undefined) return "(unresolved)";
+  return `${identity.binary}/${identity.agent}/${identity.model}`;
+}
+
+function identitiesMatch(left: ComboTeamIdentity, right: ComboTeamIdentity | undefined): boolean {
+  return (
+    right !== undefined &&
+    left.binary === right.binary &&
+    left.agent === right.agent &&
+    left.model === right.model
+  );
+}
+
+interface TeamIdentityCheckResult {
+  check: OvertureCheck;
+  resolvedTeam?: ComboTeam;
+}
+
+function checkTeamIdentity(
+  deps: OvertureDeps,
+  config: ComboConfig,
+  repoDir: string,
+): TeamIdentityCheckResult {
+  const team = config.team;
+  if (team === undefined) {
+    return { check: ok("team_identity", "team", "undeclared; identity check skipped") };
+  }
+
+  const rows = ["role | declared | resolved | status"];
+  const resolvedTeam: ComboTeam = {};
+  let mismatch = false;
+  for (const role of TEAM_ROLE_ORDER) {
+    const declared = team[role];
+    if (declared === undefined) continue;
+    let resolved: ComboTeamIdentity | undefined;
+    try {
+      resolved = deps.resolveTeamIdentity?.(role, {
+        config,
+        declared,
+        repoDir,
+        env: deps.env,
+      })?.identity;
+    } catch (error) {
+      const reason = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, " ");
+      rows.push(`${role} | ${identityLabel(declared)} | ${reason} | error`);
+      mismatch = true;
+      continue;
+    }
+    if (resolved !== undefined) resolvedTeam[role] = resolved;
+    const rowStatus = identitiesMatch(declared, resolved) ? "match" : "mismatch";
+    if (rowStatus === "mismatch") mismatch = true;
+    rows.push(`${role} | ${identityLabel(declared)} | ${identityLabel(resolved)} | ${rowStatus}`);
+  }
+
+  if (rows.length === 1) {
+    return { check: ok("team_identity", "team", "declared but empty; identity check skipped") };
+  }
+  const detail = `${mismatch ? "mismatch" : "verified"}\n${rows.join("\n")}`;
+  const check = mismatch ? failed("team_identity", "team", detail) : ok("team_identity", "team", detail);
+  return Object.keys(resolvedTeam).length === 0 ? { check } : { check, resolvedTeam };
+}
+
 const ACTIVE_NO_MISTAKES_RUN_STATUSES = new Set(["active", "in_progress", "running", "waiting"]);
 
 function parseNoMistakesWorktree(raw: string): string | undefined {
@@ -401,6 +482,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     createdAt: input.now?.() ?? new Date().toISOString(),
   };
   const noMistakes = checkNoMistakesRunway(input.deps, input.repoDir, branch, worktree);
+  const teamIdentity = checkTeamIdentity(input.deps, config, input.repoDir);
   const resources: OvertureResources = {
     comboId: id,
     repo: input.repoDir,
@@ -431,6 +513,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
       ? failed("tmux_session_free", session, "session already exists")
       : ok("tmux_session_free", session),
     ok("config_parses", input.repoDir),
+    teamIdentity.check,
   ];
   try {
     assertSafeCoderInvocation(config.coderCommand, { requireGnhf: config.roles.coder === "codex" });
@@ -451,6 +534,7 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     ok: checks.every((check) => check.status === "ok"),
     createdAt: combo.createdAt,
     resources,
+    ...(teamIdentity.resolvedTeam !== undefined ? { resolvedTeam: teamIdentity.resolvedTeam } : {}),
     checks,
   };
   writeOvertureArtifact(runDir, result);
@@ -467,6 +551,7 @@ function writeOvertureArtifact(runDir: string, result: OvertureResult): void {
     ok: result.ok,
     createdAt: result.createdAt,
     resources: result.resources,
+    ...(result.resolvedTeam !== undefined ? { resolvedTeam: result.resolvedTeam } : {}),
     checks: result.checks,
   };
   writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`);

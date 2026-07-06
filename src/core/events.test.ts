@@ -84,6 +84,7 @@ describe("event schema", () => {
         "rebase_failed",
         "rebase_conflict",
         "stopped",
+        "team",
         "watch_dead",
         "watch_error",
       ].sort(),
@@ -92,6 +93,7 @@ describe("event schema", () => {
 
   it("requires the documented payload fields per event", () => {
     expect(EVENT_TYPES.combo_created.required).toEqual(["issue_url"]);
+    expect(EVENT_TYPES.team.required).toEqual(["roles"]);
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
     expect(EVENT_TYPES.worker_recovered.required).toEqual(["worker", "reason", "attempt"]);
