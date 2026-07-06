@@ -371,6 +371,70 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContainEqual(expect.stringContaining("external review active"));
   });
 
+  it("does not flag a stalled-looking reviewer after a recent reviewer artifact", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "lgtm", { sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" });
+    const { deps, out } = fakeDeps({
+      reviewer: "review complete; waiting for director...\n",
+    });
+
+    expect(
+      inspectWorkerPanes({
+        deps,
+        combo: record,
+        runDir,
+        workerWindows: ["reviewer"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; reviewer artifact recent");
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("reviewer artifact recent"));
+  });
+
+  it("does not use stale reviewer artifacts as active reviewer evidence", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "lgtm", { sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+    appendEvent(runDir, "lgtm_stale", {
+      old_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      new_sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    });
+    const { deps } = fakeDeps({
+      reviewer: "reviewing new head...\n",
+    });
+
+    expect(
+      inspectWorkerPanes({
+        deps,
+        combo: record,
+        runDir,
+        workerWindows: ["reviewer"],
+        stallTicks: 2,
+      }).escalated,
+    ).toBe(false);
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      stallTicks: 2,
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; no orchestrator evidence");
+  });
+
   it("reports gnhf terminal failures as dead workers", () => {
     const { record, runDir } = combo();
     const { deps, out } = fakeDeps({

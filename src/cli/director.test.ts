@@ -1277,6 +1277,36 @@ describe("tickDirector", () => {
     expect(reviewerWorkerCaptures).toBe(1);
   });
 
+  it("does not escalate an unchanged reviewer pane when a reviewer artifact was just journaled", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "lgtm", { sha: headSha });
+    const { deps, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      env: { COMBO_CHEN_WORKER_STALL_TICKS: "2" },
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "review complete\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).not.toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "reviewer" }),
+    );
+    expect(out).toContainEqual(expect.stringContaining("reviewer artifact recent"));
+  });
+
   it("leaves repeated director-watch PR label projections as no-ops when labels already match", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

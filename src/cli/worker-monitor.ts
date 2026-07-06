@@ -264,6 +264,7 @@ function reviewerOrchestratorEvidence(events: ComboEvent[]): string | undefined 
     if (event.event === "ready_for_merge" || event.event === "lgtm_stale" || event.event === "pr_opened") {
       return undefined;
     }
+    if (event.event === "lgtm") return "reviewer artifact recent";
     if (event.event === "external_review_requested") return "external review active";
   }
   return undefined;
