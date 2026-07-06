@@ -3437,6 +3437,7 @@ describe("run", () => {
     expect(out).toContain("OK branch_free: combo/issue-7");
     expect(out).toContain(`OK no_mistakes_available: ${repoDir}`);
     expect(out).toContain("OK no_mistakes_run_free: combo/issue-7 no active run");
+    expect(out).toContain("OK team_identity: team undeclared; identity check skipped");
     expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
@@ -3461,6 +3462,12 @@ describe("run", () => {
       id: "no_mistakes_available",
       status: "ok",
       resource: repoDir,
+    });
+    expect(artifact.checks).toContainEqual({
+      id: "team_identity",
+      status: "ok",
+      resource: "team",
+      detail: "undeclared; identity check skipped",
     });
   });
 
