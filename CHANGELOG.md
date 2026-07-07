@@ -27,6 +27,14 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.75](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.74...combo-chen-v0.0.75) (2026-07-07)
+
+
+### Bug Fixes
+
+* **gate:** Remove EXIT trap that stops shared no-mistakes daemon ([bfd842b](https://github.com/thellmwhisperer/combo-chen/commit/bfd842b42759752ce3456e36e41cc526a959f070))
+* **gate:** Removed the generated gate script daemon-stop trap and pinned the shared-daemon leave-running policy with focused core and e2e coverage. ([a08b8ae](https://github.com/thellmwhisperer/combo-chen/commit/a08b8ae11451291017d8d4b747db6129c646c056))
+
 ## [0.0.74](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.73...combo-chen-v0.0.74) (2026-07-06)
 
 
