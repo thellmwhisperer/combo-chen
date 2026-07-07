@@ -728,6 +728,13 @@ async function runInitialGateRetryIfNeeded(input: {
   if (!result.started && result.reason !== "uncommitted_changes") {
     appendFailedInitialGateRetry(input.runDir);
   }
+  if (result.started) {
+    appendEvent(input.runDir, "gate_started", {
+      source: "director_retry",
+      attempt: state.retryNumber,
+      max_attempts: state.retryAttempts,
+    });
+  }
   return true;
 }
 
