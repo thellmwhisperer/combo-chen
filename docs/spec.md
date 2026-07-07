@@ -251,6 +251,12 @@ If the daemon worktree copy fails, the gate is a deterministic failure even
 when no-mistakes output would otherwise match the checks-passed plus
 context-canceled recovery pattern.
 
+Generated gate scripts treat the no-mistakes daemon as a shared user-level
+service. They may start or verify the daemon before publishing to the
+no-mistakes mirror, but they do not stop it on exit. This is deterministic for
+single-capsule runs (the daemon is left running) and protects sibling capsules
+with active no-mistakes runs during parallel waves.
+
 ## 4. Coder responding contract
 
 - On `coder_done`, combo-chen captures the implementing session's thread id

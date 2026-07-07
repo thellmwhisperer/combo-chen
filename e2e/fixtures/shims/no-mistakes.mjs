@@ -105,7 +105,15 @@ function logCall() {
 logCall();
 
 if (args[0] === "daemon" && args[1] === "start") process.exit(0);
-if (args[0] === "daemon" && args[1] === "stop") process.exit(0);
+if (args[0] === "daemon" && args[1] === "stop") {
+  const state = load();
+  if (Array.isArray(state.runs)) {
+    state.runs = state.runs.map((run) => (isLive(run) ? { ...run, status: "cancelled" } : run));
+  }
+  state.active = false;
+  save(state);
+  process.exit(0);
+}
 
 if (args[0] === "status") {
   const state = load();

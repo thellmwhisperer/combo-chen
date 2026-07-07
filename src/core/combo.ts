@@ -397,7 +397,6 @@ export function buildNoMistakesMirrorPublishScript(combo: ComboRecord, pushInten
     `  mirror_intent=${shellQuote(`no-mistakes.intent=${pushIntent}`)}`,
     "  no-mistakes daemon start 2>/dev/null || no-mistakes status 2>/dev/null | grep -Eq 'daemon:.*running' || exit 1",
     "  export COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED=1",
-    "  trap 'no-mistakes daemon stop 2>/dev/null || true' EXIT",
     ...noMistakesAbortPreviousRunScript(combo.branch).map((line) => `  ${line}`),
     "  export COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED=1",
     `  if mirror_line=$(git ls-remote --heads no-mistakes "$mirror_branch" 2>/dev/null); then`,
