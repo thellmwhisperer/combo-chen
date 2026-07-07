@@ -27,6 +27,15 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.76](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.75...combo-chen-v0.0.76) (2026-07-07)
+
+
+### Bug Fixes
+
+* **director:** Added and validated a focused [#274](https://github.com/thellmwhisperer/combo-chen/issues/274) slice so director-watch now reports a concrete post-address gate launch decision instead of `polling` on stale PR-head state. ([40039c8](https://github.com/thellmwhisperer/combo-chen/commit/40039c8bef4626ab5e8f4052e143c9fb64d42118))
+* **director:** Completed the remaining [#274](https://github.com/thellmwhisperer/combo-chen/issues/274) initial-gate retry slice by journaling successful director retry attempts immediately and validating the full suite green. ([439651e](https://github.com/thellmwhisperer/combo-chen/commit/439651e9f34d283b5318a3e4936b6d1983c70d81))
+* **director:** journal gate_started retry metadata and report post-address gate launch action ([8a923b6](https://github.com/thellmwhisperer/combo-chen/commit/8a923b6d0a7945275cba303a62c5b1b0eb8772c7))
+
 ## [0.0.75](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.74...combo-chen-v0.0.75) (2026-07-07)
 
 
