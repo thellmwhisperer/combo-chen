@@ -87,6 +87,9 @@ merge = "human"                   # hard default: earn automerge with data first
 # Example with placeholders:
 # command = "no-mistakes axi run --yes --intent {issue_pr_intent}"
 command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}"
+# Generated gate scripts may start or verify the shared no-mistakes daemon
+# before publishing to the mirror, but they never stop it on exit. The daemon
+# is left running for both single-capsule and parallel wave runs.
 # The gatekeeper tmux window retries until no-mistakes has an active run to attach.
 # Environment overrides: COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS,
 # COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS.

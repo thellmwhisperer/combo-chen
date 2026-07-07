@@ -698,6 +698,54 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
     }
   }, LIFECYCLE_TEST_TIMEOUT_MS);
 
+  it("leaves the shared no-mistakes daemon running when a sibling capsule is active", () => {
+    const harness = prepareHarness({
+      executeRunner: true,
+      activateNoMistakesOnAxiRun: true,
+      gatekeeperCommand: 'no-mistakes daemon start && no-mistakes axi run --intent "{issue_pr_intent}"',
+      noMistakesRunDelayMs: CONFIG_COPY_E2E_RUN_DELAY_MS,
+    });
+    harness.env.COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS = "5";
+    harness.env.COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED = "1";
+    writeFileSync(
+      harness.env.E2E_NO_MISTAKES_STATE!,
+      `${JSON.stringify(
+        {
+          runs: [
+            { id: "sibling-live-run", branch: "combo/issue-sibling", head: "sibling-head", status: "running" },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl")).map((event) => event.event);
+      expect(events).toEqual(expect.arrayContaining(["gate_started", "gate_status", "pr_opened"]));
+
+      const noMistakesCalls = readJsonLines<LogEntryJson>(harness.logs.noMistakes);
+      expect(noMistakesCalls.some((entry) => entry.args.join(" ") === "daemon stop")).toBe(false);
+      const state = readJson<{
+        runs: Array<{ id: string; branch: string; head: string; status: string }>;
+      }>(harness.env.E2E_NO_MISTAKES_STATE!);
+      expect(state.runs).toEqual(
+        expect.arrayContaining([
+          { id: "sibling-live-run", branch: "combo/issue-sibling", head: "sibling-head", status: "running" },
+        ]),
+      );
+      expect(readJson<RuntimeLedgerJson>(join(runDir, "runtime-ledger.json")).prUrl).toBe(harness.env.E2E_PR_URL);
+      expect(combo.branch).not.toBe("combo/issue-sibling");
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  }, LIFECYCLE_TEST_TIMEOUT_MS);
+
   it("resumes a broken combo when no-mistakes creates the run only after gate restart", () => {
     const harness = prepareHarness({
       activateNoMistakesOnAxiRun: true,
