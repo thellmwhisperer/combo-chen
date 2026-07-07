@@ -178,9 +178,11 @@ HEAD. Post-address gates run the PR autoclose
 guard before emitting `gate_validated`, so a successful no-mistakes run cannot
 be promoted to READY while the PR body still lacks a recognized closing
 keyword. Automatic initial-gate retry paths follow the same start-before-terminal
-contract: when the director cannot launch the retry script, it journals
-`gate_started` (`source=director_retry`) immediately before `gate_failed`
-(`reason=retry_start_failed`).
+contract. A successful retry launch journals `gate_started` with
+`source=director_retry`, `attempt` (current retry number), and `max_attempts`
+(the configured limit) before starting the gatekeeper. When the director cannot
+launch the retry script, it journals `gate_started` (`source=director_retry`)
+immediately before `gate_failed` (`reason=retry_start_failed`).
 If no-mistakes exits non-zero after publication but the captured gate log
 contains `outcome: checks-passed` and a later `context canceled`, generated
 runner, initial-retry, and post-address gate scripts treat that as recovered
