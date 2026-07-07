@@ -150,7 +150,7 @@ Do not hand-emit `merged` or `combo_closed` as a substitute for post-merge clean
 | Emit this | Phase it forces | Use it to revive when |
 |---|---|---|
 | `coder_started` (no fields) | CODING | the coder is running but `coder_started` never landed. |
-| `gate_started` (no fields) | GATING | the gate is live but unjournaled. **Extra side-effect:** recreates the gatekeeper tmux window. |
+| `gate_started` (no required fields) | GATING | the gate is live but unjournaled. **Extra side-effect:** recreates the gatekeeper tmux window. A retry-launched `gate_started` carries optional `source=director_retry`, `attempt`, and `max_attempts` fields. |
 | `pr_opened --field url=<prUrl>` | REVIEWING | the gate opened the PR out of band (manual `axi run`, human-resolved gate) so `pr_opened` is missing and `activate-reviewer`/`director-watch` refuse to start. The single most common revive. |
 | `coder_done` (no fields) | GATING | the coder finished but the thread was never captured. **Extra side-effect:** persists `coder-thread.json`, which responding mode needs to resume. |
 | `address_done --field head_sha=<sha>` | READY → REVIEWING | an addressing commit landed but the combo is stuck in READY. |
