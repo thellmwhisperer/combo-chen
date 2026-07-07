@@ -360,22 +360,61 @@ describe("tickDirector", () => {
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("initial gate retry for o-r-7");
     expect(script).toContain("emit -n 'o-r-7' --skip-gate-window-recovery gate_started");
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "gate_started",
+        source: "director_retry",
+        attempt: 1,
+        max_attempts: 2,
+      }),
+    );
     expect(readEvents(runDir).some((entry) => entry.event === "needs_human")).toBe(false);
     expect(out).toContain("director: retrying initial gate for o-r-7 after gate_failed (attempt 1/2)");
 
     const callsAfterRetry = calls.length;
-    appendEvent(runDir, "gate_started", {});
+    appendEvent(runDir, "gate_failed", { exit_code: 1, reason: "gate_failed" });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(sleeps).toEqual([1000, 1000]);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "gate_started",
+        source: "director_retry",
+        attempt: 2,
+        max_attempts: 2,
+      }),
+    );
+    expect(out).toContain("director: retrying initial gate for o-r-7 after gate_failed (attempt 2/2)");
+    expect(
+      calls.slice(callsAfterRetry).some(
+        (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+      ),
+    ).toBe(true);
+
+    const callsAfterSecondRetry = calls.length;
+    appendEvent(runDir, "gate_failed", { exit_code: 1, reason: "gate_failed" });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(
+      readEvents(runDir).some((entry) => entry.event === "needs_human" && entry["reason"] === "gate_failed"),
+    ).toBe(true);
+    expect(out).toContain("director: initial gate retries exhausted for o-r-7 after 2 retries");
+    expect(
+      calls.slice(callsAfterSecondRetry).some(
+        (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+      ),
+    ).toBe(false);
+
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(
-      calls.slice(callsAfterRetry).some(
+      calls.slice(callsAfterSecondRetry).some(
         (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
       ),
-    ).toBe(false);
-    expect(
-      readEvents(runDir).some((entry) => entry.event === "needs_human" && entry["reason"] === "gate_failed"),
     ).toBe(false);
   });
 

@@ -1,5 +1,5 @@
 /**
- * @overview Director CLI helpers. ~970 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
+ * @overview Director CLI helpers. ~980 lines, 5 exports, initial-gate retry and pre/post-PR orchestration.
  *
  *   READING GUIDE
  *   -------------
@@ -246,9 +246,13 @@ export async function tickDirector(input: {
   nudgeReviewComments({ deps, home, comboId, ghApiCache });
 
   const prUrl = latestPrUrlFromEvents(readEvents(runDir)) ?? openedPrUrl;
+  let actionOverride: string | undefined;
   if (prUrl !== undefined) {
     try {
       const gateCheck = runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
+      if (gateCheck.status === "started") {
+        actionOverride = `launching post-address gate for ${gateCheck.headSha}`;
+      }
       if (
         gateCheck.status === "blocked" &&
         gateCheck.reason === "coder_worktree_out_of_sync" &&
@@ -309,6 +313,7 @@ export async function tickDirector(input: {
     ambientCheckNames: config.externalCommentAgents,
     events: finalEvents,
     workerSummaries,
+    actionOverride,
   });
 }
 
@@ -343,6 +348,7 @@ function emitTickComplete(input: {
   ambientCheckNames: string[];
   events?: ComboEvent[];
   workerSummaries?: string[];
+  actionOverride?: string;
 }): void {
   const events = input.events ?? readEvents(input.runDir);
   const now = new Date();
@@ -359,6 +365,7 @@ function emitTickComplete(input: {
       workerSummaries: input.workerSummaries,
       readyRequiredChecks: input.readyRequiredChecks,
       ambientCheckNames: input.ambientCheckNames,
+      actionOverride: input.actionOverride,
     }),
   );
 }
@@ -720,6 +727,13 @@ async function runInitialGateRetryIfNeeded(input: {
   }
   if (!result.started && result.reason !== "uncommitted_changes") {
     appendFailedInitialGateRetry(input.runDir);
+  }
+  if (result.started) {
+    appendEvent(input.runDir, "gate_started", {
+      source: "director_retry",
+      attempt: state.retryNumber,
+      max_attempts: state.retryAttempts,
+    });
   }
   return true;
 }
