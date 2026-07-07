@@ -1700,6 +1700,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       `git push -o no-mistakes.intent=${mirrorIntent} no-mistakes --force-with-lease=refs/heads/combo/issue-7:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HEAD:refs/heads/combo/issue-7`,
     );
     expect(gatekeeperOutput.match(/no-mistakes daemon start/g)).toHaveLength(1);
+    expect(gatekeeperOutput).not.toContain("no-mistakes daemon stop");
     expect(gatekeeperOutput).toContain("no-mistakes axi run --intent");
     expect(gatekeeperOutput).toContain("--skip=ci");
     expect(gatekeeperOutput).toContain("Implement GitHub issue https://github.com/o/r/issues/7.");
