@@ -1,7 +1,7 @@
 /**
  * @overview Hermetic end-to-end coverage for combo-chen's Treehouse-backed
  *   lifecycle. Uses the built CLI as a subprocess, real git repos/worktrees,
- *   and process shims for external services. ~3200 lines, log-derived regressions.
+ *   and process shims for external services. ~3300 lines, log-derived regressions.
  *
  *   READING GUIDE
  *   -------------
@@ -2129,6 +2129,96 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
         .at(-1)?.args.at(-1);
       expect(gatekeeperPrompt).toContain(`gatekeeper-post-${localSha.slice(0, 12)}.sh`);
       expect(existsSync(join(runDir, `gatekeeper-post-${localSha.slice(0, 12)}.sh`))).toBe(true);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("launches a post-address gate from preexisting stale address state instead of polling the old PR head", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const prUrl = "https://github.com/o/r/pull/1";
+      const publishedSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+
+      writeFileSync(join(combo.worktree, "post-address-stale-state.txt"), "addressed\n");
+      run("git", ["add", "post-address-stale-state.txt"], { cwd: combo.worktree });
+      run("git", ["commit", "-m", "fix: address stale gate state"], { cwd: combo.worktree });
+      const localSha = run("git", ["rev-parse", "HEAD"], { cwd: combo.worktree }).stdout.trim();
+      expect(localSha).not.toBe(publishedSha);
+
+      for (const [event, fields] of [
+        ["pr_opened", [`url=${prUrl}`]],
+        ["gate_status", ["state=idle", `head_sha=${publishedSha}`]],
+        ["gate_validated", [`sha=${publishedSha}`]],
+        ["lgtm", [`sha=${publishedSha}`]],
+        ["ready_for_merge", [`sha=${publishedSha}`, `pr_url=${prUrl}`]],
+        ["review_comment", [
+          "author=teseo",
+          "kind=review",
+          "url=https://github.com/o/r/pull/1#pullrequestreview-code-1",
+          `head_sha=${publishedSha}`,
+        ]],
+        ["address_done", [`head_sha=${localSha}`]],
+        ["gate_stale", [`old_sha=${publishedSha}`, `new_sha=${localSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const gatekeeperPrompts = () =>
+        readJsonLines<LogEntryJson>(harness.logs.tmux).filter(
+          (entry) =>
+            entry.args[0] === "set-buffer" &&
+            entry.args.includes(`combo-chen-nudge-${combo.tmuxSession}-gatekeeper`),
+        );
+      const beforeLaunchPrompts = gatekeeperPrompts().length;
+
+      const tick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: publishedSha,
+          E2E_PR_STATE: "OPEN",
+        },
+      });
+
+      expect(tick.stdout).toContain(`director: post-address gate started for ${combo.id} at ${localSha}`);
+      expect(tick.stdout).toContain(`action="launching post-address gate for ${localSha}"`);
+      const launchPrompts = gatekeeperPrompts();
+      expect(launchPrompts).toHaveLength(beforeLaunchPrompts + 1);
+      expect(launchPrompts.at(-1)?.args.at(-1)).toContain(`gatekeeper-post-${localSha.slice(0, 12)}.sh`);
+
+      for (const [event, fields] of [
+        ["gate_started", []],
+        ["gate_status", ["state=fix_inflight", `head_sha=${localSha}`]],
+      ] satisfies Array<[string, string[]]>) {
+        run(process.execPath, [cliPath, "emit", "-n", combo.id, event, ...fields.flatMap((field) => ["--field", field])], {
+          cwd: harness.repo,
+          env: harness.env,
+        });
+      }
+
+      const beforeLiveGatePrompts = gatekeeperPrompts().length;
+      const liveTick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: {
+          ...harness.env,
+          E2E_HEAD_SHA: publishedSha,
+          E2E_PR_STATE: "OPEN",
+        },
+      });
+
+      expect(liveTick.stdout).toContain("gate already in flight");
+      expect(liveTick.stdout).not.toContain("launching post-address gate for");
+      expect(gatekeeperPrompts()).toHaveLength(beforeLiveGatePrompts);
 
       passed = true;
     } finally {

@@ -1,5 +1,5 @@
 /**
- * @overview Director-watch operator status line formatter. ~290 lines,
+ * @overview Director-watch operator status line formatter. ~300 lines,
  *   pure timeline/checklist rendering for tmux panes.
  *
  *   READING GUIDE
@@ -45,6 +45,7 @@ export interface DirectorWatchStatusLineInput {
   events: ComboEvent[];
   now: Date;
   pollSeconds: number;
+  actionOverride?: string;
   pr?: DirectorWatchPrSnapshot;
   workerSummaries?: string[];
   readyRequiredChecks?: string[];
@@ -199,6 +200,7 @@ function pendingAction(
   status: ComboStatus,
   readiness: ReadinessFacts,
 ): string {
+  if (input.actionOverride !== undefined) return input.actionOverride;
   if (status.reason === "closure_pending") {
     return `closure pending: ${input.cli} closure -n ${input.comboId}`;
   }
