@@ -1,5 +1,12 @@
+# Pending burial: src/core/combo.ts still embeds shell as TS strings, so this
+# stays a warning until the shell-template extraction lands; then it becomes
+# error. Do not add new violations meanwhile.
 id: core-no-infra-verbs
 language: TypeScript
+files:
+  - "src/core/**"
+ignores:
+  - "**/*.test.ts"
 rule:
   kind: string
   regex: "no-mistakes|git push|tmux |\\.sh\\b"

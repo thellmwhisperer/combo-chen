@@ -904,21 +904,23 @@ The project also ships with static slop probes under `.slop/rules/`:
   constants are only allowed when explicitly blessed.
 - **core-no-infra-verbs** (`warning`): reports existing string-level layer
   leakage in `src/core/` (`no-mistakes`, `git push`, `tmux`, shell scripts).
-  It is deliberately report-only until the current runner-generation debt is
-  refactored.
+  It stays a warning until the current runner-generation debt is refactored,
+  then it is promoted to `error`.
 - **script-string-assertion** (`warning`): flags `toContain` assertions on
   script/runner targets that freeze internal strings; prefer contract
   behavior assertions.
 
 These are surfaced in the package scripts:
 
-- `pnpm slop:check` — enforces core-no-child-process, no-duplicate-helpers,
-  no-commit-fragments-in-comments, and no-unconfigurable-operational-constants
-  with `--error` and gates non-test jscpd duplication
-  with `--threshold 2`, a ratchet pinned just above the current 1.99%
-  baseline so new duplication fails; CI and no-mistakes lint run this.
-- `pnpm slop:report` — runs a verbose non-test jscpd clone listing and warning
-  scans for core infra verbs plus script-string-assertion violations in tests.
+- `pnpm slop:check` — runs `sg scan` in project mode via `sgconfig.yml`, so
+  every rule in `.slop/rules/` runs by birth with its own `files`/`ignores`
+  scope; `severity: error` rules fail the command, `severity: warning` rules
+  print without failing (a temporary state for rules whose pre-existing stock
+  is still being cleaned). It then gates non-test jscpd duplication with
+  `--threshold 2`, a ratchet pinned just above the current baseline so new
+  duplication fails; CI and no-mistakes lint run this.
+- `pnpm slop:report` — runs a verbose non-test jscpd clone listing plus the
+  same `sg scan`, for reading warning output in full.
 - `pnpm surface` — outputs the function-level structure outline of all
   non-test TypeScript files under `src/`.
 
