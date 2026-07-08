@@ -1,3 +1,3 @@
 commands:
   test: pnpm install --frozen-lockfile --silent && pnpm test && pnpm test:e2e
-  lint: pnpm install --frozen-lockfile --silent && pnpm typecheck && pnpm lint && pnpm format:check && pnpm slop:check
+  lint: pnpm install --frozen-lockfile --silent && pnpm typecheck && pnpm lint && pnpm lint:sh && pnpm format:check && pnpm slop:check

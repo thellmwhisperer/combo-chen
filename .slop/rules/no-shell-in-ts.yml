@@ -1,0 +1,18 @@
+# Tombstone for generated shell embedded as TypeScript string literals.
+# Cite: #283 (prune train #286). src/core/combo.ts carried ~300 lines of shell
+# as string arrays, cli/gate.ts and cli/watchers.ts repeated the pattern, and
+# the ad hoc copies diverged into bug #281 (the attach matcher could never
+# match a quoted head). All generated shell lives in src/shell/templates/*.sh,
+# shellcheck-gated; TS code only renders placeholders.
+id: no-shell-in-ts
+language: TypeScript
+files:
+  - "src/**"
+ignores:
+  - "**/*.test.ts"
+  - "src/shell/**"
+rule:
+  kind: string
+  regex: "sed -n |while \\[ |\\| grep -|trap '|\\$\\(printf "
+message: shell construct inside a TS string literal; move generated shell into src/shell/templates and render placeholders
+severity: error

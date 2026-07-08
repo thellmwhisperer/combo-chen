@@ -639,6 +639,7 @@ without collapsing the roles that make the result trustworthy.
 pnpm test
 pnpm typecheck
 pnpm lint
+pnpm lint:sh
 pnpm format:check
 pnpm slop:check
 pnpm build
@@ -659,10 +660,15 @@ autonomous runs:
   `severity: error` findings fail the command, and `severity: warning`
   findings print without failing (warning is a temporary state for rules
   whose pre-existing stock is still being cleaned; the rule file says so).
-  It then gates non-test jscpd duplication with `--threshold 2`, a ratchet
+  It then gates non-test jscpd duplication with `--threshold 1.7`, a ratchet
   pinned just above the current baseline so new duplication fails: a PR that
   trips it must remove duplication or raise the threshold explicitly in the
-  same PR with justification.
+  same PR with justification, and the threshold only moves down, in the PR
+  that removes clones.
+- `pnpm lint:sh` — shellcheck over `src/shell/templates/*.sh`, the home of
+  every generated shell script (templates rendered with `__PLACEHOLDER__`
+  substitution; no shell lives in TS string literals). Run by CI and
+  no-mistakes lint.
 - `pnpm slop:report` — verbose jscpd clone listing for non-test source plus
   the same `sg scan`, for reading warning output in full while a cleanup is
   in flight.

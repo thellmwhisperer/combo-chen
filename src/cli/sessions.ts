@@ -23,10 +23,11 @@
  *   tmuxFailureText, isMissingSession
  *
  * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, SessionDeps, KillComboSessionResult, windowSet, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
- * @deps ../core/{combo,guards,state}, ../infra/tmux
+ * @deps ../core/{combo,guards,state}, ../infra/tmux, ../shell/templates
  */
 import { shellQuote } from "../core/combo.js";
 import { errorMessage } from "../core/guards.js";
+import { renderShellTemplate } from "../shell/templates.js";
 import { type ComboRecord, listCombos } from "../core/state.js";
 import {
   hasSessionArgs,
@@ -130,13 +131,7 @@ export function ensureWindowPresent(
 }
 
 export function idleRoleWindowCommand(role: string): string {
-  return [
-    `printf '[combo-chen] ${role} window idle; waiting for combo-chen to prompt it.\\n'`,
-    "combo_chen_idle=1",
-    "trap 'combo_chen_idle=0' INT",
-    'while [ "$combo_chen_idle" = 1 ]; do sleep 3600; done',
-    'exec "${SHELL:-/bin/sh}"',
-  ].join("\n");
+  return renderShellTemplate("idle-role-window", { __ROLE__: role }).trimEnd();
 }
 
 export function removeLegacyTopologyWindows(
