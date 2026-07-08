@@ -24,7 +24,12 @@ import { basename, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
 import { errorMessage, isRecord } from "../core/guards.js";
-import { hasGnhfCommand, type ComboConfig, type ComboTeamIdentity, type ComboTeamRole } from "../infra/config.js";
+import {
+  hasGnhfCommand,
+  type ComboConfig,
+  type ComboTeamIdentity,
+  type ComboTeamRole,
+} from "../infra/config.js";
 import type { TeamIdentityResolver } from "./overture.js";
 
 // -- 1/1 CORE · production resolver <- START HERE --
@@ -63,7 +68,8 @@ function noMistakesConfigPath(env: Record<string, string | undefined>): string {
   const explicit = env.COMBO_CHEN_NO_MISTAKES_CONFIG ?? env.NO_MISTAKES_CONFIG;
   if (explicit !== undefined && explicit.trim() !== "") return explicit;
   const home = env.HOME ?? env.USERPROFILE;
-  if (home === undefined || home.trim() === "") throw new Error("HOME unavailable for no-mistakes config lookup");
+  if (home === undefined || home.trim() === "")
+    throw new Error("HOME unavailable for no-mistakes config lookup");
   return join(home, ".no-mistakes", "config.yaml");
 }
 
@@ -96,11 +102,18 @@ function commandBinary(command: string): string | undefined {
   return binary === undefined ? undefined : nonEmpty(basename(binary));
 }
 
-function gnhfIdentity(command: string, env: Record<string, string | undefined>): ComboTeamIdentity | undefined {
+function gnhfIdentity(
+  command: string,
+  env: Record<string, string | undefined>,
+): ComboTeamIdentity | undefined {
   const config = readGnhfConfig(env);
-  const agent = agentFromCommand(command) ?? (config === undefined ? undefined : topLevelScalar(config, "agent")) ?? DEFAULT_GNHF_AGENT;
+  const agent =
+    agentFromCommand(command) ??
+    (config === undefined ? undefined : topLevelScalar(config, "agent")) ??
+    DEFAULT_GNHF_AGENT;
   if (agent !== "codex") return undefined;
-  const codexArgs = config === undefined ? [] : listValueFromNestedKey(config, "agentArgsOverride", "codex") ?? [];
+  const codexArgs =
+    config === undefined ? [] : (listValueFromNestedKey(config, "agentArgsOverride", "codex") ?? []);
   return {
     binary: commandBinary(command) ?? "gnhf",
     agent: "gnhf/codex",
@@ -137,9 +150,7 @@ function codexModelFromCommand(command: string, env: Record<string, string | und
 
 function codexModelFromArgs(args: string[], env: Record<string, string | undefined>): string {
   return requireCodexModel(
-    modelFromArgs(args) ??
-      configModelFromArgs(args) ??
-      codexModelFromConfig(env, profileFromArgs(args)),
+    modelFromArgs(args) ?? configModelFromArgs(args) ?? codexModelFromConfig(env, profileFromArgs(args)),
   );
 }
 
@@ -150,10 +161,14 @@ function requireCodexModel(model: string | undefined): string {
   return model;
 }
 
-function codexModelFromConfig(env: Record<string, string | undefined>, profile: string | undefined): string | undefined {
+function codexModelFromConfig(
+  env: Record<string, string | undefined>,
+  profile: string | undefined,
+): string | undefined {
   const home = codexHome(env);
   const baseModel = codexConfigModel(join(home, "config.toml"), false);
-  const profileModel = profile === undefined ? undefined : codexConfigModel(join(home, `${profile}.config.toml`), true);
+  const profileModel =
+    profile === undefined ? undefined : codexConfigModel(join(home, `${profile}.config.toml`), true);
   return profileModel ?? baseModel;
 }
 
@@ -174,7 +189,7 @@ function codexConfigModel(path: string, required: boolean): string | undefined {
     const parsed = parseToml(readFileSync(path, "utf8"));
     return isRecord(parsed) ? stringField(parsed, "model") : undefined;
   } catch (error) {
-    throw new Error(`codex config ${path} is invalid TOML: ${errorMessage(error)}`);
+    throw new Error(`codex config ${path} is invalid TOML: ${errorMessage(error)}`, { cause: error });
   }
 }
 
@@ -227,7 +242,7 @@ function opencodeResolvedConfig(repoDir: string, env: Record<string, string | un
   try {
     return JSON.parse(result.stdout);
   } catch (error) {
-    throw new Error(`opencode debug config returned invalid JSON: ${errorMessage(error)}`);
+    throw new Error(`opencode debug config returned invalid JSON: ${errorMessage(error)}`, { cause: error });
   }
 }
 
@@ -292,14 +307,10 @@ function configModelFromArgs(args: string[]): string | undefined {
   let model: string | undefined;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
-    const value =
-      arg === "--config" || arg === "-c"
-        ? args[i + 1]
-        : arg.startsWith("--config=")
-          ? arg.slice("--config=".length)
-          : arg.startsWith("-c=")
-            ? arg.slice("-c=".length)
-            : undefined;
+    let value: string | undefined;
+    if (arg === "--config" || arg === "-c") value = args[i + 1];
+    else if (arg.startsWith("--config=")) value = arg.slice("--config=".length);
+    else if (arg.startsWith("-c=")) value = arg.slice("-c=".length);
     const parsed = value === undefined ? undefined : codexModelFromConfigOverride(value);
     if (parsed !== undefined) model = parsed;
   }
@@ -307,8 +318,10 @@ function configModelFromArgs(args: string[]): string | undefined {
 }
 
 function configModelFromCommand(command: string): string | undefined {
-  return codexModelFromConfigOverride(flagValueFromCommand(command, "config") ?? "") ??
-    codexModelFromConfigOverride(shortFlagValueFromCommand(command, "c") ?? "");
+  return (
+    codexModelFromConfigOverride(flagValueFromCommand(command, "config") ?? "") ??
+    codexModelFromConfigOverride(shortFlagValueFromCommand(command, "c") ?? "")
+  );
 }
 
 function codexModelFromConfigOverride(value: string): string | undefined {
@@ -401,7 +414,12 @@ function topLevelBlock(raw: string, key: string): string[] | undefined {
       if (line.trim() === `${key}:`) inBlock = true;
       continue;
     }
-    if (!line.startsWith(" ") && !line.startsWith("\t") && line.trim() !== "" && !line.trimStart().startsWith("#")) {
+    if (
+      !line.startsWith(" ") &&
+      !line.startsWith("\t") &&
+      line.trim() !== "" &&
+      !line.trimStart().startsWith("#")
+    ) {
       break;
     }
     block.push(line);
@@ -411,11 +429,17 @@ function topLevelBlock(raw: string, key: string): string[] | undefined {
 
 function yamlInlineList(raw: string): string[] {
   const body = raw.replace(/^\[/, "").replace(/\].*$/, "");
-  return body.split(",").map(yamlScalar).filter((value): value is string => value !== undefined);
+  return body
+    .split(",")
+    .map(yamlScalar)
+    .filter((value): value is string => value !== undefined);
 }
 
 function yamlScalar(raw: string): string | undefined {
-  const value = raw.replace(/\s+#.*$/, "").trim().replace(/^["']|["']$/g, "");
+  const value = raw
+    .replace(/\s+#.*$/, "")
+    .trim()
+    .replace(/^["']|["']$/g, "");
   return nonEmpty(value);
 }
 

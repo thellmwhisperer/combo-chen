@@ -78,11 +78,7 @@ function commentBody(comment: Record<string, unknown>): string | undefined {
 }
 
 function authorMatchesConfiguredAgent(login: string, agents: string[]): boolean {
-  return agents.some(
-    (agent) =>
-      login === agent ||
-      login === `${agent}[bot]`,
-  );
+  return agents.some((agent) => login === agent || login === `${agent}[bot]`);
 }
 
 function checkSignalSucceeded(item: unknown): boolean {
@@ -127,7 +123,10 @@ export function checkRollupSucceeded(
   return requiredCheckNames.length > 0 && requiredChecksSucceeded(rollup, requiredCheckNames);
 }
 
-export function requiredChecksSucceeded(rollup: unknown[] | undefined, requiredCheckNames: string[]): boolean {
+export function requiredChecksSucceeded(
+  rollup: unknown[] | undefined,
+  requiredCheckNames: string[],
+): boolean {
   const required = requiredCheckNames.map((name) => name.trim()).filter((name) => name.length > 0);
   if (required.length === 0) return true;
   if (rollup === undefined) return false;

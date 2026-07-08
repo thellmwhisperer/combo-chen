@@ -113,12 +113,7 @@ describe("event schema", () => {
       "removed_labels",
       "reason",
     ]);
-    expect(EVENT_TYPES.pr_conflict.required).toEqual([
-      "sha",
-      "pr_url",
-      "merge_state",
-      "action",
-    ]);
+    expect(EVENT_TYPES.pr_conflict.required).toEqual(["sha", "pr_url", "merge_state", "action"]);
     expect(EVENT_TYPES.pr_autoclose_failed.required).toEqual(["exit_code", "url"]);
     expect(EVENT_TYPES.director_prompted.required).toEqual(["reason", "target"]);
     expect(EVENT_TYPES.review_comment.required).toEqual(["author", "kind", "url"]);
@@ -347,7 +342,6 @@ describe("journal", () => {
   it("tolerates a torn last line (partial write) without crashing", () => {
     const dir = runDir();
     appendEvent(dir, "combo_created", { issue_url: "x" });
-    const { appendFileSync } = require("node:fs") as typeof import("node:fs");
     appendFileSync(join(dir, "journal.jsonl"), '{"t":"2026-06-10T');
 
     const events = readEvents(dir);

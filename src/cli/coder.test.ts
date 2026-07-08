@@ -76,7 +76,7 @@ describe("activateCoder", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-        "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter --no-alt-screen resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
+      '[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n\n[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -242,14 +242,7 @@ describe("nudgeReviewComments", () => {
     });
 
     expect(calls.filter((call) => call[0] === "tmux")).toEqual([
-      [
-        "tmux",
-        "list-windows",
-        "-t",
-        "combo-chen-owned-session",
-        "-F",
-        "#{window_name}",
-      ],
+      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
       [
         "tmux",
         "new-window",
@@ -357,14 +350,7 @@ describe("nudgeReviewComments", () => {
       ["git", `cwd=${record.worktree}`, "rev-parse", "HEAD"],
     ]);
     expect(calls.filter((call) => call[0] === "tmux")).toEqual([
-      [
-        "tmux",
-        "list-windows",
-        "-t",
-        "combo-chen-owned-session",
-        "-F",
-        "#{window_name}",
-      ],
+      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
       [
         "tmux",
         "new-window",
@@ -531,14 +517,7 @@ describe("nudgeReviewComments", () => {
     });
 
     expect(calls.filter((call) => call[0] === "tmux")).toEqual([
-      [
-        "tmux",
-        "list-windows",
-        "-t",
-        "combo-chen-owned-session",
-        "-F",
-        "#{window_name}",
-      ],
+      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
       [
         "tmux",
         "new-window",

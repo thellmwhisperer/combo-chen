@@ -69,7 +69,8 @@ function sha256Hex(buffer: Buffer): string {
 
 function tarMtimeSeconds(value: number | undefined): number {
   if (value === undefined) return DEFAULT_TAR_MTIME_SECONDS;
-  if (!Number.isFinite(value) || value < 0) throw new Error("release archive mtimeSeconds must be a non-negative number");
+  if (!Number.isFinite(value) || value < 0)
+    throw new Error("release archive mtimeSeconds must be a non-negative number");
   return Math.trunc(value);
 }
 // -/ 1/3

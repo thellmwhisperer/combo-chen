@@ -117,20 +117,13 @@ async function reconcileCombo(input: {
 
   if (prView.state === "CLOSED") {
     if (!apply) {
-      return report(
-        deps,
-        quiet,
-        `reconcile: ${combo.id} would append needs_human pr_closed and close combo`,
-      );
+      return report(deps, quiet, `reconcile: ${combo.id} would append needs_human pr_closed and close combo`);
     }
 
-    let changed = false;
     if (!hasPrClosedNeedsHuman(events)) {
       appendEvent(runDir, "needs_human", { reason: "pr_closed", source: "reconcile" });
-      changed = true;
     }
     appendEvent(runDir, "combo_closed", { source: "reconcile" });
-    changed = true;
     try {
       killComboSession(deps, combo);
     } catch (error) {
@@ -142,7 +135,7 @@ async function reconcileCombo(input: {
       );
     }
     const reported = report(deps, quiet, `reconcile: ${combo.id} closed PR; combo closed`).reported;
-    return { changed, reported };
+    return { changed: true, reported };
   }
 
   if (prView.state !== "MERGED") {
@@ -191,17 +184,17 @@ async function reconcileCombo(input: {
   }
 
   if (!apply) {
-    return report(
-      deps,
-      quiet,
-      parked
-        ? (hasMerged
-            ? `reconcile: ${combo.id} would skip pending teardown for ${mergeSha} (parked)`
-            : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and skip teardown (parked)`)
-        : (hasMerged
-            ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
-            : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`),
-    );
+    let message: string;
+    if (parked) {
+      message = hasMerged
+        ? `reconcile: ${combo.id} would skip pending teardown for ${mergeSha} (parked)`
+        : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and skip teardown (parked)`;
+    } else {
+      message = hasMerged
+        ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
+        : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`;
+    }
+    return report(deps, quiet, message);
   }
 
   let changed = false;
@@ -262,11 +255,7 @@ function hasPrClosedNeedsHuman(events: Array<{ event: string; reason?: unknown }
   return events.some((event) => event.event === "needs_human" && event.reason === "pr_closed");
 }
 
-function report(
-  deps: Pick<ReconcileDeps, "out">,
-  quiet: boolean,
-  line: string,
-): ReconcileOutcome {
+function report(deps: Pick<ReconcileDeps, "out">, quiet: boolean, line: string): ReconcileOutcome {
   if (!quiet) deps.out(line);
   return { changed: false, reported: !quiet };
 }

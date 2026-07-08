@@ -63,15 +63,7 @@ export const EVENT_TYPES = {
   rebase_conflict: { required: ["base"] },
   pr_opened: { required: ["url"] },
   pr_labels_updated: {
-    required: [
-      "pr_url",
-      "head_sha",
-      "old_labels",
-      "new_labels",
-      "added_labels",
-      "removed_labels",
-      "reason",
-    ],
+    required: ["pr_url", "head_sha", "old_labels", "new_labels", "added_labels", "removed_labels", "reason"],
   },
   pr_autoclose_failed: { required: ["exit_code", "url"] },
   needs_human: { required: ["reason"] },
@@ -136,11 +128,7 @@ export function journalPath(runDir: string): string {
   return join(runDir, JOURNAL);
 }
 
-export function appendEvent(
-  runDir: string,
-  event: EventName,
-  payload: Record<string, unknown>,
-): ComboEvent {
+export function appendEvent(runDir: string, event: EventName, payload: Record<string, unknown>): ComboEvent {
   const canonical = canonicalEventName(event);
   if (canonical === undefined) {
     throw new ComboEventError(`Unknown event "${String(event)}"`);
@@ -319,10 +307,7 @@ interface FollowOptions {
  * Linux, and network volumes. Journals are small; re-reading per poll is
  * the simple thing that is also correct.
  */
-export async function* followEvents(
-  runDir: string,
-  options: FollowOptions = {},
-): AsyncGenerator<ComboEvent> {
+export async function* followEvents(runDir: string, options: FollowOptions = {}): AsyncGenerator<ComboEvent> {
   const pollMs = options.pollMs ?? 500;
   let yielded = 0;
 

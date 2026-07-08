@@ -118,7 +118,7 @@ function assertFile(fs: InstallReplacementDeps, path: string, missingMessage: st
     stats = fs.statSync(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`${missingMessage}: ${path}`);
+      throw new Error(`${missingMessage}: ${path}`, { cause: error });
     }
     throw error;
   }

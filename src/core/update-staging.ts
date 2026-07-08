@@ -161,7 +161,6 @@ export async function stageResolvedUpdate(input: {
   try {
     await input.deps.mkdir(downloadsDir);
 
-    let archiveBytes: Buffer;
     let archiveData: Uint8Array | string;
     try {
       archiveData = await input.deps.download({
@@ -179,7 +178,7 @@ export async function stageResolvedUpdate(input: {
         cause: error,
       });
     }
-    archiveBytes = toBuffer(archiveData);
+    const archiveBytes = toBuffer(archiveData);
 
     let checksumsText: string;
     try {

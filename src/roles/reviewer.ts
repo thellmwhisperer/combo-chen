@@ -79,9 +79,10 @@ export function assertReviewerCommandSafe(command: string): void {
 
 export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
   const reviewerInstructions = input.reviewerInstructions.trim();
-  const workPlanContext = input.workPlan === undefined
-    ? undefined
-    : `Work plan context:\n${renderWorkPlanMarkdown(input.workPlan).trim()}`;
+  const workPlanContext =
+    input.workPlan === undefined
+      ? undefined
+      : `Work plan context:\n${renderWorkPlanMarkdown(input.workPlan).trim()}`;
   return [
     `Review PR ${input.prUrl} for combo ${input.combo.id}.`,
     ...(reviewerInstructions.length > 0 ? [`Reviewer instructions: ${reviewerInstructions}.`] : []),

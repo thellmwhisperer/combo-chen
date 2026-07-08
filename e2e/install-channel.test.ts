@@ -55,8 +55,9 @@ import { produceReleaseAssets } from "../src/infra/release-producer.js";
 // -- 1/3 HELPER · producer + install harness --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const installScript = join(repoRoot, "install.sh");
-const packageVersion = (JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version: string })
-  .version;
+const packageVersion = (
+  JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version: string }
+).version;
 const TARGET = currentShellTarget();
 
 const cleanupDirs: string[] = [];
@@ -70,18 +71,15 @@ function tempDir(label: string): string {
 function currentShellTarget(): ReleaseTarget {
   const platformName = shellOutput("uname", ["-s"]);
   const archName = shellOutput("uname", ["-m"]);
-  const platform =
-    platformName === "Darwin"
-      ? "darwin"
-      : platformName === "Linux"
-        ? "linux"
-        : undefined;
-  const arch =
-    archName === "arm64" || archName === "aarch64"
-      ? "arm64"
-      : archName === "x86_64" || archName === "amd64"
-        ? "x64"
-        : undefined;
+  const platforms: Record<string, ReleaseTarget["platform"]> = { Darwin: "darwin", Linux: "linux" };
+  const arches: Record<string, ReleaseTarget["arch"]> = {
+    arm64: "arm64",
+    aarch64: "arm64",
+    x86_64: "x64",
+    amd64: "x64",
+  };
+  const platform = platforms[platformName];
+  const arch = arches[archName];
   if (platform === undefined) throw new Error(`unsupported install test platform: ${platformName}`);
   if (arch === undefined) throw new Error(`unsupported install test architecture: ${archName}`);
   return { platform, arch };
@@ -98,7 +96,10 @@ function produceArchive(version: string, cliMarker?: string): { assetPath: strin
   const stagedRepo = tempDir(`repo-${version}`);
   mkdirSync(join(stagedRepo, "dist"), { recursive: true });
   const cli = readFileSync(join(repoRoot, "dist", "cli.mjs"), "utf8");
-  writeFileSync(join(stagedRepo, "dist", "cli.mjs"), cliMarker === undefined ? cli : `${cli}\n// ${cliMarker}\n`);
+  writeFileSync(
+    join(stagedRepo, "dist", "cli.mjs"),
+    cliMarker === undefined ? cli : `${cli}\n// ${cliMarker}\n`,
+  );
   for (const file of ["package.json", "README.md", "LICENSE", "combo-chen.example.toml"]) {
     copyFileSync(join(repoRoot, file), join(stagedRepo, file));
   }
@@ -131,7 +132,14 @@ describe("install.sh tarball channel", () => {
     const binDir = join(root, "bin");
 
     const result = runInstall([
-      "--archive", assetPath, "--checksums", checksumsPath, "--prefix", prefix, "--bin-dir", binDir,
+      "--archive",
+      assetPath,
+      "--checksums",
+      checksumsPath,
+      "--prefix",
+      prefix,
+      "--bin-dir",
+      binDir,
     ]);
 
     expect(result.stderr).toBe("");
@@ -147,7 +155,16 @@ describe("install.sh tarball channel", () => {
     const { assetPath, checksumsPath } = produceArchive(packageVersion);
     const root = tempDir("classify");
     const binDir = join(root, "bin");
-    runInstall(["--archive", assetPath, "--checksums", checksumsPath, "--prefix", join(root, "versions"), "--bin-dir", binDir]);
+    runInstall([
+      "--archive",
+      assetPath,
+      "--checksums",
+      checksumsPath,
+      "--prefix",
+      join(root, "versions"),
+      "--bin-dir",
+      binDir,
+    ]);
 
     const classification = classifyInstallTarget({ path: join(binDir, "combo-chen") });
 
@@ -158,15 +175,21 @@ describe("install.sh tarball channel", () => {
   it("aborts on checksum mismatch without installing anything", () => {
     const { assetPath, checksumsPath } = produceArchive(packageVersion);
     const corrupted = join(tempDir("corrupt"), "checksums.txt");
-    writeFileSync(
-      corrupted,
-      readFileSync(checksumsPath, "utf8").replace(/^[0-9a-f]{8}/m, "deadbeef"),
-    );
+    writeFileSync(corrupted, readFileSync(checksumsPath, "utf8").replace(/^[0-9a-f]{8}/m, "deadbeef"));
     const root = tempDir("mismatch");
     const prefix = join(root, "versions");
     const binDir = join(root, "bin");
 
-    const result = runInstall(["--archive", assetPath, "--checksums", corrupted, "--prefix", prefix, "--bin-dir", binDir]);
+    const result = runInstall([
+      "--archive",
+      assetPath,
+      "--checksums",
+      corrupted,
+      "--prefix",
+      prefix,
+      "--bin-dir",
+      binDir,
+    ]);
 
     expect(result.status).not.toBe(0);
     expect(existsSync(join(prefix, releaseArchiveRoot(packageVersion)))).toBe(false);
@@ -180,13 +203,27 @@ describe("install.sh tarball channel", () => {
     const prefix = join(root, "versions");
     const binDir = join(root, "bin");
     const currentArgs = [
-      "--archive", current.assetPath, "--checksums", current.checksumsPath, "--prefix", prefix, "--bin-dir", binDir,
+      "--archive",
+      current.assetPath,
+      "--checksums",
+      current.checksumsPath,
+      "--prefix",
+      prefix,
+      "--bin-dir",
+      binDir,
     ];
 
     expect(runInstall(currentArgs).status).toBe(0);
     expect(runInstall(currentArgs).status).toBe(0);
     const upgraded = runInstall([
-      "--archive", next.assetPath, "--checksums", next.checksumsPath, "--prefix", prefix, "--bin-dir", binDir,
+      "--archive",
+      next.assetPath,
+      "--checksums",
+      next.checksumsPath,
+      "--prefix",
+      prefix,
+      "--bin-dir",
+      binDir,
     ]);
 
     expect(upgraded.status).toBe(0);
@@ -202,7 +239,16 @@ describe("install.sh tarball channel", () => {
     mkdirSync(binDir, { recursive: true });
     writeFileSync(join(binDir, "combo-chen"), "#!/bin/sh\necho not ours\n");
 
-    const result = runInstall(["--archive", assetPath, "--checksums", checksumsPath, "--prefix", join(root, "versions"), "--bin-dir", binDir]);
+    const result = runInstall([
+      "--archive",
+      assetPath,
+      "--checksums",
+      checksumsPath,
+      "--prefix",
+      join(root, "versions"),
+      "--bin-dir",
+      binDir,
+    ]);
 
     expect(result.status).not.toBe(0);
     expect(readFileSync(join(binDir, "combo-chen"), "utf8")).toContain("not ours");
@@ -219,8 +265,14 @@ describe("combo-chen update over an install.sh layout", () => {
     const root = tempDir("update");
     const binDir = join(root, "bin");
     runInstall([
-      "--archive", current.assetPath, "--checksums", current.checksumsPath,
-      "--prefix", join(root, "versions"), "--bin-dir", binDir,
+      "--archive",
+      current.assetPath,
+      "--checksums",
+      current.checksumsPath,
+      "--prefix",
+      join(root, "versions"),
+      "--bin-dir",
+      binDir,
     ]);
     const link = join(binDir, "combo-chen");
     const assetName = releaseAssetFileName("9.9.9", TARGET);

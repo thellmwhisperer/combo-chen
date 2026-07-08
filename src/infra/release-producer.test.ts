@@ -52,7 +52,7 @@ function writeFixtureRepo(): string {
 function readTarGzipMembers(path: string): TarMember[] {
   const tar = gunzipSync(readFileSync(path));
   const members: TarMember[] = [];
-  for (let offset = 0; offset < tar.length; ) {
+  for (let offset = 0; offset < tar.length;) {
     const header = tar.subarray(offset, offset + 512);
     if (header.every((byte) => byte === 0)) break;
     const name = nullTerminatedAscii(header, 0, 100);

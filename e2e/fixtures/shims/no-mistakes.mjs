@@ -27,7 +27,7 @@ function head() {
 }
 
 function runId() {
-  return process.env.E2E_NO_MISTAKES_QUOTE_RUN_ID === "1" ? "\"e2e-run\"" : "e2e-run";
+  return process.env.E2E_NO_MISTAKES_QUOTE_RUN_ID === "1" ? '"e2e-run"' : "e2e-run";
 }
 
 function unquotedRunId() {
@@ -131,7 +131,9 @@ if (args[0] === "axi" && args[1] === "status") {
   const activeRun = activeRunForCurrentBranch(state);
   if (activeRun) {
     ensureRunDir();
-    process.stdout.write(`id: ${activeRun.id || runId()}\nbranch: ${activeRun.branch}\nhead: ${activeRun.head || head()}\nstatus: ${activeRun.status || "active"}\n`);
+    process.stdout.write(
+      `id: ${activeRun.id || runId()}\nbranch: ${activeRun.branch}\nhead: ${activeRun.head || head()}\nstatus: ${activeRun.status || "active"}\n`,
+    );
     process.exit(0);
   }
   process.stdout.write("No active run.\n");
@@ -176,7 +178,9 @@ if (args[0] === "axi" && args[1] === "run") {
     state.active = false;
     save(state);
     process.stdout.write("run: failed\n  review: failed\n");
-    process.stdout.write('error: "step review failed: agent review: acp:opencode output parse: JSON output findings[1].action must match one of the allowed values"\n');
+    process.stdout.write(
+      'error: "step review failed: agent review: acp:opencode output parse: JSON output findings[1].action must match one of the allowed values"\n',
+    );
     process.exit(1);
   }
   if (process.env.E2E_NO_MISTAKES_CONTEXT_CANCELED_AFTER_CHECKS_PASSED === "1") {

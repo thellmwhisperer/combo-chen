@@ -47,7 +47,13 @@ import {
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import type { ComboRecord } from "../core/state.js";
 import { loadRuntimeConfig } from "../infra/config-snapshot.js";
-import { killWindowArgs, listWindowsArgs, newWindowArgs, nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import {
+  killWindowArgs,
+  listWindowsArgs,
+  newWindowArgs,
+  nudgeWindowArgs,
+  type TmuxResult,
+} from "../infra/tmux.js";
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
@@ -90,10 +96,7 @@ export const NO_MISTAKES_CONFIG_FILE = ".no-mistakes.yaml";
 // -/ 1/5
 
 // -- 2/5 CORE · Gatekeeper tmux window <- START HERE --
-export function buildGatekeeperAttachCommand(
-  combo: ComboRecord,
-  options: GatekeeperAttachOptions,
-): string {
+export function buildGatekeeperAttachCommand(combo: ComboRecord, options: GatekeeperAttachOptions): string {
   if (!Number.isFinite(options.timeoutSeconds) || options.timeoutSeconds <= 0) {
     throw new Error("gatekeeper attach timeout must be > 0 seconds");
   }
@@ -104,20 +107,23 @@ export function buildGatekeeperAttachCommand(
   // Resolve it through branch-aware axi status before attaching; bare attach is
   // repo-global in no-mistakes and can follow a sibling combo run.
   const maxAttempts = Math.ceil(options.timeoutSeconds / options.retryIntervalSeconds);
-  const attachLine = options.replaceProcess === false
-    ? "    no-mistakes attach --run \"$no_mistakes_run_id\""
-    : "    exec no-mistakes attach --run \"$no_mistakes_run_id\"";
-  const doneFileLines = options.stopWhenFileExists === undefined
-    ? []
-    : [`gatekeeper_done_file=${shellQuote(options.stopWhenFileExists)}`];
-  const doneCheckLines = options.stopWhenFileExists === undefined
-    ? []
-    : [
-      '  if [ -n "$gatekeeper_done_file" ] && [ -f "$gatekeeper_done_file" ]; then',
-      '    echo "gatekeeper-attach: gate script finished before attach became available" >&2',
-      "    exit 2",
-      "  fi",
-    ];
+  const attachLine =
+    options.replaceProcess === false
+      ? '    no-mistakes attach --run "$no_mistakes_run_id"'
+      : '    exec no-mistakes attach --run "$no_mistakes_run_id"';
+  const doneFileLines =
+    options.stopWhenFileExists === undefined
+      ? []
+      : [`gatekeeper_done_file=${shellQuote(options.stopWhenFileExists)}`];
+  const doneCheckLines =
+    options.stopWhenFileExists === undefined
+      ? []
+      : [
+          '  if [ -n "$gatekeeper_done_file" ] && [ -f "$gatekeeper_done_file" ]; then',
+          '    echo "gatekeeper-attach: gate script finished before attach became available" >&2',
+          "    exit 2",
+          "  fi",
+        ];
   return [
     `cd ${shellQuote(combo.worktree)}`,
     `expected_branch=${shellQuote(combo.branch)}`,
@@ -128,7 +134,7 @@ export function buildGatekeeperAttachCommand(
     "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
-    "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
+    '  if [ -n "$no_mistakes_run_id" ] && [ -n "$expected_head" ] && printf \'%s\\n\' "$no_mistakes_status" | grep -F "branch: $expected_branch" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -F "head: $expected_head" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -Eq \'^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$\'; then',
     attachLine,
     "  fi",
     ...doneCheckLines,
@@ -147,9 +153,10 @@ function buildGatekeeperSingleAttachProbeCommand(
   combo: ComboRecord,
   options: { replaceProcess?: boolean } = {},
 ): string {
-  const attachLine = options.replaceProcess === false
-    ? "  no-mistakes attach --run \"$no_mistakes_run_id\""
-    : "  exec no-mistakes attach --run \"$no_mistakes_run_id\"";
+  const attachLine =
+    options.replaceProcess === false
+      ? '  no-mistakes attach --run "$no_mistakes_run_id"'
+      : '  exec no-mistakes attach --run "$no_mistakes_run_id"';
   return [
     `cd ${shellQuote(combo.worktree)}`,
     `expected_branch=${shellQuote(combo.branch)}`,
@@ -157,7 +164,7 @@ function buildGatekeeperSingleAttachProbeCommand(
     "no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
     "no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
     "no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
-    "if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
+    'if [ -n "$no_mistakes_run_id" ] && [ -n "$expected_head" ] && printf \'%s\\n\' "$no_mistakes_status" | grep -F "branch: $expected_branch" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -F "head: $expected_head" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -Eq \'^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$\'; then',
     attachLine,
     "fi",
   ].join("\n");
@@ -230,9 +237,7 @@ function requireComboGit(
 ): { stdout: string } {
   const result = deps.git(args, combo.worktree);
   if (result.status !== 0) {
-    throw new Error(
-      `${description} failed for ${combo.id}: ${result.stderr.trim() || "unknown error"}`,
-    );
+    throw new Error(`${description} failed for ${combo.id}: ${result.stderr.trim() || "unknown error"}`);
   }
   return { stdout: result.stdout };
 }
@@ -266,11 +271,7 @@ export function latestPublishedGateSha(events: ComboEvent[]): string | undefined
     if (event.event === "gate_validated" && typeof event["sha"] === "string") {
       return event["sha"];
     }
-    if (
-      event.event === "gate_status" &&
-      event["state"] === "idle" &&
-      typeof event["head_sha"] === "string"
-    ) {
+    if (event.event === "gate_status" && event["state"] === "idle" && typeof event["head_sha"] === "string") {
       return event["head_sha"];
     }
   }
@@ -298,7 +299,10 @@ function hasAddressDone(events: ComboEvent[], headSha: string): boolean {
   return events.some((event) => event.event === "address_done" && event["head_sha"] === headSha);
 }
 
-function latestLocalRecoveryAfterGate(events: ComboEvent[], gateSha: string): LocalRecoveryAfterGate | undefined {
+function latestLocalRecoveryAfterGate(
+  events: ComboEvent[],
+  gateSha: string,
+): LocalRecoveryAfterGate | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
     if (
@@ -333,7 +337,10 @@ function latestLocalRecoveryAfterGate(events: ComboEvent[], gateSha: string): Lo
   return undefined;
 }
 
-function latestLocalGateReplacementHeadShaAfterGate(events: ComboEvent[], gateSha: string): string | undefined {
+function latestLocalGateReplacementHeadShaAfterGate(
+  events: ComboEvent[],
+  gateSha: string,
+): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
     if (
@@ -352,33 +359,27 @@ function latestLocalGateReplacementHeadShaAfterGate(events: ComboEvent[], gateSh
   return undefined;
 }
 
-function publishedGateSupersededByLocalRecovery(
-  events: ComboEvent[],
-  publishedSha: string,
-): boolean {
+function publishedGateSupersededByLocalRecovery(events: ComboEvent[], publishedSha: string): boolean {
   const recoveryHeadSha = latestLocalGateReplacementHeadShaAfterGate(events, publishedSha);
   return recoveryHeadSha !== undefined;
 }
 
 function hasGateStale(events: ComboEvent[], oldSha: string, newSha: string): boolean {
   return events.some(
-    (event) =>
-      event.event === "gate_stale" &&
-      event["old_sha"] === oldSha &&
-      event["new_sha"] === newSha,
+    (event) => event.event === "gate_stale" && event["old_sha"] === oldSha && event["new_sha"] === newSha,
   );
 }
 
 function worktreeHeadSha(deps: GateDeps, combo: ComboRecord): string {
-  return requireComboGit(
-    deps,
-    combo,
-    ["rev-parse", "HEAD"],
-    "git rev-parse HEAD",
-  ).stdout.trim();
+  return requireComboGit(deps, combo, ["rev-parse", "HEAD"], "git rev-parse HEAD").stdout.trim();
 }
 
-function worktreeContainsSha(deps: GateDeps, combo: ComboRecord, ancestorSha: string, headSha: string): boolean {
+function worktreeContainsSha(
+  deps: GateDeps,
+  combo: ComboRecord,
+  ancestorSha: string,
+  headSha: string,
+): boolean {
   if (ancestorSha === headSha) return true;
   const result = deps.git(["merge-base", "--is-ancestor", ancestorSha, headSha], combo.worktree);
   if (result.status === 0) return true;
@@ -389,12 +390,9 @@ function worktreeContainsSha(deps: GateDeps, combo: ComboRecord, ancestorSha: st
 }
 
 function hasUncommittedChanges(deps: GateDeps, combo: ComboRecord): boolean {
-  return requireComboGit(
-    deps,
-    combo,
-    ["status", "--porcelain"],
-    "git status --porcelain",
-  ).stdout.trim() !== "";
+  return (
+    requireComboGit(deps, combo, ["status", "--porcelain"], "git status --porcelain").stdout.trim() !== ""
+  );
 }
 
 interface RenderedGatekeeperCommand {
@@ -426,10 +424,7 @@ function renderGatekeeperCommand(
   try {
     command = buildGatekeeperInvocation({ gatekeeperCommand });
   } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      !error.message.includes("placeholders require work item facts")
-    ) {
+    if (!(error instanceof Error) || !error.message.includes("placeholders require work item facts")) {
       throw error;
     }
     const details = loadIssueDetails();
@@ -574,11 +569,7 @@ function buildScriptWithGatekeeperAttachCommand(
   );
 }
 
-function runCommandInGatekeeperWindow(
-  deps: GatekeeperWindowDeps,
-  combo: ComboRecord,
-  command: string,
-): void {
+function runCommandInGatekeeperWindow(deps: GatekeeperWindowDeps, combo: ComboRecord, command: string): void {
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) {
     throw new Error(
@@ -652,20 +643,20 @@ function gateAlreadyRunningGuardScript(input: {
   emit: string;
 }): string[] {
   return [
-    "if [ \"$gatekeeper_code\" -ne 0 ]; then",
-    "  status_probe_log=\"${gatekeeper_log}.status\"",
+    'if [ "$gatekeeper_code" -ne 0 ]; then',
+    '  status_probe_log="${gatekeeper_log}.status"',
     `  if no-mistakes axi status > "$status_probe_log" 2>&1 && grep -F ${shellQuote(`branch: ${input.combo.branch}`)} "$status_probe_log" >/dev/null && grep -F ${shellQuote(`head: ${input.headSha.slice(0, 7)}`)} "$status_probe_log" >/dev/null && grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$' "$status_probe_log"; then`,
     "    gatekeeper_run_id=$(sed -n 's/^[[:space:]]*id:[[:space:]]*//p' \"$status_probe_log\" | sed -n '1p')",
-    "    if [ -z \"$gatekeeper_run_id\" ]; then",
-    "      cat \"$status_probe_log\" >> \"$gatekeeper_log\" 2>/dev/null || true",
-    "      exit \"$gatekeeper_code\"",
+    '    if [ -z "$gatekeeper_run_id" ]; then',
+    '      cat "$status_probe_log" >> "$gatekeeper_log" 2>/dev/null || true',
+    '      exit "$gatekeeper_code"',
     "    fi",
     "    gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     `    ${input.emit} gate_status --field state=fix_inflight --field head_sha="$gatekeeper_head_sha"`,
     "    gate_lease_release || true",
-    "    exec no-mistakes attach --run \"$gatekeeper_run_id\"",
+    '    exec no-mistakes attach --run "$gatekeeper_run_id"',
     "  fi",
-    "  cat \"$status_probe_log\" >> \"$gatekeeper_log\" 2>/dev/null || true",
+    '  cat "$status_probe_log" >> "$gatekeeper_log" 2>/dev/null || true',
     "fi",
   ];
 }
@@ -726,12 +717,12 @@ function buildInitialGateRetryScript(input: {
     "  exit 0",
     "fi",
     checksPassedContextCanceledRecoveryScript(),
-    "if [ \"$gatekeeper_code\" -ne 0 ]; then",
+    'if [ "$gatekeeper_code" -ne 0 ]; then',
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     indentShellLines(gateFailureReasonScript(), 2),
     `  ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
     `  ${input.emit} gate_failed --field exit_code="$gatekeeper_code" --field reason="$gatekeeper_failure_reason"`,
-    "  exit \"$gatekeeper_code\"",
+    '  exit "$gatekeeper_code"',
     "fi",
     "gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     `pr_url=$(gh pr list --head ${shellQuote(input.combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)`,
@@ -743,16 +734,16 @@ function buildInitialGateRetryScript(input: {
     input.ensurePrAutoclose === undefined
       ? "  :"
       : [
-        `  if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
-        "    :",
-        "  else",
-        "    autoclose_code=$?",
-        `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
-        `    ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
-        `    ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
-        `    exit "$autoclose_code"`,
-        "  fi",
-      ],
+          `  if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
+          "    :",
+          "  else",
+          "    autoclose_code=$?",
+          `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
+          `    ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
+          `    ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
+          `    exit "$autoclose_code"`,
+          "  fi",
+        ],
     indentShellLines(gateStatusIdleScript(input.emit, '--field head_sha="$gatekeeper_head_sha"'), 2),
     `  ${input.emit} pr_opened --field url="$pr_url"`,
     `  ${input.activateReviewer}`,
@@ -781,7 +772,12 @@ export function startInitialGateRetry(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, runDir, config.gatekeeperCommand);
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(
+    deps,
+    combo,
+    runDir,
+    config.gatekeeperCommand,
+  );
   const scriptPath = join(runDir, `gatekeeper-initial-${headSha.slice(0, 12)}.sh`);
   writeFileSync(
     scriptPath,
@@ -866,12 +862,12 @@ export function buildPostAddressGateScript(input: {
     "  exit 0",
     "fi",
     checksPassedContextCanceledRecoveryScript(),
-    "if [ \"$gatekeeper_code\" -ne 0 ]; then",
+    'if [ "$gatekeeper_code" -ne 0 ]; then',
     "  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     indentShellLines(gateFailureReasonScript(), 2),
     `  ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
     `  ${input.emit} gate_failed --field exit_code="$gatekeeper_code" --field reason="$gatekeeper_failure_reason"`,
-    "  exit \"$gatekeeper_code\"",
+    '  exit "$gatekeeper_code"',
     "fi",
     "gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)",
     `pr_url=$(gh pr list --head ${shellQuote(input.combo.branch)} --json url --jq '.[0].url' 2>/dev/null || true)`,
@@ -883,20 +879,20 @@ export function buildPostAddressGateScript(input: {
     input.ensurePrAutoclose === undefined
       ? ":"
       : [
-        `if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
-        "  :",
-        "else",
-        "  autoclose_code=$?",
-        `  if [ -n "$gatekeeper_head_sha" ]; then`,
-        `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
-        "  else",
-        `    ${input.emit} gate_status --field state=failed`,
-        "  fi",
-        `  ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
-        `  ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
-        `  exit "$autoclose_code"`,
-        "fi",
-      ],
+          `if ${input.ensurePrAutoclose} "$pr_url" > "$autoclose_log" 2>&1; then`,
+          "  :",
+          "else",
+          "  autoclose_code=$?",
+          `  if [ -n "$gatekeeper_head_sha" ]; then`,
+          `    ${input.emit} gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"`,
+          "  else",
+          `    ${input.emit} gate_status --field state=failed`,
+          "  fi",
+          `  ${input.emit} gate_failed --field exit_code="$autoclose_code"`,
+          `  ${input.emit} pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"`,
+          `  exit "$autoclose_code"`,
+          "fi",
+        ],
     `if [ -n "$gatekeeper_head_sha" ]; then`,
     indentShellLines(gateStatusIdleScript(input.emit, '--field head_sha="$gatekeeper_head_sha"'), 2),
     `  ${input.emit} gate_validated --field sha="$gatekeeper_head_sha"`,
@@ -974,13 +970,15 @@ export function restartPostAddressGate(input: {
 
   const headSha = worktreeHeadSha(deps, combo);
   if (hasUncommittedChanges(deps, combo)) {
-    deps.out(`gate: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate restart`);
+    deps.out(
+      `gate: worktree has uncommitted changes for ${combo.id}; waiting for commit before gate restart`,
+    );
     return { started: false, headSha, reason: "uncommitted_changes" };
   }
 
   const lastPublishedSha = latestPublishedGateSha(events);
-  const publishedGateIsSuperseded = lastPublishedSha !== undefined &&
-    publishedGateSupersededByLocalRecovery(events, lastPublishedSha);
+  const publishedGateIsSuperseded =
+    lastPublishedSha !== undefined && publishedGateSupersededByLocalRecovery(events, lastPublishedSha);
   if (
     lastPublishedSha !== undefined &&
     lastPublishedSha !== headSha &&
@@ -1012,7 +1010,12 @@ export function restartPostAddressGate(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, runDir, config.gatekeeperCommand);
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(
+    deps,
+    combo,
+    runDir,
+    config.gatekeeperCommand,
+  );
   startPostAddressGate({
     deps,
     combo,
@@ -1041,7 +1044,8 @@ export function runPostAddressGateIfNeeded(input: {
   const events = readEvents(runDir);
   const lastStatus = latestGateStatus(events);
   const lastPublishedSha = latestPublishedGateSha(events);
-  if (lastStatus === undefined && lastPublishedSha === undefined) return { status: "idle", reason: "no_gate" };
+  if (lastStatus === undefined && lastPublishedSha === undefined)
+    return { status: "idle", reason: "no_gate" };
 
   const headSha = worktreeHeadSha(deps, combo);
   if (lastStatus?.state === "fix_inflight") {
@@ -1084,7 +1088,12 @@ export function runPostAddressGateIfNeeded(input: {
       `director: worktree HEAD ${headSha} does not include published gate ${lastPublishedSha}; ` +
         "waiting for coder sync before post-address gate",
     );
-    return { status: "blocked", reason: "coder_worktree_out_of_sync", headSha, publishedSha: lastPublishedSha };
+    return {
+      status: "blocked",
+      reason: "coder_worktree_out_of_sync",
+      headSha,
+      publishedSha: lastPublishedSha,
+    };
   }
   if (publishedGateIsSuperseded) {
     deps.out(
@@ -1110,7 +1119,12 @@ export function runPostAddressGateIfNeeded(input: {
   }
 
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(deps, combo, runDir, config.gatekeeperCommand);
+  const renderedGatekeeper = renderScriptedMirrorGatekeeperCommand(
+    deps,
+    combo,
+    runDir,
+    config.gatekeeperCommand,
+  );
   startPostAddressGate({
     deps,
     combo,

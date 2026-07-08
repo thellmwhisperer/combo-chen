@@ -29,6 +29,7 @@
 import { deriveStatus, type Phase } from "../core/combo.js";
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import { describeWorkItem, type ComboRecord, type WorkItemDescriptor } from "../core/state.js";
+import { yesNo } from "./display.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -144,9 +145,8 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
   const headSha = input.github?.pr?.headSha;
   const localHeadSha = input.local?.worktreeHeadSha;
   const probedReviewerSha = input.github?.pr?.reviewerPinnedSha;
-  const liveReviewerSha = probedReviewerSha === null
-    ? undefined
-    : probedReviewerSha ?? livePinnedLgtmSha(events);
+  const liveReviewerSha =
+    probedReviewerSha === null ? undefined : (probedReviewerSha ?? livePinnedLgtmSha(events));
   const publishedGateSha = latestPublishedGateSha(events);
   const gateStatus = latestGateStatus(events);
   const latestStaleLgtm = latestEvent(events, "lgtm_stale");
@@ -245,10 +245,7 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
     );
   }
 
-  if (
-    latestStaleLgtm !== undefined &&
-    (headSha === undefined || latestStaleLgtm["new_sha"] === headSha)
-  ) {
+  if (latestStaleLgtm !== undefined && (headSha === undefined || latestStaleLgtm["new_sha"] === headSha)) {
     report.incidents.push(
       incident(
         "stale_lgtm_after_push",
@@ -270,11 +267,7 @@ export function analyzeForensicsCombo(input: ForensicsComboInput): ForensicsComb
 
   if (prState === "MERGED" && issueState === "OPEN") {
     report.incidents.push(
-      incident(
-        "merged_pr_open_issue",
-        "critical",
-        "The PR is merged, but the source issue is still open.",
-      ),
+      incident("merged_pr_open_issue", "critical", "The PR is merged, but the source issue is still open."),
     );
   }
 
@@ -399,9 +392,13 @@ function latestEvent<T extends ComboEvent["event"]>(events: ComboEvent[], name: 
   return undefined;
 }
 
-function durationField<K extends string>(key: K, start: string | undefined, end: string | undefined): Partial<Record<K, number>> {
+function durationField<K extends string>(
+  key: K,
+  start: string | undefined,
+  end: string | undefined,
+): Partial<Record<K, number>> {
   const ms = durationBetween(start, end);
-  return ms === undefined ? {} : { [key]: ms } as Partial<Record<K, number>>;
+  return ms === undefined ? {} : ({ [key]: ms } as Partial<Record<K, number>>);
 }
 
 function durationBetween(start: string | undefined, end: string | undefined): number | undefined {
@@ -420,10 +417,6 @@ function formatDuration(ms: number | undefined): string {
   if (minutes === 0) return `${seconds}s`;
   if (seconds === 0) return `${minutes}m`;
   return `${minutes}m ${seconds}s`;
-}
-
-function yesNo(value: boolean): "yes" | "no" {
-  return value ? "yes" : "no";
 }
 
 function shortSha(sha: string): string {

@@ -99,14 +99,7 @@ describe("ensureJournalPane", () => {
 
     expect(calls).toEqual([
       ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
-      [
-        "new-window",
-        "-t",
-        "combo-chen-o-r-7",
-        "-n",
-        "journal",
-        "node cli.mjs events --follow -n 'o-r-7'",
-      ],
+      ["new-window", "-t", "combo-chen-o-r-7", "-n", "journal", "node cli.mjs events --follow -n 'o-r-7'"],
     ]);
   });
 });

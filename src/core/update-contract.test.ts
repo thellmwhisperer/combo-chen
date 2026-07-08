@@ -85,9 +85,7 @@ describe("update contract release identity", () => {
   });
 
   it("selects the expected platform asset for supported targets", () => {
-    expect(
-      selectUpdateAsset({ version: "v1.2.3", platform: "darwin", arch: "arm64" }),
-    ).toEqual({
+    expect(selectUpdateAsset({ version: "v1.2.3", platform: "darwin", arch: "arm64" })).toEqual({
       version: "1.2.3",
       platform: "darwin",
       arch: "arm64",
@@ -95,9 +93,7 @@ describe("update contract release identity", () => {
       fileName: "combo-chen-v1.2.3-darwin-arm64.tar.gz",
     });
 
-    expect(
-      selectUpdateAsset({ version: "1.2.3-beta.4", platform: "linux", arch: "x64" }),
-    ).toEqual({
+    expect(selectUpdateAsset({ version: "1.2.3-beta.4", platform: "linux", arch: "x64" })).toEqual({
       version: "1.2.3-beta.4",
       platform: "linux",
       arch: "x64",
@@ -107,9 +103,7 @@ describe("update contract release identity", () => {
   });
 
   it("reports unsupported platform assets without inventing a filename", () => {
-    expect(
-      selectUpdateAsset({ version: "v1.2.3", platform: "win32", arch: "x64" }),
-    ).toEqual({
+    expect(selectUpdateAsset({ version: "v1.2.3", platform: "win32", arch: "x64" })).toEqual({
       version: "1.2.3",
       platform: "win32",
       arch: "x64",
@@ -206,9 +200,7 @@ describe("update contract release identity", () => {
       reason: "release archive bin path is eligible for future archive replacement",
     });
 
-    expect(
-      classifyInstallTarget({ path: "/opt/combo-chen-v1.2.3-beta.4/bin/combo-chen" }),
-    ).toMatchObject({
+    expect(classifyInstallTarget({ path: "/opt/combo-chen-v1.2.3-beta.4/bin/combo-chen" })).toMatchObject({
       kind: "release_archive",
       autoReplaceable: true,
     });

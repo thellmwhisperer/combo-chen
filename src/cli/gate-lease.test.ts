@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { readEvents } from "../core/events.js";
-import { acquireGateLease, readGateLease, releaseGateLease } from "../core/gate-lease.js";
+import { acquireGateLease, readGateLease } from "../core/gate-lease.js";
 import { ComboStateError, runDirFor, writeCombo } from "../core/state.js";
 import {
   acquireGateLeaseForCombo,

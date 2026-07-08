@@ -28,7 +28,12 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { loadConfig } from "./config.js";
-import { CONFIG_SNAPSHOT_FILE, loadRuntimeConfig, readConfigSnapshot, writeConfigSnapshot } from "./config-snapshot.js";
+import {
+  CONFIG_SNAPSHOT_FILE,
+  loadRuntimeConfig,
+  readConfigSnapshot,
+  writeConfigSnapshot,
+} from "./config-snapshot.js";
 
 // -- 1/1 CORE · config snapshots <- START HERE --
 describe("config snapshots", () => {

@@ -1,0 +1,5 @@
+# ast-grep project config: every rule in .slop/rules/ runs by default.
+# A rule with severity error fails slop:check; adding a tombstone is one
+# file here, never a package.json edit.
+ruleDirs:
+  - .slop/rules

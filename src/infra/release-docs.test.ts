@@ -122,7 +122,9 @@ describe("release docs", () => {
 
     expect(readme).toContain("combo-chen forensics --issues <numbers> [--format json]\n");
     expect(readme).toContain("combo-chen forensics --issues <numbers> [--record-outcome]\n");
-    expect(readme).not.toContain("combo-chen forensics --issues <numbers> [--format json] [--record-outcome]");
+    expect(readme).not.toContain(
+      "combo-chen forensics --issues <numbers> [--format json] [--record-outcome]",
+    );
   });
 
   it("documents PR label projection as single-writer and keeps deep status read-only", () => {

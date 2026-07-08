@@ -22,7 +22,7 @@
  * @exports none
  * @deps vitest, node:{fs,os,path}, ../core/{events,state}, ../infra/{config,config-snapshot}, ../roles/coder, ./director, ./sessions
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -182,7 +182,11 @@ function fakeDeps(input: {
           });
         }
         if (args[3] === "--add-label") {
-          livePrLabels = livePrLabels.concat(String(args[4] ?? "").split(",").map((name) => ({ name })));
+          livePrLabels = livePrLabels.concat(
+            String(args[4] ?? "")
+              .split(",")
+              .map((name) => ({ name })),
+          );
         }
         return { status: 0, stdout: "", stderr: "" };
       }
@@ -294,7 +298,10 @@ describe("READY pure state helpers", () => {
     expect(gateStateAllowsReady([event("gate_validated", { sha: oldSha })], headSha)).toBe(false);
     expect(
       gateStateAllowsReady(
-        [event("gate_validated", { sha: headSha }), event("gate_status", { state: "failed", head_sha: headSha })],
+        [
+          event("gate_validated", { sha: headSha }),
+          event("gate_status", { state: "failed", head_sha: headSha }),
+        ],
         headSha,
       ),
     ).toBe(false);
@@ -356,7 +363,9 @@ describe("tickDirector", () => {
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
     );
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
+    expect(gatekeeperWindow?.at(-1)).toContain(
+      "[combo-chen] gatekeeper idle; waiting for the next current-head run.",
+    );
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("initial gate retry for o-r-7");
     expect(script).toContain("emit -n 'o-r-7' --skip-gate-window-recovery gate_started");
@@ -387,9 +396,9 @@ describe("tickDirector", () => {
     );
     expect(out).toContain("director: retrying initial gate for o-r-7 after gate_failed (attempt 2/2)");
     expect(
-      calls.slice(callsAfterRetry).some(
-        (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-      ),
+      calls
+        .slice(callsAfterRetry)
+        .some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper")),
     ).toBe(true);
 
     const callsAfterSecondRetry = calls.length;
@@ -402,9 +411,9 @@ describe("tickDirector", () => {
     ).toBe(true);
     expect(out).toContain("director: initial gate retries exhausted for o-r-7 after 2 retries");
     expect(
-      calls.slice(callsAfterSecondRetry).some(
-        (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-      ),
+      calls
+        .slice(callsAfterSecondRetry)
+        .some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper")),
     ).toBe(false);
 
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -412,9 +421,9 @@ describe("tickDirector", () => {
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(
-      calls.slice(callsAfterSecondRetry).some(
-        (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-      ),
+      calls
+        .slice(callsAfterSecondRetry)
+        .some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper")),
     ).toBe(false);
   });
 
@@ -581,7 +590,10 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
-    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[coder_responding]\nwindow_name = "coder-responding"\n',
+    );
     writeCombo(runDir, record);
     writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
@@ -645,9 +657,7 @@ describe("tickDirector", () => {
     expect(
       calls.some(
         (call) =>
-          call[0] === "tmux" &&
-          call[1] === "list-panes" &&
-          call.at(-1) === `${record.tmuxSession}:coder`,
+          call[0] === "tmux" && call[1] === "list-panes" && call.at(-1) === `${record.tmuxSession}:coder`,
       ),
     ).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
@@ -772,7 +782,10 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
-    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[coder_responding]\nwindow_name = "coder-responding"\n',
+    );
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     const { deps, calls } = fakeDeps({
@@ -801,7 +814,9 @@ describe("tickDirector", () => {
         detail: "dead pane",
       }),
     );
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("coder"))).toBe(false);
+    expect(
+      calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("coder")),
+    ).toBe(false);
   });
 
   it("inspects pre-PR gatekeeper panes and escalates unchanged GATING stalls", async () => {
@@ -839,7 +854,10 @@ describe("tickDirector", () => {
     const runDir = runDirFor(h, record.id);
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const windows = new Set(["coder-responding"]);
-    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder-responding"\n');
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      '[coder_responding]\nwindow_name = "coder-responding"\n',
+    );
     writeCombo(runDir, record);
     writeCoderThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -947,9 +965,11 @@ describe("tickDirector", () => {
         COMBO_CHEN_WORKER_STALL_TICKS: "2",
       },
       tmux: (args) => {
-        if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\ncoder-responding\n", stderr: "" };
+        if (args[0] === "list-windows")
+          return { status: 0, stdout: "reviewer\ncoder-responding\n", stderr: "" };
         if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
-        if (args[0] === "capture-pane") return { status: 0, stdout: "waiting for coder responding...\n", stderr: "" };
+        if (args[0] === "capture-pane")
+          return { status: 0, stdout: "waiting for coder responding...\n", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
     });
@@ -959,11 +979,17 @@ describe("tickDirector", () => {
 
     expect(out).toContain("director: worker recovery paused: needs_human intent_decision_required");
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("coder-responding")))
-      .toBe(false);
+    expect(
+      calls.some(
+        (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("coder-responding"),
+      ),
+    ).toBe(false);
     expect(readEvents(runDir).some((event) => event.event === "worker_recovered")).toBe(false);
-    expect(readEvents(runDir).some((event) => event.event === "needs_human" && event["reason"] === "worker_stalled"))
-      .toBe(false);
+    expect(
+      readEvents(runDir).some(
+        (event) => event.event === "needs_human" && event["reason"] === "worker_stalled",
+      ),
+    ).toBe(false);
   });
 
   it("keeps polling post-PR reviewer verdicts without treating retained coder and gatekeeper panes as active workers", async () => {
@@ -1015,14 +1041,15 @@ describe("tickDirector", () => {
         head_sha: headSha,
       }),
     );
-    expect(calls).toContainEqual([
-      "tmux",
-      "send-keys",
-      "-t",
-      "combo-chen-o-r-7:coder",
-      "C-m",
-    ]);
-    expect(calls.some((call) => call[1] === "list-panes" && call.includes("combo-chen-o-r-7:coder") && !call.includes("#{pane_dead}"))).toBe(false);
+    expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:coder", "C-m"]);
+    expect(
+      calls.some(
+        (call) =>
+          call[1] === "list-panes" &&
+          call.includes("combo-chen-o-r-7:coder") &&
+          !call.includes("#{pane_dead}"),
+      ),
+    ).toBe(false);
     expect(calls.some((call) => call.includes("combo-chen-o-r-7:gatekeeper"))).toBe(false);
     expect(out).toContain("nudged https://github.com/o/r/pull/7#pullrequestreview-1");
   });
@@ -1056,14 +1083,19 @@ describe("tickDirector", () => {
     deps.tmux = (args) => {
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-      if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+      if (args[0] === "capture-pane")
+        return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     };
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+      }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
   });
@@ -1085,7 +1117,8 @@ describe("tickDirector", () => {
       calls.push(["tmux", ...args]);
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-      if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+      if (args[0] === "capture-pane")
+        return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
       if (args[0] === "send-keys") return { status: 0, stdout: "", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     };
@@ -1118,7 +1151,8 @@ describe("tickDirector", () => {
       calls.push(["tmux", ...args]);
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-      if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+      if (args[0] === "capture-pane")
+        return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
       if (args[0] === "send-keys") return { status: 0, stdout: "", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     };
@@ -1238,14 +1272,19 @@ describe("tickDirector", () => {
     deps.tmux = (args) => {
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-      if (args[0] === "capture-pane") return { status: 0, stdout: "CUSTOM TOOL APPROVAL REQUIRED\n", stderr: "" };
+      if (args[0] === "capture-pane")
+        return { status: 0, stdout: "CUSTOM TOOL APPROVAL REQUIRED\n", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     };
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+      }),
     );
   });
 
@@ -1277,7 +1316,11 @@ describe("tickDirector", () => {
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+      }),
     );
   });
 
@@ -1287,10 +1330,7 @@ describe("tickDirector", () => {
     const { record } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      [
-        "[coder_responding]",
-        'window_name = "reviewer"',
-      ].join("\n"),
+      ["[coder_responding]", 'window_name = "reviewer"'].join("\n"),
     );
     const { deps } = fakeDeps({
       homeDir: h,
@@ -1376,9 +1416,7 @@ describe("tickDirector", () => {
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    const labelEditCalls = calls.filter(
-      (call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit",
-    );
+    const labelEditCalls = calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit");
     expect(labelEditCalls).toEqual([
       [
         "gh",
@@ -1584,13 +1622,18 @@ describe("tickDirector", () => {
       },
     });
 
-    await tickDirector({ deps: firstTickDeps.deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({
+      deps: firstTickDeps.deps,
+      home: h,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
 
     const afterFirst = readEvents(runDir).filter((e) => e.event === "pr_conflict");
     expect(afterFirst).toHaveLength(0);
-    expect(
-      firstTickDeps.out.some((line) => line.includes(`pr_conflict nudge failed for ${record.id}`)),
-    ).toBe(true);
+    expect(firstTickDeps.out.some((line) => line.includes(`pr_conflict nudge failed for ${record.id}`))).toBe(
+      true,
+    );
 
     const secondTickDeps = fakeDeps({
       homeDir: h,
@@ -1600,7 +1643,12 @@ describe("tickDirector", () => {
       externalReviewComments: [],
     });
 
-    await tickDirector({ deps: secondTickDeps.deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({
+      deps: secondTickDeps.deps,
+      home: h,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+    });
 
     const afterSecond = readEvents(runDir).filter((e) => e.event === "pr_conflict");
     expect(afterSecond).toHaveLength(1);
@@ -1663,9 +1711,7 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
       }),
     );
-    const commentCall = calls.find(
-      (call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment",
-    );
+    const commentCall = calls.find((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment");
     expect(commentCall).toEqual([
       "gh",
       "pr",
@@ -1862,24 +1908,16 @@ describe("tickDirector", () => {
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      [
-        "[reviewer]",
-        'ambient = ["reviewdog"]',
-        "",
-        "[reviewer.claude]",
-        'command = "claude {prompt}"',
-      ].join("\n"),
+      ["[reviewer]", 'ambient = ["reviewdog"]', "", "[reviewer.claude]", 'command = "claude {prompt}"'].join(
+        "\n",
+      ),
     );
     writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      [
-        "[reviewer]",
-        'ambient = ["driftbot"]',
-        "",
-        "[reviewer.claude]",
-        'command = "claude {prompt}"',
-      ].join("\n"),
+      ["[reviewer]", 'ambient = ["driftbot"]', "", "[reviewer.claude]", 'command = "claude {prompt}"'].join(
+        "\n",
+      ),
     );
     const { deps } = fakeDeps({
       homeDir: h,
@@ -2094,8 +2132,9 @@ describe("tickDirector", () => {
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
-    expect(readEvents(runDir).some((event) => event.event === "gate_validated" && event["source"] === "github"))
-      .toBe(false);
+    expect(
+      readEvents(runDir).some((event) => event.event === "gate_validated" && event["source"] === "github"),
+    ).toBe(false);
   });
 
   it("auto-closes a merged PR after reviewer records closure pending", async () => {
@@ -2138,11 +2177,19 @@ describe("tickDirector", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "combo_closed", source: "closure" }),
     );
-    expect(calls).toContainEqual(["treehouse", `cwd=${record.repoDir}`, "return", "--force", record.worktree]);
+    expect(calls).toContainEqual([
+      "treehouse",
+      `cwd=${record.repoDir}`,
+      "return",
+      "--force",
+      record.worktree,
+    ]);
     expect(calls).toContainEqual(["git", `cwd=${record.repoDir}`, "branch", "-D", record.branch]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", record.tmuxSession]);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
-    expect(out).toContain("reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7");
+    expect(out).toContain(
+      "reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7",
+    );
     expect(out).toContain("closure: o-r-7 closed merged PR merge789 by maintainer; teardown complete");
     expect(out.some((line) => line.startsWith("director: watch "))).toBe(true);
     expect(out.some((line) => line === "director: tick complete for o-r-7")).toBe(false);
@@ -2224,7 +2271,13 @@ describe("tickDirector", () => {
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "combo_closed", source: "closure" }),
     );
-    expect(calls).toContainEqual(["treehouse", `cwd=${record.repoDir}`, "return", "--force", record.worktree]);
+    expect(calls).toContainEqual([
+      "treehouse",
+      `cwd=${record.repoDir}`,
+      "return",
+      "--force",
+      record.worktree,
+    ]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", record.tmuxSession]);
   });
 
@@ -2242,7 +2295,6 @@ describe("tickDirector", () => {
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     appendEvent(runDir, "gate_status", { state: "idle", head_sha: oldSha });
     writeCoderThreadArtifact(runDir);
-    let revParseCalls = 0;
     const gitCalls: string[][] = [];
     const { deps, calls, out } = fakeDeps({
       homeDir: h,
@@ -2267,7 +2319,12 @@ describe("tickDirector", () => {
         if (args[0] === "status" && args[1] === "--porcelain") {
           return { status: 0, stdout: "", stderr: "" };
         }
-        if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[2] === oldSha && args[3] === newSha) {
+        if (
+          args[0] === "merge-base" &&
+          args[1] === "--is-ancestor" &&
+          args[2] === oldSha &&
+          args[3] === newSha
+        ) {
           return { status: 0, stdout: "", stderr: "" };
         }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
@@ -2276,7 +2333,9 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "address_done", head_sha: newSha }));
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "address_done", head_sha: newSha }),
+    );
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "gate_stale", old_sha: oldSha, new_sha: newSha }),
     );
@@ -2285,7 +2344,9 @@ describe("tickDirector", () => {
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
+    expect(gatekeeperWindow?.at(-1)).toContain(
+      "[combo-chen] gatekeeper idle; waiting for the next current-head run.",
+    );
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
     expect(readFileSync(join(worktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
     expect(out).toContain(`no-mistakes: copied local config to ${worktree}/.no-mistakes.yaml`);
@@ -2320,7 +2381,12 @@ describe("tickDirector", () => {
         if (args[0] === "status" && args[1] === "--porcelain") {
           return { status: 0, stdout: "", stderr: "" };
         }
-        if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[2] === oldSha && args[3] === newSha) {
+        if (
+          args[0] === "merge-base" &&
+          args[1] === "--is-ancestor" &&
+          args[2] === oldSha &&
+          args[3] === newSha
+        ) {
           return { status: 0, stdout: "", stderr: "" };
         }
         return { status: 1, stdout: "", stderr: `unexpected git ${args.join(" ")}` };
@@ -2329,7 +2395,9 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "address_done", head_sha: newSha }));
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "address_done", head_sha: newSha }),
+    );
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "gate_stale", old_sha: oldSha, new_sha: newSha }),
     );
@@ -2338,7 +2406,9 @@ describe("tickDirector", () => {
     );
     const scriptPath = join(runDir, `gatekeeper-post-${newSha.slice(0, 12)}.sh`);
     expect(gatekeeperWindow?.at(-1)).toContain(`sh '${scriptPath}'`);
-    expect(gatekeeperWindow?.at(-1)).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
+    expect(gatekeeperWindow?.at(-1)).toContain(
+      "[combo-chen] gatekeeper idle; waiting for the next current-head run.",
+    );
     expect(readFileSync(scriptPath, "utf8")).toContain("post-address gate");
   });
 

@@ -105,7 +105,6 @@ describe("coder responding activation commands", () => {
       ),
     ).toBe("hermes --resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
   });
-
 });
 // -/ 1/3
 
@@ -199,12 +198,7 @@ describe("routeReviewComments", () => {
       "-t",
       "combo-chen-o-r-7:coder-responding",
     ]);
-    expect(tmuxCalls[2]).toEqual([
-      "send-keys",
-      "-t",
-      "combo-chen-o-r-7:coder-responding",
-      "C-m",
-    ]);
+    expect(tmuxCalls[2]).toEqual(["send-keys", "-t", "combo-chen-o-r-7:coder-responding", "C-m"]);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["review_comment"]);
     expect(readEvents(dir)[0]).toMatchObject(comment);
   });
@@ -236,17 +230,15 @@ describe("parsePullRequestUrl", () => {
   });
 
   it("throws for a non-PR GitHub URL", () => {
-    expect(() =>
-      parsePullRequestUrl("https://github.com/o/r/issues/7"),
-    ).toThrow("Not a GitHub pull request URL");
+    expect(() => parsePullRequestUrl("https://github.com/o/r/issues/7")).toThrow(
+      "Not a GitHub pull request URL",
+    );
   });
 
   it("throws for GitHub Enterprise URLs because the regex is scoped to github.com", () => {
-    expect(() =>
-      parsePullRequestUrl(
-        "https://github.mycompany.com/org/repo/pull/42",
-      ),
-    ).toThrow("Not a GitHub pull request URL");
+    expect(() => parsePullRequestUrl("https://github.mycompany.com/org/repo/pull/42")).toThrow(
+      "Not a GitHub pull request URL",
+    );
   });
 });
 
@@ -298,11 +290,7 @@ describe("readGhArray", () => {
       stderr: "",
     });
 
-    expect(readGhArray(gh, "repos/o/r/pulls/1/comments")).toEqual([
-      { a: 1 },
-      { b: 2 },
-      { c: 3 },
-    ]);
+    expect(readGhArray(gh, "repos/o/r/pulls/1/comments")).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }]);
   });
 });
 
@@ -324,30 +312,21 @@ describe("signalFromComment", () => {
   });
 
   it("returns undefined when body is missing", () => {
-    expect(
-      signalFromComment({ html_url: "a", user: { login: "x" } }, "pr_comment"),
-    ).toBeUndefined();
+    expect(signalFromComment({ html_url: "a", user: { login: "x" } }, "pr_comment")).toBeUndefined();
   });
 
   it("returns undefined when body is empty string", () => {
     expect(
-      signalFromComment(
-        { body: "", html_url: "a", user: { login: "x" } },
-        "pr_comment",
-      ),
+      signalFromComment({ body: "", html_url: "a", user: { login: "x" } }, "pr_comment"),
     ).toBeUndefined();
   });
 
   it("returns undefined when html_url is missing", () => {
-    expect(
-      signalFromComment({ body: "ok", user: { login: "x" } }, "pr_comment"),
-    ).toBeUndefined();
+    expect(signalFromComment({ body: "ok", user: { login: "x" } }, "pr_comment")).toBeUndefined();
   });
 
   it("returns undefined when user.login is missing", () => {
-    expect(
-      signalFromComment({ body: "ok", html_url: "a", user: {} }, "pr_comment"),
-    ).toBeUndefined();
+    expect(signalFromComment({ body: "ok", html_url: "a", user: {} }, "pr_comment")).toBeUndefined();
   });
 
   it("returns undefined for non-object input", () => {
@@ -426,11 +405,9 @@ describe("signalFromReview", () => {
     expect(
       signalFromReview({
         state: "COMMENTED",
-        body: [
-          "lgtm @ 73f80173a96fc2d70af0972c6ee936cc59ad5f19",
-          "",
-          "Runtime review. No findings.",
-        ].join("\n"),
+        body: ["lgtm @ 73f80173a96fc2d70af0972c6ee936cc59ad5f19", "", "Runtime review. No findings."].join(
+          "\n",
+        ),
         html_url: "https://github.com/o/r/pull/7#pullrequestreview-1",
         user: { login: "reviewer" },
       }),

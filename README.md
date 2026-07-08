@@ -49,9 +49,9 @@ combo-chen makes the process explicit.
 6. Review comments are routed back to the coder in responding mode.
 7. New addressing commits go back through the gatekeeper before publication.
 8. The run becomes ready only when the current PR head has gate validation,
-    reviewer LGTM, configured required READY checks, and passing remaining checks.
-    If a sibling merge advances the base and the READY PR becomes dirty or
-    conflicting, the director invalidates READY and routes the coder to rebase.
+   reviewer LGTM, configured required READY checks, and passing remaining checks.
+   If a sibling merge advances the base and the READY PR becomes dirty or
+   conflicting, the director invalidates READY and routes the coder to rebase.
 9. While the PR is open, GitHub labels reflect the live combo state
    (`combo:working-coder`, `combo:working-reviewer`, `combo:working-gate`,
    `combo:lgtm`, `combo:external-review-green`, `combo:ready`, `combo:stale`,
@@ -411,7 +411,7 @@ machine-readable.
 ## U0 update contract bridge and updater slices
 
 U0, U1, U2, and U3 together span the updater contract from release identity
-through release resolution, verified staging, and replacement eligibility.  U0
+through release resolution, verified staging, and replacement eligibility. U0
 is the read-only vocabulary layer: it defines shared types and pure helpers for
 release tag/version normalization (plain versions, `vX.Y.Z`, and
 `combo-chen-vX.Y.Z` component tags), current build versus candidate comparison,
@@ -428,19 +428,19 @@ It does not prompt, run tmux/git/gh/no-mistakes commands, write journals, create
 ledgers, restart daemons, or change update/install targets.
 
 U1 (`src/core/update-resolver.ts`) implements the release resolver and
-latest/beta check flow.  It consumes GitHub Releases metadata plus current build
+latest/beta check flow. It consumes GitHub Releases metadata plus current build
 metadata, ignores prereleases in stable mode, includes prereleases in beta mode,
 normalizes candidates through the U0 contract, selects expected platform assets,
 and returns a read-only update decision without downloads, extraction,
 replacement, or live combo inspection.
 
 U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
-verification, and isolated extraction primitives.  It accepts a resolved update
+verification, and isolated extraction primitives. It accepts a resolved update
 plan or fixture, downloads the archive and `checksums.txt`, verifies the digest
 before extraction, extracts into an isolated staging directory, and returns a
 `StagedUpdateArtifact` descriptor with enough metadata for the replacement
-primitive.  All network and filesystem operations are injected through
-`UpdateStagingDeps` so tests run without real I/O.  Checksum mismatches, missing
+primitive. All network and filesystem operations are injected through
+`UpdateStagingDeps` so tests run without real I/O. Checksum mismatches, missing
 entries, unavailable checksums, and extraction failures are reported
 deterministically with cleanup status.
 
@@ -448,7 +448,7 @@ U0 itself does not download, extract, replace, restart, or mutate active combo
 capsules.
 
 U3 (`replaceInstallTargetFromStagedArtifact`) implements install target and
-atomic replacement for staged release archive installs.  This means source
+atomic replacement for staged release archive installs. This means source
 checkouts and package-manager dev shims are non-auto-replaceable; only release
 archive installs whose real executable path is shaped like
 `combo-chen-vX.Y.Z/bin/combo-chen` are eligible for replacement.
@@ -638,6 +638,8 @@ without collapsing the roles that make the result trustworthy.
 ```bash
 pnpm test
 pnpm typecheck
+pnpm lint
+pnpm format:check
 pnpm slop:check
 pnpm build
 git diff --check
@@ -651,22 +653,19 @@ through env, TOML, then fallback defaults.
 combo-chen ships with code-level anti-slop probes to prevent agent slop during
 autonomous runs:
 
-- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint:
-  ast-grep rules that forbid `node:child_process` imports in `src/core/`
-  (execution belongs in `cli/`, `roles/`, or `infra/`), a no-duplicate-helpers
-  tombstone rule (helpers consolidated into `src/core/guards.ts` and
-  `latestPrUrlFromEvents` from `src/core/events.ts` must not be redefined
-  elsewhere), a no-commit-fragments-in-comments rule (conventional-commit
-  subject fragments leaked into navigational comments), a
-  no-unconfigurable-operational-constants rule (hardcoded timeout/age
-  constants without config paths), and a jscpd duplication ratchet
-  (`--threshold 2`) that fails when non-test duplication grows past the
-  current baseline. The ratchet is a deliberate hard-fail with little headroom
-  (baseline 1.99%): a PR that trips it must remove duplication or raise the
-  threshold explicitly in the same PR with justification.
-- `pnpm slop:report` — verbose jscpd clone listing for non-test source,
-  plus ast-grep warnings for infra verbs in `src/core/` and `toContain`
-  assertions on script/runner strings that freeze internal details.
+- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint. It runs
+  `sg scan` in project mode (`sgconfig.yml`): every tombstone rule in
+  `.slop/rules/` runs by birth with its own `files`/`ignores` scope,
+  `severity: error` findings fail the command, and `severity: warning`
+  findings print without failing (warning is a temporary state for rules
+  whose pre-existing stock is still being cleaned; the rule file says so).
+  It then gates non-test jscpd duplication with `--threshold 2`, a ratchet
+  pinned just above the current baseline so new duplication fails: a PR that
+  trips it must remove duplication or raise the threshold explicitly in the
+  same PR with justification.
+- `pnpm slop:report` — verbose jscpd clone listing for non-test source plus
+  the same `sg scan`, for reading warning output in full while a cleanup is
+  in flight.
 - `pnpm surface` — ast-grep structure outline of all functions across `src/`,
   used by the coder preflight when the target repo exposes the script.
 

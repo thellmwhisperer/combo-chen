@@ -24,12 +24,14 @@ function save(state) {
 
 function valueAfter(flag) {
   const i = args.indexOf(flag);
-  return i < 0 ? "" : (args[i + 1] || "");
+  return i < 0 ? "" : args[i + 1] || "";
 }
 
 function splitTarget(target) {
   const i = target.indexOf(":");
-  return i < 0 ? { session: target, window: "" } : { session: target.slice(0, i), window: target.slice(i + 1) };
+  return i < 0
+    ? { session: target, window: "" }
+    : { session: target.slice(0, i), window: target.slice(i + 1) };
 }
 
 function missing(session) {
@@ -54,8 +56,10 @@ function commandIsJournalFollower(command) {
 }
 
 function commandIsIdleRoleWindow(command) {
-  return /\[combo-chen\] \S+ window idle; waiting for combo-chen to prompt it\./.test(command) &&
-    /\bsleep 3600\b/.test(command);
+  return (
+    /\[combo-chen\] \S+ window idle; waiting for combo-chen to prompt it\./.test(command) &&
+    /\bsleep 3600\b/.test(command)
+  );
 }
 
 function runCommandSynchronously(command) {
