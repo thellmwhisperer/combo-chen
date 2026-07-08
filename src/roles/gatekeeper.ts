@@ -67,8 +67,7 @@ const MAX_PUSH_INTENT_INPUT = 4000;
 const AUTOCLOSE_KEYWORDS = "(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)";
 const NO_MISTAKES_AXI_RUN_AT_START = /^no-mistakes\s+axi\s+run\b/;
 const GATEKEEPER_INTENT_ENV = "COMBO_CHEN_GATEKEEPER_INTENT_B64";
-const DECODE_GATEKEEPER_INTENT_JS =
-  `process.stdout.write(Buffer.from(process.env.${GATEKEEPER_INTENT_ENV} || "", "base64").toString("utf8"))`;
+const DECODE_GATEKEEPER_INTENT_JS = `process.stdout.write(Buffer.from(process.env.${GATEKEEPER_INTENT_ENV} || "", "base64").toString("utf8"))`;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -147,9 +146,8 @@ export function buildIssuePrIntent(input: {
   ];
   const body = input.issueBody.trim();
   if (body !== "") {
-    const truncated = body.length > MAX_INTENT_BODY_LENGTH
-      ? `${body.slice(0, MAX_INTENT_BODY_LENGTH)}\n...`
-      : body;
+    const truncated =
+      body.length > MAX_INTENT_BODY_LENGTH ? `${body.slice(0, MAX_INTENT_BODY_LENGTH)}\n...` : body;
     intent.push("", "Issue body:", truncated);
   }
   return intent.join("\n");
@@ -170,25 +168,23 @@ export function buildWorkPlanPrIntent(plan: WorkPlan): string {
 }
 
 export function buildNoMistakesPushIntent(intent: string): string {
-  const capped = intent.length > MAX_PUSH_INTENT_INPUT
-    ? `${intent.slice(0, MAX_PUSH_INTENT_INPUT - 3)}...`
-    : intent;
+  const capped =
+    intent.length > MAX_PUSH_INTENT_INPUT ? `${intent.slice(0, MAX_PUSH_INTENT_INPUT - 3)}...` : intent;
   return Buffer.from(capped, "utf8").toString("base64");
 }
 // -/ 1/3
 
 function stripShellQuotes(value: string): string {
-  if (
-    (value.startsWith("'") && value.endsWith("'")) ||
-    (value.startsWith('"') && value.endsWith('"'))
-  ) {
+  if ((value.startsWith("'") && value.endsWith("'")) || (value.startsWith('"') && value.endsWith('"'))) {
     return value.slice(1, -1);
   }
   return value;
 }
 
 function skipValueHasCi(value: string): boolean {
-  return stripShellQuotes(value).split(",").some((item) => item.trim() === "ci");
+  return stripShellQuotes(value)
+    .split(",")
+    .some((item) => item.trim() === "ci");
 }
 
 function appendCiToSkipValue(value: string): string {
@@ -221,8 +217,14 @@ function findShellSegmentEnd(command: string, start: number): number {
   let inDouble = false;
   for (let i = start; i < command.length; i++) {
     const c = command[i];
-    if (c === "'" && !inDouble && !isEscaped(command, i)) { inSingle = !inSingle; continue; }
-    if (c === '"' && !inSingle && !isEscaped(command, i)) { inDouble = !inDouble; continue; }
+    if (c === "'" && !inDouble && !isEscaped(command, i)) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (c === '"' && !inSingle && !isEscaped(command, i)) {
+      inDouble = !inDouble;
+      continue;
+    }
     if (inSingle || inDouble) continue;
     if (c === ";" || c === "\n" || c === "|") return i;
     if (c === "&" && command[i + 1] === "&") return i;
@@ -235,8 +237,14 @@ function findNoMistakesAxiRunSegment(command: string): { start: number; end: num
   let inDouble = false;
   for (let i = 0; i < command.length; i++) {
     const c = command[i];
-    if (c === "'" && !inDouble && !isEscaped(command, i)) { inSingle = !inSingle; continue; }
-    if (c === '"' && !inSingle && !isEscaped(command, i)) { inDouble = !inDouble; continue; }
+    if (c === "'" && !inDouble && !isEscaped(command, i)) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (c === '"' && !inSingle && !isEscaped(command, i)) {
+      inDouble = !inDouble;
+      continue;
+    }
     if (inSingle || inDouble) continue;
     if (!isRunnableNoMistakesTokenStart(command, i)) continue;
     if (!NO_MISTAKES_AXI_RUN_AT_START.test(command.slice(i))) continue;
@@ -245,13 +253,21 @@ function findNoMistakesAxiRunSegment(command: string): { start: number; end: num
   return null;
 }
 
-function findSkipFlag(command: string): { fullStart: number; prefix: string; value: string; fullLength: number } | null {
+function findSkipFlag(
+  command: string,
+): { fullStart: number; prefix: string; value: string; fullLength: number } | null {
   let inSingle = false;
   let inDouble = false;
   for (let i = 0; i < command.length; i++) {
     const c = command[i];
-    if (c === "'" && !inDouble && !isEscaped(command, i)) { inSingle = !inSingle; continue; }
-    if (c === '"' && !inSingle && !isEscaped(command, i)) { inDouble = !inDouble; continue; }
+    if (c === "'" && !inDouble && !isEscaped(command, i)) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (c === '"' && !inSingle && !isEscaped(command, i)) {
+      inDouble = !inDouble;
+      continue;
+    }
     if (inSingle || inDouble) continue;
     if (i > 0 && !/\s/.test(command.charAt(i - 1))) continue;
 
@@ -350,10 +366,7 @@ function visiblePrBodyMarkdown(body: string): string {
   return visible.join("\n");
 }
 
-export function hasIssueAutocloseInPrBody(
-  body: string,
-  combo: Pick<ComboRecord, "issueUrl">,
-): boolean {
+export function hasIssueAutocloseInPrBody(body: string, combo: Pick<ComboRecord, "issueUrl">): boolean {
   if (combo.issueUrl.trim() === "") return false;
   const issue = parseIssueUrl(combo.issueUrl);
   const visible = visiblePrBodyMarkdown(body);
@@ -362,10 +375,7 @@ export function hasIssueAutocloseInPrBody(
   return new RegExp(`\\b${AUTOCLOSE_KEYWORDS}\\s+${issueRef}\\b`, "i").test(visible);
 }
 
-export function ensureIssueAutocloseInPrBody(
-  body: string,
-  combo: Pick<ComboRecord, "issueUrl">,
-): string {
+export function ensureIssueAutocloseInPrBody(body: string, combo: Pick<ComboRecord, "issueUrl">): string {
   if (combo.issueUrl.trim() === "") return body;
   if (hasIssueAutocloseInPrBody(body, combo)) return body;
   const issue = parseIssueUrl(combo.issueUrl);
@@ -386,7 +396,9 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
   }
   if (!hasPlaceholders) return forceNoMistakesPublishOnly(input.gatekeeperCommand);
   if (input.combo === undefined) {
-    throw new ComboConfigError("Gatekeeper command placeholders require work item facts (issue or work plan) during runner generation");
+    throw new ComboConfigError(
+      "Gatekeeper command placeholders require work item facts (issue or work plan) during runner generation",
+    );
   }
   if (input.workPlan !== undefined) {
     const vars: Record<string, string | undefined> = {
@@ -396,7 +408,9 @@ export function buildGatekeeperInvocation(input: GatekeeperInput): string {
     return forceNoMistakesPublishOnly(replaceGatekeeperPlaceholders(input.gatekeeperCommand, vars));
   }
   if (input.issueTitle === undefined || input.issueBody === undefined) {
-    throw new ComboConfigError("Gatekeeper command placeholders require work item facts (issue or work plan) during runner generation");
+    throw new ComboConfigError(
+      "Gatekeeper command placeholders require work item facts (issue or work plan) during runner generation",
+    );
   }
   const vars: Record<string, string> = {
     issue_url: input.combo.issueUrl,

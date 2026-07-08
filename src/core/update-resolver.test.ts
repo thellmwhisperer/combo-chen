@@ -31,11 +31,7 @@ import {
 } from "./update-resolver.js";
 
 // -- 1/1 CORE · GitHub Releases resolver contract <- START HERE --
-function release(
-  tagName: string,
-  prerelease = false,
-  assets: string[] = [],
-): GitHubReleaseMetadata {
+function release(tagName: string, prerelease = false, assets: string[] = []): GitHubReleaseMetadata {
   return {
     tagName,
     prerelease,
@@ -85,11 +81,7 @@ describe("update release resolver", () => {
     expect(
       resolveLatestReleaseCandidate({
         mode: "beta",
-        releases: [
-          release("v1.5.0"),
-          release("v2.0.0-beta.1", true),
-          release("v2.0.0-beta.3", true),
-        ],
+        releases: [release("v1.5.0"), release("v2.0.0-beta.1", true), release("v2.0.0-beta.3", true)],
       }),
     ).toMatchObject({
       status: "found",

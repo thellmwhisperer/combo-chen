@@ -7,13 +7,13 @@ schema must conform to it, not the other way around.
 
 ## 1. Roles
 
-| Role | Does | Never does | Default agent |
-| --- | --- | --- | --- |
-| **director** | launches phases, consumes events, reports status, escalates to the human | touch code, answer review threads | any (claude /loop, codex, human) |
-| **coder** | implements the work item (phase 1); the same thread resumes in responding mode for review comments (phase 3). Before writing any new helper, the coder runs `pnpm surface` when the target repo exposes it, otherwise searches for existing equivalents. | merge, deploy | codex via gnhf |
-| **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. For plan-backed combos, {issue_pr_intent} carries the rendered work-plan intent; other issue-specific placeholders are unsupported and cause a config error. | answer review threads | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
-| **reviewer** | reviews the PR with configured prompt text, emits machine-readable verdict codes (0–3), incrementally until merge. Includes anti-slop checks: duplicate helpers, config plausibility, surface budget, and contract test assertions. | review its own changes | claude |
-| **merge** | the decision slot | — | human (hard default) |
+| Role           | Does                                                                                                                                                                                                                                                                                                                                                                                                              | Never does                        | Default agent                                               |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------- |
+| **director**   | launches phases, consumes events, reports status, escalates to the human                                                                                                                                                                                                                                                                                                                                          | touch code, answer review threads | any (claude /loop, codex, human)                            |
+| **coder**      | implements the work item (phase 1); the same thread resumes in responding mode for review comments (phase 3). Before writing any new helper, the coder runs `pnpm surface` when the target repo exposes it, otherwise searches for existing equivalents.                                                                                                                                                          | merge, deploy                     | codex via gnhf                                              |
+| **gatekeeper** | no-mistakes pipeline review→test→docs→lint→push→PR (publish-only; combo-chen appends `--skip=ci`). The gatekeeper command supports {issue_url}, {issue_title}, {issue_body}, {issue_pr_intent}, {branch} placeholders expanded at runner generation. For plan-backed combos, {issue_pr_intent} carries the rendered work-plan intent; other issue-specific placeholders are unsupported and cause a config error. | answer review threads             | agent from `.no-mistakes.yaml` (e.g. `acp:hermes-deepseek`) |
+| **reviewer**   | reviews the PR with configured prompt text, emits machine-readable verdict codes (0–3), incrementally until merge. Includes anti-slop checks: duplicate helpers, config plausibility, surface budget, and contract test assertions.                                                                                                                                                                               | review its own changes            | claude                                                      |
+| **merge**      | the decision slot                                                                                                                                                                                                                                                                                                                                                                                                 | —                                 | human (hard default)                                        |
 
 Validation at launch (hard failures, the combo refuses to start):
 
@@ -166,7 +166,7 @@ configurable via `[limits].watch_failure_limit`), it journals `watch_dead`
 and exits so the human/operator can restart or inspect the combo. On a
 successful tick the failure counter and backoff reset.
 
-`gate_started` marks the beginning of the gatekeeper lifecycle.  The
+`gate_started` marks the beginning of the gatekeeper lifecycle. The
 `gate_status` event records the gatekeeper's ongoing lifecycle: `fix_inflight`
 (the branch-scoped lease was acquired and no-mistakes is running), `awaiting_approval`
 (gate requires human sign-off), `failed` (non-zero exit), or `idle` (gatekeeper
@@ -208,7 +208,7 @@ contention and is treated as a queued no-op by generated scripts.
 
 When the worktree HEAD moves past the last validated or published SHA, the
 director journals `gate_stale` (fields `old_sha`, `new_sha`) to mark the old
-validation as superseded and trigger a post-address gate.  The director
+validation as superseded and trigger a post-address gate. The director
 detects the stall by comparing the worktree HEAD against
 `latestPublishedGateSha` on each tick.
 
@@ -531,20 +531,20 @@ with active no-mistakes runs during parallel waves.
   normally. Before `pr_opened`, dead `coder` workers are recovered first:
   the director restarts the persisted runner and journals
   `worker_recovered reason=worker_dead`. After a PR is open, dead workers
-   journal `needs_human reason=worker_dead`. `worker_stalled` normally
-   escalates the same way, except stalled coder responding mode is recovered
-   first. Before escalating, the monitor consults worker-appropriate
-   orchestrator evidence (the first "provably working" pattern):
-   for the coder, a gnhf run whose log is recent and has not recorded
-   `orchestrator:end` ("gnhf run active"); for the gatekeeper, a no-mistakes
-   run attributed to the combo branch with an active status ("gate run
-   active"); for the reviewer, an `lgtm` or `external_review_requested`
-   journal event that has not been superseded by `ready_for_merge`,
-   `lgtm_stale`, or `pr_opened` ("reviewer artifact recent" or "external
-   review active"). Only when no orchestrator evidence is available ("no
-   orchestrator evidence") does the unchanged-pane counter escalate to
-   `needs_human reason=worker_stalled`. When the permission policy is
-   `auto-approve-known-safe`, the monitor
+  journal `needs_human reason=worker_dead`. `worker_stalled` normally
+  escalates the same way, except stalled coder responding mode is recovered
+  first. Before escalating, the monitor consults worker-appropriate
+  orchestrator evidence (the first "provably working" pattern):
+  for the coder, a gnhf run whose log is recent and has not recorded
+  `orchestrator:end` ("gnhf run active"); for the gatekeeper, a no-mistakes
+  run attributed to the combo branch with an active status ("gate run
+  active"); for the reviewer, an `lgtm` or `external_review_requested`
+  journal event that has not been superseded by `ready_for_merge`,
+  `lgtm_stale`, or `pr_opened` ("reviewer artifact recent" or "external
+  review active"). Only when no orchestrator evidence is available ("no
+  orchestrator evidence") does the unchanged-pane counter escalate to
+  `needs_human reason=worker_stalled`. When the permission policy is
+  `auto-approve-known-safe`, the monitor
   sends `y` + Enter to the matched tmux window and journals
   `worker_recovered reason=worker_permission_prompt`; persistent prompts count
   toward `[monitor].worker_recovery_attempts` before escalating. When the
@@ -578,44 +578,44 @@ with active no-mistakes runs during parallel waves.
   reading individual journal files. When `worker_stalled` appears, it also
   reports the ratio of stalled escalations that reached normal completion before
   another `needs_human`. Corrupt combo records are skipped with a `skipped
-  <combo-id>: <reason>` line so one bad run directory does not block the
+<combo-id>: <reason>` line so one bad run directory does not block the
   aggregate report.
 - The director consumes events, never logs: deep dives (why did the coder
   stall?) go to a subagent that reports back a conclusion, protecting the
   director's context window.
 - The ACP migration path (acpx) replaces send-keys role by role when it
   hurts; the role contract does not change.
--   `combo-chen closure -n <combo-id>` is the canonical merged happy-path
-    resource convergence command. The director-watch loop auto-triggers it on
-    merge detection; the manual command remains as a fallback. It reads the
-    persisted combo record, runtime ledger (for the PR URL), and GitHub PR
-    facts; it refuses teardown unless GitHub reports `MERGED`; then it records
-    any missing `merged` event with `source: "closure"`, refuses resource
-    teardown while no-mistakes still reports an active or awaiting run for the
-    combo branch, returns the Treehouse worktree lease, deletes the local
-    branch, records `combo_closed` with `source: "closure"`, and
-kills the tmux session. An existing `combo_closed` event skips the merge
-recording and resource teardown, but the closure still reaps the tmux session
-when it is alive. The reviewer/director-watch path also records the live
-    merge fact and may trigger closure automatically. Reconcile can record a
-    missing merge fact but defers resource convergence to closure.
--   `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
-    pass that compares every persisted
-    combo journal against GitHub PR state. When `-n <combo-id>` is provided,
-    only that single combo is reconciled. For merged PRs whose journal froze
-    before the director could record `merged`/`combo_closed`, it appends the
-    missing terminal events (marking `merged` with `source: "reconcile"` and
-    GitHub's `mergedAt` when available) and runs teardown
-    (worktree removal, branch deletion, tmux session kill); parked combos skip
-    worktree removal and branch deletion but still receive the terminal events
-    and tmux cleanup. Teardown is idempotent: already-gone worktrees (not a
-    working tree), already-deleted branches, and already-killed tmux sessions
-    count as success. For closed PRs, it appends `needs_human reason=pr_closed`
-    plus `combo_closed` and stops tmux while preserving the local worktree and
-    branch. Without `--apply` it reports what would change without mutating
-    state. The `status` command uses reconcile in a status-only mode for merged
-    PRs: it can record the missing `merged` fact, but it does not run teardown
-    or append `combo_closed`.
+- `combo-chen closure -n <combo-id>` is the canonical merged happy-path
+  resource convergence command. The director-watch loop auto-triggers it on
+  merge detection; the manual command remains as a fallback. It reads the
+  persisted combo record, runtime ledger (for the PR URL), and GitHub PR
+  facts; it refuses teardown unless GitHub reports `MERGED`; then it records
+  any missing `merged` event with `source: "closure"`, refuses resource
+  teardown while no-mistakes still reports an active or awaiting run for the
+  combo branch, returns the Treehouse worktree lease, deletes the local
+  branch, records `combo_closed` with `source: "closure"`, and
+  kills the tmux session. An existing `combo_closed` event skips the merge
+  recording and resource teardown, but the closure still reaps the tmux session
+  when it is alive. The reviewer/director-watch path also records the live
+  merge fact and may trigger closure automatically. Reconcile can record a
+  missing merge fact but defers resource convergence to closure.
+- `combo-chen reconcile [-n <combo-id>] [--apply]` is a compatibility repair
+  pass that compares every persisted
+  combo journal against GitHub PR state. When `-n <combo-id>` is provided,
+  only that single combo is reconciled. For merged PRs whose journal froze
+  before the director could record `merged`/`combo_closed`, it appends the
+  missing terminal events (marking `merged` with `source: "reconcile"` and
+  GitHub's `mergedAt` when available) and runs teardown
+  (worktree removal, branch deletion, tmux session kill); parked combos skip
+  worktree removal and branch deletion but still receive the terminal events
+  and tmux cleanup. Teardown is idempotent: already-gone worktrees (not a
+  working tree), already-deleted branches, and already-killed tmux sessions
+  count as success. For closed PRs, it appends `needs_human reason=pr_closed`
+  plus `combo_closed` and stops tmux while preserving the local worktree and
+  branch. Without `--apply` it reports what would change without mutating
+  state. The `status` command uses reconcile in a status-only mode for merged
+  PRs: it can record the missing `merged` fact, but it does not run teardown
+  or append `combo_closed`.
 
 ## 8a. Release artifact and install contract
 
@@ -771,7 +771,7 @@ installs whose real executable path is under
 ### U1 release resolver and latest/beta check flow
 
 U1 (`src/core/update-resolver.ts`) consumes GitHub Releases metadata plus
-current build metadata and returns a read-only update decision.  Stable mode
+current build metadata and returns a read-only update decision. Stable mode
 ignores GitHub prereleases, beta mode includes them, candidates are normalized
 through the U0 contract, current builds are compared with the selected
 candidate, and expected platform assets are selected through U0 asset naming.
@@ -781,17 +781,17 @@ install targets, or inspect active combo sessions.
 ### U2 download, checksum verification, and staging
 
 U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
-verification, and isolated extraction for a resolved update plan.  The
+verification, and isolated extraction for a resolved update plan. The
 `stageResolvedUpdate` primitive downloads the selected archive asset and
 `checksums.txt`, verifies the digest before extraction, extracts into an
 isolated staging directory, and returns a `StagedUpdateArtifact` descriptor
 with archive paths, checksums, and extracted executable metadata for the
-replacement primitive.  All network and filesystem operations are injected
+replacement primitive. All network and filesystem operations are injected
 behind `UpdateStagingDeps` so tests can run with mock downloads, filesystem
-calls, and extraction.  Checksum mismatches, missing entries, unavailable
+calls, and extraction. Checksum mismatches, missing entries, unavailable
 checksums, malformed `checksums.txt`, archive download failures, and extraction
 failures are reported deterministically through `UpdateStagingError` with
-cleanup status.  U2 does not resolve releases, compare versions, classify
+cleanup status. U2 does not resolve releases, compare versions, classify
 install targets, replace binaries, or detect active combo sessions.
 
 Completed updater slices:
@@ -933,17 +933,17 @@ journal and GitHub checks remain the source of truth.
 
 ### Label catalogue
 
-| Label | Condition |
-| --- | --- |
-| `combo:working-coder` | Coder responding mode is active, or a current-head review comment is pending address. |
-| `combo:working-reviewer` | Reviewer window is active and no higher-priority work is underway. |
-| `combo:working-gate` | Gatekeeper window is active or a `gate_started` journal entry is the latest gate event. |
-| `combo:lgtm` | A current-head SHA-pinned LGTM exists from a configured reviewer login. |
-| `combo:external-review-green` | A `[pr_labels].green_check_names` check is SUCCESS for the current head. |
-| `combo:ready` | All current-head READY signals agree: gate, reviewer LGTM, required checks, and remaining CI. |
-| `combo:stale` | One or more current-head signals (LGTM, gate, READY) are pinned to an older SHA. Removed when signals realign. |
-| `combo:conflict` | GitHub reports the PR merge state as DIRTY or CONFLICTING. |
-| `combo:needs-human` | Reserved for future use; not actively applied in v0. |
+| Label                         | Condition                                                                                                      |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `combo:working-coder`         | Coder responding mode is active, or a current-head review comment is pending address.                          |
+| `combo:working-reviewer`      | Reviewer window is active and no higher-priority work is underway.                                             |
+| `combo:working-gate`          | Gatekeeper window is active or a `gate_started` journal entry is the latest gate event.                        |
+| `combo:lgtm`                  | A current-head SHA-pinned LGTM exists from a configured reviewer login.                                        |
+| `combo:external-review-green` | A `[pr_labels].green_check_names` check is SUCCESS for the current head.                                       |
+| `combo:ready`                 | All current-head READY signals agree: gate, reviewer LGTM, required checks, and remaining CI.                  |
+| `combo:stale`                 | One or more current-head signals (LGTM, gate, READY) are pinned to an older SHA. Removed when signals realign. |
+| `combo:conflict`              | GitHub reports the PR merge state as DIRTY or CONFLICTING.                                                     |
+| `combo:needs-human`           | Reserved for future use; not actively applied in v0.                                                           |
 
 ### Projection rules
 
@@ -974,6 +974,7 @@ do not block the director tick.
 ### Mutation journaling
 
 Every label change journals a `pr_labels_updated` event with:
+
 - `pr_url`: the PR URL.
 - `head_sha`: the PR head SHA at projection time.
 - `old_labels` / `new_labels`: the label set before and after mutation.

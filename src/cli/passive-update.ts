@@ -91,17 +91,16 @@ export function defaultPassiveUpdateCommandDeps(input: {
 // -/ 1/3
 
 // -- 2/3 CORE · runPassiveUpdateCheck <- START HERE --
-export async function runPassiveUpdateCheck(
-  deps: PassiveUpdateCliDeps,
-): Promise<PassiveUpdateCheckResult> {
+export async function runPassiveUpdateCheck(deps: PassiveUpdateCliDeps): Promise<PassiveUpdateCheckResult> {
   const input: PassiveUpdateCheckInput = {
     current: deps.current,
     env: deps.env,
     readCache: () => readPassiveUpdateCache(deps.cachePath, deps.readFile),
-    writeCache: (entry) => writePassiveUpdateCache(deps.cachePath, entry, {
-      mkdir: deps.mkdir,
-      writeFile: deps.writeFile,
-    }),
+    writeCache: (entry) =>
+      writePassiveUpdateCache(deps.cachePath, entry, {
+        mkdir: deps.mkdir,
+        writeFile: deps.writeFile,
+      }),
     fetchReleases: () => fetchGitHubReleases(deps.gh, { timeoutMs: deps.lookupTimeoutMs }),
   };
   if (deps.now !== undefined) input.now = deps.now;
@@ -175,7 +174,8 @@ function passiveUpdateLookupTimeoutMs(env: Record<string, string | undefined>): 
 
 function isPassiveUpdateCacheEntry(value: unknown): value is PassiveUpdateCliCacheEntry {
   if (!isPlainRecord(value)) return false;
-  return value["schemaVersion"] === 1 &&
+  return (
+    value["schemaVersion"] === 1 &&
     typeof value["checkedAt"] === "string" &&
     (value["mode"] === "stable" || value["mode"] === "beta") &&
     typeof value["planStatus"] === "string" &&
@@ -183,7 +183,8 @@ function isPassiveUpdateCacheEntry(value: unknown): value is PassiveUpdateCliCac
     typeof value["updateAvailable"] === "boolean" &&
     optionalStringField(value, "latestTagName") &&
     optionalStringField(value, "latestVersion") &&
-    optionalStringField(value, "reason");
+    optionalStringField(value, "reason")
+  );
 }
 
 function optionalStringField(record: Record<string, unknown>, key: string): boolean {

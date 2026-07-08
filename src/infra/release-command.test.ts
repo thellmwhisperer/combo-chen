@@ -65,7 +65,9 @@ describe("release assets command", () => {
   });
 
   it("wires a package script that builds before invoking the bundled entrypoint", () => {
-    expect(readRootPackageJson().scripts?.["release:assets"]).toBe("pnpm build && node dist/release-assets.mjs");
+    expect(readRootPackageJson().scripts?.["release:assets"]).toBe(
+      "pnpm build && node dist/release-assets.mjs",
+    );
   });
 });
 // -/ 2/2

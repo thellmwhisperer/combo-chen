@@ -147,9 +147,7 @@ describe("sendPromptToTarget", () => {
       }),
     ).toThrow('director prompt target "combo-chen-o-r-7:director" is not present');
 
-    expect(calls).toEqual([
-      ["tmux", "list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
-    ]);
+    expect(calls).toEqual([["tmux", "list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]]);
   });
 });
 // -/ 2/3
@@ -184,7 +182,9 @@ describe("promptDirector", () => {
       message: "Gate output was not parseable.",
     });
 
-    expect(calls.some((call) => call[1] === "paste-buffer" && call.includes("combo-chen-o-r-7:capsule-director"))).toBe(true);
+    expect(
+      calls.some((call) => call[1] === "paste-buffer" && call.includes("combo-chen-o-r-7:capsule-director")),
+    ).toBe(true);
     expect(out).toEqual([
       "director-prompt: prompted combo-chen-o-r-7:capsule-director for o-r-7 (malformed_signal)",
     ]);

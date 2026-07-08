@@ -74,7 +74,7 @@ interface DeepGithubStatusOptions {
 function unquote(value: string): string {
   const trimmed = value.trim();
   if (
-    (trimmed.startsWith("\"") && trimmed.endsWith("\"")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))
   ) {
     return trimmed.slice(1, -1);
@@ -94,14 +94,19 @@ function shortSha(sha: string): string {
   return sha.trim().slice(0, 7);
 }
 
-function prHeadDriftStatus(localHeadSha: string | undefined, prHeadSha: string | undefined): string | undefined {
+function prHeadDriftStatus(
+  localHeadSha: string | undefined,
+  prHeadSha: string | undefined,
+): string | undefined {
   if (localHeadSha === undefined || prHeadSha === undefined || shaMatchesHead(localHeadSha, prHeadSha)) {
     return undefined;
   }
   return `PR head drift: local ${shortSha(localHeadSha)} differs from PR ${shortSha(prHeadSha)}; fetch PR head for review or sync combo worktree`;
 }
 
-export function formatGateLeaseStatus(lease: GateLeaseRecord | readonly GateLeaseRecord[] | undefined): string {
+export function formatGateLeaseStatus(
+  lease: GateLeaseRecord | readonly GateLeaseRecord[] | undefined,
+): string {
   if (lease === undefined) return "—";
   const leases = Array.isArray(lease) ? lease : [lease];
   if (leases.length === 0) return "—";
@@ -193,7 +198,11 @@ export function noMistakesAxiStatusActive(facts: NoMistakesAxiStatus): boolean {
 function summarizeNoMistakesStatus(facts: NoMistakesAxiStatus, branch: string): string | undefined {
   if (facts.branch !== undefined && facts.branch !== branch) return undefined;
 
-  if (facts.outcome === "awaiting_approval" || hasAwaitingFindingsSummary(facts) || facts.awaitingFindingIds.length > 0) {
+  if (
+    facts.outcome === "awaiting_approval" ||
+    hasAwaitingFindingsSummary(facts) ||
+    facts.awaitingFindingIds.length > 0
+  ) {
     const ids = facts.awaitingFindingIds.length > 0 ? `: ${facts.awaitingFindingIds.join(", ")}` : "";
     const respond = facts.nextStep !== undefined ? `; respond: ${facts.nextStep}` : "";
     return `${AWAITING_REVIEW_GATE}${ids}${respond}`;
@@ -208,7 +217,10 @@ function summarizeNoMistakesStatus(facts: NoMistakesAxiStatus, branch: string): 
   return undefined;
 }
 
-export function deepNoMistakesStatus(combo: Pick<ComboRecord, "branch" | "worktree">, run: NoMistakesRunner): string | undefined {
+export function deepNoMistakesStatus(
+  combo: Pick<ComboRecord, "branch" | "worktree">,
+  run: NoMistakesRunner,
+): string | undefined {
   const result = run(["axi", "status"], combo.worktree);
   if (result.status !== 0) {
     const detail = firstLine(result.stderr) || firstLine(result.stdout) || `exit ${result.status}`;
@@ -219,10 +231,20 @@ export function deepNoMistakesStatus(combo: Pick<ComboRecord, "branch" | "worktr
 // -/ 3/4
 
 // -- 4/4 CORE · deepComboStatus <- START HERE --
-function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: DeepGithubStatusOptions = {}): string | undefined {
+function deepGithubPrStatus(
+  prUrl: string | undefined,
+  gh: GhRunner,
+  options: DeepGithubStatusOptions = {},
+): string | undefined {
   if (prUrl === undefined) return undefined;
 
-  const result = gh(["pr", "view", prUrl, "--json", "headRefOid,state,mergeStateStatus,mergeable,statusCheckRollup"]);
+  const result = gh([
+    "pr",
+    "view",
+    prUrl,
+    "--json",
+    "headRefOid,state,mergeStateStatus,mergeable,statusCheckRollup",
+  ]);
   if (result.status !== 0) {
     const detail = firstLine(result.stderr) || firstLine(result.stdout) || `exit ${result.status}`;
     return `GitHub unavailable: ${detail}`;
@@ -247,7 +269,10 @@ function deepGithubPrStatus(prUrl: string | undefined, gh: GhRunner, options: De
   if (blockingMergeState !== undefined) return `${PR_CONFLICT_REBASE_REQUIRED} (${blockingMergeState})`;
 
   if (
-    !checkRollupSucceeded(pr.statusCheckRollup, { requiredCheckNames: options.requiredCheckNames, ambientCheckNames: options.ambientCheckNames }) ||
+    !checkRollupSucceeded(pr.statusCheckRollup, {
+      requiredCheckNames: options.requiredCheckNames,
+      ambientCheckNames: options.ambientCheckNames,
+    }) ||
     !requiredChecksSucceeded(pr.statusCheckRollup, options.requiredCheckNames ?? [])
   ) {
     return undefined;

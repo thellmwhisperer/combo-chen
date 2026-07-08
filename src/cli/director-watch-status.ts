@@ -23,7 +23,11 @@
  */
 import { deriveStatus, type ComboStatus } from "../core/combo.js";
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
-import { checkRollupSucceeded, externalReviewSkippedByConfiguredAgent, requiredChecksSucceeded } from "./checks.js";
+import {
+  checkRollupSucceeded,
+  externalReviewSkippedByConfiguredAgent,
+  requiredChecksSucceeded,
+} from "./checks.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -87,7 +91,7 @@ function phaseLabel(status: ComboStatus): string {
 }
 
 function statusKey(status: ComboStatus): string {
-  return `${status.phase}:${status.needsHuman ? status.reason ?? "" : ""}`;
+  return `${status.phase}:${status.needsHuman ? (status.reason ?? "") : ""}`;
 }
 
 function phaseAge(events: ComboEvent[], now: Date): string {
@@ -114,11 +118,7 @@ function formatLastEvent(events: ComboEvent[], now: Date): string {
   return `${last.event} age=${ageSince(last.t, now)}`;
 }
 
-function formatGithubPoll(
-  pr: DirectorWatchPrSnapshot | undefined,
-  pollSeconds: number,
-  now: Date,
-): string {
+function formatGithubPoll(pr: DirectorWatchPrSnapshot | undefined, pollSeconds: number, now: Date): string {
   const next = `next=${formatDuration(pollSeconds * 1000)}`;
   if (pr?.polledAt !== undefined) {
     const error = pr.error === undefined ? "" : ` error:${compact(pr.error)}`;
@@ -159,17 +159,24 @@ function readinessFacts(input: DirectorWatchStatusLineInput): ReadinessFacts {
   return {
     pr: prReadyState(prState),
     gate: headSha === undefined ? "unknown" : gateReady(input.events, headSha) ? "yes" : "no",
-    reviewer: headSha === undefined ? "unknown" : shaMatchesHead(livePinnedLgtmSha(input.events), headSha) ? "yes" : "no",
-    checks: rollup === undefined
-      ? "unknown"
-      : !externalReviewSkipped && requiredChecksSucceeded(rollup, requiredCheckNames)
-        ? "yes"
-        : "no",
-    ci: rollup === undefined
-      ? "unknown"
-      : checkRollupSucceeded(rollup, { requiredCheckNames, ambientCheckNames })
-        ? "yes"
-        : "no",
+    reviewer:
+      headSha === undefined
+        ? "unknown"
+        : shaMatchesHead(livePinnedLgtmSha(input.events), headSha)
+          ? "yes"
+          : "no",
+    checks:
+      rollup === undefined
+        ? "unknown"
+        : !externalReviewSkipped && requiredChecksSucceeded(rollup, requiredCheckNames)
+          ? "yes"
+          : "no",
+    ci:
+      rollup === undefined
+        ? "unknown"
+        : checkRollupSucceeded(rollup, { requiredCheckNames, ambientCheckNames })
+          ? "yes"
+          : "no",
   };
 }
 

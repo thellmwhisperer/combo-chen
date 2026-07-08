@@ -51,12 +51,12 @@ Hard rule: `reviewer != coder`.
    no-mistakes mirror with `--force-with-lease` when replacing an existing
    mirror branch; the tmux command stays short (`sh <script>`).
 7. READY is journaled only when all current-head signals agree:
-    gate validated the PR head SHA, reviewer LGTM is pinned to that SHA by a
-    configured reviewer GitHub login, every configured required READY check is
-    present with SUCCESS, and the remaining CI/check rollup is successful for
-    that SHA. If GitHub later reports an open READY PR as dirty or conflicting
-    after the base advances, the director journals `pr_conflict`, invalidates
-    READY back to REVIEWING, and nudges coder-response to rebase.
+   gate validated the PR head SHA, reviewer LGTM is pinned to that SHA by a
+   configured reviewer GitHub login, every configured required READY check is
+   present with SUCCESS, and the remaining CI/check rollup is successful for
+   that SHA. If GitHub later reports an open READY PR as dirty or conflicting
+   after the base advances, the director journals `pr_conflict`, invalidates
+   READY back to REVIEWING, and nudges coder-response to rebase.
 8. After the human merges the PR, the director-watch loop detects the merge
    on its next tick and auto-triggers `closure` convergence: it verifies
    GitHub reports MERGED, records any missing `merged` event, refuses
@@ -101,12 +101,12 @@ automatically. In both cases, combo-chen propagates the config in two phases:
    generated gate script copies `.no-mistakes.yaml` from the combo worktree
    into the no-mistakes daemon's active run worktree so the gate runner has it.
    It polls `no-mistakes status` to discover the daemon's worktree path and
-    retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
-    120, 1 s delay). The gate runs in parallel with the config copy watcher,
-    but a successful gate that finishes before the config copy completes is
-    rejected so validation stays deterministic. A config-copy failure remains
-    a gate failure even when no-mistakes output would otherwise match the
-    checks-passed plus context-canceled recovery path.
+   retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
+   120, 1 s delay). The gate runs in parallel with the config copy watcher,
+   but a successful gate that finishes before the config copy completes is
+   rejected so validation stays deterministic. A config-copy failure remains
+   a gate failure even when no-mistakes output would otherwise match the
+   checks-passed plus context-canceled recovery path.
 
 Do not remove the tracked repo-level `.no-mistakes.yaml`; update it only when
 the shared validation commands intentionally change.

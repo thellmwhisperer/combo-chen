@@ -43,7 +43,16 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -122,7 +131,8 @@ function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: string[][
       calls.push(["treehouse", `cwd=${cwd}`, ...args]);
       if (args[0] === "get" && args.includes("--lease")) {
         const holderIndex = args.indexOf("--lease-holder");
-        const holder = holderIndex === -1 ? "treehouse-worktree" : (args[holderIndex + 1] ?? "treehouse-worktree");
+        const holder =
+          holderIndex === -1 ? "treehouse-worktree" : (args[holderIndex + 1] ?? "treehouse-worktree");
         const suffix = holder === "o-r-7" ? "issue-7" : holder;
         const worktree = join(cwd, ".worktrees", suffix);
         mkdirSync(worktree, { recursive: true });
@@ -1669,9 +1679,7 @@ describe("command surface", () => {
       target: "combo-chen-o-r-7:director",
       prompt_preview: expect.stringContaining("Inspect the gate signal"),
     });
-    expect(out).toEqual([
-      "director-prompt: prompted combo-chen-o-r-7:director for o-r-7 (ambiguous_signal)",
-    ]);
+    expect(out).toEqual(["director-prompt: prompted combo-chen-o-r-7:director for o-r-7 (ambiguous_signal)"]);
   });
 
   it("prints the canonical issue PR intent with the verbatim autoclose requirement", async () => {
@@ -2045,7 +2053,7 @@ describe("gate-restart", () => {
   function gateDeps(h: string, overrides: Partial<Deps> = {}): ReturnType<typeof fakeDeps> {
     return fakeDeps({
       env: { COMBO_CHEN_HOME: h },
-      git: (args, cwd) => {
+      git: (args, _cwd) => {
         if (args[0] === "rev-parse" && args[1] === "HEAD") {
           return { status: 0, stdout: `${HEAD}\n`, stderr: "" };
         }
@@ -2142,7 +2150,12 @@ describe("gate-restart", () => {
         if (args[0] === "status" && args[1] === "--porcelain") {
           return { status: 0, stdout: "", stderr: "" };
         }
-        if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[2] === publishedSha && args[3] === HEAD) {
+        if (
+          args[0] === "merge-base" &&
+          args[1] === "--is-ancestor" &&
+          args[2] === publishedSha &&
+          args[3] === HEAD
+        ) {
           return { status: 1, stdout: "", stderr: "" };
         }
         return { status: 0, stdout: "", stderr: "" };
@@ -2394,7 +2407,7 @@ describe("activate-coder", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      "[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = \"codex --profile sitter --no-alt-screen resume {thread_id}\"\n\n[thread_sitter]\nwindow_name = \"sitter\"\nwatch_window_name = \"sitter-watch\"\n",
+      '[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n\n[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -2732,14 +2745,7 @@ describe("nudge-review-comments", () => {
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux");
     expect(tmuxCalls).toEqual([
-      [
-        "tmux",
-        "list-windows",
-        "-t",
-        "combo-chen-owned-session",
-        "-F",
-        "#{window_name}",
-      ],
+      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
       [
         "tmux",
         "new-window",
@@ -2961,7 +2967,10 @@ describe("nudge-review-comments", () => {
       createdAt: new Date().toISOString(),
     });
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "gate_status", { state: "fix_inflight", head_sha: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" });
+    appendEvent(dir, "gate_status", {
+      state: "fix_inflight",
+      head_sha: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    });
 
     const originSha = "ffffffffffffffffffffffffffffffffffffffff";
     const mirrorSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -3130,14 +3139,7 @@ describe("emit", () => {
     });
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-    await exec(deps, [
-      "emit",
-      "-n",
-      "o-r-7",
-      "pr_opened",
-      "--field",
-      "url=https://github.com/o/r/pull/7",
-    ]);
+    await exec(deps, ["emit", "-n", "o-r-7", "pr_opened", "--field", "url=https://github.com/o/r/pull/7"]);
 
     const ledger = JSON.parse(readFileSync(join(dir, "runtime-ledger.json"), "utf8")) as {
       comboId: string;
@@ -3257,9 +3259,10 @@ describe("emit", () => {
 
     await exec(deps, ["emit", "-n", "o-r-7", "gate_started"]);
 
-    const gatekeeperCommand = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-    )?.at(-1) ?? "";
+    const gatekeeperCommand =
+      calls
+        .find((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))
+        ?.at(-1) ?? "";
     expect(gatekeeperCommand).toContain("timed out after 42 seconds");
     expect(gatekeeperCommand).toContain("attempt $attempt/7");
     expect(gatekeeperCommand).toContain("sleep 6");
@@ -3292,9 +3295,14 @@ describe("emit", () => {
     await exec(deps, ["emit", "-n", "o-r-7", "gate_started"]);
 
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))).toBe(false);
+    expect(
+      calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper")),
+    ).toBe(false);
     const gatekeeperBuffer = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "set-buffer" && call.includes("combo-chen-nudge-combo-chen-o-r-7-gatekeeper"),
+      (call) =>
+        call[0] === "tmux" &&
+        call[1] === "set-buffer" &&
+        call.includes("combo-chen-nudge-combo-chen-o-r-7-gatekeeper"),
     );
     expect(gatekeeperBuffer).toBeDefined();
     expect(gatekeeperBuffer?.at(-1)).toContain("no-mistakes attach");
@@ -3463,7 +3471,9 @@ describe("run", () => {
     expect(out).toContain(`OK no_mistakes_available: ${repoDir}`);
     expect(out).toContain("OK no_mistakes_run_free: combo/issue-7 no active run");
     expect(out).toContain("OK team_identity: team undeclared; identity check skipped");
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
@@ -3501,12 +3511,7 @@ describe("run", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      [
-        "[team.gatekeeper]",
-        'binary = "no-mistakes"',
-        'agent = "claude"',
-        'model = "opus"',
-      ].join("\n"),
+      ["[team.gatekeeper]", 'binary = "no-mistakes"', 'agent = "claude"', 'model = "opus"'].join("\n"),
     );
     const { deps, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -3531,7 +3536,9 @@ describe("run", () => {
       id: "team_identity",
       status: "ok",
       resource: "team",
-      detail: expect.stringContaining("gatekeeper | no-mistakes/claude/opus | no-mistakes/claude/opus | match"),
+      detail: expect.stringContaining(
+        "gatekeeper | no-mistakes/claude/opus | no-mistakes/claude/opus | match",
+      ),
     });
   });
 
@@ -3543,23 +3550,13 @@ describe("run", () => {
     mkdirSync(join(operatorHome, ".gnhf"), { recursive: true });
     writeFileSync(
       join(operatorHome, ".gnhf", "config.yml"),
-      [
-        "agentArgsOverride:",
-        "  codex:",
-        "    - --profile",
-        "    - sitter",
-      ].join("\n"),
+      ["agentArgsOverride:", "  codex:", "    - --profile", "    - sitter"].join("\n"),
     );
     writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5"\n');
     writeFileSync(join(codexHome, "sitter.config.toml"), 'model = "gpt-5.5"\n');
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      [
-        "[team.coder]",
-        'binary = "npx"',
-        'agent = "gnhf/codex"',
-        'model = "gpt-5.5"',
-      ].join("\n"),
+      ["[team.coder]", 'binary = "npx"', 'agent = "gnhf/codex"', 'model = "gpt-5.5"'].join("\n"),
     );
     const { deps, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h, HOME: operatorHome, CODEX_HOME: codexHome },
@@ -3578,12 +3575,7 @@ describe("run", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      [
-        "[team.gatekeeper]",
-        'binary = "no-mistakes"',
-        'agent = "claude"',
-        'model = "opus"',
-      ].join("\n"),
+      ["[team.gatekeeper]", 'binary = "no-mistakes"', 'agent = "claude"', 'model = "opus"'].join("\n"),
     );
     const { deps, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -3610,7 +3602,9 @@ describe("run", () => {
       id: "team_identity",
       status: "failed",
       resource: "team",
-      detail: expect.stringContaining("gatekeeper | no-mistakes/claude/opus | no-mistakes/codex/opus | mismatch"),
+      detail: expect.stringContaining(
+        "gatekeeper | no-mistakes/claude/opus | no-mistakes/codex/opus | mismatch",
+      ),
     });
   });
 
@@ -3619,12 +3613,7 @@ describe("run", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      [
-        "[team.reviewer]",
-        'binary = "opencode"',
-        'agent = "claude"',
-        'model = "opus"',
-      ].join("\n"),
+      ["[team.reviewer]", 'binary = "opencode"', 'agent = "claude"', 'model = "opus"'].join("\n"),
     );
     const { deps, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
@@ -3696,7 +3685,15 @@ describe("run", () => {
       },
     });
 
-    await exec(deps, ["overture", "--plan", planPath, "--repo", repoDir, "--base", "origin/release-candidate"]);
+    await exec(deps, [
+      "overture",
+      "--plan",
+      planPath,
+      "--repo",
+      repoDir,
+      "--base",
+      "origin/release-candidate",
+    ]);
 
     const id = out[0]?.replace(/^overture\s+/, "") ?? "";
     expect(id).toMatch(/^plan-local-plan-runway-[0-9a-f]{8}$/);
@@ -3704,7 +3701,9 @@ describe("run", () => {
     expect(out).toContain(`OK base_ref_resolved: origin/release-candidate`);
     expect(out.every((line) => !line.startsWith("X "))).toBe(true);
     expect(ghCalls).toEqual([]);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, id), "overture.json"), "utf8")) as {
@@ -3749,7 +3748,8 @@ describe("run", () => {
         if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
           return { status: 2, stdout: "", stderr: "error: No such remote 'origin'\n" };
         }
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "main\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -3760,7 +3760,9 @@ describe("run", () => {
     );
 
     expect(out).toContain("X repo_matches_issue: origin origin unavailable: error: No such remote 'origin'");
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
@@ -4016,9 +4018,15 @@ describe("run", () => {
       "reviewer",
       "director-watch",
     ]);
-    expect(initialWindows.find((call) => call.includes("coder"))?.at(-1)).toContain("COMBO_CHEN_RUNNER_PROGRESS=1 sh");
-    expect(initialWindows.find((call) => call.includes("gatekeeper"))?.at(-1)).toContain("no-mistakes attach");
-    expect(initialWindows.find((call) => call.includes("reviewer"))?.at(-1)).toContain("reviewer window idle");
+    expect(initialWindows.find((call) => call.includes("coder"))?.at(-1)).toContain(
+      "COMBO_CHEN_RUNNER_PROGRESS=1 sh",
+    );
+    expect(initialWindows.find((call) => call.includes("gatekeeper"))?.at(-1)).toContain(
+      "no-mistakes attach",
+    );
+    expect(initialWindows.find((call) => call.includes("reviewer"))?.at(-1)).toContain(
+      "reviewer window idle",
+    );
     expect(initialWindows.find((call) => call.includes("director-watch"))?.at(-1)).toContain("director-tick");
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "split-window")).toBe(false);
     expect(calls.some((call) => call.includes("coder-responding"))).toBe(false);
@@ -4165,7 +4173,9 @@ describe("run", () => {
       combo!.branch,
       "origin/main",
     ]);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     const events = readEvents(runDir);
     expect(events[0]).toMatchObject({
       event: "combo_created",
@@ -4250,7 +4260,9 @@ describe("run", () => {
     expect(command).toContain("expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)");
     expect(command).toContain('if [ "$attempt" -gt 3 ]; then');
     expect(command).toContain('echo "gatekeeper-attach: timed out after 45 seconds" >&2');
-    expect(command).toContain('echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/3)..." >&2');
+    expect(command).toContain(
+      'echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/3)..." >&2',
+    );
     expect(command).toContain("sleep 15");
   });
 
@@ -4415,8 +4427,12 @@ exit 0
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/run_dir_free/);
 
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("remove"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
+    expect(
+      calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("remove")),
+    ).toBe(false);
     expect(calls.some((call) => call[0] === "git" && call.includes("-D"))).toBe(false);
     expect(existsSync(runDir)).toBe(true);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
@@ -4425,9 +4441,11 @@ exit 0
   it("forces publish-only mode on a no-placeholder repo-level no-mistakes gatekeeper command", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const customGatekeeper =
-      `printf '%s:%s' "\${intent}" "\${issue_body}" && no-mistakes axi run --intent "\${intent}"`;
-    writeFileSync(join(repoDir, "combo-chen.toml"), `[gatekeeper]\ncommand = ${JSON.stringify(customGatekeeper)}\n`);
+    const customGatekeeper = `printf '%s:%s' "\${intent}" "\${issue_body}" && no-mistakes axi run --intent "\${intent}"`;
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      `[gatekeeper]\ncommand = ${JSON.stringify(customGatekeeper)}\n`,
+    );
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
@@ -4474,7 +4492,10 @@ exit 0
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const gatekeeperCommand =
       "no-mistakes axi run --yes --url {issue_url} --title {issue_title} --body {issue_body} --branch {branch}";
-    writeFileSync(join(repoDir, "combo-chen.toml"), `[gatekeeper]\ncommand = ${JSON.stringify(gatekeeperCommand)}\n`);
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      `[gatekeeper]\ncommand = ${JSON.stringify(gatekeeperCommand)}\n`,
+    );
     const { deps } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
@@ -4511,7 +4532,10 @@ $(echo boom)'`);
   it("rejects unknown gatekeeper command placeholders during runner generation", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    writeFileSync(join(repoDir, "combo-chen.toml"), '[gatekeeper]\ncommand = "no-mistakes axi run {isue_url}"\n');
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[gatekeeper]\ncommand = "no-mistakes axi run {isue_url}"\n',
+    );
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
@@ -4582,9 +4606,10 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    const gatekeeperCommand = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-    )?.at(-1) ?? "";
+    const gatekeeperCommand =
+      calls
+        .find((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))
+        ?.at(-1) ?? "";
     expect(gatekeeperCommand).toContain("timed out after 42 seconds");
     expect(gatekeeperCommand).toContain("attempt $attempt/7");
     expect(gatekeeperCommand).toContain("sleep 6");
@@ -4639,7 +4664,9 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
     expect(newWindows.some((call) => call.includes("director-watch"))).toBe(true);
@@ -4681,7 +4708,9 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     const recreatedSession = calls.find((call) => call[0] === "tmux" && call[1] === "new-session");
     expect(recreatedSession).toEqual([
       "tmux",
@@ -4694,10 +4723,13 @@ describe("resume", () => {
       expect.stringContaining("events --follow -n 'o-r-7'"),
     ]);
     expect(recreatedSession).not.toContain("coder");
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))).toBe(true);
-    const gatekeeperCommand = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-    )?.at(-1) ?? "";
+    expect(
+      calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper")),
+    ).toBe(true);
+    const gatekeeperCommand =
+      calls
+        .find((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))
+        ?.at(-1) ?? "";
     expect(gatekeeperCommand).toContain("no-mistakes attach");
     expect(gatekeeperCommand).not.toContain("axi run");
     expect(out.join("\n")).toContain("resume: no-mistakes running ci");
@@ -4854,9 +4886,9 @@ describe("resume", () => {
     expect(gitCalls.some((call) => call.includes("rev-parse") && call.includes("HEAD"))).toBe(true);
     expect(gitCalls.some((call) => call.includes("status") && call.includes("--porcelain"))).toBe(true);
 
-    const gatekeeperWindow = calls.filter(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW),
-    ).at(-1);
+    const gatekeeperWindow = calls
+      .filter((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes(GATEKEEPER_WINDOW))
+      .at(-1);
     expect(gatekeeperWindow).toBeDefined();
     const command = gatekeeperWindow?.at(-1) ?? "";
     expect(command).toContain("gatekeeper-initial-cccccccccccc.sh");
@@ -5137,9 +5169,7 @@ describe("resume", () => {
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
     expect(tmuxCalls.some((call) => call[0] === "new-session")).toBe(false);
-    const newWindowNames = tmuxCalls
-      .filter((call) => call[0] === "new-window")
-      .map((call) => call[4]);
+    const newWindowNames = tmuxCalls.filter((call) => call[0] === "new-window").map((call) => call[4]);
     expect(newWindowNames).toEqual(
       expect.arrayContaining(["journal", "director", "gatekeeper", "reviewer", "director-watch"]),
     );
@@ -5186,7 +5216,13 @@ describe("resume", () => {
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
-    expect(calls).toContainEqual(["treehouse", `cwd=${repoDir}`, "return", "--force", join(repoDir, ".worktrees", "issue-7")]);
+    expect(calls).toContainEqual([
+      "treehouse",
+      `cwd=${repoDir}`,
+      "return",
+      "--force",
+      join(repoDir, ".worktrees", "issue-7"),
+    ]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
     expect(readEvents(runDir)).toMatchObject([
       { event: "pr_opened" },
@@ -5194,7 +5230,9 @@ describe("resume", () => {
       { event: "combo_closed", source: "closure" },
     ]);
     expect(out.join("\n")).toContain("resume: closure pending for o-r-7 (github); running closure");
-    expect(out.join("\n")).toContain("closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete");
+    expect(out.join("\n")).toContain(
+      "closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete",
+    );
   });
 
   it("surfaces exact no-mistakes gate findings and the respond command", async () => {
@@ -5219,15 +5257,15 @@ describe("resume", () => {
         status: 0,
         stdout: [
           "run:",
-          "  id: \"01KV-GATE\"",
+          '  id: "01KV-GATE"',
           "  branch: combo/issue-7",
           "  status: waiting",
-          "  findings: \"2 awaiting\"",
+          '  findings: "2 awaiting"',
           "findings[2]{id,status,title}:",
-          "  NM-1,awaiting,\"missing test\"",
-          "  NM-2,awaiting,\"needs docs\"",
+          '  NM-1,awaiting,"missing test"',
+          '  NM-2,awaiting,"needs docs"',
           "outcome: awaiting_approval",
-          "next_step: \"no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes\"",
+          'next_step: "no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes"',
         ].join("\n"),
         stderr: "",
       }),
@@ -5278,7 +5316,9 @@ describe("resume", () => {
     expect(text).toContain(`git log --oneline ${shellQuote(`${baseSha}..${headSha}`)}`);
     expect(text).toContain(`COMBO_CHEN_HOME=${shellQuote(h)}`);
     expect(text).toContain(" status --deep");
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
   });
 });
@@ -5592,20 +5632,16 @@ describe("status", () => {
     expect(
       calls.some(
         (call) =>
-          call[0] === "git" &&
-          call[2] === "branch" &&
-          call[3] === "-D" &&
-          call[4] === "combo/issue-8",
+          call[0] === "git" && call[2] === "branch" && call[3] === "-D" && call[4] === "combo/issue-8",
       ),
     ).toBe(false);
-    expect(calls.some((call) => call[0] === "git" && call.includes(join(repoDir, ".worktrees", "issue-9")))).toBe(false);
+    expect(
+      calls.some((call) => call[0] === "git" && call.includes(join(repoDir, ".worktrees", "issue-9"))),
+    ).toBe(false);
     expect(
       calls.some(
         (call) =>
-          call[0] === "git" &&
-          call[2] === "branch" &&
-          call[3] === "-D" &&
-          call[4] === "combo/issue-9",
+          call[0] === "git" && call[2] === "branch" && call[3] === "-D" && call[4] === "combo/issue-9",
       ),
     ).toBe(false);
   });
@@ -5670,7 +5706,10 @@ describe("status", () => {
     });
     appendEvent(dir, "coder_started", {});
     appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(dir, "parked", { by: "operator", summary_path: "/repos/r/.worktrees/issue-7/park-handoff.md" });
+    appendEvent(dir, "parked", {
+      by: "operator",
+      summary_path: "/repos/r/.worktrees/issue-7/park-handoff.md",
+    });
     const before = readEvents(dir);
 
     const { deps, calls, out } = fakeDeps({
@@ -5726,7 +5765,7 @@ describe("status", () => {
           status: 0,
           stdout: [
             "run:",
-            "  id: \"01KV-CI\"",
+            '  id: "01KV-CI"',
             "  branch: combo/issue-7",
             "  status: running",
             "  head: abc1234",
@@ -5844,15 +5883,15 @@ describe("status", () => {
         status: 0,
         stdout: [
           "run:",
-          "  id: \"01KV-GATE\"",
+          '  id: "01KV-GATE"',
           "  branch: combo/issue-7",
           "  status: waiting",
-          "  findings: \"2 awaiting\"",
+          '  findings: "2 awaiting"',
           "findings[2]{id,status,title}:",
-          "  NM-1,awaiting,\"missing test\"",
-          "  NM-2,awaiting,\"needs docs\"",
+          '  NM-1,awaiting,"missing test"',
+          '  NM-2,awaiting,"needs docs"',
           "outcome: awaiting_approval",
-          "next_step: \"no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes\"",
+          'next_step: "no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes"',
         ].join("\n"),
         stderr: "",
       }),
@@ -5887,7 +5926,7 @@ describe("status", () => {
           "run:",
           "  branch: combo/issue-7",
           "  status: running",
-          "  findings: \"0 awaiting\"",
+          '  findings: "0 awaiting"',
           "steps[1]{step,status,findings,duration_ms}:",
           "  review,running,0,0",
         ].join("\n"),
@@ -6075,10 +6114,7 @@ describe("status", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      [
-        "[ready]",
-        'required_checks = ["reviewdog"]',
-      ].join("\n"),
+      ["[ready]", 'required_checks = ["reviewdog"]'].join("\n"),
     );
     const worktree = join(repoDir, ".worktrees", "issue-7");
     const prUrl = "https://github.com/o/r/pull/7";
@@ -6129,10 +6165,7 @@ describe("status", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      [
-        "[ready]",
-        'required_checks = ["reviewdog"]',
-      ].join("\n"),
+      ["[ready]", 'required_checks = ["reviewdog"]'].join("\n"),
     );
     const worktree = join(repoDir, ".worktrees", "issue-7");
     const prUrl = "https://github.com/o/r/pull/7";
@@ -6183,10 +6216,7 @@ describe("status", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      [
-        "[ready]",
-        'required_checks = ["CodeRabbit"]',
-      ].join("\n"),
+      ["[ready]", 'required_checks = ["CodeRabbit"]'].join("\n"),
     );
     const worktree = join(repoDir, ".worktrees", "issue-7");
     const prUrl = "https://github.com/o/r/pull/7";
@@ -6314,13 +6344,19 @@ describe("forensics", () => {
     writeFileSync(
       join(dir, "journal.jsonl"),
       [
-        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        {
+          t: "2026-06-11T10:00:00.000Z",
+          event: "combo_created",
+          issue_url: "https://github.com/o/r/issues/7",
+        },
         { t: "2026-06-11T10:01:00.000Z", event: "coder_started" },
         { t: "2026-06-11T10:05:00.000Z", event: "coder_done" },
         { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
         { t: "2026-06-11T10:10:00.000Z", event: "lgtm", sha: "abc123" },
         { t: "2026-06-11T10:12:00.000Z", event: "lgtm_stale", old_sha: "abc123", new_sha: "def456" },
-      ].map((event) => JSON.stringify(event)).join("\n"),
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
     );
     const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
@@ -6382,11 +6418,17 @@ describe("forensics", () => {
     writeFileSync(
       join(dir, "journal.jsonl"),
       [
-        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        {
+          t: "2026-06-11T10:00:00.000Z",
+          event: "combo_created",
+          issue_url: "https://github.com/o/r/issues/7",
+        },
         { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
         { t: "2026-06-11T10:09:00.000Z", event: "gate_validated", sha: "def4560" },
         { t: "2026-06-11T10:10:00.000Z", event: "lgtm", sha: "def4560" },
-      ].map((event) => JSON.stringify(event)).join("\n"),
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
     );
     const ghCalls: string[][] = [];
     const { deps, out } = fakeDeps({
@@ -6461,9 +6503,15 @@ describe("forensics", () => {
     writeFileSync(
       join(dir, "journal.jsonl"),
       [
-        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        {
+          t: "2026-06-11T10:00:00.000Z",
+          event: "combo_created",
+          issue_url: "https://github.com/o/r/issues/7",
+        },
         { t: "2026-06-11T10:08:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
-      ].map((event) => JSON.stringify(event)).join("\n"),
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
     );
     const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
@@ -6484,17 +6532,29 @@ describe("forensics", () => {
     writeFileSync(
       join(openDir, "journal.jsonl"),
       [
-        { t: "2026-06-11T10:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/7" },
+        {
+          t: "2026-06-11T10:00:00.000Z",
+          event: "combo_created",
+          issue_url: "https://github.com/o/r/issues/7",
+        },
         { t: "2026-06-11T10:07:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/9" },
         { t: "2026-06-11T10:08:00.000Z", event: "gate_validated", sha: "def456" },
-      ].map((event) => JSON.stringify(event)).join("\n"),
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
     );
     writeFileSync(
       join(mergedDir, "journal.jsonl"),
       [
-        { t: "2026-06-11T11:00:00.000Z", event: "combo_created", issue_url: "https://github.com/o/r/issues/8" },
+        {
+          t: "2026-06-11T11:00:00.000Z",
+          event: "combo_created",
+          issue_url: "https://github.com/o/r/issues/8",
+        },
         { t: "2026-06-11T11:07:00.000Z", event: "pr_opened", url: "https://github.com/o/r/pull/10" },
-      ].map((event) => JSON.stringify(event)).join("\n"),
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
     );
     const ghCalls: string[][] = [];
     const { deps, out } = fakeDeps({
@@ -6510,7 +6570,12 @@ describe("forensics", () => {
               mergeStateStatus: "CLEAN",
               statusCheckRollup: [
                 { __typename: "CheckRun", name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
-                { __typename: "CheckRun", name: "ExternalReview", status: "COMPLETED", conclusion: "SUCCESS" },
+                {
+                  __typename: "CheckRun",
+                  name: "ExternalReview",
+                  status: "COMPLETED",
+                  conclusion: "SUCCESS",
+                },
               ],
             }),
             stderr: "",
@@ -6549,7 +6614,11 @@ describe("forensics", () => {
       reports: Array<{
         id: string;
         timeline: { mergedAt?: string };
-        gates: { ci: string; issueClosed: boolean | "unknown"; reviewer: { current: boolean; headSha?: string } };
+        gates: {
+          ci: string;
+          issueClosed: boolean | "unknown";
+          reviewer: { current: boolean; headSha?: string };
+        };
         incidents: Array<{ id: string }>;
       }>;
     };
@@ -6710,19 +6779,19 @@ describe("activate-reviewer", () => {
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       [
-        '[roles]',
+        "[roles]",
         'gordon = ["local"]',
-        '',
-        '[gordon]',
+        "",
+        "[gordon]",
         'prompt = "local reviewer instructions 8034"',
-        '',
-        '[gordon.local]',
+        "",
+        "[gordon.local]",
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
-        '',
-        '[limits]',
-        'babysit_poll_seconds = 17',
-        'watch_failure_limit = 4',
-        '',
+        "",
+        "[limits]",
+        "babysit_poll_seconds = 17",
+        "watch_failure_limit = 4",
+        "",
       ].join("\n"),
     );
     const dir = runDirFor(h, "o-r-7");
@@ -6754,9 +6823,12 @@ describe("activate-reviewer", () => {
     await exec(deps, ["activate-reviewer", "-n", "o-r-7"]);
 
     expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("reviewer"))).toBe(false);
-    expect(calls.some((c) => c[0] === "tmux" && c[1] === "kill-window" && c.includes("combo-chen-o-r-7:reviewer"))).toBe(false);
+    expect(
+      calls.some((c) => c[0] === "tmux" && c[1] === "kill-window" && c.includes("combo-chen-o-r-7:reviewer")),
+    ).toBe(false);
     const judgeBuffer = calls.find(
-      (c) => c[0] === "tmux" && c[1] === "set-buffer" && c.includes("combo-chen-nudge-combo-chen-o-r-7-reviewer"),
+      (c) =>
+        c[0] === "tmux" && c[1] === "set-buffer" && c.includes("combo-chen-nudge-combo-chen-o-r-7-reviewer"),
     );
     expect(judgeBuffer).toBeDefined();
 
@@ -6767,7 +6839,9 @@ describe("activate-reviewer", () => {
     expect(command).toContain("COMMENT reviews");
     expect(command).toContain("lgtm @ <sha>");
 
-    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("director-watch"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("director-watch"))).toBe(
+      false,
+    );
     expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:reviewer", "C-m"]);
     expect(out.join("\n")).toContain("reviewer");
   });
@@ -7036,11 +7110,7 @@ describe("director-watch command", () => {
     const fakeSleep = join(h, "sleep");
     writeExecutable(
       fakeSleep,
-      [
-        "#!/bin/sh",
-        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
-        "",
-      ].join("\n"),
+      ["#!/bin/sh", `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`, ""].join("\n"),
     );
     writeExecutable(
       fakeCli,
@@ -7090,11 +7160,7 @@ describe("director-watch command", () => {
     const fakeSleep = join(h, "sleep");
     writeExecutable(
       fakeSleep,
-      [
-        "#!/bin/sh",
-        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
-        "",
-      ].join("\n"),
+      ["#!/bin/sh", `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`, ""].join("\n"),
     );
     writeExecutable(
       fakeCli,
@@ -7144,11 +7210,7 @@ describe("director-watch command", () => {
     const fakeSleep = join(h, "sleep");
     writeExecutable(
       fakeSleep,
-      [
-        "#!/bin/sh",
-        `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`,
-        "",
-      ].join("\n"),
+      ["#!/bin/sh", `printf '%s\\n' "$1" >> ${shellQuote(sleepLog)}`, ""].join("\n"),
     );
     writeExecutable(
       fakeCli,
@@ -7304,7 +7366,9 @@ describe("reviewer-tick", () => {
     const prView = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
     expect(prView).toContain("--json");
     expect(prView).toContain("headRefOid,state,mergedAt,mergedBy,mergeCommit");
-    expect(out).toEqual(["reviewer: merged squash789 by maintainer; closure pending: combo-chen closure -n o-r-7"]);
+    expect(out).toEqual([
+      "reviewer: merged squash789 by maintainer; closure pending: combo-chen closure -n o-r-7",
+    ]);
   });
 
   it("keeps already journaled merged PRs closure-pending without duplicate terminal close", async () => {
@@ -7424,15 +7488,15 @@ describe("reviewer-tick", () => {
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       [
-        '[roles]',
+        "[roles]",
         'gordon = ["local"]',
-        '',
-        '[gordon]',
+        "",
+        "[gordon]",
         'prompt = "local reviewer instructions 8034"',
-        '',
-        '[gordon.local]',
+        "",
+        "[gordon.local]",
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
-        '',
+        "",
       ].join("\n"),
     );
     const dir = runDirFor(h, "o-r-7");
@@ -7466,7 +7530,8 @@ describe("reviewer-tick", () => {
     });
 
     const judgeWindow = calls.find(
-      (c) => c[0] === "tmux" && c[1] === "set-buffer" && c.includes("combo-chen-nudge-combo-chen-o-r-7-reviewer"),
+      (c) =>
+        c[0] === "tmux" && c[1] === "set-buffer" && c.includes("combo-chen-nudge-combo-chen-o-r-7-reviewer"),
     );
     expect(judgeWindow).toBeDefined();
 
@@ -7484,12 +7549,12 @@ describe("reviewer-tick", () => {
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       [
-        '[roles]',
+        "[roles]",
         'gordon = ["local"]',
-        '',
-        '[gordon.local]',
+        "",
+        "[gordon.local]",
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
-        '',
+        "",
       ].join("\n"),
     );
     const dir = runDirFor(h, "o-r-7");
@@ -7528,11 +7593,7 @@ describe("reviewer-tick", () => {
 
     await exec(deps, ["reviewer-tick", "-n", "o-r-7"]);
 
-    expect(readEvents(dir).map((event) => event.event)).toEqual([
-      "pr_opened",
-      "lgtm",
-      "lgtm_stale",
-    ]);
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["pr_opened", "lgtm", "lgtm_stale"]);
     expect(readEvents(dir)[1]).toMatchObject({ event: "lgtm", sha: "abc1230" });
     expect(readEvents(dir)[2]).toMatchObject({
       event: "lgtm_stale",
@@ -7570,7 +7631,11 @@ describe("reviewer-tick", () => {
             stdout: JSON.stringify([
               { body: "no lgtm @ aa11bb0", user: { login: "claude" }, created_at: "2026-06-11T00:00:00Z" },
               { body: "NO LGTM @ cc22dd0", user: { login: "claude" }, created_at: "2026-06-11T00:01:00Z" },
-              { body: "review result: not lgtm @ ee33ff0", user: { login: "claude" }, created_at: "2026-06-11T00:02:00Z" },
+              {
+                body: "review result: not lgtm @ ee33ff0",
+                user: { login: "claude" },
+                created_at: "2026-06-11T00:02:00Z",
+              },
               { body: "sin lgtm @ 123abc0", user: { login: "claude" }, created_at: "2026-06-11T00:03:00Z" },
             ]),
             stderr: "",
@@ -7646,12 +7711,12 @@ describe("reviewer-tick", () => {
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       [
-        '[roles]',
+        "[roles]",
         'gordon = ["local"]',
-        '',
-        '[gordon.local]',
+        "",
+        "[gordon.local]",
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
-        '',
+        "",
       ].join("\n"),
     );
     const dir = runDirFor(h, "o-r-7");
@@ -7698,12 +7763,12 @@ describe("reviewer-tick", () => {
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       [
-        '[roles]',
+        "[roles]",
         'gordon = ["local"]',
-        '',
-        '[gordon.local]',
+        "",
+        "[gordon.local]",
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
-        '',
+        "",
       ].join("\n"),
     );
     const dir = runDirFor(h, "o-r-7");
@@ -7761,12 +7826,12 @@ describe("reviewer-tick", () => {
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       [
-        '[roles]',
+        "[roles]",
         'gordon = ["local"]',
-        '',
-        '[gordon.local]',
+        "",
+        "[gordon.local]",
         'command = "judge-bot --pr {pr_url} --prompt {prompt}"',
-        '',
+        "",
       ].join("\n"),
     );
     const dir = runDirFor(h, "o-r-7");
@@ -7990,7 +8055,7 @@ describe("park", () => {
           ? { status: 1, stdout: "", stderr: "can't find session: combo-chen-o-r-7" }
           : args[0] === "has-session"
             ? { status: 1, stdout: "", stderr: "can't find session: combo-chen-o-r-7" }
-          : { status: 0, stdout: "", stderr: "" },
+            : { status: 0, stdout: "", stderr: "" },
     });
 
     await exec(deps, ["park", "-n", "o-r-7", "--by", "reboot"]);
@@ -8038,7 +8103,9 @@ describe("run ordering and safety", () => {
       "combo/issue-7",
       "origin/main",
     ]);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
   });
 
   it("allows --base to override the combo branch base ref", async () => {
@@ -8065,13 +8132,17 @@ describe("run ordering and safety", () => {
       env: { COMBO_CHEN_HOME: h },
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
-        if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: " M src/x.ts\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "status" && args[1] === "--porcelain")
+          return { status: 0, stdout: " M src/x.ts\n", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
     });
 
-    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(/uncommitted changes/);
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /uncommitted changes/,
+    );
 
     expect(calls.some((c) => c[0] === "git" && c.includes("worktree") && c.includes("add"))).toBe(false);
   });
@@ -8083,8 +8154,10 @@ describe("run ordering and safety", () => {
       env: { COMBO_CHEN_HOME: h },
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
-        if (args[0] === "branch" && args[1] === "--list") return { status: 0, stdout: "combo/issue-7\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--list")
+          return { status: 0, stdout: "combo/issue-7\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -8096,7 +8169,9 @@ describe("run ordering and safety", () => {
 
     expect(out).toContain("overture o-r-7");
     expect(out).toContain("X branch_free: combo/issue-7 already exists locally");
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
@@ -8125,7 +8200,9 @@ describe("run ordering and safety", () => {
 
     expect(out).toContain("overture o-r-7");
     expect(out).toContain(`X worktree_free: ${worktree} path already exists`);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
 
@@ -8163,7 +8240,9 @@ describe("run ordering and safety", () => {
     expect(out).toContain("overture o-r-7");
     expect(out).toContain("X tmux_session_free: combo-chen-o-r-7 session already exists");
     expect(calls).toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
 
@@ -8194,7 +8273,7 @@ describe("run ordering and safety", () => {
           status: 0,
           stdout: [
             "run:",
-            "  id: \"01KV-OLD\"",
+            '  id: "01KV-OLD"',
             "  branch: combo/issue-7",
             "  status: running",
             "  worktree: /repos/r/.worktrees/issue-7",
@@ -8213,7 +8292,9 @@ describe("run ordering and safety", () => {
     expect(out).toContain("X no_mistakes_run_free: combo/issue-7 active no-mistakes run is running");
     expect(calls).toContainEqual(["no-mistakes", `cwd=${repoDir}`, "status"]);
     expect(calls).toContainEqual(["no-mistakes", `cwd=${repoDir}`, "axi", "status"]);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
@@ -8248,7 +8329,7 @@ describe("run ordering and safety", () => {
           status: 0,
           stdout: [
             "run:",
-            "  id: \"01KV-OLD\"",
+            '  id: "01KV-OLD"',
             "  branch: combo/sibling-branch",
             "  status: running",
             `      worktree: "${worktree}"`,
@@ -8265,7 +8346,9 @@ describe("run ordering and safety", () => {
     );
 
     expect(out).toContain(`X no_mistakes_run_free: ${worktree} active no-mistakes run is running`);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
@@ -8297,7 +8380,8 @@ describe("run ordering and safety", () => {
         if (args[0] === "rev-parse" && args[1] === "--verify") {
           return { status: 128, stdout: "", stderr: "fatal: Needed a single revision\n" };
         }
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "main\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -8311,7 +8395,9 @@ describe("run ordering and safety", () => {
       "X base_ref_resolved: feature/missing git rev-parse --verify feature/missing failed: fatal: Needed a single revision",
     );
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "rev-parse", "--verify", "feature/missing"]);
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
+    );
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
@@ -8334,7 +8420,8 @@ describe("run ordering and safety", () => {
       env: { COMBO_CHEN_HOME: h },
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "docs/launch-combo-resume\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "docs/launch-combo-resume\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -8353,7 +8440,8 @@ describe("run ordering and safety", () => {
       env: { COMBO_CHEN_HOME: h },
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "develop\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "develop\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -8440,7 +8528,8 @@ describe("run ordering and safety", () => {
         if (args[0] === "remote" && args[1] === "get-url" && args[2] === "origin") {
           return { status: 0, stdout: `${mismatchedOrigin}\n`, stderr: "" };
         }
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "main\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -8451,10 +8540,10 @@ describe("run ordering and safety", () => {
     );
 
     expect(out).toContain("overture o-r-7");
-    expect(out).toContain(
-      `X repo_matches_issue: ${mismatchedOrigin} origin mismatch; issue belongs to o/r`,
+    expect(out).toContain(`X repo_matches_issue: ${mismatchedOrigin} origin mismatch; issue belongs to o/r`);
+    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
+      false,
     );
-    expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
     expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(false);
 
@@ -8509,7 +8598,8 @@ describe("run ordering and safety", () => {
       env: { COMBO_CHEN_HOME: h },
       git: (args, cwd) => {
         calls.push(["git", `cwd=${cwd}`, ...args]);
-        if (args[0] === "branch" && args[1] === "--show-current") return { status: 0, stdout: "main\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current")
+          return { status: 0, stdout: "main\n", stderr: "" };
         if (args[0] === "status" && args[1] === "--porcelain") return { status: 0, stdout: "", stderr: "" };
         if (args[0] === "switch" && args[1] === "-c") {
           mkdirSync(snapshotPath, { recursive: true });
@@ -8536,11 +8626,15 @@ describe("run ordering and safety", () => {
       },
     });
 
-    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(CONFIG_SNAPSHOT_FILE);
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      CONFIG_SNAPSHOT_FILE,
+    );
 
     const treehouseGetIndex = calls.findIndex((c) => c[0] === "treehouse" && c.includes("get"));
     const treehouseReturnIndex = calls.findIndex((c) => c[0] === "treehouse" && c.includes("return"));
-    const branchDeleteIndex = calls.findIndex((c) => c[0] === "git" && c.includes("branch") && c.includes("-D"));
+    const branchDeleteIndex = calls.findIndex(
+      (c) => c[0] === "git" && c.includes("branch") && c.includes("-D"),
+    );
     expect(treehouseGetIndex).toBeGreaterThan(-1);
     expect(calls[treehouseReturnIndex]).toEqual([
       "treehouse",

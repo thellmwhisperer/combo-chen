@@ -43,21 +43,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { ComboEvent } from "../core/events.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { isRecord } from "../core/guards.js";
-import {
-  parseGitHubPullRequestUrl,
-  type GitHubPullRequestRef,
-} from "../core/pr-url.js";
+import { parseGitHubPullRequestUrl, type GitHubPullRequestRef } from "../core/pr-url.js";
 import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
-import {
-  CODER_THREAD_ARTIFACT,
-  LEGACY_ROWER_THREAD_ARTIFACT,
-  type CoderThreadArtifact,
-} from "./coder.js";
+import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, type CoderThreadArtifact } from "./coder.js";
 
 export { readGhArray } from "../core/gh-api.js";
 
@@ -72,10 +64,7 @@ export interface ReviewSignalOptions {
   externalCommentAgents?: string[];
 }
 
-export function buildReviewNudgePrompt(
-  comment: ReviewCommentSignal,
-  template: string,
-): string {
+export function buildReviewNudgePrompt(comment: ReviewCommentSignal, template: string): string {
   return renderCommand(template, {
     author: comment.author,
     kind: comment.kind,
@@ -96,7 +85,7 @@ export function readCoderThreadArtifact(runDir: string): CoderThreadArtifact {
     parsed = JSON.parse(readFileSync(artifactPath, "utf8"));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${artifactName} is not valid JSON: ${message}`);
+    throw new Error(`${artifactName} is not valid JSON: ${message}`, { cause: error });
   }
   if (
     !isRecord(parsed) ||
@@ -243,7 +232,10 @@ export function signalFromComment(
   return { author, kind, url };
 }
 
-export function signalFromReview(item: unknown, options: ReviewSignalOptions = {}): ReviewCommentSignal | undefined {
+export function signalFromReview(
+  item: unknown,
+  options: ReviewSignalOptions = {},
+): ReviewCommentSignal | undefined {
   if (!isRecord(item)) return undefined;
   const state = typeof item["state"] === "string" ? item["state"].toUpperCase() : "";
   if (state === "APPROVED") return undefined;
@@ -273,7 +265,10 @@ function externalCommentAgentMatches(
   const normalized = value.toLowerCase();
   return externalCommentAgents.some((agent) => {
     const needle = agent.trim().toLowerCase();
-    return needle.length > 0 && (mode === "prefix" ? normalized.trim().startsWith(needle) : normalized.includes(needle));
+    return (
+      needle.length > 0 &&
+      (mode === "prefix" ? normalized.trim().startsWith(needle) : normalized.includes(needle))
+    );
   });
 }
 
@@ -288,8 +283,10 @@ function isExternalAgentRetriggerBookkeeping(body: string, externalCommentAgents
   const targetLower = target.toLowerCase();
   return lines.slice(1).every((line) => {
     const lower = line.toLowerCase();
-    return lower.includes("codex") &&
-      (lower.includes(targetLower) || externalCommentAgentMatches(lower, externalCommentAgents, "substring"));
+    return (
+      lower.includes("codex") &&
+      (lower.includes(targetLower) || externalCommentAgentMatches(lower, externalCommentAgents, "substring"))
+    );
   });
 }
 
@@ -300,7 +297,9 @@ function isExternalAgentRateLimitComment(
 ): boolean {
   return (
     matchesExternalCommentAgent(author, externalCommentAgents) &&
-    /\breview\s+limit\s+reached\b|rate[-\s]?limit(?:ed)?|\breview\s+skipped\b|couldn'?t start this review/i.test(body)
+    /\breview\s+limit\s+reached\b|rate[-\s]?limit(?:ed)?|\breview\s+skipped\b|couldn'?t start this review/i.test(
+      body,
+    )
   );
 }
 

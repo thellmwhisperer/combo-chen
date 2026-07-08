@@ -409,7 +409,10 @@ describe("stageResolvedUpdate", () => {
             fileName: "combo-chen-v1.2.3-linux-x64.tar.gz",
             downloadUrl: "https://example.test/releases/combo-chen-v1.2.3-linux-x64.tar.gz",
           },
-          checksums: { text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n`, fileName: "../../etc/passwd" },
+          checksums: {
+            text: `${"1".repeat(64)}  combo-chen-v1.2.3-linux-x64.tar.gz\n`,
+            fileName: "../../etc/passwd",
+          },
         },
         stagingDir,
         deps,

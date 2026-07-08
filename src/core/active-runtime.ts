@@ -105,7 +105,9 @@ interface MutableDetectionState {
 // -- 2/3 CORE · detectActiveComboRuntime <- START HERE --
 const COMBO_RECORD_FILE = "combo.json";
 
-export function detectActiveComboRuntime(input: ActiveComboRuntimeDetectorInput): ActiveComboRuntimeDetection {
+export function detectActiveComboRuntime(
+  input: ActiveComboRuntimeDetectorInput,
+): ActiveComboRuntimeDetection {
   const state: MutableDetectionState = {
     inspectedRunDirs: [],
     activeCombos: [],
@@ -246,12 +248,25 @@ function assertRuntimeLedgerFields(ledger: unknown): asserts ledger is ReturnTyp
     throw new Error("runtime ledger must be an object");
   }
   const record = ledger as Record<string, unknown>;
-  for (const field of ["comboId", "repoDir", "branch", "worktree", "runDir", "tmuxSession", "createdAt", "updatedAt"]) {
+  for (const field of [
+    "comboId",
+    "repoDir",
+    "branch",
+    "worktree",
+    "runDir",
+    "tmuxSession",
+    "createdAt",
+    "updatedAt",
+  ]) {
     if (typeof record[field] !== "string") {
       throw new Error(`runtime ledger missing field ${field}`);
     }
   }
-  if (record["roleWindows"] === null || typeof record["roleWindows"] !== "object" || Array.isArray(record["roleWindows"])) {
+  if (
+    record["roleWindows"] === null ||
+    typeof record["roleWindows"] !== "object" ||
+    Array.isArray(record["roleWindows"])
+  ) {
     throw new Error("runtime ledger missing field roleWindows");
   }
 }

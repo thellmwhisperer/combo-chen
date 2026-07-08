@@ -225,8 +225,7 @@ export function selectUpdateAsset(input: UpdateAssetSelectionInput): UpdateAsset
   const supportedTargets = input.supportedTargets ?? RELEASE_TARGETS;
   const target = { platform: input.platform, arch: input.arch };
   const supported = supportedTargets.some(
-    (supportedTarget) =>
-      supportedTarget.platform === target.platform && supportedTarget.arch === target.arch,
+    (supportedTarget) => supportedTarget.platform === target.platform && supportedTarget.arch === target.arch,
   );
 
   if (!supported) {
@@ -299,9 +298,7 @@ export function lookupUpdateChecksum(input: UpdateChecksumLookupInput): UpdateCh
 }
 
 /** Classify a local combo-chen executable path without replacing or mutating it. */
-export function classifyInstallTarget(
-  input: InstallTargetClassificationInput,
-): InstallTargetClassification {
+export function classifyInstallTarget(input: InstallTargetClassificationInput): InstallTargetClassification {
   const path = normalizeInstallTargetPath(input.path.trim());
   const resolved = (() => {
     try {
@@ -397,10 +394,7 @@ export function compareNormalizedReleaseVersions(
   left: NormalizedReleaseVersion,
   right: NormalizedReleaseVersion,
 ): number {
-  const coreOrder =
-    left.major - right.major ||
-    left.minor - right.minor ||
-    left.patch - right.patch;
+  const coreOrder = left.major - right.major || left.minor - right.minor || left.patch - right.patch;
   if (coreOrder !== 0) return Math.sign(coreOrder);
 
   if (left.channel === "stable" && right.channel === "stable") return 0;

@@ -60,8 +60,7 @@ export function killComboSession(deps: SessionDeps, combo: ComboRecord): KillCom
   if (isMissingSession(killed)) return "already_missing";
   if (killed.status !== 0) {
     throw new Error(
-      `tmux kill-session failed for "${combo.tmuxSession}": ` +
-        `${killed.stderr.trim() || "unknown error"}`,
+      `tmux kill-session failed for "${combo.tmuxSession}": ` + `${killed.stderr.trim() || "unknown error"}`,
     );
   }
   return "killed";
@@ -76,11 +75,7 @@ function isMissingSession(result: TmuxResult): boolean {
   return text.includes("can't find session") || text.includes("no server running");
 }
 
-export function killWindowIfPresent(
-  deps: SessionDeps,
-  combo: ComboRecord,
-  windowName: string,
-): void {
+export function killWindowIfPresent(deps: SessionDeps, combo: ComboRecord, windowName: string): void {
   const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
   if (listed.status !== 0) {
     throw new Error(
@@ -101,7 +96,12 @@ export function killWindowIfPresent(
 }
 
 export function windowSet(stdout: string): Set<string> {
-  return new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  return new Set(
+    stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
 }
 
 export function ensureWindowPresent(
@@ -179,12 +179,10 @@ export function ensureComboSession(input: {
 // -/ 1/3
 
 // -- 2/3 CORE · resolveAttachCombo <- START HERE --
-export function resolveAttachCombo(
-  deps: SessionDeps,
-  home: string,
-  name: string | undefined,
-): ComboRecord {
-  const combos = listCombos(home, (id, error) => process.stderr.write(`combo-chen: skipped corrupt combo ${id}: ${errorMessage(error)}\n`));
+export function resolveAttachCombo(deps: SessionDeps, home: string, name: string | undefined): ComboRecord {
+  const combos = listCombos(home, (id, error) =>
+    process.stderr.write(`combo-chen: skipped corrupt combo ${id}: ${errorMessage(error)}\n`),
+  );
   if (name !== undefined) {
     const combo = combos.find((candidate) => candidate.id === name);
     if (!combo) throw new Error(`No combo named "${name}"`);
@@ -210,11 +208,7 @@ export function resolveAttachCombo(
 // -/ 2/3
 
 // -- 3/3 CORE · ensureJournalPane --
-export function ensureJournalPane(
-  deps: SessionDeps,
-  combo: ComboRecord,
-  cliInvocation: string,
-): void {
+export function ensureJournalPane(deps: SessionDeps, combo: ComboRecord, cliInvocation: string): void {
   ensureWindowPresent(
     deps,
     combo,

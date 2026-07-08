@@ -30,7 +30,11 @@ import { describe, expect, it } from "vitest";
 import { appendEvent, readEvents, type ComboEvent } from "../core/events.js";
 import { RUNTIME_LEDGER_FILE } from "../core/runtime-ledger.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../core/state.js";
-import { normalizeGitHubIssueWorkPlan, normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
+import {
+  normalizeGitHubIssueWorkPlan,
+  normalizeMarkdownWorkPlan,
+  renderWorkPlanMarkdown,
+} from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
 import { writeConfigSnapshot } from "../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
@@ -74,9 +78,11 @@ function writeCoderThreadArtifact(runDir: string): void {
 }
 
 function reviewerPromptCommand(calls: string[][], session = "combo-chen-o-r-7"): string {
-  return calls.find(
-    (call) => call[0] === "set-buffer" && call.includes(`combo-chen-nudge-${session}-reviewer`),
-  )?.at(-1) ?? "";
+  return (
+    calls
+      .find((call) => call[0] === "set-buffer" && call.includes(`combo-chen-nudge-${session}-reviewer`))
+      ?.at(-1) ?? ""
+  );
 }
 // -/ 1/4
 
@@ -259,7 +265,6 @@ describe("activateReviewer", () => {
 
     const newWindows = calls.filter((call) => call[0] === "new-window");
     const directorWindow = newWindows.find((call) => call[4] === "director");
-    const reviewerWindow = newWindows.find((call) => call[4] === "reviewer");
     const directorWatchWindow = newWindows.find((call) => call[4] === "director-watch");
     expect(directorWindow?.at(-1)).toContain("Combo director for o-r-7");
     const reviewerCommand = reviewerPromptCommand(calls);
@@ -449,7 +454,8 @@ describe("activateReviewer", () => {
       }),
     ).not.toThrow();
 
-    const reviewerCommand = calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
+    const reviewerCommand =
+      calls.find((call) => call[0] === "new-window" && call.includes("reviewer"))?.at(-1) ?? "";
     expect(reviewerCommand).not.toContain("Work plan context:");
   });
 
@@ -630,9 +636,12 @@ describe("tickReviewer", () => {
     expect(readEvents(runDir).some((event) => event.event === "combo_closed")).toBe(false);
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "tmux")).toBe(false);
-    expect(calls.find((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "view"))
-      ?.toContain("headRefOid,state,mergedAt,mergedBy,mergeCommit");
-    expect(out).toEqual(["reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7"]);
+    expect(calls.find((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "view"))?.toContain(
+      "headRefOid,state,mergedAt,mergedBy,mergeCommit",
+    );
+    expect(out).toEqual([
+      "reviewer: merged merge789 by maintainer; closure pending: combo-chen closure -n o-r-7",
+    ]);
   });
 
   it("treats a merged PR without merge commit metadata as a transient failure", async () => {
@@ -878,9 +887,13 @@ describe("tickReviewer", () => {
               status: 0,
               stdout: JSON.stringify([
                 {
-                  body: [`lgtm @ ${headSha}`, "", "combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join(
-                    "\n",
-                  ),
+                  body: [
+                    `lgtm @ ${headSha}`,
+                    "",
+                    "combo-chen-reviewer-verdict:",
+                    `head: ${headSha}`,
+                    "code: 0",
+                  ].join("\n"),
                   user: { login: "claude" },
                   created_at: "2026-06-11T00:00:00Z",
                 },
@@ -1026,14 +1039,7 @@ describe("tickReviewer", () => {
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
     expect(tmuxCalls).toEqual([
       ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
-      [
-        "new-window",
-        "-t",
-        "combo-chen-o-r-7",
-        "-n",
-        "coder",
-        `codex resume '${CODEX_THREAD_ID}'`,
-      ],
+      ["new-window", "-t", "combo-chen-o-r-7", "-n", "coder", `codex resume '${CODEX_THREAD_ID}'`],
       expect.arrayContaining(["set-buffer"]),
       ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-coder", "-t", "combo-chen-o-r-7:coder"],
       ["send-keys", "-t", "combo-chen-o-r-7:coder", "C-m"],
@@ -1112,7 +1118,14 @@ describe("tickReviewer", () => {
         "combo-chen-nudge-combo-chen-o-r-7-director",
         expect.stringContaining("Reviewer verdict code 2"),
       ],
-      ["paste-buffer", "-d", "-b", "combo-chen-nudge-combo-chen-o-r-7-director", "-t", "combo-chen-o-r-7:director"],
+      [
+        "paste-buffer",
+        "-d",
+        "-b",
+        "combo-chen-nudge-combo-chen-o-r-7-director",
+        "-t",
+        "combo-chen-o-r-7:director",
+      ],
       ["send-keys", "-t", "combo-chen-o-r-7:director", "C-m"],
     ]);
     expect(out).toEqual([
@@ -1175,7 +1188,7 @@ describe("tickReviewer", () => {
       }),
     );
     expect(out).toEqual([
-      "reviewer: transient_failure: failed to prompt director for o-r-7: director prompt target \"combo-chen-o-r-7:director\" is not present",
+      'reviewer: transient_failure: failed to prompt director for o-r-7: director prompt target "combo-chen-o-r-7:director" is not present',
     ]);
   });
 

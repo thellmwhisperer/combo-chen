@@ -38,7 +38,11 @@ function home(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-reconcile-"));
 }
 
-function fakeDeps(overrides: Partial<ReconcileDeps> = {}): { deps: ReconcileDeps; calls: string[][]; out: string[] } {
+function fakeDeps(overrides: Partial<ReconcileDeps> = {}): {
+  deps: ReconcileDeps;
+  calls: string[][];
+  out: string[];
+} {
   const calls: string[][] = [];
   const out: string[] = [];
   return {
@@ -354,7 +358,11 @@ describe("reconcileCombos", () => {
       },
       treehouse: (args, cwd) => {
         if (cwd === oldRepo && args[0] === "return") {
-          return { status: 128, stdout: "", stderr: `fatal: '${join(oldRepo, ".worktrees", "issue-7")}' is not a working tree` };
+          return {
+            status: 128,
+            stdout: "",
+            stderr: `fatal: '${join(oldRepo, ".worktrees", "issue-7")}' is not a working tree`,
+          };
         }
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -420,11 +428,7 @@ describe("reconcileCombos", () => {
 
     await reconcileCombos({ deps, home: h, apply: true });
 
-    expect(readEvents(runDir).map((event) => event.event)).toEqual([
-      "pr_opened",
-      "merged",
-      "combo_closed",
-    ]);
+    expect(readEvents(runDir).map((event) => event.event)).toEqual(["pr_opened", "merged", "combo_closed"]);
     expect(calls).toContainEqual(["sleep", "3000"]);
     expect(calls).toContainEqual(["sleep", "6000"]);
     expect(calls).not.toContainEqual(["sleep", "99000"]);
@@ -463,14 +467,12 @@ describe("reconcileCombos", () => {
     // tmux kill-session still runs (parked session may already be dead – best-effort)
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
     // worktree is NOT returned
-    expect(
-      calls.some((call) => call[0] === "treehouse" && call[2] === "return"),
-    ).toBe(false);
+    expect(calls.some((call) => call[0] === "treehouse" && call[2] === "return")).toBe(false);
     // branch is NOT deleted
-    expect(
-      calls.some((call) => call[0] === "git" && call[2] === "branch" && call[3] === "-D"),
-    ).toBe(false);
-    expect(out.join("\n")).toContain("reconcile: o-r-7 merged squash789 by maintainer; teardown skipped (parked)");
+    expect(calls.some((call) => call[0] === "git" && call[2] === "branch" && call[3] === "-D")).toBe(false);
+    expect(out.join("\n")).toContain(
+      "reconcile: o-r-7 merged squash789 by maintainer; teardown skipped (parked)",
+    );
   });
 
   it("dry-runs parked merged combos reporting skip-teardown intent", async () => {

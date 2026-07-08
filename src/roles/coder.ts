@@ -36,14 +36,7 @@
  * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, defaultWorkPlanPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
  * @deps node:fs, node:path, ../infra/config, ../core/state, ../core/work-plan
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 import { renderCommand } from "../infra/config.js";
@@ -99,9 +92,7 @@ export function buildCoderInvocation(input: CoderInput): string {
       "buildCoderInvocation requires an explicit prompt for plan-backed combos (issueUrl is empty); pass a prompt override",
     );
   }
-  const preflight = repoHasSurfaceScript(input.combo.worktree)
-    ? SURFACE_PREFLIGHT
-    : GENERIC_HELPER_PREFLIGHT;
+  const preflight = repoHasSurfaceScript(input.combo.worktree) ? SURFACE_PREFLIGHT : GENERIC_HELPER_PREFLIGHT;
   const prompt = `${input.prompt ?? defaultPrompt(input.combo.issueUrl)} ${preflight}`;
   return renderCommand(input.coderCommand, {
     issue_url: input.combo.issueUrl,
@@ -153,15 +144,10 @@ export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undef
   return latestThreadId;
 }
 
-export function persistCoderThreadArtifact(input: {
-  runDir: string;
-  worktree: string;
-}): CoderThreadArtifact {
+export function persistCoderThreadArtifact(input: { runDir: string; worktree: string }): CoderThreadArtifact {
   const jsonlPath = latestGnhfIterationJsonl(input.worktree);
   if (jsonlPath === undefined) {
-    throw new Error(
-      `No gnhf JSONL found in ${input.worktree}/.gnhf/runs`,
-    );
+    throw new Error(`No gnhf JSONL found in ${input.worktree}/.gnhf/runs`);
   }
   const threadId = extractCodexThreadIdFromJsonl(jsonlPath);
   if (threadId === undefined) {

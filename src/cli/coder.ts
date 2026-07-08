@@ -143,8 +143,7 @@ function ensureCoderRespondingWindow(input: {
     const panes = input.deps.tmux(listPanesArgs(input.combo.tmuxSession, input.windowName, "#{pane_dead}"));
     if (panes.status !== 0) {
       throw new Error(
-        `tmux failed to inspect ${input.windowName} panes: ` +
-          `${panes.stderr.trim() || "unknown error"}`,
+        `tmux failed to inspect ${input.windowName} panes: ` + `${panes.stderr.trim() || "unknown error"}`,
       );
     }
     if (hasLivePane(panes.stdout)) return;
@@ -152,8 +151,7 @@ function ensureCoderRespondingWindow(input: {
     const killed = input.deps.tmux(killWindowArgs(input.combo.tmuxSession, input.windowName));
     if (killed.status !== 0) {
       throw new Error(
-        `tmux failed to replace dead ${input.windowName}: ` +
-          `${killed.stderr.trim() || "unknown error"}`,
+        `tmux failed to replace dead ${input.windowName}: ` + `${killed.stderr.trim() || "unknown error"}`,
       );
     }
   }
@@ -167,9 +165,7 @@ function ensureCoderRespondingWindow(input: {
     ),
   );
   if (created.status !== 0) {
-    throw new Error(
-      `tmux failed to start ${input.windowName}: ${created.stderr.trim() || "unknown error"}`,
-    );
+    throw new Error(`tmux failed to start ${input.windowName}: ${created.stderr.trim() || "unknown error"}`);
   }
 }
 
@@ -206,10 +202,18 @@ function latestRoutedCoderPrompt(events: ComboEvent[], reviewNudgePrompt: string
           prUrl,
           headSha,
           mergeState,
-          ...(stringField(event, "mergeable") !== undefined ? { mergeable: stringField(event, "mergeable") } : {}),
-          ...(stringField(event, "base_ref") !== undefined ? { baseRef: stringField(event, "base_ref") } : {}),
-          ...(stringField(event, "published_sha") !== undefined ? { publishedSha: stringField(event, "published_sha") } : {}),
-          ...(stringField(event, "local_sha") !== undefined ? { localSha: stringField(event, "local_sha") } : {}),
+          ...(stringField(event, "mergeable") !== undefined
+            ? { mergeable: stringField(event, "mergeable") }
+            : {}),
+          ...(stringField(event, "base_ref") !== undefined
+            ? { baseRef: stringField(event, "base_ref") }
+            : {}),
+          ...(stringField(event, "published_sha") !== undefined
+            ? { publishedSha: stringField(event, "published_sha") }
+            : {}),
+          ...(stringField(event, "local_sha") !== undefined
+            ? { localSha: stringField(event, "local_sha") }
+            : {}),
         });
       }
     }
@@ -260,9 +264,7 @@ export function nudgeReviewComments(input: {
       deps.out(`mirror synced for ${combo.id}`);
     }
   } catch (err) {
-    deps.out(
-      `mirror sync failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    deps.out(`mirror sync failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`);
   }
   try {
     const comments = fetchReviewCommentSignals(prUrl, deps.gh, ghApiCache, {
@@ -378,7 +380,9 @@ export function recoverStuckWorker(input: {
 
   const killed = deps.tmux(killWindowArgs(combo.tmuxSession, config.coderRespondingWindowName));
   if (killed.status !== 0) {
-    throw new Error(`tmux failed to kill ${config.coderRespondingWindowName}: ${killed.stderr.trim() || "unknown error"}`);
+    throw new Error(
+      `tmux failed to kill ${config.coderRespondingWindowName}: ${killed.stderr.trim() || "unknown error"}`,
+    );
   }
   ensureCoderRespondingWindow({
     deps,
@@ -390,7 +394,9 @@ export function recoverStuckWorker(input: {
   for (const args of nudgeWindowArgs(combo.tmuxSession, config.coderRespondingWindowName, prompt)) {
     const result = deps.tmux(args);
     if (result.status !== 0) {
-      throw new Error(`tmux stalled-worker recovery nudge failed: ${result.stderr.trim() || "unknown error"}`);
+      throw new Error(
+        `tmux stalled-worker recovery nudge failed: ${result.stderr.trim() || "unknown error"}`,
+      );
     }
   }
   appendEvent(runDir, "worker_recovered", {
@@ -400,9 +406,10 @@ export function recoverStuckWorker(input: {
     attempt: recovery.attempt,
     max_attempts: recovery.maxAttempts,
   });
-  const recoveredDetail = recovery.reason === "worker_stalled"
-    ? `recovered stalled ${recovery.worker}`
-    : `recovered ${recovery.worker} after ${recovery.reason}`;
+  const recoveredDetail =
+    recovery.reason === "worker_stalled"
+      ? `recovered stalled ${recovery.worker}`
+      : `recovered ${recovery.worker} after ${recovery.reason}`;
   deps.out(`director: ${recoveredDetail} attempt ${recovery.attempt}/${recovery.maxAttempts}`);
   return true;
 }

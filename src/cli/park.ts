@@ -63,7 +63,7 @@ function buildParkSummary(input: {
     `worktree: ${combo.worktree}`,
     `tmux session: ${combo.tmuxSession}`,
     `phase: ${status.phase}`,
-    `needs human: ${status.needsHuman ? status.reason ?? "yes" : "no"}`,
+    `needs human: ${status.needsHuman ? (status.reason ?? "yes") : "no"}`,
     `pr: ${status.pr ?? "none"}`,
     `downstream: ${downstream ?? "unknown"}`,
     `last event: ${lastEvent}`,
