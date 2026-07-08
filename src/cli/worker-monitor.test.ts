@@ -50,7 +50,11 @@ function combo(): { record: ComboRecord; runDir: string } {
   return { record, runDir };
 }
 
-function fakeDeps(panes: Record<string, string | undefined>): { deps: WorkerMonitorDeps; out: string[]; calls: string[][] } {
+function fakeDeps(panes: Record<string, string | undefined>): {
+  deps: WorkerMonitorDeps;
+  out: string[];
+  calls: string[][];
+} {
   const out: string[] = [];
   const calls: string[][] = [];
   return {
@@ -95,7 +99,11 @@ describe("inspectWorkerPanes", () => {
 
     expect(result.escalated).toBe(true);
     expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+      }),
     );
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
   });
@@ -187,7 +195,8 @@ describe("inspectWorkerPanes", () => {
       tmux: (args) => {
         if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
         if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-        if (args[0] === "capture-pane") return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+        if (args[0] === "capture-pane")
+          return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
         if (args[0] === "send-keys") return { status: 1, stdout: "", stderr: "blocked target" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -241,7 +250,11 @@ describe("inspectWorkerPanes", () => {
 
     expect(result.escalated).toBe(true);
     expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({ event: "needs_human", reason: "worker_permission_prompt", worker: "reviewer" }),
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+      }),
     );
   });
 
@@ -279,9 +292,16 @@ describe("inspectWorkerPanes", () => {
     });
 
     expect(
-      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated,
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 })
+        .escalated,
     ).toBe(false);
-    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 });
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+      stallTicks: 2,
+    });
 
     expect(result.escalated).toBe(true);
     expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; no orchestrator evidence");
@@ -391,12 +411,7 @@ describe("inspectWorkerPanes", () => {
         if (options?.timeoutMs !== undefined) timeouts.push(options.timeoutMs);
         return {
           status: 0,
-          stdout: [
-            "id: e2e-run",
-            `branch: ${record.branch}`,
-            "status: active",
-            "",
-          ].join("\n"),
+          stdout: ["id: e2e-run", `branch: ${record.branch}`, "status: active", ""].join("\n"),
           stderr: "",
         };
       },
@@ -718,7 +733,11 @@ describe("inspectWorkerPanes", () => {
     appendEvent(runDir, "coder_started", {});
     appendEvent(runDir, "coder_done", {});
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(runDir, "review_comment", { author: "bot", kind: "review", url: "https://github.com/o/r/pull/7#r1" });
+    appendEvent(runDir, "review_comment", {
+      author: "bot",
+      kind: "review",
+      url: "https://github.com/o/r/pull/7#r1",
+    });
     const { deps } = fakeDeps({
       coder: undefined,
     });
@@ -745,7 +764,11 @@ describe("inspectWorkerPanes", () => {
     appendEvent(runDir, "coder_started", {});
     appendEvent(runDir, "coder_done", {});
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(runDir, "review_comment", { author: "bot", kind: "review", url: "https://github.com/o/r/pull/7#r1" });
+    appendEvent(runDir, "review_comment", {
+      author: "bot",
+      kind: "review",
+      url: "https://github.com/o/r/pull/7#r1",
+    });
     appendEvent(runDir, "lgtm", { sha: "abc123" });
     const { deps } = fakeDeps({
       coder: undefined,
@@ -768,9 +791,18 @@ describe("inspectWorkerPanes", () => {
     appendEvent(runDir, "coder_started", {});
     appendEvent(runDir, "coder_done", {});
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(runDir, "review_comment", { author: "bot", kind: "review", url: "https://github.com/o/r/pull/7#r1" });
+    appendEvent(runDir, "review_comment", {
+      author: "bot",
+      kind: "review",
+      url: "https://github.com/o/r/pull/7#r1",
+    });
     appendEvent(runDir, "lgtm", { sha: "abc123" });
-    appendEvent(runDir, "pr_conflict", { sha: "abc123", merge_state: "DIRTY", pr_url: "https://github.com/o/r/pull/7", action: "rebase_required" });
+    appendEvent(runDir, "pr_conflict", {
+      sha: "abc123",
+      merge_state: "DIRTY",
+      pr_url: "https://github.com/o/r/pull/7",
+      action: "rebase_required",
+    });
     const { deps } = fakeDeps({
       coder: undefined,
     });
@@ -842,9 +874,15 @@ describe("inspectWorkerPanes", () => {
       reviewer: "waiting for review...\n",
     });
 
-    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"] }).escalated).toBe(false);
-    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"] }).escalated).toBe(false);
-    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"] }).escalated).toBe(true);
+    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"] }).escalated).toBe(
+      false,
+    );
+    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"] }).escalated).toBe(
+      false,
+    );
+    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"] }).escalated).toBe(
+      true,
+    );
 
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "reviewer" }),
@@ -857,12 +895,18 @@ describe("inspectWorkerPanes", () => {
       reviewer: idleRoleWindowCommand("reviewer"),
     });
 
-    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated)
-      .toBe(false);
-    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated)
-      .toBe(false);
-    expect(inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 }).escalated)
-      .toBe(false);
+    expect(
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 })
+        .escalated,
+    ).toBe(false);
+    expect(
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 })
+        .escalated,
+    ).toBe(false);
+    expect(
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 })
+        .escalated,
+    ).toBe(false);
 
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
   });
@@ -923,12 +967,10 @@ describe("inspectWorkerPanes", () => {
     const out: string[] = [];
     const deps: WorkerMonitorDeps = {
       out: (line) => out.push(line),
-      tmux: (args) =>
-        args[0] === "list-windows"
-          ? { status: 1, stdout: "", stderr: "temporary tmux hiccup" }
-          : args[0] === "has-session"
-            ? { status: 0, stdout: "", stderr: "" }
-            : { status: 0, stdout: "", stderr: "" },
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 1, stdout: "", stderr: "temporary tmux hiccup" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
     };
 
     const result = inspectWorkerPanes({
@@ -949,12 +991,12 @@ describe("inspectWorkerPanes", () => {
     const out: string[] = [];
     const deps: WorkerMonitorDeps = {
       out: (line) => out.push(line),
-      tmux: (args) =>
-        args[0] === "list-windows"
-          ? { status: 1, stdout: "", stderr: "no such session" }
-          : args[0] === "has-session"
-            ? { status: 1, stdout: "", stderr: "no such session" }
-          : { status: 0, stdout: "", stderr: "" },
+      tmux: (args) => {
+        if (args[0] === "list-windows" || args[0] === "has-session") {
+          return { status: 1, stdout: "", stderr: "no such session" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
     };
 
     const result = inspectWorkerPanes({
@@ -971,8 +1013,9 @@ describe("inspectWorkerPanes", () => {
         expect.objectContaining({ event: "needs_human", reason: "worker_dead", worker: "gatekeeper" }),
       ]),
     );
-    expect(readEvents(runDir).filter((event) => event.event === "needs_human" && event["worker"] === "reviewer"))
-      .toHaveLength(1);
+    expect(
+      readEvents(runDir).filter((event) => event.event === "needs_human" && event["worker"] === "reviewer"),
+    ).toHaveLength(1);
     expect(out).toContainEqual(expect.stringContaining("worker reviewer no such session"));
   });
 
@@ -1010,7 +1053,9 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContainEqual(expect.stringContaining("gnhf is actively progressing"));
     expect(out).not.toContainEqual(expect.stringContaining("worker_stalled"));
     const events = readEvents(runDir);
-    expect(events.filter((e) => e.event === "needs_human" && e["reason"] === "worker_stalled")).toHaveLength(0);
+    expect(events.filter((e) => e.event === "needs_human" && e["reason"] === "worker_stalled")).toHaveLength(
+      0,
+    );
   });
 
   it("does not treat a fresh ended gnhf log as active coder stall evidence", () => {
@@ -1041,7 +1086,13 @@ describe("inspectWorkerPanes", () => {
     expect(
       inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"], stallTicks: 2 }).escalated,
     ).toBe(false);
-    const result = inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["coder"], stallTicks: 2 });
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      stallTicks: 2,
+    });
 
     expect(result.escalated).toBe(true);
     expect(result.summaries).toContain("worker coder: unchanged_ticks=2; no orchestrator evidence");

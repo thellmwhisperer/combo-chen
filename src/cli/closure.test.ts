@@ -62,7 +62,11 @@ function writeTestCombo(
   return { combo, repoDir, runDir, worktree: combo.worktree };
 }
 
-function fakeDeps(overrides: Partial<ClosureDeps> = {}): { deps: ClosureDeps; calls: string[][]; out: string[] } {
+function fakeDeps(overrides: Partial<ClosureDeps> = {}): {
+  deps: ClosureDeps;
+  calls: string[][];
+  out: string[];
+} {
   const calls: string[][] = [];
   const out: string[] = [];
   return {
@@ -161,7 +165,9 @@ describe("closeMergedCombo", () => {
         "--json",
         "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
       ]);
-      expect(out).toEqual([`closure: ${combo.id} closed merged PR merge777 by maintainer; teardown complete`]);
+      expect(out).toEqual([
+        `closure: ${combo.id} closed merged PR merge777 by maintainer; teardown complete`,
+      ]);
     },
   );
 
@@ -239,7 +245,13 @@ describe("closeMergedCombo", () => {
       { event: "combo_closed", source: "closure" },
     ]);
     expect(readEvents(sibling.runDir).map((event) => event.event)).toEqual(["pr_opened"]);
-    expect(calls).toContainEqual(["treehouse", `cwd=${target.repoDir}`, "return", "--force", target.worktree]);
+    expect(calls).toContainEqual([
+      "treehouse",
+      `cwd=${target.repoDir}`,
+      "return",
+      "--force",
+      target.worktree,
+    ]);
     expect(calls).toContainEqual(["git", `cwd=${target.repoDir}`, "branch", "-D", target.combo.branch]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", target.combo.tmuxSession]);
     expect(calls.some((call) => call.includes(sibling.worktree))).toBe(false);
@@ -388,7 +400,7 @@ describe("closeMergedCombo", () => {
       { event: "combo_closed", source: "closure" },
     ]);
     expect(out).toEqual([
-      "closure: o-r-7 session kill pending: tmux kill-session failed for \"combo-chen-o-r-7\": tmux: server unavailable",
+      'closure: o-r-7 session kill pending: tmux kill-session failed for "combo-chen-o-r-7": tmux: server unavailable',
     ]);
 
     calls.length = 0;

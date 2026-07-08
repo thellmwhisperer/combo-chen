@@ -23,7 +23,12 @@
  */
 import { deriveStatus, type ComboStatus } from "../core/combo.js";
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
-import { checkRollupSucceeded, externalReviewSkippedByConfiguredAgent, requiredChecksSucceeded } from "./checks.js";
+import {
+  checkRollupSucceeded,
+  externalReviewSkippedByConfiguredAgent,
+  requiredChecksSucceeded,
+} from "./checks.js";
+import { yesNo } from "./display.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -87,7 +92,7 @@ function phaseLabel(status: ComboStatus): string {
 }
 
 function statusKey(status: ComboStatus): string {
-  return `${status.phase}:${status.needsHuman ? status.reason ?? "" : ""}`;
+  return `${status.phase}:${status.needsHuman ? (status.reason ?? "") : ""}`;
 }
 
 function phaseAge(events: ComboEvent[], now: Date): string {
@@ -102,7 +107,8 @@ function phaseAge(events: ComboEvent[], now: Date): string {
 
 function formatPr(pr: DirectorWatchPrSnapshot | undefined, prUrl: string | undefined): string {
   if (pr !== undefined) {
-    const suffix = pr.mergeStateStatus ? `:${pr.mergeStateStatus}` : pr.mergeable ? `:${pr.mergeable}` : "";
+    const mergeSignal = pr.mergeStateStatus || pr.mergeable;
+    const suffix = mergeSignal ? `:${mergeSignal}` : "";
     return pr.headSha === undefined ? `${pr.state}${suffix}` : `${pr.state}${suffix}@${shortSha(pr.headSha)}`;
   }
   return prUrl === undefined ? "none" : "unknown";
@@ -114,11 +120,7 @@ function formatLastEvent(events: ComboEvent[], now: Date): string {
   return `${last.event} age=${ageSince(last.t, now)}`;
 }
 
-function formatGithubPoll(
-  pr: DirectorWatchPrSnapshot | undefined,
-  pollSeconds: number,
-  now: Date,
-): string {
+function formatGithubPoll(pr: DirectorWatchPrSnapshot | undefined, pollSeconds: number, now: Date): string {
   const next = `next=${formatDuration(pollSeconds * 1000)}`;
   if (pr?.polledAt !== undefined) {
     const error = pr.error === undefined ? "" : ` error:${compact(pr.error)}`;
@@ -158,18 +160,17 @@ function readinessFacts(input: DirectorWatchStatusLineInput): ReadinessFacts {
 
   return {
     pr: prReadyState(prState),
-    gate: headSha === undefined ? "unknown" : gateReady(input.events, headSha) ? "yes" : "no",
-    reviewer: headSha === undefined ? "unknown" : shaMatchesHead(livePinnedLgtmSha(input.events), headSha) ? "yes" : "no",
-    checks: rollup === undefined
-      ? "unknown"
-      : !externalReviewSkipped && requiredChecksSucceeded(rollup, requiredCheckNames)
-        ? "yes"
-        : "no",
-    ci: rollup === undefined
-      ? "unknown"
-      : checkRollupSucceeded(rollup, { requiredCheckNames, ambientCheckNames })
-        ? "yes"
-        : "no",
+    gate: headSha === undefined ? "unknown" : yesNo(gateReady(input.events, headSha)),
+    reviewer:
+      headSha === undefined ? "unknown" : yesNo(shaMatchesHead(livePinnedLgtmSha(input.events), headSha)),
+    checks:
+      rollup === undefined
+        ? "unknown"
+        : yesNo(!externalReviewSkipped && requiredChecksSucceeded(rollup, requiredCheckNames)),
+    ci:
+      rollup === undefined
+        ? "unknown"
+        : yesNo(checkRollupSucceeded(rollup, { requiredCheckNames, ambientCheckNames })),
   };
 }
 

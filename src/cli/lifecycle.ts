@@ -94,17 +94,21 @@ function normalizedGitFailure(result: { stdout: string; stderr: string }): strin
 
 function isAlreadyRemovedWorktree(result: { stdout: string; stderr: string }): boolean {
   const text = normalizedGitFailure(result);
-  return text.includes("not a working tree") ||
+  return (
+    text.includes("not a working tree") ||
     text.includes("no such file or directory") ||
     text.includes("not managed by treehouse") ||
-    text.includes("is being destroyed");
+    text.includes("is being destroyed")
+  );
 }
 
 function isTreehouseUnavailable(result: { stdout: string; stderr: string }): boolean {
   const text = normalizedGitFailure(result);
-  return (text.includes("treehouse") && text.includes("command not found")) ||
+  return (
+    (text.includes("treehouse") && text.includes("command not found")) ||
     text.includes("spawnsync treehouse enoent") ||
-    text.includes("spawn treehouse enoent");
+    text.includes("spawn treehouse enoent")
+  );
 }
 
 function isAlreadyDeletedBranch(result: { stdout: string; stderr: string }): boolean {

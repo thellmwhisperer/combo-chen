@@ -44,11 +44,7 @@ import {
   type ComboRecord,
   type IssueRef,
 } from "../core/state.js";
-import {
-  normalizeGitHubIssueWorkPlan,
-  normalizeMarkdownWorkPlan,
-  type WorkPlan,
-} from "../core/work-plan.js";
+import { normalizeGitHubIssueWorkPlan, normalizeMarkdownWorkPlan, type WorkPlan } from "../core/work-plan.js";
 import {
   assertSafeCoderInvocation,
   loadConfig,
@@ -74,7 +70,12 @@ export interface TeamIdentityResolution {
 
 export type TeamIdentityResolver = (
   role: ComboTeamRole,
-  input: { config: ComboConfig; declared: ComboTeamIdentity; repoDir: string; env: Record<string, string | undefined> },
+  input: {
+    config: ComboConfig;
+    declared: ComboTeamIdentity;
+    repoDir: string;
+    env: Record<string, string | undefined>;
+  },
 ) => TeamIdentityResolution | undefined;
 
 export interface OvertureDeps {
@@ -155,7 +156,7 @@ function readLocalMarkdownWorkPlan(planFile: string, repoDir: string): WorkPlan 
     markdown = readFileSync(path, "utf8");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`Work plan not readable: ${path} (${reason})`);
+    throw new Error(`Work plan not readable: ${path} (${reason})`, { cause: error });
   }
   return normalizeMarkdownWorkPlan({
     markdown,
@@ -184,11 +185,16 @@ function errorDetail(prefix: string, result: CommandResult): string {
   return `${prefix}: ${result.stderr.trim() || result.stdout.trim() || "unknown error"}`;
 }
 
-function checkRepoMatchesIssue(deps: OvertureDeps, repoDir: string, issue: IssueRef | undefined): OvertureCheck {
+function checkRepoMatchesIssue(
+  deps: OvertureDeps,
+  repoDir: string,
+  issue: IssueRef | undefined,
+): OvertureCheck {
   if (issue === undefined) return ok("repo_matches_issue", repoDir, "not issue-backed");
   const remote = deps.git(["remote", "get-url", "origin"], repoDir);
   const remoteUrl = remote.stdout.trim();
-  if (remote.status !== 0) return failed("repo_matches_issue", "origin", errorDetail("origin unavailable", remote));
+  if (remote.status !== 0)
+    return failed("repo_matches_issue", "origin", errorDetail("origin unavailable", remote));
   if (remoteUrl === "") return ok("repo_matches_issue", `${issue.owner}/${issue.repo}`, "origin unavailable");
   const slug = remoteSlug(remoteUrl);
   if (slug?.toLowerCase() !== `${issue.owner}/${issue.repo}`.toLowerCase()) {
@@ -203,7 +209,8 @@ function checkRepoMatchesIssue(deps: OvertureDeps, repoDir: string, issue: Issue
 
 function checkSourceCheckout(deps: OvertureDeps, repoDir: string, requiredBranch: string): OvertureCheck {
   const branch = deps.git(["branch", "--show-current"], repoDir);
-  if (branch.status !== 0) return failed("source_checkout_clean", repoDir, errorDetail("git branch --show-current failed", branch));
+  if (branch.status !== 0)
+    return failed("source_checkout_clean", repoDir, errorDetail("git branch --show-current failed", branch));
   const branchName = branch.stdout.trim();
   if (branchName !== requiredBranch) {
     return failed(
@@ -214,8 +221,10 @@ function checkSourceCheckout(deps: OvertureDeps, repoDir: string, requiredBranch
   }
 
   const status = deps.git(["status", "--porcelain"], repoDir);
-  if (status.status !== 0) return failed("source_checkout_clean", repoDir, errorDetail("git status --porcelain failed", status));
-  if (status.stdout.trim() !== "") return failed("source_checkout_clean", repoDir, "uncommitted changes in source checkout");
+  if (status.status !== 0)
+    return failed("source_checkout_clean", repoDir, errorDetail("git status --porcelain failed", status));
+  if (status.stdout.trim() !== "")
+    return failed("source_checkout_clean", repoDir, "uncommitted changes in source checkout");
   return ok("source_checkout_clean", repoDir);
 }
 
@@ -223,7 +232,11 @@ function checkBaseRef(deps: OvertureDeps, repoDir: string, baseRef: string): Ove
   if (!baseRef.startsWith("origin/")) {
     const resolved = deps.git(["rev-parse", "--verify", baseRef], repoDir);
     if (resolved.status !== 0) {
-      return failed("base_ref_resolved", baseRef, errorDetail(`git rev-parse --verify ${baseRef} failed`, resolved));
+      return failed(
+        "base_ref_resolved",
+        baseRef,
+        errorDetail(`git rev-parse --verify ${baseRef} failed`, resolved),
+      );
     }
     return ok("base_ref_resolved", baseRef, "local ref");
   }
@@ -259,13 +272,15 @@ function runDirReusable(runDir: string): OvertureCheck {
 
 function checkBranchFree(deps: OvertureDeps, repoDir: string, branch: string): OvertureCheck {
   const local = deps.git(["branch", "--list", branch], repoDir);
-  if (local.status !== 0) return failed("branch_free", branch, errorDetail("git branch --list failed", local));
+  if (local.status !== 0)
+    return failed("branch_free", branch, errorDetail("git branch --list failed", local));
   if (local.stdout.trim() !== "") return failed("branch_free", branch, "already exists locally");
 
   const originCheck = deps.git(["remote", "get-url", "origin"], repoDir);
   if (originCheck.status !== 0) return ok("branch_free", branch, "no origin remote");
   const remote = deps.git(["ls-remote", "--heads", "origin", branch], repoDir);
-  if (remote.status !== 0) return failed("branch_free", branch, errorDetail("git ls-remote --heads origin failed", remote));
+  if (remote.status !== 0)
+    return failed("branch_free", branch, errorDetail("git ls-remote --heads origin failed", remote));
   if (remote.stdout.trim() !== "") return failed("branch_free", branch, "already exists on origin");
   return ok("branch_free", branch);
 }
@@ -387,10 +402,7 @@ function checkNoMistakesRunway(
   if (status.status !== 0) {
     if (noActiveRun(status)) {
       return {
-        checks: [
-          ok("no_mistakes_available", repoDir),
-          ok("no_mistakes_run_free", branch, "no active run"),
-        ],
+        checks: [ok("no_mistakes_available", repoDir), ok("no_mistakes_run_free", branch, "no active run")],
       };
     }
     return {
@@ -403,10 +415,9 @@ function checkNoMistakesRunway(
 
   const parsed = parseNoMistakesAxiStatus(status.stdout);
   const facts = noMistakesFacts(status.stdout);
-  const active = (
+  const active =
     (parsed.runStatus !== undefined && ACTIVE_NO_MISTAKES_RUN_STATUSES.has(parsed.runStatus)) ||
-    parsed.outcome === "awaiting_approval"
-  );
+    parsed.outcome === "awaiting_approval";
   const activeStatus = parsed.runStatus ?? parsed.outcome ?? "active";
   if (active && parsed.branch === branch) {
     return {
@@ -427,10 +438,7 @@ function checkNoMistakesRunway(
     };
   }
   return {
-    checks: [
-      ok("no_mistakes_available", repoDir),
-      ok("no_mistakes_run_free", branch),
-    ],
+    checks: [ok("no_mistakes_available", repoDir), ok("no_mistakes_run_free", branch)],
     ...(facts !== undefined ? { facts } : {}),
   };
 }
@@ -447,28 +455,36 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
   }
 
   const issue = input.issueUrl === undefined ? undefined : parseIssueUrl(input.issueUrl);
-  if (input.issueUrl !== undefined && input.deps.issueExists !== undefined && !input.deps.issueExists(input.issueUrl)) {
+  if (
+    input.issueUrl !== undefined &&
+    input.deps.issueExists !== undefined &&
+    !input.deps.issueExists(input.issueUrl)
+  ) {
     throw new Error(`Issue not reachable: ${input.issueUrl} (gh issue view failed)`);
   }
-  const issueDetails = input.issueUrl === undefined ? undefined : fetchIssueDetails(input.deps.gh, input.issueUrl);
-  const workPlan = issueDetails === undefined
-    ? readLocalMarkdownWorkPlan(input.planFile!, input.repoDir)
-    : normalizeGitHubIssueWorkPlan({
-      issueUrl: input.issueUrl!,
-      title: issueDetails.title,
-      body: issueDetails.body,
-    });
+  const issueDetails =
+    input.issueUrl === undefined ? undefined : fetchIssueDetails(input.deps.gh, input.issueUrl);
+  const workPlan =
+    issueDetails === undefined
+      ? readLocalMarkdownWorkPlan(input.planFile!, input.repoDir)
+      : normalizeGitHubIssueWorkPlan({
+          issueUrl: input.issueUrl!,
+          title: issueDetails.title,
+          body: issueDetails.body,
+        });
   const config = loadConfig({ repoDir: input.repoDir, env: input.deps.env });
-  const id = input.issueUrl === undefined
-    ? comboIdFromWorkPlanSource(workPlan.source, workPlan.title)
-    : comboIdFromIssueUrl(input.issueUrl);
+  const id =
+    input.issueUrl === undefined
+      ? comboIdFromWorkPlanSource(workPlan.source, workPlan.title)
+      : comboIdFromIssueUrl(input.issueUrl);
   const home = comboHome(input.deps.env);
   const runDir = runDirFor(home, id);
   const session = `combo-chen-${id}`;
   const branch = issue === undefined ? `combo/${id}` : `combo/issue-${issue.number}`;
-  const worktree = issue === undefined
-    ? join(input.repoDir, ".worktrees", id)
-    : join(input.repoDir, ".worktrees", `issue-${issue.number}`);
+  const worktree =
+    issue === undefined
+      ? join(input.repoDir, ".worktrees", id)
+      : join(input.repoDir, ".worktrees", `issue-${issue.number}`);
   const combo: ComboRecord = {
     id,
     issueUrl: input.issueUrl ?? "",
@@ -500,7 +516,9 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
   };
   const checks: OvertureCheck[] = [
     ok("work_item_readable", input.issueUrl ?? input.planFile!),
-    existsSync(input.repoDir) ? ok("repo_exists", input.repoDir) : failed("repo_exists", input.repoDir, "path does not exist"),
+    existsSync(input.repoDir)
+      ? ok("repo_exists", input.repoDir)
+      : failed("repo_exists", input.repoDir, "path does not exist"),
     checkRepoMatchesIssue(input.deps, input.repoDir, issue),
     checkSourceCheckout(input.deps, input.repoDir, config.sourceBranch),
     checkBaseRef(input.deps, input.repoDir, input.baseRef),
@@ -508,7 +526,9 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     checkComboId(id),
     runDirReusable(runDir),
     checkBranchFree(input.deps, input.repoDir, branch),
-    existsSync(worktree) ? failed("worktree_free", worktree, "path already exists") : ok("worktree_free", worktree),
+    existsSync(worktree)
+      ? failed("worktree_free", worktree, "path already exists")
+      : ok("worktree_free", worktree),
     input.deps.tmux(hasSessionArgs(session)).status === 0
       ? failed("tmux_session_free", session, "session already exists")
       : ok("tmux_session_free", session),
@@ -519,13 +539,25 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     assertSafeCoderInvocation(config.coderCommand, { requireGnhf: config.roles.coder === "codex" });
     checks.push(ok("coder_command_safe", config.roles.coder));
   } catch (error) {
-    checks.push(failed("coder_command_safe", config.roles.coder, error instanceof Error ? error.message : String(error)));
+    checks.push(
+      failed(
+        "coder_command_safe",
+        config.roles.coder,
+        error instanceof Error ? error.message : String(error),
+      ),
+    );
   }
   try {
     assertReviewerCommandSafe(config.reviewerCommand);
     checks.push(ok("reviewer_command_safe", config.reviewerAgent));
   } catch (error) {
-    checks.push(failed("reviewer_command_safe", config.reviewerAgent, error instanceof Error ? error.message : String(error)));
+    checks.push(
+      failed(
+        "reviewer_command_safe",
+        config.reviewerAgent,
+        error instanceof Error ? error.message : String(error),
+      ),
+    );
   }
   checks.push(...noMistakes.checks);
   checks.push(checkConfigFilePredictable(input.repoDir, worktree));
@@ -538,7 +570,15 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
     checks,
   };
   writeOvertureArtifact(runDir, result);
-  return { result, combo, config, workPlan, runDir, ...(issue !== undefined ? { issue } : {}), ...(issueDetails !== undefined ? { issueDetails } : {}) };
+  return {
+    result,
+    combo,
+    config,
+    workPlan,
+    runDir,
+    ...(issue !== undefined ? { issue } : {}),
+    ...(issueDetails !== undefined ? { issueDetails } : {}),
+  };
 }
 
 function writeOvertureArtifact(runDir: string, result: OvertureResult): void {

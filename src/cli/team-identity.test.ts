@@ -103,12 +103,7 @@ describe("production team identity resolver", () => {
     mkdirSync(join(home, ".gnhf"), { recursive: true });
     writeFileSync(
       join(home, ".gnhf", "config.yml"),
-      [
-        "agentArgsOverride:",
-        "  codex:",
-        "    - -m",
-        "    - gpt-5.4",
-      ].join("\n"),
+      ["agentArgsOverride:", "  codex:", "    - -m", "    - gpt-5.4"].join("\n"),
     );
     writeFileSync(join(codexHome, "config.toml"), 'model = "gpt-5"\n');
 
@@ -177,7 +172,9 @@ describe("production team identity resolver", () => {
   });
 
   it("resolves an opencode agent-specific model when the command pins --agent", () => {
-    const bin = fakeOpencodeBin(JSON.stringify({ model: "claude/sonnet", agent: { reviewer: { model: "claude/opus" } } }));
+    const bin = fakeOpencodeBin(
+      JSON.stringify({ model: "claude/sonnet", agent: { reviewer: { model: "claude/opus" } } }),
+    );
     const repoDir = tempHome();
 
     const resolved = resolveConfiguredTeamIdentity("reviewer", {
@@ -201,14 +198,7 @@ describe("production team identity resolver", () => {
     mkdirSync(join(home, ".no-mistakes"), { recursive: true });
     writeFileSync(
       join(home, ".no-mistakes", "config.yaml"),
-      [
-        "agent: claude",
-        "",
-        "agent_args_override:",
-        "  claude:",
-        "    - --model",
-        "    - opus",
-      ].join("\n"),
+      ["agent: claude", "", "agent_args_override:", "  claude:", "    - --model", "    - opus"].join("\n"),
     );
 
     const resolved = resolveConfiguredTeamIdentity("gatekeeper", {

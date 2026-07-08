@@ -1,5 +1,9 @@
+# Pending burial: ~80 script/runner toContain assertions remain; stays a
+# warning until tests assert contract behavior, then it becomes error.
 id: script-string-assertion
 language: TypeScript
+files:
+  - "src/**/*.test.ts"
 rule:
   pattern: expect($TARGET).toContain($VALUE)
 constraints:

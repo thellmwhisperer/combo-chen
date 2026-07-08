@@ -29,8 +29,7 @@ export interface GitHubPullRequestRef {
   number: number;
 }
 
-const GITHUB_PULL_REQUEST_URL =
-  /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/;
+const GITHUB_PULL_REQUEST_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/;
 
 export function parseGitHubPullRequestUrl(url: string): GitHubPullRequestRef | undefined {
   const match = GITHUB_PULL_REQUEST_URL.exec(url);

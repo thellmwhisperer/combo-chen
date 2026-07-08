@@ -176,11 +176,12 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
     input.pr.comments,
     input.ambientCheckNames ?? [],
   );
-  const greenCheckSucceeded = namedCheckSucceeded(
-    input.pr.statusCheckRollup,
-    configuredGreenCheckNames(input),
-  ) && !externalReviewSkipped && !localGateHeadMismatch;
-  const readyCurrent = !externalReviewSkipped && !localGateHeadMismatch && currentReadyAgreement(input, lgtmCurrent);
+  const greenCheckSucceeded =
+    namedCheckSucceeded(input.pr.statusCheckRollup, configuredGreenCheckNames(input)) &&
+    !externalReviewSkipped &&
+    !localGateHeadMismatch;
+  const readyCurrent =
+    !externalReviewSkipped && !localGateHeadMismatch && currentReadyAgreement(input, lgtmCurrent);
   const stale = localGateHeadMismatch || hasStaleCurrentHeadSignal(input.events, headSha);
   const workLabel = currentWorkLabel(input.events, headSha, input.activity);
 
@@ -198,7 +199,10 @@ export function projectComboPrLabels(input: ComboPrLabelProjectionInput): ComboP
   };
 }
 
-export function diffComboPrLabels(existingLabels: string[], desiredLabels: Iterable<ComboPrLabel>): ComboPrLabelDiff {
+export function diffComboPrLabels(
+  existingLabels: string[],
+  desiredLabels: Iterable<ComboPrLabel>,
+): ComboPrLabelDiff {
   const existing = new Set(existingLabels.filter(isComboPrLabel));
   const desired = new Set(desiredLabels);
   const add = orderedLabels(COMBO_PR_LABELS.filter((label) => desired.has(label) && !existing.has(label)));
@@ -534,6 +538,7 @@ function fetchComboPrLabelView(
   } catch (error) {
     throw new Error(
       `PR labels not readable for ${prUrl}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
   if (typeof parsed !== "object" || parsed === null) {
@@ -555,9 +560,7 @@ function fetchComboPrLabelView(
       // `gh pr view` always requests state; if it is ever omitted, keep the
       // projection live instead of silently skipping label reconciliation.
       state: typeof state === "string" && state.trim() !== "" ? state : "OPEN",
-      ...(typeof mergeStateStatus === "string" && mergeStateStatus.trim() !== ""
-        ? { mergeStateStatus }
-        : {}),
+      ...(typeof mergeStateStatus === "string" && mergeStateStatus.trim() !== "" ? { mergeStateStatus } : {}),
       ...(Array.isArray(statusCheckRollup) ? { statusCheckRollup } : {}),
       ...(Array.isArray(comments) ? { comments } : {}),
     },

@@ -1,5 +1,9 @@
 id: core-no-child-process
 language: TypeScript
+files:
+  - "src/core/**"
+ignores:
+  - "**/*.test.ts"
 rule:
   any:
     - pattern: import { $$$ } from "node:child_process"

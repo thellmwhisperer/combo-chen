@@ -1,0 +1,12 @@
+dist/
+coverage/
+output/
+.worktrees/
+.tmp/
+.agents/
+.claude/
+.opencode/
+.idea/
+.lavish/
+pnpm-lock.yaml
+CHANGELOG.md

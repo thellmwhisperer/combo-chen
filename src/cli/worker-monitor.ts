@@ -165,12 +165,12 @@ function paneLooksLikeIdleRoleWindow(worker: string, pane: string): boolean {
   const idleMessage = `[combo-chen] ${worker} window idle; waiting for combo-chen to prompt it.`;
   if (!pane.includes(idleMessage)) return false;
   const idleLines = new Set(
-    [
-      idleMessage,
-      ...idleRoleWindowCommand(worker).split(/\r?\n/),
-    ].map((line) => line.trim()).filter(Boolean),
+    [idleMessage, ...idleRoleWindowCommand(worker).split(/\r?\n/)].map((line) => line.trim()).filter(Boolean),
   );
-  const paneLines = pane.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const paneLines = pane
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   return paneLines.length > 0 && paneLines.every((line) => idleLines.has(line));
 }
 
@@ -239,14 +239,15 @@ function terminalOutcomeSummary(worker: string, outcome: "coder_done" | "coder_f
 
 function hasEscalation(runDir: string, reason: string, worker: string): boolean {
   return readEvents(runDir).some(
-    (event) =>
-      event.event === "needs_human" &&
-      event["reason"] === reason &&
-      event["worker"] === worker,
+    (event) => event.event === "needs_human" && event["reason"] === reason && event["worker"] === worker,
   );
 }
 
-function gatekeeperRunActive(deps: WorkerMonitorDeps, combo: ComboRecord, timeoutMs: number | undefined): boolean {
+function gatekeeperRunActive(
+  deps: WorkerMonitorDeps,
+  combo: ComboRecord,
+  timeoutMs: number | undefined,
+): boolean {
   if (timeoutMs === undefined) return false;
   if (deps.noMistakes === undefined) return false;
   try {
@@ -356,14 +357,16 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
         deps.out(`director: ${summary}`);
         continue;
       }
-      findings.push(recordFinding({
-        runDir,
-        deps,
-        worker,
-        reason: "worker_dead",
-        detail: deadDetail,
-        deferNeedsHuman: recoverableDeadWorkers.has(worker),
-      }));
+      findings.push(
+        recordFinding({
+          runDir,
+          deps,
+          worker,
+          reason: "worker_dead",
+          detail: deadDetail,
+          deferNeedsHuman: recoverableDeadWorkers.has(worker),
+        }),
+      );
     }
     if (findings.length === 0) {
       return { escalated: false, summaries, findings };
@@ -399,28 +402,32 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
 
     const panePids = deps.tmux(listPanesArgs(combo.tmuxSession, worker));
     if (panePids.status !== 0 || panePids.stdout.trim() === "") {
-      findings.push(recordFinding({
-        runDir,
-        deps,
-        worker,
-        reason: "worker_dead",
-        detail: "dead pane",
-        deferNeedsHuman: recoverableDeadWorkers.has(worker),
-      }));
+      findings.push(
+        recordFinding({
+          runDir,
+          deps,
+          worker,
+          reason: "worker_dead",
+          detail: "dead pane",
+          deferNeedsHuman: recoverableDeadWorkers.has(worker),
+        }),
+      );
       escalated = true;
       continue;
     }
 
     const captured = deps.tmux(captureWindowArgs(combo.tmuxSession, worker));
     if (captured.status !== 0) {
-      findings.push(recordFinding({
-        runDir,
-        deps,
-        worker,
-        reason: "worker_dead",
-        detail: captured.stderr.trim() || "capture failed",
-        deferNeedsHuman: recoverableDeadWorkers.has(worker),
-      }));
+      findings.push(
+        recordFinding({
+          runDir,
+          deps,
+          worker,
+          reason: "worker_dead",
+          detail: captured.stderr.trim() || "capture failed",
+          deferNeedsHuman: recoverableDeadWorkers.has(worker),
+        }),
+      );
       escalated = true;
       continue;
     }
@@ -436,13 +443,15 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       if (permissionPromptPolicy === "auto-approve-known-safe") {
         const attempts = workerRecoveryAttempts(readEvents(runDir), worker, "worker_permission_prompt");
         if (attempts >= autoApprovePermissionPromptMaxAttempts) {
-          findings.push(recordFinding({
-            runDir,
-            deps,
-            worker,
-            reason: "worker_permission_prompt",
-            detail: `recovery attempts exhausted after ${autoApprovePermissionPromptMaxAttempts}; permission prompt`,
-          }));
+          findings.push(
+            recordFinding({
+              runDir,
+              deps,
+              worker,
+              reason: "worker_permission_prompt",
+              detail: `recovery attempts exhausted after ${autoApprovePermissionPromptMaxAttempts}; permission prompt`,
+            }),
+          );
           escalated = true;
           continue;
         }
@@ -463,27 +472,31 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
           );
           continue;
         }
-        findings.push(recordFinding({
-          runDir,
-          deps,
-          worker,
-          reason: "worker_permission_prompt",
-          detail: `permission prompt auto-approve failed: ${recovery.detail}`,
-        }));
+        findings.push(
+          recordFinding({
+            runDir,
+            deps,
+            worker,
+            reason: "worker_permission_prompt",
+            detail: `permission prompt auto-approve failed: ${recovery.detail}`,
+          }),
+        );
         escalated = true;
         continue;
       }
       const deferNeedsHuman =
         permissionPromptPolicy === "recreate-non-interactive" &&
         recoverablePermissionPromptWorkers.has(worker);
-      findings.push(recordFinding({
-        runDir,
-        deps,
-        worker,
-        reason: "worker_permission_prompt",
-        detail: "permission prompt",
-        deferNeedsHuman,
-      }));
+      findings.push(
+        recordFinding({
+          runDir,
+          deps,
+          worker,
+          reason: "worker_permission_prompt",
+          detail: "permission prompt",
+          deferNeedsHuman,
+        }),
+      );
       escalated = true;
       continue;
     }
@@ -504,23 +517,23 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
         );
         continue;
       }
-      findings.push(recordFinding({
-        runDir,
-        deps,
-        worker,
-        reason: "worker_dead",
-        detail: "gnhf stopped without success",
-        deferNeedsHuman: recoverableDeadWorkers.has(worker),
-      }));
+      findings.push(
+        recordFinding({
+          runDir,
+          deps,
+          worker,
+          reason: "worker_dead",
+          detail: "gnhf stopped without success",
+          deferNeedsHuman: recoverableDeadWorkers.has(worker),
+        }),
+      );
       escalated = true;
       continue;
     }
 
     const fingerprint = paneFingerprint(pane);
     const previous = snapshot[worker];
-    const unchangedTicks = previous?.fingerprint === fingerprint
-      ? previous.unchangedTicks + 1
-      : 1;
+    const unchangedTicks = previous?.fingerprint === fingerprint ? previous.unchangedTicks + 1 : 1;
     snapshot[worker] = { fingerprint, unchangedTicks };
     if (unchangedTicks < stallTicks) {
       summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}`);
@@ -532,10 +545,12 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
     // appear unchanged, but gnhf.log written by the orchestrator shows
     // real activity.
     const isCoder = worker === "coder";
-    const gnhfAlive = isCoder && combo.worktree
-      ? gnhfRunEndRecorded(combo.worktree) === false &&
-        (coderGnhfProgressAge(combo.worktree) ?? Infinity) < (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
-      : false;
+    const gnhfAlive =
+      isCoder && combo.worktree
+        ? gnhfRunEndRecorded(combo.worktree) === false &&
+          (coderGnhfProgressAge(combo.worktree) ?? Infinity) <
+            (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
+        : false;
     if (isCoder && gnhfAlive) {
       summaries.push(
         `worker ${worker}: unchanged_ticks=${unchangedTicks}; gnhf run active; gnhf is actively progressing, not stalled`,
@@ -554,14 +569,16 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       }
     }
     summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; no orchestrator evidence`);
-    findings.push(recordFinding({
-      runDir,
-      deps,
-      worker,
-      reason: "worker_stalled",
-      detail: `unchanged pane for ${unchangedTicks} ticks`,
-      deferNeedsHuman: recoverableStalledWorkers.has(worker),
-    }));
+    findings.push(
+      recordFinding({
+        runDir,
+        deps,
+        worker,
+        reason: "worker_stalled",
+        detail: `unchanged pane for ${unchangedTicks} ticks`,
+        deferNeedsHuman: recoverableStalledWorkers.has(worker),
+      }),
+    );
     escalated = true;
   }
 

@@ -108,16 +108,15 @@ describe("replaceInstallTargetFromStagedArtifact", () => {
     const installRoot = writeReleaseFixture(join(root, "install"), "1.2.3", "old cli\n", 0o755);
     const stagedRoot = writeReleaseFixture(join(root, "stage"), "1.2.4", "new cli\n", 0o755);
     const targetPath = binPath(installRoot);
-    const renameSync = vi.fn((from: Parameters<typeof fsRenameSync>[0], to: Parameters<typeof fsRenameSync>[1]) => {
-      if (String(to) === targetPath) throw new Error("simulated replacement failure");
-      fsRenameSync(from, to);
-    });
+    const renameSync = vi.fn(
+      (from: Parameters<typeof fsRenameSync>[0], to: Parameters<typeof fsRenameSync>[1]) => {
+        if (String(to) === targetPath) throw new Error("simulated replacement failure");
+        fsRenameSync(from, to);
+      },
+    );
 
     expect(() =>
-      replaceInstallTargetFromStagedArtifact(
-        { targetPath, stagedArtifactRoot: stagedRoot },
-        { renameSync },
-      ),
+      replaceInstallTargetFromStagedArtifact({ targetPath, stagedArtifactRoot: stagedRoot }, { renameSync }),
     ).toThrow("simulated replacement failure");
 
     expect(readFileSync(targetPath, "utf8")).toBe("old cli\n");

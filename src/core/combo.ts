@@ -194,14 +194,14 @@ function runnerStatus(message: string): string {
 
 function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
   return [
-    `no_mistakes_expected_branch=${expectedBranch === undefined ? "\"\"" : shellQuote(expectedBranch)}`,
-    "if [ -z \"$no_mistakes_expected_branch\" ]; then",
+    `no_mistakes_expected_branch=${expectedBranch === undefined ? '""' : shellQuote(expectedBranch)}`,
+    'if [ -z "$no_mistakes_expected_branch" ]; then',
     "  no_mistakes_expected_branch=$(git branch --show-current 2>/dev/null || true)",
     "fi",
     "no_mistakes_config_copied=0",
     "no_mistakes_config_attempt=0",
     "no_mistakes_config_attempt_limit=${COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS:-120}",
-    "while [ \"$no_mistakes_config_attempt\" -lt \"$no_mistakes_config_attempt_limit\" ]; do",
+    'while [ "$no_mistakes_config_attempt" -lt "$no_mistakes_config_attempt_limit" ]; do',
     "  no_mistakes_repo_status=$(no-mistakes status 2>/dev/null || true)",
     "  no_mistakes_axi_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
@@ -209,16 +209,16 @@ function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
     "  no_mistakes_run_branch=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*branch:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_run_status=$(printf '%s\\n' \"$no_mistakes_axi_status\" | sed -n 's/^[[:space:]]*status:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_gate_path=$(printf '%s\\n' \"$no_mistakes_repo_status\" | sed -n 's/^[[:space:]]*gate:[[:space:]]*//p' | sed -n '1p')",
-    "  case \"$no_mistakes_run_status\" in",
+    '  case "$no_mistakes_run_status" in',
     "    active|in_progress|pending|running) no_mistakes_run_is_active=1 ;;",
     "    *) no_mistakes_run_is_active=0 ;;",
     "  esac",
-    "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$no_mistakes_gate_path\" ] && [ \"$no_mistakes_run_branch\" = \"$no_mistakes_expected_branch\" ] && [ \"$no_mistakes_run_is_active\" = \"1\" ]; then",
-    "    no_mistakes_data_dir=$(dirname \"$(dirname \"$no_mistakes_gate_path\")\")",
-    "    no_mistakes_repo_id=$(basename \"$no_mistakes_gate_path\" .git)",
-    "    no_mistakes_run_dir=\"$no_mistakes_data_dir/worktrees/$no_mistakes_repo_id/$no_mistakes_run_id\"",
-    "    if [ -d \"$no_mistakes_run_dir\" ]; then",
-    "      cp -p .no-mistakes.yaml \"$no_mistakes_run_dir/.no-mistakes.yaml\" || exit 1",
+    '  if [ -n "$no_mistakes_run_id" ] && [ -n "$no_mistakes_gate_path" ] && [ "$no_mistakes_run_branch" = "$no_mistakes_expected_branch" ] && [ "$no_mistakes_run_is_active" = "1" ]; then',
+    '    no_mistakes_data_dir=$(dirname "$(dirname "$no_mistakes_gate_path")")',
+    '    no_mistakes_repo_id=$(basename "$no_mistakes_gate_path" .git)',
+    '    no_mistakes_run_dir="$no_mistakes_data_dir/worktrees/$no_mistakes_repo_id/$no_mistakes_run_id"',
+    '    if [ -d "$no_mistakes_run_dir" ]; then',
+    '      cp -p .no-mistakes.yaml "$no_mistakes_run_dir/.no-mistakes.yaml" || exit 1',
     "      no_mistakes_config_copied=1",
     "      printf '%s\\n' \"copied .no-mistakes.yaml to $no_mistakes_run_dir/.no-mistakes.yaml\"",
     "      break",
@@ -227,7 +227,7 @@ function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
     "  no_mistakes_config_attempt=$((no_mistakes_config_attempt + 1))",
     "  sleep 1",
     "done",
-    "if [ \"$no_mistakes_config_copied\" != \"1\" ]; then",
+    'if [ "$no_mistakes_config_copied" != "1" ]; then',
     "  printf '%s\\n' \"no-mistakes config copy failed: active run worktree not found\" >&2",
     "  exit 1",
     "fi",
@@ -236,24 +236,24 @@ function noMistakesDaemonConfigCopyScript(expectedBranch?: string): string[] {
 
 function noMistakesAbortPreviousRunScript(expectedBranch?: string): string[] {
   return [
-    `no_mistakes_expected_branch=${expectedBranch === undefined ? "\"\"" : shellQuote(expectedBranch)}`,
-    "if [ -z \"$no_mistakes_expected_branch\" ]; then",
+    `no_mistakes_expected_branch=${expectedBranch === undefined ? '""' : shellQuote(expectedBranch)}`,
+    'if [ -z "$no_mistakes_expected_branch" ]; then',
     "  no_mistakes_expected_branch=$(git branch --show-current 2>/dev/null || true)",
     "fi",
     "no_mistakes_abort_attempt=0",
     "no_mistakes_abort_attempt_limit=${COMBO_CHEN_NO_MISTAKES_ABORT_ATTEMPTS:-3}",
     "no_mistakes_abort_failed=0",
-    "while [ \"$no_mistakes_abort_attempt\" -lt \"$no_mistakes_abort_attempt_limit\" ]; do",
+    'while [ "$no_mistakes_abort_attempt" -lt "$no_mistakes_abort_attempt_limit" ]; do',
     "  no_mistakes_previous_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_previous_run_id=$(printf '%s\\n' \"$no_mistakes_previous_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_previous_run_id=$(printf '%s' \"$no_mistakes_previous_run_id\" | sed 's/^\"//; s/\"$//')",
     "  no_mistakes_previous_branch=$(printf '%s\\n' \"$no_mistakes_previous_status\" | sed -n 's/^[[:space:]]*branch:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_previous_run_status=$(printf '%s\\n' \"$no_mistakes_previous_status\" | sed -n 's/^[[:space:]]*status:[[:space:]]*//p' | sed -n '1p')",
-    "  case \"$no_mistakes_previous_run_status\" in",
+    '  case "$no_mistakes_previous_run_status" in',
     "    active|in_progress|pending|running) no_mistakes_previous_run_is_active=1 ;;",
     "    *) no_mistakes_previous_run_is_active=0 ;;",
     "  esac",
-    "  if [ -z \"$no_mistakes_previous_run_id\" ] || [ \"$no_mistakes_previous_branch\" != \"$no_mistakes_expected_branch\" ] || [ \"$no_mistakes_previous_run_is_active\" != \"1\" ]; then",
+    '  if [ -z "$no_mistakes_previous_run_id" ] || [ "$no_mistakes_previous_branch" != "$no_mistakes_expected_branch" ] || [ "$no_mistakes_previous_run_is_active" != "1" ]; then',
     "    break",
     "  fi",
     "  printf '%s\\n' \"aborting previous no-mistakes run $no_mistakes_previous_run_id on $no_mistakes_previous_branch\"",
@@ -264,17 +264,17 @@ function noMistakesAbortPreviousRunScript(expectedBranch?: string): string[] {
     "  fi",
     "  sleep 1",
     "done",
-    "if [ \"$no_mistakes_abort_failed\" = \"1\" ] || [ \"$no_mistakes_abort_attempt\" -ge \"$no_mistakes_abort_attempt_limit\" ]; then",
+    'if [ "$no_mistakes_abort_failed" = "1" ] || [ "$no_mistakes_abort_attempt" -ge "$no_mistakes_abort_attempt_limit" ]; then',
     "  no_mistakes_after_abort_status=$(no-mistakes axi status 2>/dev/null || true)",
     "  no_mistakes_after_abort_id=$(printf '%s\\n' \"$no_mistakes_after_abort_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_after_abort_id=$(printf '%s' \"$no_mistakes_after_abort_id\" | sed 's/^\"//; s/\"$//')",
     "  no_mistakes_after_abort_branch=$(printf '%s\\n' \"$no_mistakes_after_abort_status\" | sed -n 's/^[[:space:]]*branch:[[:space:]]*//p' | sed -n '1p')",
     "  no_mistakes_after_abort_run_status=$(printf '%s\\n' \"$no_mistakes_after_abort_status\" | sed -n 's/^[[:space:]]*status:[[:space:]]*//p' | sed -n '1p')",
-    "  case \"$no_mistakes_after_abort_run_status\" in",
+    '  case "$no_mistakes_after_abort_run_status" in',
     "    active|in_progress|pending|running) no_mistakes_after_abort_is_active=1 ;;",
     "    *) no_mistakes_after_abort_is_active=0 ;;",
     "  esac",
-    "  if [ -n \"$no_mistakes_after_abort_id\" ] && [ \"$no_mistakes_after_abort_branch\" = \"$no_mistakes_expected_branch\" ] && [ \"$no_mistakes_after_abort_is_active\" = \"1\" ]; then",
+    '  if [ -n "$no_mistakes_after_abort_id" ] && [ "$no_mistakes_after_abort_branch" = "$no_mistakes_expected_branch" ] && [ "$no_mistakes_after_abort_is_active" = "1" ]; then',
     "    printf '%s\\n' \"no-mistakes previous run still active after abort: $no_mistakes_after_abort_id on $no_mistakes_after_abort_branch\" >&2",
     "    exit 1",
     "  fi",
@@ -292,8 +292,8 @@ export function buildNoMistakesGatekeeperRunScript(
     "no_mistakes_config_copy_killed=0",
     "no_mistakes_config_copy_done=.combo-chen-no-mistakes-config-copy.$$",
     "gatekeeper_status_file=.combo-chen-gatekeeper-status.$$",
-    "rm -f \"$no_mistakes_config_copy_done\" \"$gatekeeper_status_file\"",
-    "if [ \"${COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED:-0}\" != \"1\" ]; then",
+    'rm -f "$no_mistakes_config_copy_done" "$gatekeeper_status_file"',
+    'if [ "${COMBO_CHEN_NO_MISTAKES_PREVIOUS_RUN_ABORTED:-0}" != "1" ]; then',
     ...noMistakesAbortPreviousRunScript(options.expectedBranch).map((line) => `  ${line}`),
     "fi",
     "if [ -f .no-mistakes.yaml ]; then",
@@ -308,80 +308,80 @@ export function buildNoMistakesGatekeeperRunScript(
     "# until the watcher has copied the repo config into that worktree.",
     "(",
     `  ${gatekeeperCommand}`,
-    "  printf '%s\\n' \"$?\" > \"$gatekeeper_status_file\"",
+    '  printf \'%s\\n\' "$?" > "$gatekeeper_status_file"',
     ") &",
     "gatekeeper_command_pid=$!",
     "gatekeeper_finished_before_config=0",
-    "if [ -n \"$no_mistakes_config_copy_pid\" ]; then",
-    "  while [ ! -f \"$no_mistakes_config_copy_done\" ]; do",
-    "    if [ -f \"$gatekeeper_status_file\" ]; then",
+    'if [ -n "$no_mistakes_config_copy_pid" ]; then',
+    '  while [ ! -f "$no_mistakes_config_copy_done" ]; do',
+    '    if [ -f "$gatekeeper_status_file" ]; then',
     "      gatekeeper_finished_before_config=1",
     "      break",
     "    fi",
-    "    if ! kill -0 \"$no_mistakes_config_copy_pid\" 2>/dev/null; then",
+    '    if ! kill -0 "$no_mistakes_config_copy_pid" 2>/dev/null; then',
     "      break",
     "    fi",
     "    sleep 1",
     "  done",
-    "  if [ \"$gatekeeper_finished_before_config\" = \"1\" ]; then",
+    '  if [ "$gatekeeper_finished_before_config" = "1" ]; then',
     "    gatekeeper_precheck_code=$(cat \"$gatekeeper_status_file\" 2>/dev/null || printf '1')",
-    "    if [ \"$gatekeeper_precheck_code\" != \"0\" ]; then",
+    '    if [ "$gatekeeper_precheck_code" != "0" ]; then',
     "      no_mistakes_config_copy_killed=1",
-    "      kill \"$no_mistakes_config_copy_pid\" 2>/dev/null || true",
+    '      kill "$no_mistakes_config_copy_pid" 2>/dev/null || true',
     "    fi",
     "  fi",
-    "  wait \"$no_mistakes_config_copy_pid\" || no_mistakes_config_copy_status=1",
+    '  wait "$no_mistakes_config_copy_pid" || no_mistakes_config_copy_status=1',
     "  # Do not treat intentional kill as a config copy failure.",
-    "  if [ \"$no_mistakes_config_copy_killed\" = \"1\" ]; then",
+    '  if [ "$no_mistakes_config_copy_killed" = "1" ]; then',
     "    no_mistakes_config_copy_status=",
     "  fi",
     "fi",
-    "wait \"$gatekeeper_command_pid\" || true",
+    'wait "$gatekeeper_command_pid" || true',
     "gatekeeper_inner_code=$(cat \"$gatekeeper_status_file\" 2>/dev/null || printf '1')",
-    "gatekeeper_raw_code=\"$gatekeeper_inner_code\"",
+    'gatekeeper_raw_code="$gatekeeper_inner_code"',
     "gate_config_failed=0",
-    "if [ \"$gatekeeper_finished_before_config\" = \"1\" ]; then",
+    'if [ "$gatekeeper_finished_before_config" = "1" ]; then',
     "  printf '%s\\n' \"no-mistakes config copy failed: gatekeeper finished before config copy\" >&2",
-    "  if [ \"$gatekeeper_inner_code\" = \"0\" ]; then",
+    '  if [ "$gatekeeper_inner_code" = "0" ]; then',
     "    gatekeeper_inner_code=1",
     "  fi",
     "  gate_config_failed=1",
     "fi",
-    "if [ -n \"$no_mistakes_config_copy_status\" ]; then",
+    'if [ -n "$no_mistakes_config_copy_status" ]; then',
     "  gatekeeper_inner_code=1",
     "  gate_config_failed=1",
     "fi",
-    "if [ \"$gate_config_failed\" = \"1\" ] && [ \"$gatekeeper_raw_code\" != \"0\" ]; then",
+    'if [ "$gate_config_failed" = "1" ] && [ "$gatekeeper_raw_code" != "0" ]; then',
     "  gatekeeper_inner_code=1",
-    "  if [ -n \"${gatekeeper_log:-}\" ]; then",
-    "    : > \"${gatekeeper_log}.gate_config_failed\"",
+    '  if [ -n "${gatekeeper_log:-}" ]; then',
+    '    : > "${gatekeeper_log}.gate_config_failed"',
     "  fi",
     "fi",
-    "if [ \"$gatekeeper_raw_code\" != \"0\" ]; then",
-    "  if [ -n \"${gatekeeper_log:-}\" ]; then",
-    "    printf '%s\\n' \"$gatekeeper_raw_code\" > \"${gatekeeper_log}.raw_status\"",
+    'if [ "$gatekeeper_raw_code" != "0" ]; then',
+    '  if [ -n "${gatekeeper_log:-}" ]; then',
+    '    printf \'%s\\n\' "$gatekeeper_raw_code" > "${gatekeeper_log}.raw_status"',
     "  fi",
     "fi",
-    "rm -f \"$no_mistakes_config_copy_done\" \"$gatekeeper_status_file\"",
-    "exit \"$gatekeeper_inner_code\"",
+    'rm -f "$no_mistakes_config_copy_done" "$gatekeeper_status_file"',
+    'exit "$gatekeeper_inner_code"',
   ];
 }
 
 export function checksPassedContextCanceledRecoveryScript(): string[] {
   return [
     "gatekeeper_recovery_reason=${gatekeeper_recovery_reason:-}",
-    "gatekeeper_raw_status_file=\"${gatekeeper_log}.raw_status\"",
-    "gatekeeper_config_fail_file=\"${gatekeeper_log}.gate_config_failed\"",
-    "if [ -f \"$gatekeeper_config_fail_file\" ]; then",
-    "  rm -f \"$gatekeeper_raw_status_file\" \"$gatekeeper_config_fail_file\"",
+    'gatekeeper_raw_status_file="${gatekeeper_log}.raw_status"',
+    'gatekeeper_config_fail_file="${gatekeeper_log}.gate_config_failed"',
+    'if [ -f "$gatekeeper_config_fail_file" ]; then',
+    '  rm -f "$gatekeeper_raw_status_file" "$gatekeeper_config_fail_file"',
     "else",
     "  gatekeeper_raw_code=$(cat \"$gatekeeper_raw_status_file\" 2>/dev/null || printf '')",
-    "  case \"$gatekeeper_raw_code\" in",
+    '  case "$gatekeeper_raw_code" in',
     "    ''|0|*[!0-9]*) gatekeeper_raw_failed=0 ;;",
     "    *) gatekeeper_raw_failed=1 ;;",
     "  esac",
-    "  rm -f \"$gatekeeper_raw_status_file\"",
-    "  if [ \"$gatekeeper_code\" -ne 0 ] && [ \"$gatekeeper_raw_failed\" = \"1\" ] && awk 'BEGIN { seen=0; found=0 } { line=tolower($0) } line ~ /^outcome:[[:space:]]*checks-passed[[:space:]]*$/ { seen=1; next } seen && line ~ /context[[:space:]]+canceled/ { found=1 } END { exit found ? 0 : 1 }' \"$gatekeeper_log\"; then",
+    '  rm -f "$gatekeeper_raw_status_file"',
+    '  if [ "$gatekeeper_code" -ne 0 ] && [ "$gatekeeper_raw_failed" = "1" ] && awk \'BEGIN { seen=0; found=0 } { line=tolower($0) } line ~ /^outcome:[[:space:]]*checks-passed[[:space:]]*$/ { seen=1; next } seen && line ~ /context[[:space:]]+canceled/ { found=1 } END { exit found ? 0 : 1 }\' "$gatekeeper_log"; then',
     "    gatekeeper_recovery_reason=checks_passed_context_canceled",
     "    gatekeeper_code=0",
     "  fi",
@@ -423,15 +423,14 @@ const DAEMON_START_PREFIX = "no-mistakes daemon start && ";
 export function guardNoMistakesDaemonStart(gatekeeperCommand: string): string {
   if (!gatekeeperCommand.startsWith(DAEMON_START_PREFIX)) return gatekeeperCommand;
   const remainder = gatekeeperCommand.slice(DAEMON_START_PREFIX.length);
-  return 'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
+  return (
+    'if [ "${COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED:-0}" = "1" ]; then ' +
     `${remainder}; ` +
-    `else no-mistakes daemon start && ${remainder}; fi`;
+    `else no-mistakes daemon start && ${remainder}; fi`
+  );
 }
 
-export function gateLeaseScriptLines(input: {
-  acquire?: string;
-  release?: string;
-}): string[] {
+export function gateLeaseScriptLines(input: { acquire?: string; release?: string }): string[] {
   if (input.acquire === undefined && input.release === undefined) return [];
   if (input.acquire === undefined || input.release === undefined) {
     throw new Error("gate lease acquire and release commands must be configured together");
@@ -490,41 +489,44 @@ export function buildRunnerScript(input: RunnerInput): string {
     gateLeaseAcquire,
     gateLeaseRelease,
   } = input;
-  const gatekeeperRunCommand = gatekeeperMirrorIntent === undefined
-    ? gatekeeperCommand
-    : guardNoMistakesDaemonStart(gatekeeperCommand);
+  const gatekeeperRunCommand =
+    gatekeeperMirrorIntent === undefined ? gatekeeperCommand : guardNoMistakesDaemonStart(gatekeeperCommand);
   const originBranch = baseRef.startsWith("origin/") ? baseRef.slice("origin/".length) : undefined;
-  const baseFetch = originBranch === undefined
-    ? ": > \"$rebase_log\""
-    : `if ! git fetch origin ${shellQuote(originBranch)} > "$rebase_log" 2>&1; then
+  const baseFetch =
+    originBranch === undefined
+      ? ': > "$rebase_log"'
+      : `if ! git fetch origin ${shellQuote(originBranch)} > "$rebase_log" 2>&1; then
   ${emit} rebase_failed --field base="$(git merge-base HEAD ${shellQuote(baseRef)} 2>/dev/null || true)"
   exit 1
 fi`;
   return renderRunnerTemplate({
-    "__COMBO_ID__": combo.id,
-    "__WORKTREE__": shellQuote(combo.worktree),
-    "__RUNNER_STATUS_SYNC__": runnerStatus(`syncing worktree with ${baseRef}`),
-    "__BASE_FETCH__": baseFetch,
-    "__BASE_REF__": shellQuote(baseRef),
-    "__RUNNER_STATUS_STARTING_CODER__": runnerStatus("starting coder"),
-    "__EMIT__": emit,
-    "__CODER_COMMAND__": coderCommand,
-    "__RUNNER_STATUS_STOP_CONDITION__": runnerStatus("coder stop condition met; starting gatekeeper"),
-    "__RUNNER_STATUS_CODER_FINISHED__": runnerStatus("coder finished; starting gatekeeper"),
-    "__GATE_LEASE_SCRIPT__": buildGateLeaseScript({ gateLeaseAcquire, gateLeaseRelease }),
-    "__GATEKEEPER_MIRROR_SCRIPT__": gatekeeperMirrorIntent === undefined
-      ? ":"
-      : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n"),
-    "__GATEKEEPER_RUN_SCRIPT__": buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, {
+    __COMBO_ID__: combo.id,
+    __WORKTREE__: shellQuote(combo.worktree),
+    __RUNNER_STATUS_SYNC__: runnerStatus(`syncing worktree with ${baseRef}`),
+    __BASE_FETCH__: baseFetch,
+    __BASE_REF__: shellQuote(baseRef),
+    __RUNNER_STATUS_STARTING_CODER__: runnerStatus("starting coder"),
+    __EMIT__: emit,
+    __CODER_COMMAND__: coderCommand,
+    __RUNNER_STATUS_STOP_CONDITION__: runnerStatus("coder stop condition met; starting gatekeeper"),
+    __RUNNER_STATUS_CODER_FINISHED__: runnerStatus("coder finished; starting gatekeeper"),
+    __GATE_LEASE_SCRIPT__: buildGateLeaseScript({ gateLeaseAcquire, gateLeaseRelease }),
+    __GATEKEEPER_MIRROR_SCRIPT__:
+      gatekeeperMirrorIntent === undefined
+        ? ":"
+        : buildNoMistakesMirrorPublishScript(combo, gatekeeperMirrorIntent).join("\n"),
+    __GATEKEEPER_RUN_SCRIPT__: buildNoMistakesGatekeeperRunScript(gatekeeperRunCommand, {
       expectedBranch: combo.branch,
-    }).map((line) => `  ${line}`).join("\n"),
-    "__GATEKEEPER_RECOVERY_SCRIPT__": checksPassedContextCanceledRecoveryScript().join("\n"),
-    "__RUNNER_STATUS_GATEKEEPER_FINISHED__": runnerStatus("gatekeeper finished; detecting PR"),
-    "__BRANCH__": shellQuote(combo.branch),
-    "__ENSURE_PR_AUTOCLOSE__": ensurePrAutoclose,
-    "__RUNNER_STATUS_PR_DETECTED__": runnerStatus("PR detected; starting reviewer"),
-    "__ACTIVATE_REVIEWER__": activateReviewer,
-    "__RUNNER_STATUS_NO_PR__": runnerStatus("no PR detected; needs human"),
+    })
+      .map((line) => `  ${line}`)
+      .join("\n"),
+    __GATEKEEPER_RECOVERY_SCRIPT__: checksPassedContextCanceledRecoveryScript().join("\n"),
+    __RUNNER_STATUS_GATEKEEPER_FINISHED__: runnerStatus("gatekeeper finished; detecting PR"),
+    __BRANCH__: shellQuote(combo.branch),
+    __ENSURE_PR_AUTOCLOSE__: ensurePrAutoclose,
+    __RUNNER_STATUS_PR_DETECTED__: runnerStatus("PR detected; starting reviewer"),
+    __ACTIVATE_REVIEWER__: activateReviewer,
+    __RUNNER_STATUS_NO_PR__: runnerStatus("no PR detected; needs human"),
   });
 }
 // -/ 3/3

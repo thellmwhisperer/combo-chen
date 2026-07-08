@@ -100,10 +100,10 @@ describe("gatekeeper attach window helpers", () => {
 
   it("builds the polling attach command with shell-quoted worktree paths", () => {
     expect(
-      buildGatekeeperAttachCommand(
-        combo({ worktree: "/tmp/o'hara worktree" }),
-        { timeoutSeconds: 45, retryIntervalSeconds: 15 },
-      ),
+      buildGatekeeperAttachCommand(combo({ worktree: "/tmp/o'hara worktree" }), {
+        timeoutSeconds: 45,
+        retryIntervalSeconds: 15,
+      }),
     ).toBe(
       [
         "cd '/tmp/o'\\''hara worktree'",
@@ -114,8 +114,8 @@ describe("gatekeeper attach window helpers", () => {
         "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
         "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
         "  no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
-        "  if [ -n \"$no_mistakes_run_id\" ] && [ -n \"$expected_head\" ] && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"branch: $expected_branch\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -F \"head: $expected_head\" >/dev/null && printf '%s\\n' \"$no_mistakes_status\" | grep -Eq '^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$'; then",
-        "    exec no-mistakes attach --run \"$no_mistakes_run_id\"",
+        '  if [ -n "$no_mistakes_run_id" ] && [ -n "$expected_head" ] && printf \'%s\\n\' "$no_mistakes_status" | grep -F "branch: $expected_branch" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -F "head: $expected_head" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -Eq \'^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$\'; then',
+        '    exec no-mistakes attach --run "$no_mistakes_run_id"',
         "  fi",
         "  attempt=$((attempt + 1))",
         '  if [ "$attempt" -gt 3 ]; then',
@@ -130,15 +130,12 @@ describe("gatekeeper attach window helpers", () => {
   });
 
   it("can stop polling when the generated gate script has already finished", () => {
-    const command = buildGatekeeperAttachCommand(
-      combo({ worktree: "/tmp/o'hara worktree" }),
-      {
-        timeoutSeconds: 45,
-        retryIntervalSeconds: 15,
-        replaceProcess: false,
-        stopWhenFileExists: "/tmp/o'hara gate.done",
-      },
-    );
+    const command = buildGatekeeperAttachCommand(combo({ worktree: "/tmp/o'hara worktree" }), {
+      timeoutSeconds: 45,
+      retryIntervalSeconds: 15,
+      replaceProcess: false,
+      stopWhenFileExists: "/tmp/o'hara gate.done",
+    });
 
     expect(command).toContain("gatekeeper_done_file='/tmp/o'\\''hara gate.done'");
     expect(command).toContain('if [ -n "$gatekeeper_done_file" ] && [ -f "$gatekeeper_done_file" ]; then');
@@ -163,13 +160,7 @@ describe("gatekeeper attach window helpers", () => {
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
-    expect(calls[1]?.slice(0, 5)).toEqual([
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      "gatekeeper",
-    ]);
+    expect(calls[1]?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "gatekeeper"]);
     const gatekeeperCommand = calls[1]?.at(-1) ?? "";
     expect(gatekeeperCommand).toContain("combo_chen_idle=1");
     expect(gatekeeperCommand).toContain("trap 'combo_chen_idle=0' INT");
@@ -276,10 +267,16 @@ describe("gatekeeper runtime config snapshots", () => {
     expect(script.indexOf("gate-lease acquire")).toBeLessThan(script.indexOf("no-mistakes axi run"));
     const gatekeeperWindowCommand = calls.find((call) => call[0] === "set-buffer")?.at(-1) ?? "";
     expect(gatekeeperWindowCommand).toContain("no-mistakes attach --run");
-    expect(gatekeeperWindowCommand).toContain("gatekeeper-attach: gate script finished before attach became available");
+    expect(gatekeeperWindowCommand).toContain(
+      "gatekeeper-attach: gate script finished before attach became available",
+    );
     expect(gatekeeperWindowCommand).toContain("[combo-chen] gatekeeper final attach probe for current run.");
-    expect(gatekeeperWindowCommand).toContain("no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)");
-    expect(gatekeeperWindowCommand).toContain("[combo-chen] gatekeeper idle; waiting for the next current-head run.");
+    expect(gatekeeperWindowCommand).toContain(
+      "no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
+    );
+    expect(gatekeeperWindowCommand).toContain(
+      "[combo-chen] gatekeeper idle; waiting for the next current-head run.",
+    );
     expect(gatekeeperWindowCommand).toContain('if [ "${COMBO_CHEN_GATEKEEPER_WINDOW_HOLD:-1}" = "0" ]; then');
     expect(gatekeeperWindowCommand).toContain('exit "$combo_chen_gate_script_code"');
     expect(gatekeeperWindowCommand).not.toContain("window retained for inspection");
@@ -338,7 +335,9 @@ describe("gatekeeper runtime config snapshots", () => {
     const script = readFileSync(join(runDir, "gatekeeper-initial-bbbbbbbbbbbb.sh"), "utf8");
 
     expect(script).toContain("COMBO_CHEN_GATEKEEPER_INTENT_B64=");
-    expect(script).toContain('node -e \'process.stdout.write(Buffer.from(process.env.COMBO_CHEN_GATEKEEPER_INTENT_B64 || "", "base64").toString("utf8"))\'');
+    expect(script).toContain(
+      'node -e \'process.stdout.write(Buffer.from(process.env.COMBO_CHEN_GATEKEEPER_INTENT_B64 || "", "base64").toString("utf8"))\'',
+    );
     expect(script).toContain('--intent "$(COMBO_CHEN_GATEKEEPER_INTENT_B64=');
     expect(script).not.toContain("`printf raw-backtick`");
     expect(script).not.toContain("$(printf raw-dollar)");
@@ -402,7 +401,11 @@ describe("gatekeeper runtime config snapshots", () => {
         tmux: (args) => {
           calls.push(args);
           if (args.join(" ") === "list-windows -t combo-chen-o-r-7 -F #{window_name}") {
-            return { status: 0, stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n", stderr: "" };
+            return {
+              status: 0,
+              stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n",
+              stderr: "",
+            };
           }
           return { status: 0, stdout: "", stderr: "" };
         },
@@ -457,7 +460,11 @@ describe("gatekeeper runtime config snapshots", () => {
         tmux: (args) => {
           calls.push(["tmux", ...args]);
           if (args.join(" ") === "list-windows -t combo-chen-o-r-7 -F #{window_name}") {
-            return { status: 0, stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n", stderr: "" };
+            return {
+              status: 0,
+              stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n",
+              stderr: "",
+            };
           }
           return { status: 0, stdout: "", stderr: "" };
         },
@@ -515,7 +522,11 @@ describe("gatekeeper runtime config snapshots", () => {
         tmux: (args) => {
           calls.push(["tmux", ...args]);
           if (args.join(" ") === "list-windows -t combo-chen-o-r-7 -F #{window_name}") {
-            return { status: 0, stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n", stderr: "" };
+            return {
+              status: 0,
+              stdout: "journal\ndirector\ncoder\ngatekeeper\nreviewer\ndirector-watch\n",
+              stderr: "",
+            };
           }
           return { status: 0, stdout: "", stderr: "" };
         },
@@ -691,7 +702,8 @@ exit 1
 
     expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
       status: 0,
-      stdout: "post-address gate for o-r-7 at bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\noutcome: checks-passed\nci.log: context canceled\n",
+      stdout:
+        "post-address gate for o-r-7 at bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\noutcome: checks-passed\nci.log: context canceled\n",
       stderr: "",
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
@@ -715,16 +727,20 @@ exit 1
     });
 
     expect(script).toContain("mirror_intent='no-mistakes.intent=SW1wbGVtZW50IGlzc3VlIDc='");
-    expect(script).toContain('git push -o "$mirror_intent" no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"');
+    expect(script).toContain(
+      'git push -o "$mirror_intent" no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"',
+    );
     expect(script).toContain('git push -o "$mirror_intent" no-mistakes "HEAD:$mirror_ref"');
     expect(script).not.toContain("git push no-mistakes HEAD");
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
-    expect(script).toContain('gatekeeper_run_id=$(sed -n');
+    expect(script).toContain("gatekeeper_run_id=$(sed -n");
     expect(script).toContain('exec no-mistakes attach --run "$gatekeeper_run_id"');
     expect(script).toContain("branch: combo/issue-7");
     expect(script).toContain("gatekeeper_failure_reason=gate_failed");
     expect(script).toContain("gatekeeper_failure_reason=daemon_dead");
-    expect(script).toContain('gate_failed --field exit_code="$gatekeeper_code" --field reason="$gatekeeper_failure_reason"');
+    expect(script).toContain(
+      'gate_failed --field exit_code="$gatekeeper_code" --field reason="$gatekeeper_failure_reason"',
+    );
     expect(script).toContain('pr_head_sha=$(gh pr view "$pr_url" --json headRefOid --jq');
     expect(script).toContain('gatekeeper_head_sha="$pr_head_sha"');
     expect(script).toContain('gate_validated --field sha="$gatekeeper_head_sha"');

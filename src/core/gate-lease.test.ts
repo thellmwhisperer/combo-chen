@@ -92,7 +92,11 @@ describe("gate lease", () => {
       comboId: "o-r-8",
       branch: "combo/issue-8",
     });
-    expect(readGateLeases(dir).map((lease) => lease.comboId).sort()).toEqual(["o-r-7", "o-r-8"]);
+    expect(
+      readGateLeases(dir)
+        .map((lease) => lease.comboId)
+        .sort(),
+    ).toEqual(["o-r-7", "o-r-8"]);
     expect(readGateLease(dir)).toEqual(first.lease);
   });
 

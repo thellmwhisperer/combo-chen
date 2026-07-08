@@ -18,11 +18,7 @@ import { buildDirectorWatchStatusLine } from "./director-watch-status.js";
 // -- 1/1 CORE · buildDirectorWatchStatusLine tests <- START HERE --
 const HEAD = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-function event(
-  name: ComboEvent["event"],
-  t: string,
-  payload: Record<string, unknown> = {},
-): ComboEvent {
+function event(name: ComboEvent["event"], t: string, payload: Record<string, unknown> = {}): ComboEvent {
   return { t, event: name, ...payload };
 }
 
@@ -59,10 +55,7 @@ describe("buildDirectorWatchStatusLine", () => {
         statusCheckRollup: successfulRollup(),
         polledAt: now,
       },
-      workerSummaries: [
-        "worker coder: unchanged_ticks=3",
-        "worker reviewer: unchanged_ticks=1",
-      ],
+      workerSummaries: ["worker coder: unchanged_ticks=3", "worker reviewer: unchanged_ticks=1"],
     });
 
     expect(line).toContain("director: watch 2026-06-22T12:00:00.000Z");
@@ -105,7 +98,9 @@ describe("buildDirectorWatchStatusLine", () => {
       pr: {
         state: "OPEN",
         headSha: HEAD,
-        statusCheckRollup: [{ __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" }],
+        statusCheckRollup: [
+          { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "SUCCESS" },
+        ],
         polledAt: now,
       },
       workerSummaries: [],

@@ -21,6 +21,10 @@
  * @exports none
  * @deps vitest, ./watchers
  */
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
@@ -55,10 +59,46 @@ describe("buildDirectorWatchCommand", () => {
     expect(command).toContain("reviewer: transient_failure:");
     expect(command).toContain("watch_error");
     expect(command).toContain("watch_dead");
-    expect(command).toContain('watcher=director');
+    expect(command).toContain("watcher=director");
     expect(command).not.toContain("watcher=reviewer");
     expect(command).toContain('[ "$failures" -ge 3 ]');
-    expect(command).toContain("sleep \"$backoff\"");
+    expect(command).toContain('sleep "$backoff"');
+  });
+
+  it("journals tick output verbatim in watch events, apostrophes included", () => {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-watchers-"));
+    const emitLog = join(dir, "emit.log");
+    const fakeCli = join(dir, "fake-cli");
+    writeFileSync(
+      fakeCli,
+      `#!/bin/sh
+if [ "$1" = "director-tick" ]; then
+  printf "%s\\n" "it's broken"
+  exit 1
+fi
+if [ "$1" = "emit" ]; then
+  shift
+  for arg in "$@"; do printf "%s\\n" "$arg" >> ${JSON.stringify(emitLog)}; done
+fi
+exit 0
+`,
+    );
+    chmodSync(fakeCli, 0o755);
+
+    const command = buildDirectorWatchCommand({
+      cli: fakeCli,
+      comboHome: dir,
+      comboId: "owner-repo-7",
+      pollSeconds: 0,
+      watchFailureLimit: 1,
+      watchBackoffMaxSeconds: 1,
+    });
+    const result = spawnSync("sh", ["-c", command], { encoding: "utf8", timeout: 10_000 });
+
+    expect(result.status).toBe(1);
+    const emitted = readFileSync(emitLog, "utf8");
+    expect(emitted).toContain("stderr=it's broken");
+    expect(emitted).not.toContain("\\''");
   });
 });
 // -/ 2/2

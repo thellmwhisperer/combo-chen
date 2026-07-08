@@ -225,8 +225,7 @@ export function selectUpdateAsset(input: UpdateAssetSelectionInput): UpdateAsset
   const supportedTargets = input.supportedTargets ?? RELEASE_TARGETS;
   const target = { platform: input.platform, arch: input.arch };
   const supported = supportedTargets.some(
-    (supportedTarget) =>
-      supportedTarget.platform === target.platform && supportedTarget.arch === target.arch,
+    (supportedTarget) => supportedTarget.platform === target.platform && supportedTarget.arch === target.arch,
   );
 
   if (!supported) {
@@ -299,9 +298,7 @@ export function lookupUpdateChecksum(input: UpdateChecksumLookupInput): UpdateCh
 }
 
 /** Classify a local combo-chen executable path without replacing or mutating it. */
-export function classifyInstallTarget(
-  input: InstallTargetClassificationInput,
-): InstallTargetClassification {
+export function classifyInstallTarget(input: InstallTargetClassificationInput): InstallTargetClassification {
   const path = normalizeInstallTargetPath(input.path.trim());
   const resolved = (() => {
     try {
@@ -358,11 +355,12 @@ export function compareReleaseCandidate(input: {
   }
   const order = compareNormalizedReleaseVersions(candidate, current);
 
-  return {
-    state: order > 0 ? "update_available" : order === 0 ? "current" : "candidate_older",
-    current,
-    candidate,
-  };
+  let state: UpdateVersionComparison["state"];
+  if (order > 0) state = "update_available";
+  else if (order === 0) state = "current";
+  else state = "candidate_older";
+
+  return { state, current, candidate };
 }
 // -/ 2/3
 
@@ -397,10 +395,7 @@ export function compareNormalizedReleaseVersions(
   left: NormalizedReleaseVersion,
   right: NormalizedReleaseVersion,
 ): number {
-  const coreOrder =
-    left.major - right.major ||
-    left.minor - right.minor ||
-    left.patch - right.patch;
+  const coreOrder = left.major - right.major || left.minor - right.minor || left.patch - right.patch;
   if (coreOrder !== 0) return Math.sign(coreOrder);
 
   if (left.channel === "stable" && right.channel === "stable") return 0;

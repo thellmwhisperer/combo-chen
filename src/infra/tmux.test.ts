@@ -78,13 +78,7 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     expect(killWindowArgs("s", "thread-sitter")).toEqual(["kill-window", "-t", "s:thread-sitter"]);
     expect(killWindowArgs("s", "gordon")).toEqual(["kill-window", "-t", "s:gordon"]);
     expect(listWindowsArgs("s")).toEqual(["list-windows", "-t", "s", "-F", "#{window_name}"]);
-    expect(listPanesArgs("s", "rower")).toEqual([
-      "list-panes",
-      "-t",
-      "s:rower",
-      "-F",
-      "#{pane_index}",
-    ]);
+    expect(listPanesArgs("s", "rower")).toEqual(["list-panes", "-t", "s:rower", "-F", "#{pane_index}"]);
     expect(listPanesArgs("s", "rower", "#{pane_dead}")).toEqual([
       "list-panes",
       "-t",
@@ -103,12 +97,7 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
 
   it("nudges an interactive sitter with pasted text and a separate raw Enter", () => {
     expect(nudgeWindowArgs("combo-chen-o-r-7", "thread-sitter", "Review https://x/y#z")).toEqual([
-      [
-        "set-buffer",
-        "-b",
-        "combo-chen-nudge-combo-chen-o-r-7-thread-sitter",
-        "Review https://x/y#z",
-      ],
+      ["set-buffer", "-b", "combo-chen-nudge-combo-chen-o-r-7-thread-sitter", "Review https://x/y#z"],
       [
         "paste-buffer",
         "-d",

@@ -38,9 +38,7 @@ import {
 // -- 1/1 CORE · source detection + artifact loading <- START HERE --
 export const WORK_PLAN_ARTIFACT = "work-plan.md";
 
-export function isGitHubIssueWorkItem(
-  combo: Pick<ComboRecord, "issueUrl" | "workItemSourceType">,
-): boolean {
+export function isGitHubIssueWorkItem(combo: Pick<ComboRecord, "issueUrl" | "workItemSourceType">): boolean {
   const issueUrl = cleanOptional(combo.issueUrl);
   const sourceType = inferWorkItemSourceType(combo);
   return sourceType === "github_issue" && issueUrl !== undefined;
@@ -48,10 +46,7 @@ export function isGitHubIssueWorkItem(
 
 export function readPersistedWorkPlan(
   runDir: string,
-  combo: Pick<
-    ComboRecord,
-    "issueUrl" | "workItemSourceType" | "workItemSourceReference"
-  >,
+  combo: Pick<ComboRecord, "issueUrl" | "workItemSourceType" | "workItemSourceReference">,
 ): WorkPlan {
   const artifactPath = join(runDir, WORK_PLAN_ARTIFACT);
   let markdown: string;
@@ -59,7 +54,7 @@ export function readPersistedWorkPlan(
     markdown = readFileSync(artifactPath, "utf8");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`Work plan artifact not readable: ${artifactPath} (${reason})`);
+    throw new Error(`Work plan artifact not readable: ${artifactPath} (${reason})`, { cause: error });
   }
   return normalizeMarkdownWorkPlan({
     markdown,
@@ -76,10 +71,7 @@ function inferWorkItemSourceType(
 }
 
 function workPlanSourceFromCombo(
-  combo: Pick<
-    ComboRecord,
-    "issueUrl" | "workItemSourceType" | "workItemSourceReference"
-  >,
+  combo: Pick<ComboRecord, "issueUrl" | "workItemSourceType" | "workItemSourceReference">,
 ): WorkPlanSource {
   const issueUrl = cleanOptional(combo.issueUrl);
   const type = inferWorkItemSourceType(combo);

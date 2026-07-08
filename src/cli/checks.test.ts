@@ -42,31 +42,27 @@ function statusContext(context: string, state: string, description?: string): un
 describe("GitHub check readiness helpers", () => {
   it("keeps configured required READY checks out of the normal CI rollup", () => {
     expect(
-      checkRollupSucceeded(
-        [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "FAILURE")],
-        { requiredCheckNames: ["ExternalReview"] },
-      ),
+      checkRollupSucceeded([checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "FAILURE")], {
+        requiredCheckNames: ["ExternalReview"],
+      }),
     ).toBe(true);
     expect(
-      checkRollupSucceeded(
-        [checkRun("unit", "FAILURE"), checkRun("ExternalReview", "SUCCESS")],
-        { requiredCheckNames: ["ExternalReview"] },
-      ),
+      checkRollupSucceeded([checkRun("unit", "FAILURE"), checkRun("ExternalReview", "SUCCESS")], {
+        requiredCheckNames: ["ExternalReview"],
+      }),
     ).toBe(false);
     expect(
-      checkRollupSucceeded(
-        [checkRun("ExternalReview", "SUCCESS")],
-        { requiredCheckNames: ["ExternalReview"] },
-      ),
+      checkRollupSucceeded([checkRun("ExternalReview", "SUCCESS")], {
+        requiredCheckNames: ["ExternalReview"],
+      }),
     ).toBe(true);
   });
 
   it("does not let external-comment checks stand in for normal CI", () => {
     expect(
-      checkRollupSucceeded(
-        [checkRun("ExternalReview", "SUCCESS")],
-        { ambientCheckNames: ["ExternalReview"] },
-      ),
+      checkRollupSucceeded([checkRun("ExternalReview", "SUCCESS")], {
+        ambientCheckNames: ["ExternalReview"],
+      }),
     ).toBe(false);
   });
 
@@ -81,7 +77,11 @@ describe("GitHub check readiness helpers", () => {
     expect(requiredChecksSucceeded(rollup, ["ExternalReview", "Copilot"])).toBe(false);
     expect(
       requiredChecksSucceeded(
-        [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS"), checkRun("ReviewDog", "SKIPPED")],
+        [
+          checkRun("unit", "SUCCESS"),
+          checkRun("ExternalReview", "SUCCESS"),
+          checkRun("ReviewDog", "SKIPPED"),
+        ],
         ["ExternalReview", "ReviewDog"],
       ),
     ).toBe(false);
@@ -97,7 +97,9 @@ describe("GitHub check readiness helpers", () => {
     const limitReachedReview = statusContext("CodeRabbit", "SUCCESS", "Review limit reached");
 
     expect(requiredChecksSucceeded([checkRun("unit", "SUCCESS"), skippedReview], ["CodeRabbit"])).toBe(false);
-    expect(requiredChecksSucceeded([checkRun("unit", "SUCCESS"), limitReachedReview], ["CodeRabbit"])).toBe(false);
+    expect(requiredChecksSucceeded([checkRun("unit", "SUCCESS"), limitReachedReview], ["CodeRabbit"])).toBe(
+      false,
+    );
     expect(checkRollupSucceeded([skippedReview], { requiredCheckNames: ["CodeRabbit"] })).toBe(false);
   });
 
