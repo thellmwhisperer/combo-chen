@@ -27,6 +27,19 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.77](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.76...combo-chen-v0.0.77) (2026-07-08)
+
+
+### Features
+
+* run slop rules project-wide via sgconfig and wire lint/format into gate and CI ([4657825](https://github.com/thellmwhisperer/combo-chen/commit/46578254ad2f6053d1040ef4864bc5032ae43ad8))
+
+
+### Bug Fixes
+
+* keep operator-local tool state out of the prettier gate ([02f01e3](https://github.com/thellmwhisperer/combo-chen/commit/02f01e34a08c9afb02f7fa2b039ab05dc73047a6))
+* **watchers:** journal tick output verbatim instead of stray quote escapes ([827bba1](https://github.com/thellmwhisperer/combo-chen/commit/827bba1257015b04a5a9bf3679735e0c3fcf168c))
+
 ## [0.0.76](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.75...combo-chen-v0.0.76) (2026-07-07)
 
 
