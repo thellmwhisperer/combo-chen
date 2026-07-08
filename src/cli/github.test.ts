@@ -74,9 +74,7 @@ describe("cli GitHub helpers", () => {
       title: "Split CLI helpers",
       body: "",
     });
-    expect(calls).toEqual([
-      ["issue", "view", "https://github.com/o/r/issues/84", "--json", "title,body"],
-    ]);
+    expect(calls).toEqual([["issue", "view", "https://github.com/o/r/issues/84", "--json", "title,body"]]);
   });
 
   it("separates configured required READY checks from CI for forensics", () => {
@@ -128,7 +126,12 @@ describe("cli GitHub helpers", () => {
             statusCheckRollup: [
               { __typename: "CheckRun", name: "unit", status: "COMPLETED", conclusion: "SUCCESS" },
               { __typename: "CheckRun", name: "ReviewDog", status: "COMPLETED", conclusion: "SUCCESS" },
-              { __typename: "CheckRun", name: "ReviewDog Extended", status: "COMPLETED", conclusion: "FAILURE" },
+              {
+                __typename: "CheckRun",
+                name: "ReviewDog Extended",
+                status: "COMPLETED",
+                conclusion: "FAILURE",
+              },
             ],
           }),
           stderr: "",
@@ -246,9 +249,7 @@ describe("cli GitHub helpers", () => {
       if (args.join(" ").includes("pulls/7/reviews")) {
         return {
           status: 0,
-          stdout: JSON.stringify([
-            { body: "lgtm @ ee55ff0", submitted_at: "2026-06-11T00:02:00Z" },
-          ]),
+          stdout: JSON.stringify([{ body: "lgtm @ ee55ff0", submitted_at: "2026-06-11T00:02:00Z" }]),
           stderr: "",
         };
       }
@@ -327,9 +328,7 @@ describe("cli GitHub helpers", () => {
               created_at: "2026-06-11T00:01:00Z",
             },
             {
-              body: [`> Fixture review body: lgtm @ ${fixtureSha}`, `> no lgtm @ ${fixtureSha}`].join(
-                "\n",
-              ),
+              body: [`> Fixture review body: lgtm @ ${fixtureSha}`, `> no lgtm @ ${fixtureSha}`].join("\n"),
               created_at: "2026-06-11T00:02:00Z",
             },
             {
@@ -442,9 +441,13 @@ describe("cli GitHub helpers", () => {
           status: 0,
           stdout: JSON.stringify([
             {
-              body: [`lgtm @ ${headSha}`, "", "combo-chen-reviewer-verdict:", `head: ${headSha}`, "code: 0"].join(
-                "\n",
-              ),
+              body: [
+                `lgtm @ ${headSha}`,
+                "",
+                "combo-chen-reviewer-verdict:",
+                `head: ${headSha}`,
+                "code: 0",
+              ].join("\n"),
               submitted_at: "2026-06-11T00:01:00Z",
               user: { login: "claude" },
             },

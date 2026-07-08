@@ -19,7 +19,7 @@
  * @exports none (test file)
  * @deps vitest, node:{fs,os,path}, ./config
  */
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -37,7 +37,6 @@ function writeToml(dir: string, name: string, body: string): string {
 }
 
 // -- 1/3 CORE · Config loading cascade tests ← START HERE --
-
 
 describe("loadConfig", () => {
   it("returns the documented defaults when no config exists", () => {
@@ -65,9 +64,7 @@ describe("loadConfig", () => {
     expect(config.workerStallTicks).toBe(3);
     expect(config.workerRecoveryAttempts).toBe(2);
     expect(config.workerPermissionPromptPatterns).toEqual(
-      expect.arrayContaining([
-        "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
-      ]),
+      expect.arrayContaining(["^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$"]),
     );
     expect(config.workerPermissionPromptPolicy).toBe("escalate");
     // No quotes around {prompt}: renderCommand substitutes values as
@@ -195,7 +192,7 @@ describe("loadConfig", () => {
 
   it("lets repo and env config override the promptable director command", () => {
     const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", "[director]\ncommand = \"director-agent {prompt}\"\n");
+    writeToml(repoDir, "combo-chen.toml", '[director]\ncommand = "director-agent {prompt}"\n');
 
     expect(loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") }).directorCommand).toBe(
       "director-agent {prompt}",
@@ -249,7 +246,7 @@ describe("loadConfig", () => {
 
   it("rejects incomplete declared team identities", () => {
     const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", "[team.reviewer]\nbinary = \"opencode\"\nagent = \"claude\"\n");
+    writeToml(repoDir, "combo-chen.toml", '[team.reviewer]\nbinary = "opencode"\nagent = "claude"\n');
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
       /team\.reviewer\.model must be a non-empty string/,
@@ -258,11 +255,7 @@ describe("loadConfig", () => {
 
   it("lets env override reviewer GitHub logins", () => {
     const repoDir = tempDir();
-    writeToml(
-      repoDir,
-      "combo-chen.toml",
-      ["[reviewer]", 'logins = ["repo-reviewer"]'].join("\n"),
-    );
+    writeToml(repoDir, "combo-chen.toml", ["[reviewer]", 'logins = ["repo-reviewer"]'].join("\n"));
 
     const config = loadConfig({
       repoDir,
@@ -331,11 +324,7 @@ describe("loadConfig", () => {
 
   it("lets env override READY required checks", () => {
     const repoDir = tempDir();
-    writeToml(
-      repoDir,
-      "combo-chen.toml",
-      ["[ready]", 'required_checks = ["ExternalReview"]'].join("\n"),
-    );
+    writeToml(repoDir, "combo-chen.toml", ["[ready]", 'required_checks = ["ExternalReview"]'].join("\n"));
 
     const config = loadConfig({
       repoDir,
@@ -368,10 +357,7 @@ describe("loadConfig", () => {
     writeToml(
       repoDir,
       "combo-chen.toml",
-      [
-        "[pr_labels]",
-        'green_check_names = ["ExternalReview Pro"]',
-      ].join("\n"),
+      ["[pr_labels]", 'green_check_names = ["ExternalReview Pro"]'].join("\n"),
     );
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
@@ -434,7 +420,11 @@ describe("loadConfig", () => {
 
   it("repo config wins over user config (repo owns policy)", () => {
     const userDir = tempDir();
-    const userConfig = writeToml(userDir, "config.toml", '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes"\n');
+    const userConfig = writeToml(
+      userDir,
+      "config.toml",
+      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes"\n',
+    );
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", '[roles]\nrower = "codex"\n');
 
@@ -734,7 +724,11 @@ describe("loadConfig", () => {
 
   it("loads the worker permission prompt policy from repo monitor config or env", () => {
     const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", '[monitor]\npermission_prompt_policy = "recreate-non-interactive"\n');
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[monitor]\npermission_prompt_policy = "recreate-non-interactive"\n',
+    );
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
     expect(repoConfig.workerPermissionPromptPolicy).toBe("recreate-non-interactive");
@@ -747,7 +741,11 @@ describe("loadConfig", () => {
     expect(envConfig.workerPermissionPromptPolicy).toBe("auto-approve-known-safe");
 
     const invalidRepoDir = tempDir();
-    writeToml(invalidRepoDir, "combo-chen.toml", '[monitor]\npermission_prompt_policy = "approve-everything"\n');
+    writeToml(
+      invalidRepoDir,
+      "combo-chen.toml",
+      '[monitor]\npermission_prompt_policy = "approve-everything"\n',
+    );
     expect(() =>
       loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
     ).toThrow(/permission_prompt_policy/);
@@ -763,7 +761,7 @@ describe("loadConfig", () => {
 
   it("loads the required run source branch from repo config or env", () => {
     const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", "[run]\nsource_branch = \"develop\"\n");
+    writeToml(repoDir, "combo-chen.toml", '[run]\nsource_branch = "develop"\n');
 
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
     expect(repoConfig.sourceBranch).toBe("develop");
@@ -857,9 +855,15 @@ describe("loadConfig", () => {
 
   it("refuses to launch when gordon would judge their own cooking", () => {
     const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", '[roles]\nrower = "claude"\ngordon = ["claude"]\n\n[rower.claude]\ncommand = "claude -p \\"{prompt}\\""\n');
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      '[roles]\nrower = "claude"\ngordon = ["claude"]\n\n[rower.claude]\ncommand = "claude -p \\"{prompt}\\""\n',
+    );
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/);
   });
 
@@ -867,7 +871,9 @@ describe("loadConfig", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", "[roles]\ngordon = []\n");
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/);
   });
 
@@ -875,7 +881,9 @@ describe("loadConfig", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", '[roles]\nrower = "codex"\ngordon = "codex"\n');
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
   });
 
   it("rejects unknown role names instead of ignoring typos", () => {
@@ -889,7 +897,9 @@ describe("loadConfig", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", '[roles]\nrower = "my-exotic-agent"\n');
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/my-exotic-agent/);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /my-exotic-agent/,
+    );
   });
 
   it("rejects a non-string rower command template during config load", () => {
@@ -900,8 +910,12 @@ describe("loadConfig", () => {
       '[rower.codex]\ncommand = 123\nresume_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n',
     );
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /command template/,
+    );
   });
 
   it("requires a resume command template for a custom rower", () => {
@@ -923,24 +937,36 @@ describe("loadConfig", () => {
       '[rower.codex]\ncommand = "codex run {prompt}"\nresume_command = 123\n',
     );
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/resume command template/);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /resume command template/,
+    );
   });
 
   it("rejects a non-string gatekeeper command template during config load", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", "[gatekeeper]\ncommand = 123\n");
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /command template/,
+    );
   });
 
   it("rejects non-string coder responding templates during config load", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", "[coder_responding]\nwindow_name = 123\n");
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/coder_responding.window_name/);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /coder_responding.window_name/,
+    );
   });
 
   it("resolves the first configured gordon command and reviewer prompt", () => {
@@ -972,8 +998,12 @@ describe("loadConfig", () => {
     const repoDir = tempDir();
     writeToml(repoDir, "combo-chen.toml", "[reviewer]\nprompt = 123\n");
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/reviewer.prompt/);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /reviewer.prompt/,
+    );
   });
 
   it("requires at least one configured gordon command", () => {
@@ -981,7 +1011,9 @@ describe("loadConfig", () => {
     writeToml(repoDir, "combo-chen.toml", '[roles]\ngordon = ["external-reviewer"]\n');
 
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/gordon/i);
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command/i);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /command/i,
+    );
   });
 
   it("rejects a non-string reviewer command template during config load", () => {
@@ -992,8 +1024,12 @@ describe("loadConfig", () => {
       '[roles]\nreviewer = ["local"]\n\n[reviewer.local]\ncommand = 123\n',
     );
 
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(ComboConfigError);
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(/command template/);
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      ComboConfigError,
+    );
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
+      /command template/,
+    );
   });
 });
 // -/ 1/3
@@ -1001,7 +1037,9 @@ describe("loadConfig", () => {
 // -- 2/3 HELPER · Coder safety guard tests --
 describe("unsafeCoderInvocationReasons", () => {
   it("treats codex coder commands without gnhf as unsafe while leaving explicit wrappers configurable", () => {
-    expect(unsafeCoderInvocationReasons("codex run {prompt}", { requireGnhf: true })).toEqual(["gnhf command"]);
+    expect(unsafeCoderInvocationReasons("codex run {prompt}", { requireGnhf: true })).toEqual([
+      "gnhf command",
+    ]);
     expect(unsafeCoderInvocationReasons("hermes -z {prompt}", { requireGnhf: false })).toEqual([]);
   });
 

@@ -166,7 +166,13 @@ function isPassiveUpdateDisabled(env: Record<string, string | undefined>): boole
   const raw = env[PASSIVE_UPDATE_DISABLE_ENV];
   if (raw === undefined) return false;
   const normalized = raw.trim().toLowerCase();
-  return normalized !== "" && normalized !== "0" && normalized !== "false" && normalized !== "off" && normalized !== "no";
+  return (
+    normalized !== "" &&
+    normalized !== "0" &&
+    normalized !== "false" &&
+    normalized !== "off" &&
+    normalized !== "no"
+  );
 }
 
 /** True only when a cache entry is for the same current build, mode, and unexpired TTL window. */
@@ -200,10 +206,7 @@ function readPassiveCache(
   }
 }
 
-function passiveSummaryFromPlan(
-  plan: ReadOnlyUpdatePlanResolution,
-  now: Date,
-): PassiveUpdateCacheEntry {
+function passiveSummaryFromPlan(plan: ReadOnlyUpdatePlanResolution, now: Date): PassiveUpdateCacheEntry {
   const candidate = "candidate" in plan ? plan.candidate : undefined;
   const reason = "reason" in plan ? plan.reason : undefined;
   return {

@@ -20,11 +20,7 @@
  * @deps ../core/{events,gate-lease,state}
  */
 import { appendEvent } from "../core/events.js";
-import {
-  acquireGateLease,
-  releaseGateLease,
-  type GateLeaseOwner,
-} from "../core/gate-lease.js";
+import { acquireGateLease, releaseGateLease, type GateLeaseOwner } from "../core/gate-lease.js";
 import { ComboStateError, readCombo, runDirFor } from "../core/state.js";
 
 // -- 1/2 HELPER · types and owner resolution --
@@ -39,7 +35,11 @@ interface GateLeaseActionDeps {
   out: (line: string) => void;
 }
 
-function ownerForCombo(home: string, comboId: string, headSha?: string): {
+function ownerForCombo(
+  home: string,
+  comboId: string,
+  headSha?: string,
+): {
   owner: GateLeaseOwner;
   runDir: string;
 } {

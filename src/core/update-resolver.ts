@@ -183,9 +183,7 @@ export type ReadOnlyUpdatePlanResolution =
 
 // -- 2/4 CORE · resolveLatestReleaseCandidate <- START HERE --
 /** Select the latest eligible GitHub release without downloads or live state inspection. */
-export function resolveLatestReleaseCandidate(
-  input: UpdateReleaseResolverInput,
-): UpdateReleaseResolution {
+export function resolveLatestReleaseCandidate(input: UpdateReleaseResolverInput): UpdateReleaseResolution {
   const mode = input.mode ?? "stable";
   let latest: ResolvedUpdateReleaseCandidate | undefined;
 
@@ -216,9 +214,7 @@ export function resolveLatestReleaseCandidate(
 
 // -- 3/4 CORE · resolveReadOnlyUpdatePlan --
 /** Compose a read-only update decision from GitHub release metadata and current build facts. */
-export function resolveReadOnlyUpdatePlan(
-  input: ReadOnlyUpdatePlanInput,
-): ReadOnlyUpdatePlanResolution {
+export function resolveReadOnlyUpdatePlan(input: ReadOnlyUpdatePlanInput): ReadOnlyUpdatePlanResolution {
   const releaseResolution = resolveLatestReleaseCandidate(input);
   const mode = releaseResolution.mode;
 
@@ -313,20 +309,20 @@ export function resolveReadOnlyUpdatePlan(
 // -- 4/4 HELPER · Normalization and semver ordering --
 type ReleaseAssetResolution =
   | {
-    status: "found";
-    asset: UpdateAssetSelection;
-    releaseAsset: GitHubReleaseAssetMetadata;
-  }
+      status: "found";
+      asset: UpdateAssetSelection;
+      releaseAsset: GitHubReleaseAssetMetadata;
+    }
   | {
-    status: "missing_asset";
-    expectedAsset: UpdateAssetSelection;
-    reason: string;
-  }
+      status: "missing_asset";
+      expectedAsset: UpdateAssetSelection;
+      reason: string;
+    }
   | {
-    status: "unsupported_platform";
-    asset: UpdateAssetSelection;
-    reason: string;
-  };
+      status: "unsupported_platform";
+      asset: UpdateAssetSelection;
+      reason: string;
+    };
 
 function currentBuildVersionError(version: string): string | undefined {
   try {
@@ -353,11 +349,14 @@ function resolveReleaseAsset(input: {
     return {
       status: "unsupported_platform",
       asset,
-      reason: asset.reason ?? `unsupported update asset target: ${input.target.platform}-${input.target.arch}`,
+      reason:
+        asset.reason ?? `unsupported update asset target: ${input.target.platform}-${input.target.arch}`,
     };
   }
 
-  const releaseAsset = input.candidate.assets.find((candidateAsset) => candidateAsset.name === asset.fileName);
+  const releaseAsset = input.candidate.assets.find(
+    (candidateAsset) => candidateAsset.name === asset.fileName,
+  );
   if (releaseAsset === undefined) {
     return {
       status: "missing_asset",

@@ -73,9 +73,7 @@ export interface ComboTeamIdentity {
 export type ComboTeam = Partial<Record<ComboTeamRole, ComboTeamIdentity>>;
 
 export type WorkerPermissionPromptPolicy =
-  | "auto-approve-known-safe"
-  | "recreate-non-interactive"
-  | "escalate";
+  "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
 
 export interface ComboConfig {
   roles: ComboRoles;
@@ -416,7 +414,10 @@ function parseEnvStringArray(value: string, description: string): string[] {
       throw new ComboConfigError(`${description} must be a JSON string array`);
     }
   }
-  const values = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const values = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   if (values.length === 0) {
     throw new ComboConfigError(`${description} must contain at least one string`);
   }
@@ -584,7 +585,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         if (name === "prompt" || name === "ambient" || name === "logins") continue;
         reviewerTemplates = {
           ...reviewerTemplates,
-          [name]: { ...reviewerTemplates[name], ...asTable(entry, `[${section}.${name}] in ${layer.source}`) },
+          [name]: {
+            ...reviewerTemplates[name],
+            ...asTable(entry, `[${section}.${name}] in ${layer.source}`),
+          },
         };
       }
     }
@@ -628,8 +632,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
 
   const env = options.env ?? {};
   const gatekeeperAttachTimeout =
-    env["COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS"] ??
-    env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"];
+    env["COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS"] ?? env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"];
   if (gatekeeperAttachTimeout !== undefined) {
     gatekeeperTable["attach_timeout_seconds"] = gatekeeperAttachTimeout;
   }
@@ -640,8 +643,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     gatekeeperTable["attach_retry_interval_seconds"] = gatekeeperAttachRetryInterval;
   }
   if (env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS"] !== undefined) {
-    gatekeeperTable["initial_gate_retry_attempts"] =
-      env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS"];
+    gatekeeperTable["initial_gate_retry_attempts"] = env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS"];
   }
   if (env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS"] !== undefined) {
     gatekeeperTable["initial_gate_retry_backoff_seconds"] =
@@ -657,8 +659,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     monitorTable["worker_stall_ticks"] = env["COMBO_CHEN_WORKER_STALL_TICKS"];
   }
   if (env["COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS"] !== undefined) {
-    monitorTable["worker_recovery_attempts"] =
-      env["COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS"];
+    monitorTable["worker_recovery_attempts"] = env["COMBO_CHEN_WORKER_RECOVERY_ATTEMPTS"];
   }
   if (env["COMBO_CHEN_WORKER_PERMISSION_PROMPT_PATTERNS"] !== undefined) {
     monitorTable["permission_prompt_patterns"] = parseEnvStringArray(
@@ -700,10 +701,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     );
   }
   if (env["COMBO_CHEN_REVIEWER_LOGINS"] !== undefined) {
-    reviewerLogins = parseEnvStringArray(
-      env["COMBO_CHEN_REVIEWER_LOGINS"],
-      "reviewer.logins",
-    );
+    reviewerLogins = parseEnvStringArray(env["COMBO_CHEN_REVIEWER_LOGINS"], "reviewer.logins");
   }
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
     runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
@@ -744,14 +742,18 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerTemplates[reviewerAgent]?.command,
     `command template for reviewer "${reviewerAgent}"`,
   );
-  const configuredAgents = pickStringArray(externalCommentsTable["agents"], "external_comments.agents")
-    .filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
+  const configuredAgents = pickStringArray(
+    externalCommentsTable["agents"],
+    "external_comments.agents",
+  ).filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const externalCommentAgents = [...new Set([...configuredAgents, ...legacyAmbient])];
   const externalReviewCommands = [
     ...new Set(pickStringArray(externalReviewTable["commands"], "external_review.commands")),
   ];
-  const readyRequiredChecks = [...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks"))];
+  const readyRequiredChecks = [
+    ...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks")),
+  ];
   const prLabelGreenCheckNamesResolved = [
     ...new Set(pickStringArray(prLabelsTable["green_check_names"], "pr_labels.green_check_names")),
   ];
@@ -764,7 +766,11 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   return {
     roles,
     limits: {
-      babysitPollSeconds: pickNumber(limitsTable, "babysit_poll_seconds", DEFAULTS.limits.babysit_poll_seconds),
+      babysitPollSeconds: pickNumber(
+        limitsTable,
+        "babysit_poll_seconds",
+        DEFAULTS.limits.babysit_poll_seconds,
+      ),
       coderTimeoutMinutes: pickNumberAlias(
         limitsTable,
         "coder_timeout_minutes",
@@ -794,14 +800,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     },
     coderCommand,
     coderResumeCommand,
-    gatekeeperCommand: pickNonEmptyString(
-      gatekeeperTable["command"],
-      "command template for [gatekeeper]",
-    ),
-    directorCommand: pickNonEmptyString(
-      directorTable["command"],
-      "command template for [director]",
-    ),
+    gatekeeperCommand: pickNonEmptyString(gatekeeperTable["command"], "command template for [gatekeeper]"),
+    directorCommand: pickNonEmptyString(directorTable["command"], "command template for [director]"),
     gatekeeperAttachTimeoutSeconds: pickNumber(
       gatekeeperTable,
       "attach_timeout_seconds",

@@ -18,9 +18,10 @@
 import type { ActiveComboRuntimeDetection } from "../core/active-runtime.js";
 
 export function sanitizeToken(value: string): string {
-  const singleLine = value
-    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, " ")
-    .trim();
+  //    Unicode categories: Cc = control chars, Cf = format chars (bidi
+  //    overrides, zero-width invisibles). Both are hostile in operator-facing
+  //    single-line output.
+  const singleLine = value.replace(/[\p{Cc}\p{Cf}]+/gu, " ").trim();
   return singleLine.length > 0 ? singleLine : "unknown";
 }
 

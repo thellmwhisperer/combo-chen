@@ -44,9 +44,9 @@ describe("issue identity", () => {
       owner: "example-org",
       repo: "example-repo",
       number: 128,
+    });
   });
-});
-// -/ 2/2
+  // -/ 2/2
 
   it("rejects anything that is not a GitHub issue URL", () => {
     expect(() => parseIssueUrl("https://github.com/o/r/pull/3")).toThrow(ComboStateError);

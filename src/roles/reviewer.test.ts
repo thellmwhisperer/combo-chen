@@ -19,11 +19,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import {
-  ReviewerInvocationError,
-  buildReviewerInvocation,
-  defaultReviewerPrompt,
-} from "./reviewer.js";
+import { ReviewerInvocationError, buildReviewerInvocation, defaultReviewerPrompt } from "./reviewer.js";
 
 const combo = {
   id: "o-r-9",
@@ -57,7 +53,9 @@ describe("defaultReviewerPrompt", () => {
 
     expect(prompt).toContain("gh pr review");
     expect(prompt).toContain("--comment --body");
-    expect(prompt).toContain("Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||");
+    expect(prompt).toContain(
+      "Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||",
+    );
     expect(prompt).toContain("one plain command per tool call");
   });
 
@@ -85,7 +83,6 @@ describe("defaultReviewerPrompt", () => {
     expect(prompt).toContain("contract tests");
     expect(prompt).toContain("surface budget");
   });
-
 });
 
 describe("buildReviewerInvocation", () => {

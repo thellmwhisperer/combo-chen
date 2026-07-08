@@ -139,10 +139,7 @@ describe("extractCodexThreadIdFromJsonl", () => {
   it("returns the thread_id from a thread.started event", () => {
     const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "test.jsonl");
-    writeFileSync(
-      jsonlPath,
-      `{"type":"thread.started","thread_id":"abc-123"}\n`,
-    );
+    writeFileSync(jsonlPath, `{"type":"thread.started","thread_id":"abc-123"}\n`);
     expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("abc-123");
   });
 
@@ -156,30 +153,21 @@ describe("extractCodexThreadIdFromJsonl", () => {
   it("returns undefined when no thread.started event is present", () => {
     const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "no-thread.jsonl");
-    writeFileSync(
-      jsonlPath,
-      `{"type":"tool.call","foo":"bar"}\n{"type":"tool.result","baz":1}\n`,
-    );
+    writeFileSync(jsonlPath, `{"type":"tool.call","foo":"bar"}\n{"type":"tool.result","baz":1}\n`);
     expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
   });
 
   it("returns undefined when thread.started has an empty thread_id", () => {
     const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "empty-thread.jsonl");
-    writeFileSync(
-      jsonlPath,
-      `{"type":"thread.started","thread_id":""}\n`,
-    );
+    writeFileSync(jsonlPath, `{"type":"thread.started","thread_id":""}\n`);
     expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBeUndefined();
   });
 
   it("skips lines with invalid JSON", () => {
     const dir = tempDir("coder-extract-");
     const jsonlPath = join(dir, "bad.jsonl");
-    writeFileSync(
-      jsonlPath,
-      `not valid json\n{"type":"thread.started","thread_id":"abc-123"}\n`,
-    );
+    writeFileSync(jsonlPath, `not valid json\n{"type":"thread.started","thread_id":"abc-123"}\n`);
     expect(extractCodexThreadIdFromJsonl(jsonlPath)).toBe("abc-123");
   });
 
@@ -218,9 +206,7 @@ describe("coder thread artifact", () => {
       thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
       source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
     });
-    expect(JSON.parse(readFileSync(join(runDir, CODER_THREAD_ARTIFACT), "utf8"))).toEqual(
-      artifact,
-    );
+    expect(JSON.parse(readFileSync(join(runDir, CODER_THREAD_ARTIFACT), "utf8"))).toEqual(artifact);
   });
 });
 // -/ 3/3

@@ -18,13 +18,7 @@ import { deepComboStatus, noMistakesAxiStatusActive, parseNoMistakesAxiStatus } 
 describe("parseNoMistakesAxiStatus", () => {
   it("accepts unindented branch and status fields", () => {
     const facts = parseNoMistakesAxiStatus(
-      [
-        "id: e2e-run",
-        "branch: combo/issue-7",
-        "head: abc123",
-        "status: active",
-        "",
-      ].join("\n"),
+      ["id: e2e-run", "branch: combo/issue-7", "head: abc123", "status: active", ""].join("\n"),
     );
 
     expect(facts.branch).toBe("combo/issue-7");
@@ -110,7 +104,6 @@ describe("deepComboStatus", () => {
       "PR head drift: local aaaaaaa differs from PR bbbbbbb; fetch PR head for review or sync combo worktree",
     );
   });
-
 
   it("prioritizes PR head drift over blocking merge state", () => {
     const combo = {

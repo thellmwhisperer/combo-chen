@@ -66,9 +66,7 @@ describe("combo PR label projection", () => {
 
     expect(projection.labels).toEqual([]);
     expect(projection.reason).toBe("pr_not_open");
-    expect(
-      diffComboPrLabels(["bug", "combo:ready", "combo:working-reviewer"], projection.labels),
-    ).toEqual({
+    expect(diffComboPrLabels(["bug", "combo:ready", "combo:working-reviewer"], projection.labels)).toEqual({
       add: [],
       remove: ["combo:working-reviewer", "combo:ready"],
     });
@@ -182,10 +180,7 @@ describe("combo PR label projection", () => {
         pr: {
           state: "OPEN",
           headSha: HEAD,
-          statusCheckRollup: [
-            checkRun("ExternalReview", "FAILURE"),
-            checkRun("ReviewDog", "SUCCESS"),
-          ],
+          statusCheckRollup: [checkRun("ExternalReview", "FAILURE"), checkRun("ReviewDog", "SUCCESS")],
         },
         greenCheckNames: ["ReviewDog"],
       }),
@@ -300,10 +295,7 @@ describe("combo PR label projection", () => {
       pr: {
         state: "OPEN",
         headSha: HEAD,
-        statusCheckRollup: [
-          checkRun("unit", "SUCCESS"),
-          checkRun("ExternalReview", "SUCCESS"),
-        ],
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
       },
       activity: { gateActive: true },
       greenCheckNames: ["ExternalReview"],
@@ -345,10 +337,7 @@ describe("combo PR label projection", () => {
       pr: {
         state: "OPEN",
         headSha: HEAD,
-        statusCheckRollup: [
-          checkRun("unit", "SUCCESS"),
-          checkRun("ExternalReview", "SUCCESS"),
-        ],
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
       },
       greenCheckNames: ["ExternalReview"],
     });
@@ -405,7 +394,11 @@ describe("combo PR label projection", () => {
         return ghOk();
       }
       if (args[0] === "pr" && args[1] === "edit" && args[3] === "--add-label") {
-        liveLabels = liveLabels.concat(String(args[4]).split(",").map((name) => ({ name })));
+        liveLabels = liveLabels.concat(
+          String(args[4])
+            .split(",")
+            .map((name) => ({ name })),
+        );
         return ghOk();
       }
       return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
@@ -480,7 +473,11 @@ describe("combo PR label projection", () => {
         if (addAttempts === 2) {
           return { status: 1, stdout: "", stderr: "'combo:external-review-green' not found" };
         }
-        liveLabels = liveLabels.concat(String(args[4]).split(",").map((name) => ({ name })));
+        liveLabels = liveLabels.concat(
+          String(args[4])
+            .split(",")
+            .map((name) => ({ name })),
+        );
         return ghOk();
       }
       if (args[0] === "label" && args[1] === "create") {

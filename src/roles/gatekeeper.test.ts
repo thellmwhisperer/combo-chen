@@ -51,15 +51,19 @@ describe("buildGatekeeperInvocation", () => {
   });
 
   it("does not match --skip inside single-quoted arguments", () => {
-    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --intent 'use --skip=lint to skip'" })).toBe(
-      "no-mistakes axi run --intent 'use --skip=lint to skip' --skip=ci",
-    );
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: "no-mistakes axi run --intent 'use --skip=lint to skip'",
+      }),
+    ).toBe("no-mistakes axi run --intent 'use --skip=lint to skip' --skip=ci");
   });
 
   it("does not match --skip inside double-quoted arguments", () => {
-    expect(buildGatekeeperInvocation({ gatekeeperCommand: 'no-mistakes axi run --intent "use --skip=lint to skip"' })).toBe(
-      'no-mistakes axi run --intent "use --skip=lint to skip" --skip=ci',
-    );
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: 'no-mistakes axi run --intent "use --skip=lint to skip"',
+      }),
+    ).toBe('no-mistakes axi run --intent "use --skip=lint to skip" --skip=ci');
   });
 
   it("does not let escaped quotes expose --skip text inside quoted arguments", () => {
@@ -71,15 +75,19 @@ describe("buildGatekeeperInvocation", () => {
   });
 
   it("modifies real --skip outside quotes while ignoring --skip inside quotes", () => {
-    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip=lint --intent 'use --skip=test'" })).toBe(
-      "no-mistakes axi run --skip=lint,ci --intent 'use --skip=test'",
-    );
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: "no-mistakes axi run --skip=lint --intent 'use --skip=test'",
+      }),
+    ).toBe("no-mistakes axi run --skip=lint,ci --intent 'use --skip=test'");
   });
 
   it("handles --skip with quoted value outside of intent quotes", () => {
-    expect(buildGatekeeperInvocation({ gatekeeperCommand: "no-mistakes axi run --skip='lint,test' --intent 'some value'" })).toBe(
-      "no-mistakes axi run --skip='lint,test,ci' --intent 'some value'",
-    );
+    expect(
+      buildGatekeeperInvocation({
+        gatekeeperCommand: "no-mistakes axi run --skip='lint,test' --intent 'some value'",
+      }),
+    ).toBe("no-mistakes axi run --skip='lint,test,ci' --intent 'some value'");
   });
 
   it("scopes publish-only skip rewrites to the no-mistakes command segment", () => {

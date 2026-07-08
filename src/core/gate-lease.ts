@@ -45,9 +45,7 @@ export type GateLeaseAcquireResult =
   | { state: "same_branch_conflict"; lease: GateLeaseRecord };
 
 export type GateLeaseReleaseResult =
-  | { state: "released" }
-  | { state: "missing" }
-  | { state: "not_owner"; lease: GateLeaseRecord };
+  { state: "released" } | { state: "missing" } | { state: "not_owner"; lease: GateLeaseRecord };
 
 const DEFAULT_GATE_LEASE_STALE_MS = 30 * 60 * 1000;
 
@@ -118,9 +116,7 @@ function readGateLeaseEntries(home: string): GateLeaseEntry[] {
   if (
     legacy !== undefined &&
     !entries.some(
-      (entry) =>
-        entry.lease.comboId === legacy.lease.comboId ||
-        entry.lease.branch === legacy.lease.branch,
+      (entry) => entry.lease.comboId === legacy.lease.comboId || entry.lease.branch === legacy.lease.branch,
     )
   ) {
     entries.push(legacy);
@@ -226,9 +222,7 @@ function writeGateLeaseEntry(entry: GateLeaseEntry, lease: GateLeaseRecord): voi
 }
 
 export type GateLeaseHeartbeatResult =
-  | { state: "ok" }
-  | { state: "missing" }
-  | { state: "not_owner"; lease: GateLeaseRecord };
+  { state: "ok" } | { state: "missing" } | { state: "not_owner"; lease: GateLeaseRecord };
 
 export function heartbeatGateLease(options: {
   home: string;

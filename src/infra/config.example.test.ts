@@ -85,7 +85,9 @@ describe("combo-chen.example.toml", () => {
     expect(gitignore).toContain(".no-mistakes.yaml is intentionally tracked");
     expect(docs).toContain("repo-level `.no-mistakes.yaml`");
     expect(docs).toContain("intentionally tracked");
-    expect(docs).not.toMatch(/ignored local `\.no-mistakes\.yaml`|Do not stage or commit `\.no-mistakes\.yaml`/);
+    expect(docs).not.toMatch(
+      /ignored local `\.no-mistakes\.yaml`|Do not stage or commit `\.no-mistakes\.yaml`/,
+    );
   });
 
   it("documents the parallelize-first operating protocol", () => {
@@ -97,7 +99,9 @@ describe("combo-chen.example.toml", () => {
     expect(readme).toContain("## Parallelize-First Operating Protocol");
     expect(spec).toContain("## 8b. Parallelize-first operating contract");
     expect(docs).toContain("Start with 2 live capsules, then 3, then 4 to 6");
-    expect(docs).toContain("each capsule keeps one branch, one worktree, one tmux session, and one runtime ledger");
+    expect(docs).toContain(
+      "each capsule keeps one branch, one worktree, one tmux session, and one runtime ledger",
+    );
     expect(docs).toContain("branch-scoped gate leases keep no-mistakes publication single-owner per branch");
     expect(lowerDocs).toContain("parked combos");
     expect(lowerDocs).toContain("pre-pr coder stalls");
@@ -158,7 +162,9 @@ describe("combo-chen.example.toml", () => {
     const spec = normalizeDoc(readFileSync(SPEC, "utf8"));
 
     expect(spec).toContain("when the run directory is available");
-    expect(spec).toContain("A run-directory collision blocks launch before an overture artifact can be written");
+    expect(spec).toContain(
+      "A run-directory collision blocks launch before an overture artifact can be written",
+    );
   });
 
   it("documents both issue and plan direct overture commands in the launch skill", () => {

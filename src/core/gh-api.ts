@@ -54,11 +54,7 @@ function classifyGhFailure(result: GhCommandResult): GhFailureClassification {
   if (/\brate[-\s]?limit(?:ed)?\b|secondary rate limit|api rate limit/.test(text)) {
     return { kind: "rate_limit", transient: true, status: result.status, detail };
   }
-  if (
-    /timed?\s*out|timeout|could not resolve host|failed to connect|connection reset|network/.test(
-      text,
-    )
-  ) {
+  if (/timed?\s*out|timeout|could not resolve host|failed to connect|connection reset|network/.test(text)) {
     return { kind: "network", transient: true, status: result.status, detail };
   }
   if (/bad credentials|requires authentication|not authenticated|unauthorized|oauth|token/.test(text)) {
@@ -83,11 +79,7 @@ function formatGhFailure(prefix: string, result: GhCommandResult): string {
 // -/ 1/2
 
 // -- 2/2 CORE · readGhArray <- START HERE --
-export function readGhArray(
-  gh: GhCommandRunner,
-  endpoint: string,
-  cache?: GhApiCache,
-): unknown[] {
+export function readGhArray(gh: GhCommandRunner, endpoint: string, cache?: GhApiCache): unknown[] {
   const cached = cache?.get(endpoint);
   if (cached !== undefined) return cached;
 
@@ -112,7 +104,7 @@ export function readGhArray(
       parsed = JSON.parse(chunk);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`gh api returned invalid JSON for ${endpoint}: ${message}`);
+      throw new Error(`gh api returned invalid JSON for ${endpoint}: ${message}`, { cause: error });
     }
     if (Array.isArray(parsed)) {
       values.push(...parsed);

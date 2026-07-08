@@ -55,10 +55,10 @@ describe("buildDirectorWatchCommand", () => {
     expect(command).toContain("reviewer: transient_failure:");
     expect(command).toContain("watch_error");
     expect(command).toContain("watch_dead");
-    expect(command).toContain('watcher=director');
+    expect(command).toContain("watcher=director");
     expect(command).not.toContain("watcher=reviewer");
     expect(command).toContain('[ "$failures" -ge 3 ]');
-    expect(command).toContain("sleep \"$backoff\"");
+    expect(command).toContain('sleep "$backoff"');
   });
 });
 // -/ 2/2

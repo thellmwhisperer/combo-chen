@@ -134,7 +134,9 @@ describe("work-plan normalization", () => {
     });
 
     const artifact = renderWorkPlanMarkdown(plan);
-    expect(artifact).toContain("# Accept generic plans\n\nSource: github_issue https://github.com/o/r/issues/134");
+    expect(artifact).toContain(
+      "# Accept generic plans\n\nSource: github_issue https://github.com/o/r/issues/134",
+    );
     expect(artifact).toContain("## Problem / Context\n_Not specified._");
     expect(artifact).toContain("## Acceptance Criteria\n- Issue runs still work.");
     expect(artifact).toContain("## Human Intent Decisions\n_Not specified._");

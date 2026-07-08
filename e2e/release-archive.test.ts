@@ -36,8 +36,9 @@ import { produceReleaseAssets } from "../src/infra/release-producer.js";
 
 // -- 1/2 HELPER · produce + extract + run --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const packageVersion = (JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version: string })
-  .version;
+const packageVersion = (
+  JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as { version: string }
+).version;
 
 const cleanupDirs: string[] = [];
 
@@ -46,7 +47,12 @@ function produceAndExtract(): string {
   cleanupDirs.push(root);
   const outDir = join(root, "assets");
   const target = { platform: "darwin", arch: "arm64" };
-  const produced = produceReleaseAssets({ repoDir: repoRoot, outDir, version: packageVersion, targets: [target] });
+  const produced = produceReleaseAssets({
+    repoDir: repoRoot,
+    outDir,
+    version: packageVersion,
+    targets: [target],
+  });
   const asset = produced.assets[0];
   if (asset === undefined) throw new Error("release producer returned no asset");
   const extract = spawnSync("tar", ["-xzf", asset.filePath, "-C", root], { encoding: "utf8" });

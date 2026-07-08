@@ -139,10 +139,7 @@ export function readCombo(runDir: string): ComboRecord {
   return JSON.parse(readFileSync(path, "utf8")) as ComboRecord;
 }
 
-export function listCombos(
-  home: string,
-  onCorrupt?: (id: string, error: unknown) => void,
-): ComboRecord[] {
+export function listCombos(home: string, onCorrupt?: (id: string, error: unknown) => void): ComboRecord[] {
   const runsDir = join(home, "runs");
   if (!existsSync(runsDir)) return [];
   const combos: ComboRecord[] = [];

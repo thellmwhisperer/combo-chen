@@ -35,16 +35,10 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  detectActiveComboRuntime,
-  type ActiveComboRuntimeDetection,
-} from "../core/active-runtime.js";
+import { detectActiveComboRuntime, type ActiveComboRuntimeDetection } from "../core/active-runtime.js";
 import { errorMessage, isRecord } from "../core/guards.js";
 import { comboHome } from "../core/state.js";
-import {
-  classifyInstallTarget,
-  type CurrentBuildMetadata,
-} from "../core/update-contract.js";
+import { classifyInstallTarget, type CurrentBuildMetadata } from "../core/update-contract.js";
 import {
   replaceInstallTargetFromStagedArtifact,
   type InstallReplacementInput,
@@ -64,10 +58,7 @@ import {
 } from "../core/update-staging.js";
 import { RELEASE_CHECKSUMS_FILE } from "../core/release-artifacts.js";
 import { releaseMetadata } from "../infra/release-metadata.js";
-import {
-  refreshPostUpdateLocalState,
-  type PostUpdateRefreshResult,
-} from "./update-refresh.js";
+import { refreshPostUpdateLocalState, type PostUpdateRefreshResult } from "./update-refresh.js";
 import { formatComboList } from "./display.js";
 
 // -- 1/3 HELPER · command dependency contract --
@@ -168,7 +159,8 @@ export function defaultUpdateCommandDeps(input: {
             encoding: "utf8",
             timeout: postUpdateDaemonRefreshTimeoutMs(input.env ?? process.env),
           });
-          const stderr = (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
+          const stderr =
+            (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
           return {
             status: result.status ?? 1,
             stdout: result.stdout ?? "",
@@ -221,7 +213,9 @@ export async function runUpdateCommand(options: UpdateCommandOptions): Promise<v
     throw new Error(`release ${plan.candidate.tagName} is missing the selected update archive`);
   }
 
-  const checksumsAsset = plan.candidate.assets.find((candidateAsset) => candidateAsset.name === RELEASE_CHECKSUMS_FILE);
+  const checksumsAsset = plan.candidate.assets.find(
+    (candidateAsset) => candidateAsset.name === RELEASE_CHECKSUMS_FILE,
+  );
 
   const candidateVersion = plan.candidate.normalized.version;
   options.deps.out(`update available: combo-chen ${plan.current.version} -> ${candidateVersion} (${mode})`);
@@ -299,7 +293,7 @@ export function fetchGitHubReleases(
   try {
     parsed = JSON.parse(result.stdout);
   } catch (error) {
-    throw new Error(`gh release query returned invalid JSON: ${errorMessage(error)}`);
+    throw new Error(`gh release query returned invalid JSON: ${errorMessage(error)}`, { cause: error });
   }
 
   if (!Array.isArray(parsed)) {
@@ -322,7 +316,9 @@ function enforceActiveRuntimeSafety(input: {
   }
 }
 
-function detectActiveRuntimeForUpdate(activeRuntime: UpdateCommandDeps["activeRuntime"]): ActiveComboRuntimeDetection {
+function detectActiveRuntimeForUpdate(
+  activeRuntime: UpdateCommandDeps["activeRuntime"],
+): ActiveComboRuntimeDetection {
   try {
     return activeRuntime();
   } catch (error) {
@@ -415,7 +411,10 @@ function defaultExtractArchive(input: UpdateExtractionInput): UpdateExtractionRe
   if ((listed.status ?? 1) !== 0) {
     throw new Error(`tar list failed: ${listed.stderr.trim() || "unknown error"}`);
   }
-  const archiveFiles = listed.stdout.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+  const archiveFiles = listed.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
   const rootName = archiveRootName(input.assetFileName, archiveFiles);
 
   const extracted = spawnSync("tar", ["-xzf", input.archivePath, "-C", input.destinationDir], {

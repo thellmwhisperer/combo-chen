@@ -3,6 +3,7 @@ name: sherpa
 description: Read, write, and maintain the Sherpa navigable-comment standard on any source file, in any language, in any project, with no dependencies. Use when reading an unfamiliar file to navigate it efficiently, when asked to "apply sherpa"/"hazme sherpa"/"add reading guide", when project instructions require Sherpa before code edits, and when editing a file that already carries Sherpa (keep the map in sync).
 user-invocable: true
 ---
+
 # Sherpa — navigable code comment standard
 
 A commenting discipline for the agent era. A reader (human or agent) opens a
@@ -31,7 +32,7 @@ prescribes a comment style; it adapts to the file:
 - Module docstring for Python (`""" … """`, after shebang/encoding, before imports)
 - Contiguous line-comment block for shell, Ruby, Perl, etc. (`#`)
 
-The *content* of the header is identical across languages; only the comment
+The _content_ of the header is identical across languages; only the comment
 delimiters and the inline-marker prefix change.
 
 ## Header content
@@ -120,15 +121,15 @@ construct, listing its internal sections and their key members.
 
 A stale Sherpa map is worse than none. On every edit, update the map.
 
-| Change to code | Sherpa update |
-|---|---|
-| Add a public symbol | Add to `@exports` and PUBLIC API |
-| Remove a public symbol | Remove from `@exports` and PUBLIC API |
-| Rename a symbol | Update every header reference |
-| Add/remove a dependency | Update `@deps` |
-| Add a logical section | Insert marker pair; renumber if using `/M` |
-| Merge sections | Remove marker pair; renumber if needed |
-| CORE entry changes | Update READING GUIDE #1 and START HERE marker |
+| Change to code          | Sherpa update                                 |
+| ----------------------- | --------------------------------------------- |
+| Add a public symbol     | Add to `@exports` and PUBLIC API              |
+| Remove a public symbol  | Remove from `@exports` and PUBLIC API         |
+| Rename a symbol         | Update every header reference                 |
+| Add/remove a dependency | Update `@deps`                                |
+| Add a logical section   | Insert marker pair; renumber if using `/M`    |
+| Merge sections          | Remove marker pair; renumber if needed        |
+| CORE entry changes      | Update READING GUIDE #1 and START HERE marker |
 
 Self-check before committing: `@exports` matches actual exports, every symbol
 resolves, markers in order with no gaps, CORE has START HERE, PUBLIC API complete.

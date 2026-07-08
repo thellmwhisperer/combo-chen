@@ -274,16 +274,8 @@ export function latestGitHubLgtmSha(
   const ref = parseGitHubPullRequestUrl(prUrl);
   if (!ref) return undefined;
 
-  const comments = readGhArray(
-    gh,
-    `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`,
-    cache,
-  );
-  const reviews = readGhArray(
-    gh,
-    `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
-    cache,
-  );
+  const comments = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`, cache);
+  const reviews = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`, cache);
   const pins = [...pinsFromItems(comments, options), ...pinsFromItems(reviews, options)];
   pins.sort((a, b) => a.t - b.t);
   return pins.at(-1)?.sha;
@@ -299,23 +291,17 @@ export function latestGitHubReviewerVerdict(
   const ref = parseGitHubPullRequestUrl(prUrl);
   if (!ref) return undefined;
 
-  const comments = readGhArray(
-    gh,
-    `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`,
-    cache,
-  );
-  const reviews = readGhArray(
-    gh,
-    `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`,
-    cache,
-  );
+  const comments = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`, cache);
+  const reviews = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`, cache);
   const verdicts = [
     ...reviewerVerdictsFromItems(comments, currentHeadSha, options),
     ...reviewerVerdictsFromItems(reviews, currentHeadSha, options),
   ];
   verdicts.sort((a, b) => a.t - b.t);
   const latest = verdicts.at(-1);
-  return latest === undefined ? undefined : { headSha: latest.headSha, code: latest.code, author: latest.author };
+  return latest === undefined
+    ? undefined
+    : { headSha: latest.headSha, code: latest.code, author: latest.author };
 }
 // -/ 3/5
 
@@ -339,7 +325,9 @@ function upperNonEmpty(value: string | undefined): string | undefined {
   return value === undefined || value.trim() === "" ? undefined : value.trim().toUpperCase();
 }
 
-export function blockingReadyMergeState(prView: Pick<PrView, "mergeStateStatus" | "mergeable">): string | undefined {
+export function blockingReadyMergeState(
+  prView: Pick<PrView, "mergeStateStatus" | "mergeable">,
+): string | undefined {
   const mergeStateStatus = upperNonEmpty(prView.mergeStateStatus);
   if (mergeStateStatus !== undefined && READY_BLOCKING_MERGE_STATES.has(mergeStateStatus)) {
     return mergeStateStatus;
@@ -356,7 +344,12 @@ export function parsePrView(stdout: string): PrView {
   try {
     parsed = JSON.parse(stdout);
   } catch (error) {
-    throw new Error(`gh pr view returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `gh pr view returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        cause: error,
+      },
+    );
   }
 
   if (
@@ -524,7 +517,10 @@ function rollupSignal(
   return "unknown";
 }
 
-function rollupAmbientSignal(rollup: unknown[] | undefined, ambientCheckNames: string[]): GithubSignalState | undefined {
+function rollupAmbientSignal(
+  rollup: unknown[] | undefined,
+  ambientCheckNames: string[],
+): GithubSignalState | undefined {
   if (rollup === undefined || ambientCheckNames.length === 0) return undefined;
   const items = rollup.filter((item) => checkNameMatchesAny(item, ambientCheckNames));
   if (items.length === 0) return "unknown";
@@ -570,7 +566,14 @@ const FAILURE_CHECK_CONCLUSIONS = new Set([
 ]);
 const SUCCESSFUL_STATUS_STATES = new Set(["SUCCESS", "COMPLETED"]);
 const FAILURE_STATUS_STATES = new Set(["ERROR", "FAILURE", "FAILED", "CANCELLED", "TIMED_OUT"]);
-const PENDING_STATUS_STATES = new Set(["EXPECTED", "IN_PROGRESS", "PENDING", "QUEUED", "REQUESTED", "WAITING"]);
+const PENDING_STATUS_STATES = new Set([
+  "EXPECTED",
+  "IN_PROGRESS",
+  "PENDING",
+  "QUEUED",
+  "REQUESTED",
+  "WAITING",
+]);
 
 function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;

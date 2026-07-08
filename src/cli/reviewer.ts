@@ -106,6 +106,7 @@ export function activateReviewer(input: {
     throw new Error(
       `tmux failed to start reviewer in "${combo.tmuxSession}": ` +
         `${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 
@@ -225,7 +226,10 @@ export async function tickReviewer(input: {
       nudgeReviewComments({ deps, home, comboId, ghApiCache });
       return;
     }
-    if (reviewerVerdict?.code === 2 && !events.some((e) => e.event === "director_prompted" && e["sha"] === headSha)) {
+    if (
+      reviewerVerdict?.code === 2 &&
+      !events.some((e) => e.event === "director_prompted" && e["sha"] === headSha)
+    ) {
       try {
         promptDirector({
           deps,
@@ -248,7 +252,10 @@ export async function tickReviewer(input: {
       }
       return;
     }
-    if (reviewerVerdict?.code === 3 && !events.some((e) => e.event === "needs_human" && e["sha"] === headSha)) {
+    if (
+      reviewerVerdict?.code === 3 &&
+      !events.some((e) => e.event === "needs_human" && e["sha"] === headSha)
+    ) {
       appendEvent(runDir, "needs_human", {
         reason: "reviewer_needs_human",
         sha: headSha,
@@ -318,6 +325,7 @@ export async function tickReviewer(input: {
     throw new Error(
       `tmux failed to start reviewer re-review in "${combo.tmuxSession}": ` +
         `${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 
@@ -338,9 +346,9 @@ function reviewerWorkPlan(runDir: string, combo: ComboRecord): WorkPlan | undefi
 }
 
 function hasCompleteWorkItemMetadata(combo: ComboRecord): boolean {
-  const reference = cleanOptional(combo.workItemSourceReference) ?? (
-    combo.workItemSourceType === "github_issue" ? cleanOptional(combo.issueUrl) : undefined
-  );
+  const reference =
+    cleanOptional(combo.workItemSourceReference) ??
+    (combo.workItemSourceType === "github_issue" ? cleanOptional(combo.issueUrl) : undefined);
   return combo.workItemSourceType !== undefined && reference !== undefined;
 }
 
@@ -378,7 +386,9 @@ function windowLooksIdle(
 ): boolean {
   const captured = deps.tmux(captureWindowArgs(combo.tmuxSession, windowName));
   if (captured.status !== 0) return false;
-  return captured.stdout.includes(`[combo-chen] ${windowName} window idle; waiting for combo-chen to prompt it.`);
+  return captured.stdout.includes(
+    `[combo-chen] ${windowName} window idle; waiting for combo-chen to prompt it.`,
+  );
 }
 
 export function latestOpenedPrUrl(runDir: string): string | undefined {

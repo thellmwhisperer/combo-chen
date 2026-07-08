@@ -100,11 +100,7 @@ export function renameWindowArgs(session: string, windowName: string, title: str
 // -/ 1/3
 
 // -- 2/3 HELPER · nudgeWindowArgs (paste-buffer path) --
-export function nudgeWindowArgs(
-  session: string,
-  windowName: string,
-  prompt: string,
-): string[][] {
+export function nudgeWindowArgs(session: string, windowName: string, prompt: string): string[][] {
   const target = `${session}:${windowName}`;
   const buffer = nudgeBufferName(session, windowName);
   return [

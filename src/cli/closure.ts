@@ -121,8 +121,7 @@ export async function closeMergedCombo(input: {
     });
   } catch (error) {
     input.deps.out(
-      `closure: ${combo.id} teardown pending: ` +
-        `${error instanceof Error ? error.message : String(error)}`,
+      `closure: ${combo.id} teardown pending: ` + `${error instanceof Error ? error.message : String(error)}`,
     );
     return;
   }
@@ -194,10 +193,7 @@ function closedSessionCompletion(session: KillComboSessionResult | Error): strin
   return session === "already_missing" ? "tmux session already gone" : "tmux session killed";
 }
 
-function closureCompletion(
-  teardown: TeardownMergedComboResult,
-  session: KillComboSessionResult,
-): string {
+function closureCompletion(teardown: TeardownMergedComboResult, session: KillComboSessionResult): string {
   const alreadyConverged = [
     teardown.worktree === "already_removed" ? "worktree already removed" : undefined,
     teardown.branch === "already_deleted" ? "branch already deleted" : undefined,

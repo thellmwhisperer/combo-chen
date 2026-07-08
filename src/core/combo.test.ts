@@ -41,7 +41,6 @@ function runnerSubprocessEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 
 // -- 1/2 CORE · Phase derivation tests (deriveStatus) --
 
-
 describe("deriveStatus", () => {
   it("starts in SETUP", () => {
     expect(deriveStatus([]).phase).toBe("SETUP");
@@ -294,7 +293,9 @@ describe("buildRunnerScript", () => {
       gateLeaseRelease: "combo-chen gate-lease release -n o-r-7",
     });
 
-    const acquire = leased.indexOf('combo-chen gate-lease acquire -n o-r-7 --head-sha "$gatekeeper_start_sha"');
+    const acquire = leased.indexOf(
+      'combo-chen gate-lease acquire -n o-r-7 --head-sha "$gatekeeper_start_sha"',
+    );
     const fixInflight = leased.indexOf("gate_status --field state=fix_inflight");
     const gatekeeper = leased.indexOf("no-mistakes axi run");
 
@@ -316,9 +317,9 @@ describe("buildRunnerScript", () => {
 
   it("runs the coder directly in the tmux TTY without teeing a TUI log", () => {
     expect(script).not.toContain("coder_log=");
-    expect(script).not.toContain("tee \"$coder_log\"");
+    expect(script).not.toContain('tee "$coder_log"');
     expect(script).not.toContain("2>&1 | tee");
-    expect(script).toContain('code=$(cat "$coder_status" 2>/dev/null || printf \'1\')');
+    expect(script).toContain("code=$(cat \"$coder_status\" 2>/dev/null || printf '1')");
 
     const coder = script.indexOf("gnhf");
     const statusWrite = script.indexOf('printf \'%s\\n\' "$coder_code" > "$coder_status"');
@@ -632,7 +633,9 @@ exit 1
       `gate_status --field state=failed --field head_sha=${localHead}`,
       "gate_failed --field exit_code=1 --field reason=gate_failed",
     ]);
-    expect(readFileSync(join(daemonWorktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
+    expect(readFileSync(join(daemonWorktree, ".no-mistakes.yaml"), "utf8")).toBe(
+      "commands:\n  test: pnpm test\n",
+    );
   });
 
   it("does not recover when config copy fails and gatekeeper exits non-zero with checks-passed+context-canceled", () => {
@@ -799,10 +802,6 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
     const fakeGh = join(bin, "gh");
     writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
     chmodSync(fakeGh, 0o755);
-    const mirrorIntent = Buffer.from(
-      "Implement GitHub issue https://github.com/o/r/issues/7. Title: Demo Fixes #7",
-      "utf8",
-    ).toString("base64");
 
     const runnerPath = join(dir, "runner.sh");
     writeFileSync(
@@ -1979,9 +1978,11 @@ exit 0
     const gatekeeperPath = join(dir, "gatekeeper.sh");
     writeFileSync(
       gatekeeperPath,
-      ["#!/bin/sh", "set -u", ...buildNoMistakesGatekeeperRunScript("true", { expectedBranch: "combo/issue-7" })].join(
-        "\n",
-      ),
+      [
+        "#!/bin/sh",
+        "set -u",
+        ...buildNoMistakesGatekeeperRunScript("true", { expectedBranch: "combo/issue-7" }),
+      ].join("\n"),
     );
     chmodSync(gatekeeperPath, 0o755);
 
@@ -2000,7 +2001,9 @@ exit 0
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("no-mistakes config copy failed: gatekeeper finished before config copy");
-    expect(readFileSync(join(daemonWorktree, ".no-mistakes.yaml"), "utf8")).toBe("commands:\n  test: pnpm test\n");
+    expect(readFileSync(join(daemonWorktree, ".no-mistakes.yaml"), "utf8")).toBe(
+      "commands:\n  test: pnpm test\n",
+    );
   });
 
   it("exits the gate subshell when the mirror push fails, preventing the gatekeeper command from running", () => {
@@ -2197,110 +2200,114 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
     expect(readFileSync(join(dir, "gatekeeper.log"), "utf8")).toBe(gateToon);
   });
 
-  it("emits coder_failed with branch-vs-base commit evidence when a coder commits then exits nonzero", { timeout: 30000 }, () => {
-    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
-    const worktree = join(dir, "worktree");
-    const bin = join(dir, "bin");
-    mkdirSync(worktree, { recursive: true });
-    mkdirSync(bin, { recursive: true });
+  it(
+    "emits coder_failed with branch-vs-base commit evidence when a coder commits then exits nonzero",
+    { timeout: 30000 },
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+      const worktree = join(dir, "worktree");
+      const bin = join(dir, "bin");
+      mkdirSync(worktree, { recursive: true });
+      mkdirSync(bin, { recursive: true });
 
-    for (const args of [
-      ["init"],
-      ["config", "user.email", "codex@example.com"],
-      ["config", "user.name", "Codex"],
-    ]) {
-      const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
-      expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
-    }
-    writeFileSync(join(worktree, "README.md"), "base\n");
-    for (const args of [
-      ["add", "README.md"],
-      ["commit", "-m", "base"],
-    ]) {
-      const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
-      expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
-    }
-    const origin = join(dir, "origin.git");
-    for (const args of [
-      ["init", "--bare", origin],
-      ["branch", "-M", "main"],
-      ["remote", "add", "origin", origin],
-      ["push", "-u", "origin", "main"],
-    ]) {
-      const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
-      expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
-    }
-    const baseSha = spawnSync("git", ["rev-parse", "HEAD"], {
-      cwd: worktree,
-      encoding: "utf8",
-    }).stdout.trim();
+      for (const args of [
+        ["init"],
+        ["config", "user.email", "codex@example.com"],
+        ["config", "user.name", "Codex"],
+      ]) {
+        const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
+        expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+      }
+      writeFileSync(join(worktree, "README.md"), "base\n");
+      for (const args of [
+        ["add", "README.md"],
+        ["commit", "-m", "base"],
+      ]) {
+        const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
+        expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+      }
+      const origin = join(dir, "origin.git");
+      for (const args of [
+        ["init", "--bare", origin],
+        ["branch", "-M", "main"],
+        ["remote", "add", "origin", origin],
+        ["push", "-u", "origin", "main"],
+      ]) {
+        const result = spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
+        expect({ args, status: result.status, stderr: result.stderr }).toMatchObject({ status: 0 });
+      }
+      const baseSha = spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: worktree,
+        encoding: "utf8",
+      }).stdout.trim();
 
-    const eventsPath = join(dir, "events.log");
-    const fakeEmit = join(bin, "emit");
-    writeFileSync(
-      fakeEmit,
-      `#!/bin/sh
+      const eventsPath = join(dir, "events.log");
+      const fakeEmit = join(bin, "emit");
+      writeFileSync(
+        fakeEmit,
+        `#!/bin/sh
 printf '%s\\n' "$*" >> "$EVENTS_LOG"
 `,
-    );
-    chmodSync(fakeEmit, 0o755);
+      );
+      chmodSync(fakeEmit, 0o755);
 
-    const fakeCoder = join(bin, "fake-coder");
-    writeFileSync(
-      fakeCoder,
-      `#!/bin/sh
+      const fakeCoder = join(bin, "fake-coder");
+      writeFileSync(
+        fakeCoder,
+        `#!/bin/sh
 printf 'coder change\\n' > coder.txt
 git add coder.txt
 git commit -m 'coder change'
 exit 130
 `,
-    );
-    chmodSync(fakeCoder, 0o755);
+      );
+      chmodSync(fakeCoder, 0o755);
 
-    const runnerPath = join(dir, "runner.sh");
-    writeFileSync(
-      runnerPath,
-      buildRunnerScript({
-        combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
-        gatekeeperCommand: "true",
-        emit: shellQuote(fakeEmit),
-        activateCoder: ":",
-        activateReviewer: ":",
-      }),
-    );
-    chmodSync(runnerPath, 0o755);
+      const runnerPath = join(dir, "runner.sh");
+      writeFileSync(
+        runnerPath,
+        buildRunnerScript({
+          combo: { ...combo, worktree },
+          coderCommand: shellQuote(fakeCoder),
+          gatekeeperCommand: "true",
+          emit: shellQuote(fakeEmit),
+          activateCoder: ":",
+          activateReviewer: ":",
+        }),
+      );
+      chmodSync(runnerPath, 0o755);
 
-    const result = spawnSync("sh", [runnerPath], {
-      encoding: "utf8",
-      env: runnerSubprocessEnv({
-        EVENTS_LOG: eventsPath,
-        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      }),
-    });
-    const headSha = spawnSync("git", ["rev-parse", "HEAD"], {
-      cwd: worktree,
-      encoding: "utf8",
-    }).stdout.trim();
+      const result = spawnSync("sh", [runnerPath], {
+        encoding: "utf8",
+        env: runnerSubprocessEnv({
+          EVENTS_LOG: eventsPath,
+          PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+        }),
+      });
+      const headSha = spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: worktree,
+        encoding: "utf8",
+      }).stdout.trim();
 
-    expect({ status: result.status, stderr: result.stderr }).toEqual({
-      status: 130,
-      stderr: "",
-    });
-    expect(result.stdout).toContain("coder change");
-    expect(result.stdout).toContain("1 file changed");
-    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "coder_started",
-      [
-        "coder_failed",
-        "--field exit_code=130",
-        "--field has_new_commits=true",
-        `--field base_sha=${baseSha}`,
-        `--field head_sha=${headSha}`,
-        "--field new_commit_count=1",
-      ].join(" "),
-    ]);
-  });
+      expect({ status: result.status, stderr: result.stderr }).toEqual({
+        status: 130,
+        stderr: "",
+      });
+      expect(result.stdout).toContain("coder change");
+      expect(result.stdout).toContain("1 file changed");
+      expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+        "coder_started",
+        [
+          "coder_failed",
+          "--field exit_code=130",
+          "--field has_new_commits=true",
+          `--field base_sha=${baseSha}`,
+          `--field head_sha=${headSha}`,
+          "--field new_commit_count=1",
+        ].join(" "),
+      ]);
+    },
+  );
 
   it("detects the PR by branch", () => {
     expect(script).toContain("--head 'combo/issue-7'");
@@ -2331,7 +2338,7 @@ exit 130
   it("blocks the handoff when the PR autoclose guard fails", () => {
     expect(script).toContain('autoclose_log="$(dirname "$0")/autoclose.log"');
     expect(script).toContain('> "$autoclose_log" 2>&1; then');
-    expect(script).toContain('autoclose_code=$?');
+    expect(script).toContain("autoclose_code=$?");
     expect(script).toContain('pr_autoclose_failed --field exit_code="$autoclose_code" --field url="$pr_url"');
     expect(script).toContain('exit "$autoclose_code"');
     expect(script).not.toContain("autoclose guard skipped");
