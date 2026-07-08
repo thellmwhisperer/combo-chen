@@ -28,6 +28,7 @@ import {
   externalReviewSkippedByConfiguredAgent,
   requiredChecksSucceeded,
 } from "./checks.js";
+import { yesNo } from "./display.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -106,7 +107,8 @@ function phaseAge(events: ComboEvent[], now: Date): string {
 
 function formatPr(pr: DirectorWatchPrSnapshot | undefined, prUrl: string | undefined): string {
   if (pr !== undefined) {
-    const suffix = pr.mergeStateStatus ? `:${pr.mergeStateStatus}` : pr.mergeable ? `:${pr.mergeable}` : "";
+    const mergeSignal = pr.mergeStateStatus || pr.mergeable;
+    const suffix = mergeSignal ? `:${mergeSignal}` : "";
     return pr.headSha === undefined ? `${pr.state}${suffix}` : `${pr.state}${suffix}@${shortSha(pr.headSha)}`;
   }
   return prUrl === undefined ? "none" : "unknown";
@@ -158,25 +160,17 @@ function readinessFacts(input: DirectorWatchStatusLineInput): ReadinessFacts {
 
   return {
     pr: prReadyState(prState),
-    gate: headSha === undefined ? "unknown" : gateReady(input.events, headSha) ? "yes" : "no",
+    gate: headSha === undefined ? "unknown" : yesNo(gateReady(input.events, headSha)),
     reviewer:
-      headSha === undefined
-        ? "unknown"
-        : shaMatchesHead(livePinnedLgtmSha(input.events), headSha)
-          ? "yes"
-          : "no",
+      headSha === undefined ? "unknown" : yesNo(shaMatchesHead(livePinnedLgtmSha(input.events), headSha)),
     checks:
       rollup === undefined
         ? "unknown"
-        : !externalReviewSkipped && requiredChecksSucceeded(rollup, requiredCheckNames)
-          ? "yes"
-          : "no",
+        : yesNo(!externalReviewSkipped && requiredChecksSucceeded(rollup, requiredCheckNames)),
     ci:
       rollup === undefined
         ? "unknown"
-        : checkRollupSucceeded(rollup, { requiredCheckNames, ambientCheckNames })
-          ? "yes"
-          : "no",
+        : yesNo(checkRollupSucceeded(rollup, { requiredCheckNames, ambientCheckNames })),
   };
 }
 

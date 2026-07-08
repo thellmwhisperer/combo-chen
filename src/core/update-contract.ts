@@ -355,11 +355,12 @@ export function compareReleaseCandidate(input: {
   }
   const order = compareNormalizedReleaseVersions(candidate, current);
 
-  return {
-    state: order > 0 ? "update_available" : order === 0 ? "current" : "candidate_older",
-    current,
-    candidate,
-  };
+  let state: UpdateVersionComparison["state"];
+  if (order > 0) state = "update_available";
+  else if (order === 0) state = "current";
+  else state = "candidate_older";
+
+  return { state, current, candidate };
 }
 // -/ 2/3
 

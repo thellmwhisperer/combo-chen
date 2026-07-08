@@ -1050,6 +1050,9 @@ export function createProgram(deps: Deps): Command {
     .option("--head-sha <sha>", "Current gate head SHA for acquire")
     .action(async (action: string, options: { name: string; headSha?: string }) => {
       const home = comboHome(deps.env);
+      if (action !== "acquire" && action !== "release") {
+        throw new Error("gate-lease action must be acquire or release");
+      }
       const result =
         action === "acquire"
           ? acquireGateLeaseForCombo({
@@ -1058,14 +1061,11 @@ export function createProgram(deps: Deps): Command {
               headSha: options.headSha,
               out: deps.out,
             })
-          : action === "release"
-            ? releaseGateLeaseForCombo({
-                home,
-                comboId: options.name,
-                out: deps.out,
-              })
-            : undefined;
-      if (result === undefined) throw new Error("gate-lease action must be acquire or release");
+          : releaseGateLeaseForCombo({
+              home,
+              comboId: options.name,
+              out: deps.out,
+            });
       if (result.exitCode !== 0) process.exitCode = result.exitCode;
     });
 

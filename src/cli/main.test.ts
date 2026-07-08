@@ -8050,12 +8050,12 @@ describe("park", () => {
 
     const { deps, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
-      tmux: (args) =>
-        args[0] === "kill-session"
-          ? { status: 1, stdout: "", stderr: "can't find session: combo-chen-o-r-7" }
-          : args[0] === "has-session"
-            ? { status: 1, stdout: "", stderr: "can't find session: combo-chen-o-r-7" }
-            : { status: 0, stdout: "", stderr: "" },
+      tmux: (args) => {
+        if (args[0] === "kill-session" || args[0] === "has-session") {
+          return { status: 1, stdout: "", stderr: "can't find session: combo-chen-o-r-7" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
     });
 
     await exec(deps, ["park", "-n", "o-r-7", "--by", "reboot"]);
@@ -8730,12 +8730,13 @@ describe("run ordering and safety", () => {
     ]) {
       const { deps } = fakeDeps({
         env: { COMBO_CHEN_HOME: home() },
-        git: (args) =>
-          args[0] === "remote"
-            ? { status: 0, stdout: `${remoteUrl}\n`, stderr: "" }
-            : args[0] === "branch" && args[1] === "--show-current"
-              ? { status: 0, stdout: "main\n", stderr: "" }
-              : { status: 0, stdout: "", stderr: "" },
+        git: (args) => {
+          if (args[0] === "remote") return { status: 0, stdout: `${remoteUrl}\n`, stderr: "" };
+          if (args[0] === "branch" && args[1] === "--show-current") {
+            return { status: 0, stdout: "main\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
       });
 
       await expect(

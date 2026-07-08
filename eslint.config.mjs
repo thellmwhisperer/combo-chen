@@ -18,6 +18,10 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrors: "none" },
       ],
+      // Simple one-line ternaries read fine; nested ones never do, and
+      // prettier collapses them when they fit the print width. Complex
+      // branching belongs in if/else, early returns, or lookup maps.
+      "no-nested-ternary": "error",
     },
   },
 );

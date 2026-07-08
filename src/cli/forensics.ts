@@ -29,6 +29,7 @@
 import { deriveStatus, type Phase } from "../core/combo.js";
 import { latestPrUrlFromEvents, type ComboEvent } from "../core/events.js";
 import { describeWorkItem, type ComboRecord, type WorkItemDescriptor } from "../core/state.js";
+import { yesNo } from "./display.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "./gate.js";
 import { livePinnedLgtmSha } from "./reviewer.js";
 
@@ -416,10 +417,6 @@ function formatDuration(ms: number | undefined): string {
   if (minutes === 0) return `${seconds}s`;
   if (seconds === 0) return `${minutes}m`;
   return `${minutes}m ${seconds}s`;
-}
-
-function yesNo(value: boolean): "yes" | "no" {
-  return value ? "yes" : "no";
 }
 
 function shortSha(sha: string): string {

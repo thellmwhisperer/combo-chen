@@ -967,12 +967,10 @@ describe("inspectWorkerPanes", () => {
     const out: string[] = [];
     const deps: WorkerMonitorDeps = {
       out: (line) => out.push(line),
-      tmux: (args) =>
-        args[0] === "list-windows"
-          ? { status: 1, stdout: "", stderr: "temporary tmux hiccup" }
-          : args[0] === "has-session"
-            ? { status: 0, stdout: "", stderr: "" }
-            : { status: 0, stdout: "", stderr: "" },
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 1, stdout: "", stderr: "temporary tmux hiccup" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
     };
 
     const result = inspectWorkerPanes({
@@ -993,12 +991,12 @@ describe("inspectWorkerPanes", () => {
     const out: string[] = [];
     const deps: WorkerMonitorDeps = {
       out: (line) => out.push(line),
-      tmux: (args) =>
-        args[0] === "list-windows"
-          ? { status: 1, stdout: "", stderr: "no such session" }
-          : args[0] === "has-session"
-            ? { status: 1, stdout: "", stderr: "no such session" }
-            : { status: 0, stdout: "", stderr: "" },
+      tmux: (args) => {
+        if (args[0] === "list-windows" || args[0] === "has-session") {
+          return { status: 1, stdout: "", stderr: "no such session" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
     };
 
     const result = inspectWorkerPanes({
