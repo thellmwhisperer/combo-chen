@@ -1,18 +1,20 @@
 /**
  * @overview Shared display helpers for sanitizing combo tokens and formatting active combo lists.
- *   ~45 lines, 2 exports, keeps bidirectional-char stripping and fallback logic in one place.
+ *   ~50 lines, 3 exports, keeps bidirectional-char stripping and fallback logic in one place.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at sanitizeToken <- shared bidirectional-char stripper.
  *   2. Then formatComboList  <- shared active combo list formatter (with or without phase).
+ *   3. yesNo                 <- canonical boolean-to-"yes"/"no" formatter.
  *
  *   PUBLIC API
  *   ----------
  *   sanitizeToken  Strip bidirectional control chars, return trimmed single-line or "unknown".
  *   formatComboList Format active combo IDs from a runtime detection, optionally with phase.
+ *   yesNo          Format a boolean as "yes"/"no" for operator-facing lines.
  *
- * @exports sanitizeToken, formatComboList
+ * @exports sanitizeToken, formatComboList, yesNo
  * @deps ../core/active-runtime
  */
 import type { ActiveComboRuntimeDetection } from "../core/active-runtime.js";
@@ -23,6 +25,10 @@ export function sanitizeToken(value: string): string {
   //    single-line output.
   const singleLine = value.replace(/[\p{Cc}\p{Cf}]+/gu, " ").trim();
   return singleLine.length > 0 ? singleLine : "unknown";
+}
+
+export function yesNo(value: boolean): "yes" | "no" {
+  return value ? "yes" : "no";
 }
 
 // -- 1/1 CORE · formatComboList <- START HERE --

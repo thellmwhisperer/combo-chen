@@ -184,17 +184,17 @@ async function reconcileCombo(input: {
   }
 
   if (!apply) {
-    return report(
-      deps,
-      quiet,
-      parked
-        ? hasMerged
-          ? `reconcile: ${combo.id} would skip pending teardown for ${mergeSha} (parked)`
-          : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and skip teardown (parked)`
-        : hasMerged
-          ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
-          : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`,
-    );
+    let message: string;
+    if (parked) {
+      message = hasMerged
+        ? `reconcile: ${combo.id} would skip pending teardown for ${mergeSha} (parked)`
+        : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and skip teardown (parked)`;
+    } else {
+      message = hasMerged
+        ? `reconcile: ${combo.id} would run pending teardown for ${mergeSha}`
+        : `reconcile: ${combo.id} would append merged ${mergeSha} by ${by} and tear down`;
+    }
+    return report(deps, quiet, message);
   }
 
   let changed = false;

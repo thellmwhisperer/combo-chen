@@ -71,13 +71,15 @@ function tempDir(label: string): string {
 function currentShellTarget(): ReleaseTarget {
   const platformName = shellOutput("uname", ["-s"]);
   const archName = shellOutput("uname", ["-m"]);
-  const platform = platformName === "Darwin" ? "darwin" : platformName === "Linux" ? "linux" : undefined;
-  const arch =
-    archName === "arm64" || archName === "aarch64"
-      ? "arm64"
-      : archName === "x86_64" || archName === "amd64"
-        ? "x64"
-        : undefined;
+  const platforms: Record<string, ReleaseTarget["platform"]> = { Darwin: "darwin", Linux: "linux" };
+  const arches: Record<string, ReleaseTarget["arch"]> = {
+    arm64: "arm64",
+    aarch64: "arm64",
+    x86_64: "x64",
+    amd64: "x64",
+  };
+  const platform = platforms[platformName];
+  const arch = arches[archName];
   if (platform === undefined) throw new Error(`unsupported install test platform: ${platformName}`);
   if (arch === undefined) throw new Error(`unsupported install test architecture: ${archName}`);
   return { platform, arch };

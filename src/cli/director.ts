@@ -147,10 +147,8 @@ export async function tickDirector(input: {
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
       recoverableStalledWorkers: prAlreadyOpened ? [config.coderRespondingWindowName] : [],
       recoverablePermissionPromptWorkers:
-        config.workerPermissionPromptPolicy === "recreate-non-interactive"
-          ? prAlreadyOpened
-            ? [config.coderRespondingWindowName]
-            : []
+        config.workerPermissionPromptPolicy === "recreate-non-interactive" && prAlreadyOpened
+          ? [config.coderRespondingWindowName]
           : [],
       autoApprovePermissionPromptMaxAttempts: config.workerRecoveryAttempts,
       permissionPromptPatterns: config.workerPermissionPromptPatterns,

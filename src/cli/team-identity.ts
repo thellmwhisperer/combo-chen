@@ -307,14 +307,10 @@ function configModelFromArgs(args: string[]): string | undefined {
   let model: string | undefined;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
-    const value =
-      arg === "--config" || arg === "-c"
-        ? args[i + 1]
-        : arg.startsWith("--config=")
-          ? arg.slice("--config=".length)
-          : arg.startsWith("-c=")
-            ? arg.slice("-c=".length)
-            : undefined;
+    let value: string | undefined;
+    if (arg === "--config" || arg === "-c") value = args[i + 1];
+    else if (arg.startsWith("--config=")) value = arg.slice("--config=".length);
+    else if (arg.startsWith("-c=")) value = arg.slice("-c=".length);
     const parsed = value === undefined ? undefined : codexModelFromConfigOverride(value);
     if (parsed !== undefined) model = parsed;
   }
