@@ -638,6 +638,8 @@ without collapsing the roles that make the result trustworthy.
 ```bash
 pnpm test
 pnpm typecheck
+pnpm lint
+pnpm format:check
 pnpm slop:check
 pnpm build
 git diff --check
@@ -651,22 +653,19 @@ through env, TOML, then fallback defaults.
 combo-chen ships with code-level anti-slop probes to prevent agent slop during
 autonomous runs:
 
-- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint:
-  ast-grep rules that forbid `node:child_process` imports in `src/core/`
-  (execution belongs in `cli/`, `roles/`, or `infra/`), a no-duplicate-helpers
-  tombstone rule (helpers consolidated into `src/core/guards.ts` and
-  `latestPrUrlFromEvents` from `src/core/events.ts` must not be redefined
-  elsewhere), a no-commit-fragments-in-comments rule (conventional-commit
-  subject fragments leaked into navigational comments), a
-  no-unconfigurable-operational-constants rule (hardcoded timeout/age
-  constants without config paths), and a jscpd duplication ratchet
-  (`--threshold 2`) that fails when non-test duplication grows past the
-  current baseline. The ratchet is a deliberate hard-fail with little headroom
-  (baseline 1.99%): a PR that trips it must remove duplication or raise the
-  threshold explicitly in the same PR with justification.
-- `pnpm slop:report` — verbose jscpd clone listing for non-test source,
-  plus ast-grep warnings for infra verbs in `src/core/` and `toContain`
-  assertions on script/runner strings that freeze internal details.
+- `pnpm slop:check` — the hard gate, run by CI and no-mistakes lint. It runs
+  `sg scan` in project mode (`sgconfig.yml`): every tombstone rule in
+  `.slop/rules/` runs by birth with its own `files`/`ignores` scope,
+  `severity: error` findings fail the command, and `severity: warning`
+  findings print without failing (warning is a temporary state for rules
+  whose pre-existing stock is still being cleaned; the rule file says so).
+  It then gates non-test jscpd duplication with `--threshold 2`, a ratchet
+  pinned just above the current baseline so new duplication fails: a PR that
+  trips it must remove duplication or raise the threshold explicitly in the
+  same PR with justification.
+- `pnpm slop:report` — verbose jscpd clone listing for non-test source plus
+  the same `sg scan`, for reading warning output in full while a cleanup is
+  in flight.
 - `pnpm surface` — ast-grep structure outline of all functions across `src/`,
   used by the coder preflight when the target repo exposes the script.
 

@@ -1,5 +1,9 @@
 id: core-no-infra-import
 language: TypeScript
+files:
+  - "src/core/**"
+ignores:
+  - "**/*.test.ts"
 rule:
   kind: string
   regex: "(?:\\.\\./)+infra(?:/|['\"]|$)"

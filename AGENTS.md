@@ -118,8 +118,11 @@ the shared validation commands intentionally change.
 - Keep operational values configurable through env, TOML, then fallback.
 - Use focused tests for orchestration contracts and broaden only when shared
   behavior changes.
-- Validate with `pnpm test`, `pnpm typecheck`, `pnpm build`,
-  `pnpm slop:check`, and `git diff --check` before committing.
+- Validate with `pnpm test`, `pnpm typecheck`, `pnpm lint`,
+  `pnpm format:check`, `pnpm build`, `pnpm slop:check`, and
+  `git diff --check` before committing.
+- eslint exceptions live in `eslint.config.mjs`, never as inline
+  `eslint-disable` comments; prefer a compliant rewrite over any exception.
 - Use short conventional commits. No co-authors.
 
 ## Sherpa Navigation
