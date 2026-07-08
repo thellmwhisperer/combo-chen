@@ -10,7 +10,7 @@
  *   MAIN FLOW
  *   ---------
  *   package/git/env metadata -> releaseDefines -> tsdown define -> dist bundles
- *   src/core/runner-template.sh -> runnerTemplateDefine -> inlined into dist/cli.mjs
+ *   src/shell/templates/*.sh -> shellTemplatesDefine -> inlined into dist/cli.mjs
  *
  *   PUBLIC API
  *   ----------
@@ -18,13 +18,13 @@
  *
  *   INTERNALS
  *   ---------
- *   packageVersion, gitCommit, buildDate, sourceDateEpochIso, runnerTemplateDefine.
+ *   packageVersion, gitCommit, buildDate, sourceDateEpochIso, shellTemplates.
  *
  * @exports default
  * @deps tsdown, node:{child_process,fs}
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { defineConfig } from "tsdown";
 
 // -- 1/2 HELPER · release metadata define values --
@@ -64,10 +64,18 @@ const releaseDefines = {
   __COMBO_CHEN_BUILD_DATE__: JSON.stringify(buildDate()),
 };
 
-const runnerTemplateDefine = {
-  __COMBO_CHEN_RUNNER_TEMPLATE__: JSON.stringify(
-    readFileSync(new URL("./src/core/runner-template.sh", import.meta.url), "utf8"),
-  ),
+function shellTemplates(): Record<string, string> {
+  const dir = new URL("./src/shell/templates/", import.meta.url);
+  const map: Record<string, string> = {};
+  for (const entry of readdirSync(dir)) {
+    if (!entry.endsWith(".sh")) continue;
+    map[entry.slice(0, -".sh".length)] = readFileSync(new URL(entry, dir), "utf8");
+  }
+  return map;
+}
+
+const shellTemplatesDefine = {
+  __COMBO_CHEN_SHELL_TEMPLATES__: JSON.stringify(shellTemplates()),
 };
 // -/ 1/2
 
@@ -81,7 +89,7 @@ export default defineConfig([
     outDir: "dist",
     clean: true,
     dts: false,
-    define: { ...releaseDefines, ...runnerTemplateDefine },
+    define: { ...releaseDefines, ...shellTemplatesDefine },
     // Release archives run without node_modules; bundle runtime deps in.
     noExternal: () => true,
   },

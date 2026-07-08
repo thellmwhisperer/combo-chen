@@ -1,0 +1,18 @@
+# Tombstone for ad hoc scraping of no-mistakes axi status output.
+# Cite: #281 - three diverged sed copies parsed axi status and the
+# quote-stripping existed for id: but not head:, so the gatekeeper attach
+# window could never match and polled to timeout (false worker_stalled,
+# manual recovery). Canonical parsers: src/shell/templates/axi-status-lib.sh
+# for generated shell, parseNoMistakesAxiStatus in src/cli/status.ts for TS.
+id: no-adhoc-axi-status-scrape
+language: TypeScript
+files:
+  - "src/**"
+ignores:
+  - "**/*.test.ts"
+  - "src/shell/**"
+rule:
+  kind: string
+  regex: "\\$\\(no-mistakes axi status|axi status 2>"
+message: ad hoc axi status scraping; parse through axi-status-lib.sh (shell) or parseNoMistakesAxiStatus (TS)
+severity: error
