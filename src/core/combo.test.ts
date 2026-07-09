@@ -571,7 +571,7 @@ exit 1
       fakeNoMistakes,
       `#!/bin/sh
 if [ "$1" = "status" ]; then
-  sleep 2
+  sleep 1
   printf 'daemon: running\\n'
   printf 'gate: %s\\n' "$NO_MISTAKES_GATE"
   exit 0
