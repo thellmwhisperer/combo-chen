@@ -28,6 +28,14 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.78](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.77...combo-chen-v0.0.78) (2026-07-09)
+
+
+### Bug Fixes
+
+* **shell:** single-quote the mirror push intent in the template ([5e15dca](https://github.com/thellmwhisperer/combo-chen/commit/5e15dca3f6bf8a68c1fdc349bd95bbaf7535eb84))
+* **shell:** trap background gate script on interrupt; single-pass template substitution ([b3606f8](https://github.com/thellmwhisperer/combo-chen/commit/b3606f8a549c372172870e693e3ec979427d6972))
+
 ## [0.0.77](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.76...combo-chen-v0.0.77) (2026-07-08)
 
 
