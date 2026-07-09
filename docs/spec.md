@@ -632,9 +632,8 @@ Assets are platform archives named
 rooted at `combo-chen-vX.Y.Z/` and contains `bin/combo-chen` with executable
 mode, built from `dist/cli.mjs`, plus package metadata, README, LICENSE, and
 `combo-chen.example.toml`. The installed CLI is self-contained: runtime
-dependencies and the runner template are bundled into `dist/cli.mjs`, so
-extracted archives run without `node_modules`, sibling `dist` chunks, or
-`dist/runner-template.sh`.
+dependencies and every shell template are bundled into `dist/cli.mjs`, so
+extracted archives run without `node_modules` or sibling `dist` chunks.
 
 `checksums.txt` is sha256sum-compatible: one SHA-256 digest and filename per
 line, sorted by filename, covering every uploaded `.tar.gz` asset. `pnpm
@@ -902,13 +901,22 @@ The project also ships with static slop probes under `.slop/rules/`:
   timeout, age, and interval constants (`_MS`, `_TIMEOUT`, `_MAX_AGE`) in
   non-test source have env or repo config paths; hardcoded operational
   constants are only allowed when explicitly blessed.
-- **core-no-infra-verbs** (`warning`): reports existing string-level layer
-  leakage in `src/core/` (`no-mistakes`, `git push`, `tmux`, shell scripts).
-  It stays a warning until the current runner-generation debt is refactored,
-  then it is promoted to `error`.
-- **script-string-assertion** (`warning`): flags `toContain` assertions on
-  script/runner targets that freeze internal strings; prefer contract
-  behavior assertions.
+- **core-no-infra-verbs** (`error`): forbids string-level layer leakage in
+  `src/core/` (`no-mistakes`, `git push`, `tmux`, shell scripts). Buried by
+  #283: the embedded shell moved to `src/shell/templates` and the stock
+  reached zero, so the rule was promoted from warning to error.
+- **no-shell-in-ts** (`error`): tombstone for generated shell embedded as TS
+  string literals. Cite: #283 - the ad hoc copies diverged into bug #281. All
+  generated shell lives in `src/shell/templates/*.sh` (shellcheck-gated via
+  `pnpm lint:sh`); TS code only renders placeholders.
+- **no-adhoc-axi-status-scrape** (`error`): tombstone for ad hoc parsing of
+  `no-mistakes axi status` output. Cite: #281. Canonical parsers:
+  `src/shell/templates/axi-status-lib.sh` for shell,
+  `parseNoMistakesAxiStatus` in `src/cli/status.ts` for TS.
+- **script-string-assertion** (`warning`, pending burial): flags `toContain`
+  assertions on script/runner targets that freeze internal strings; prefer
+  executed-script contract assertions. Remaining stock is tracked in the rule
+  file and the rule is promoted to error when it reaches zero.
 
 These are surfaced in the package scripts:
 
@@ -917,8 +925,10 @@ These are surfaced in the package scripts:
   scope; `severity: error` rules fail the command, `severity: warning` rules
   print without failing (a temporary state for rules whose pre-existing stock
   is still being cleaned). It then gates non-test jscpd duplication with
-  `--threshold 2`, a ratchet pinned just above the current baseline so new
-  duplication fails; CI and no-mistakes lint run this.
+  `--threshold 1.7`, a ratchet pinned just above the current baseline so new
+  duplication fails; the threshold only moves down, in the PR that removes
+  clones (#283 lowered it from 2 after the shell extraction). CI and
+  no-mistakes lint run this.
 - `pnpm slop:report` — runs a verbose non-test jscpd clone listing plus the
   same `sg scan`, for reading warning output in full.
 - `pnpm surface` — outputs the function-level structure outline of all

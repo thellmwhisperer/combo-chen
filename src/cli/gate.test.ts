@@ -98,35 +98,120 @@ describe("gatekeeper attach window helpers", () => {
     ).toThrow("timeout");
   });
 
-  it("builds the polling attach command with shell-quoted worktree paths", () => {
-    expect(
-      buildGatekeeperAttachCommand(combo({ worktree: "/tmp/o'hara worktree" }), {
-        timeoutSeconds: 45,
-        retryIntervalSeconds: 15,
-      }),
-    ).toBe(
+  it("quotes hostile worktree paths and caps the retry loop from timeout/interval", () => {
+    const command = buildGatekeeperAttachCommand(combo({ worktree: "/tmp/o'hara worktree" }), {
+      timeoutSeconds: 45,
+      retryIntervalSeconds: 15,
+    });
+    expect(command).toContain("cd '/tmp/o'\\''hara worktree'");
+    expect(command).toContain("expected_branch='combo/issue-7'");
+    expect(command).toContain("attach_max_attempts=3");
+    expect(command).toContain("gatekeeper-attach: timed out after 45 seconds");
+  });
+
+  //    Contract for #281: run the generated attach script against a fake
+  //    no-mistakes whose axi status flips to an active run with QUOTED id and
+  //    head (the real output shape). The attach must happen within one retry
+  //    interval, and a sibling branch must never attach (timeout unchanged).
+  function attachHarness(): {
+    worktree: string;
+    binDir: string;
+    fixtureFile: string;
+    attachLog: string;
+    headShort8: string;
+  } {
+    const dir = mkdtempSync(join(tmpdir(), "combo-chen-attach-"));
+    const worktree = join(dir, "worktree");
+    mkdirSync(worktree);
+    const git = (args: string[]) => spawnSync("git", args, { cwd: worktree, encoding: "utf8" });
+    git(["init", "--quiet"]);
+    git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "seed", "--quiet"]);
+    const headShort8 = git(["rev-parse", "--short=8", "HEAD"]).stdout.trim();
+
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir);
+    const fixtureFile = join(binDir, "fixture");
+    const attachLog = join(binDir, "attach-args");
+    writeFileSync(
+      join(binDir, "no-mistakes"),
       [
-        "cd '/tmp/o'\\''hara worktree'",
-        "expected_branch='combo/issue-7'",
-        "expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)",
-        "attempt=0",
-        "while :; do",
-        "  no_mistakes_status=$(no-mistakes axi status 2>/dev/null || true)",
-        "  no_mistakes_run_id=$(printf '%s\\n' \"$no_mistakes_status\" | sed -n 's/^[[:space:]]*id:[[:space:]]*//p' | sed -n '1p')",
-        "  no_mistakes_run_id=$(printf '%s' \"$no_mistakes_run_id\" | sed 's/^\"//; s/\"$//')",
-        '  if [ -n "$no_mistakes_run_id" ] && [ -n "$expected_head" ] && printf \'%s\\n\' "$no_mistakes_status" | grep -F "branch: $expected_branch" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -F "head: $expected_head" >/dev/null && printf \'%s\\n\' "$no_mistakes_status" | grep -Eq \'^[[:space:]]*status:[[:space:]]*(active|in_progress|running)[[:space:]]*$\'; then',
-        '    exec no-mistakes attach --run "$no_mistakes_run_id"',
+        "#!/bin/sh",
+        'state_dir=$(dirname "$0")',
+        'if [ "$1" = "axi" ] && [ "$2" = "status" ]; then',
+        '  count_file="$state_dir/status-calls"',
+        '  count=$(cat "$count_file" 2>/dev/null || printf 0)',
+        "  count=$((count + 1))",
+        '  printf %s "$count" > "$count_file"',
+        '  if [ "$count" -lt 2 ]; then',
+        "    printf 'run:\\n  status: done\\n'",
+        "  else",
+        '    cat "$state_dir/fixture"',
         "  fi",
-        "  attempt=$((attempt + 1))",
-        '  if [ "$attempt" -gt 3 ]; then',
-        '    echo "gatekeeper-attach: timed out after 45 seconds" >&2',
-        "    exit 1",
-        "  fi",
-        '  echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/3)..." >&2',
-        "  sleep 15",
-        "done",
+        "  exit 0",
+        "fi",
+        'if [ "$1" = "attach" ]; then',
+        '  printf "%s\\n" "$*" > "$state_dir/attach-args"',
+        '  touch "$state_dir/attach-done"',
+        "  exit 0",
+        "fi",
+        "exit 0",
       ].join("\n"),
     );
+    chmodSync(join(binDir, "no-mistakes"), 0o755);
+    return { worktree, binDir, fixtureFile, attachLog, headShort8 };
+  }
+
+  function runAttach(input: {
+    harness: ReturnType<typeof attachHarness>;
+    branch: string;
+    timeoutSeconds: number;
+  }): { status: number | null; stderr: string } {
+    const command = buildGatekeeperAttachCommand(
+      combo({ worktree: input.harness.worktree, branch: "combo/issue-7" }),
+      {
+        timeoutSeconds: input.timeoutSeconds,
+        retryIntervalSeconds: 1,
+        replaceProcess: false,
+        stopWhenFileExists: join(input.harness.binDir, "attach-done"),
+      },
+    );
+    writeFileSync(
+      input.harness.fixtureFile,
+      [
+        "run:",
+        '  id: "01KWZBNYNYCYW3585TVK5ZSA11"',
+        `  branch: ${input.branch}`,
+        `  head: "${input.harness.headShort8}"`,
+        "  status: active",
+        "",
+      ].join("\n"),
+    );
+    const result = spawnSync("sh", ["-c", command], {
+      encoding: "utf8",
+      timeout: 30_000,
+      env: { ...process.env, PATH: `${input.harness.binDir}:${process.env["PATH"] ?? ""}` },
+    });
+    return { status: result.status, stderr: result.stderr };
+  }
+
+  it("attaches within one retry interval when axi status flips to a matching quoted-field run", () => {
+    const harness = attachHarness();
+    const result = runAttach({ harness, branch: "combo/issue-7", timeoutSeconds: 20 });
+
+    expect(result.status).toBe(2);
+    const attachArgs = readFileSync(harness.attachLog, "utf8");
+    expect(attachArgs).toContain("attach --run 01KWZBNYNYCYW3585TVK5ZSA11");
+    const statusCalls = readFileSync(join(harness.binDir, "status-calls"), "utf8");
+    expect(statusCalls).toBe("2");
+  });
+
+  it("never attaches to a sibling-branch run and keeps the timeout path", () => {
+    const harness = attachHarness();
+    const result = runAttach({ harness, branch: "combo/issue-999", timeoutSeconds: 2 });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("gatekeeper-attach: timed out after 2 seconds");
+    expect(existsSync(harness.attachLog)).toBe(false);
   });
 
   it("can stop polling when the generated gate script has already finished", () => {
@@ -733,9 +818,9 @@ exit 1
     expect(script).toContain('git push -o "$mirror_intent" no-mistakes "HEAD:$mirror_ref"');
     expect(script).not.toContain("git push no-mistakes HEAD");
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
-    expect(script).toContain("gatekeeper_run_id=$(sed -n");
+    expect(script).toContain('no_mistakes_axi_field "$gatekeeper_probe_status" id');
     expect(script).toContain('exec no-mistakes attach --run "$gatekeeper_run_id"');
-    expect(script).toContain("branch: combo/issue-7");
+    expect(script).toContain("'combo/issue-7'");
     expect(script).toContain("gatekeeper_failure_reason=gate_failed");
     expect(script).toContain("gatekeeper_failure_reason=daemon_dead");
     expect(script).toContain(

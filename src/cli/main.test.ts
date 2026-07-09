@@ -2219,7 +2219,8 @@ describe("gate-restart", () => {
     expect(ghCalls).toEqual([]);
     expect(decodedGeneratedGatekeeperIntent(script)).toContain("Implement work plan Generic work.");
     expect(script).not.toContain("ensure-pr-autoclose");
-    expect(script).not.toContain("pr_autoclose_failed");
+    // The autoclose guard command must be a no-op for plan combos.
+    expect(script).toContain('if : "$pr_url" > "$autoclose_log" 2>&1; then');
     expect(calls.some((c) => c[0] === "tmux" && c.includes("new-window"))).toBe(true);
     expect(out.join("\n")).toContain("post-address gate restarted");
   });
@@ -3264,7 +3265,7 @@ describe("emit", () => {
         .find((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))
         ?.at(-1) ?? "";
     expect(gatekeeperCommand).toContain("timed out after 42 seconds");
-    expect(gatekeeperCommand).toContain("attempt $attempt/7");
+    expect(gatekeeperCommand).toContain("attach_max_attempts=7");
     expect(gatekeeperCommand).toContain("sleep 6");
     expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
   });
@@ -4258,10 +4259,10 @@ describe("run", () => {
     const command = gatekeeperWindow?.at(-1) ?? "";
     expect(command).toContain("expected_branch='combo/issue-7'");
     expect(command).toContain("expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)");
-    expect(command).toContain('if [ "$attempt" -gt 3 ]; then');
+    expect(command).toContain("attach_max_attempts=3");
     expect(command).toContain('echo "gatekeeper-attach: timed out after 45 seconds" >&2');
     expect(command).toContain(
-      'echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/3)..." >&2',
+      'echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/$attach_max_attempts)..." >&2',
     );
     expect(command).toContain("sleep 15");
   });
@@ -4611,7 +4612,7 @@ describe("resume", () => {
         .find((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))
         ?.at(-1) ?? "";
     expect(gatekeeperCommand).toContain("timed out after 42 seconds");
-    expect(gatekeeperCommand).toContain("attempt $attempt/7");
+    expect(gatekeeperCommand).toContain("attach_max_attempts=7");
     expect(gatekeeperCommand).toContain("sleep 6");
     expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
   });
@@ -4902,7 +4903,7 @@ describe("resume", () => {
     expect(script).toContain("no-mistakes axi run --intent");
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
     expect(script).toContain("exec no-mistakes attach");
-    expect(script).toContain("branch: combo/issue-7");
+    expect(script).toContain(`"$gatekeeper_run_branch" = 'combo/issue-7'`);
     expect(script).toContain("pr_autoclose_failed");
     expect(script).toContain("emit -n 'o-r-7' --skip-gate-window-recovery pr_opened");
     expect(script).not.toContain("activate-coder");

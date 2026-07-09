@@ -153,15 +153,24 @@ cd __WORKTREE__ || {
   printf '%s\n' "runner: failed to enter worktree" >&2
   exit 1
 }
-__RUNNER_STATUS_SYNC__
-__BASE_FETCH__
-if ! git rebase __BASE_REF__ >> "$rebase_log" 2>&1; then
-  __EMIT__ rebase_conflict --field base="$(git merge-base HEAD __BASE_REF__ 2>/dev/null || true)"
+runner_base_ref=__BASE_REF__
+runner_origin_branch=__ORIGIN_BRANCH__
+runner_status "runner: syncing worktree with $runner_base_ref"
+if [ -n "$runner_origin_branch" ]; then
+  if ! git fetch origin "$runner_origin_branch" > "$rebase_log" 2>&1; then
+    __EMIT__ rebase_failed --field base="$(git merge-base HEAD "$runner_base_ref" 2>/dev/null || true)"
+    exit 1
+  fi
+else
+  : > "$rebase_log"
+fi
+if ! git rebase "$runner_base_ref" >> "$rebase_log" 2>&1; then
+  __EMIT__ rebase_conflict --field base="$(git merge-base HEAD "$runner_base_ref" 2>/dev/null || true)"
   exit 1
 fi
 coder_base_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
-__RUNNER_STATUS_STARTING_CODER__
+runner_status 'runner: starting coder'
 __EMIT__ coder_started || exit 1
 
 rm -f "$coder_status" "$coder_start_marker" "$gnhf_iteration_snapshot"
@@ -179,7 +188,7 @@ esac
 rm -f "$coder_status"
 
 if [ "$code" -ne 0 ] && gnhf_stop_condition_met; then
-  __RUNNER_STATUS_STOP_CONDITION__
+  runner_status 'runner: coder stop condition met; starting gatekeeper'
   code=0
 fi
 rm -f "$coder_start_marker" "$gnhf_iteration_snapshot"
@@ -207,7 +216,7 @@ else
   exit $code
 fi
 
-__RUNNER_STATUS_CODER_FINISHED__
+runner_status 'runner: coder finished; starting gatekeeper'
 __EMIT__ gate_started
 gatekeeper_start_sha=$(git rev-parse HEAD 2>/dev/null || true)
 gate_lease_code=0
@@ -221,27 +230,19 @@ __GATEKEEPER_MIRROR_SCRIPT__
 __GATEKEEPER_RUN_SCRIPT__
 ) < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
-if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then
-  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  __EMIT__ gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"
-  __EMIT__ needs_human --field reason=gate_waiting
-  exit 0
-fi
+__AWAITING_APPROVAL_CHECK__
 
 __GATEKEEPER_RECOVERY_SCRIPT__
 
 if [ "$gatekeeper_code" -ne 0 ]; then
   gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  gatekeeper_failure_reason=gate_failed
-  if grep -Eiq 'daemon.*(dead|died|exited|not running)|connection refused|ECONNREFUSED' "$gatekeeper_log"; then
-    gatekeeper_failure_reason=daemon_dead
-  fi
+__FAILURE_REASON__
   __EMIT__ gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"
   __EMIT__ gate_failed --field exit_code=$gatekeeper_code --field reason="$gatekeeper_failure_reason"
   exit $gatekeeper_code
 fi
 
-__RUNNER_STATUS_GATEKEEPER_FINISHED__
+runner_status 'runner: gatekeeper finished; detecting PR'
 gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
 
 pr_url=$(gh pr list --head __BRANCH__ --json url --jq '.[0].url' 2>/dev/null || true)
@@ -265,10 +266,10 @@ if [ -n "${pr_url:-}" ]; then
     __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha"
   fi
   __EMIT__ pr_opened --field url="$pr_url"
-  __RUNNER_STATUS_PR_DETECTED__
+  runner_status 'runner: PR detected; starting reviewer'
   __ACTIVATE_REVIEWER__
 else
-  __RUNNER_STATUS_NO_PR__
+  runner_status 'runner: no PR detected; needs human'
   if [ -n "$gatekeeper_recovery_reason" ]; then
     __EMIT__ gate_status --field state=idle --field head_sha="$gatekeeper_head_sha" --field recovery="$gatekeeper_recovery_reason"
   else
