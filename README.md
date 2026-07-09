@@ -325,9 +325,9 @@ directly:
 - Each archive expands under `combo-chen-vX.Y.Z/` and installs the executable
   CLI at `bin/combo-chen`, built from `dist/cli.mjs`, plus package metadata,
   README, LICENSE, and `combo-chen.example.toml`.
-- The installed CLI is self-contained: runtime dependencies and the runner
+- The installed CLI is self-contained: runtime dependencies and every shell
   template are bundled into `dist/cli.mjs`, so extracted archives run without
-  `node_modules`, sibling `dist` chunks, or `dist/runner-template.sh`.
+  `node_modules` or sibling `dist` chunks.
 - `checksums.txt` is sha256sum-compatible, sorted by filename, and covers every
   uploaded `.tar.gz` asset.
 - `pnpm release:assets` builds the CLI and writes reproducible archives plus
@@ -639,6 +639,7 @@ without collapsing the roles that make the result trustworthy.
 pnpm test
 pnpm typecheck
 pnpm lint
+pnpm lint:sh
 pnpm format:check
 pnpm slop:check
 pnpm build
@@ -659,10 +660,15 @@ autonomous runs:
   `severity: error` findings fail the command, and `severity: warning`
   findings print without failing (warning is a temporary state for rules
   whose pre-existing stock is still being cleaned; the rule file says so).
-  It then gates non-test jscpd duplication with `--threshold 2`, a ratchet
+  It then gates non-test jscpd duplication with `--threshold 1.7`, a ratchet
   pinned just above the current baseline so new duplication fails: a PR that
   trips it must remove duplication or raise the threshold explicitly in the
-  same PR with justification.
+  same PR with justification, and the threshold only moves down, in the PR
+  that removes clones.
+- `pnpm lint:sh` — shellcheck over `src/shell/templates/*.sh`, the home of
+  every generated shell script (templates rendered with `__PLACEHOLDER__`
+  substitution; no shell lives in TS string literals). Run by CI and
+  no-mistakes lint.
 - `pnpm slop:report` — verbose jscpd clone listing for non-test source plus
   the same `sg scan`, for reading warning output in full while a cleanup is
   in flight.

@@ -22,9 +22,10 @@
  *   REVIEWER_TRANSIENT_FAILURE, REVIEWER_TRANSIENT_EXIT_CODE
  *
  * @exports resolvePollMs, reviewerTransientFailure, buildDirectorWatchCommand
- * @deps ../core/combo
+ * @deps ../core/combo, ../shell/templates
  */
 import { shellQuote } from "../core/combo.js";
+import { renderShellTemplate } from "../shell/templates.js";
 
 // -- 1/2 HELPER · Poll cadence and transient marker --
 /** Poll cadence cascade: COMBO_CHEN_POLL_MS env -> core's in-code fallback. */
@@ -53,39 +54,21 @@ export function buildDirectorWatchCommand(input: {
   watchBackoffMaxSeconds: number;
 }): string {
   const env = `COMBO_CHEN_HOME=${shellQuote(input.comboHome)}`;
-  const emit = `${env} ${input.cli} emit -n ${shellQuote(input.comboId)}`;
   const failureLimit = Math.max(1, Math.trunc(input.watchFailureLimit));
   const maxBackoffSeconds = Math.max(1, Math.ceil(input.watchBackoffMaxSeconds));
   const backoffCapThreshold = Math.ceil(maxBackoffSeconds / 2);
   const initialBackoffSeconds = Math.min(maxBackoffSeconds, Math.max(0, Math.ceil(input.pollSeconds)));
-  return [
-    "failures=0",
-    `backoff=${initialBackoffSeconds}`,
-    "while :; do",
-    `  output=$(${env} ${input.cli} director-tick -n ${shellQuote(input.comboId)} 2>&1)`,
-    "  rc=$?",
-    '  printf "%s\\n" "$output"',
-    `  printf "%s\\n" "$output" | grep -Eq ${shellQuote("reviewer: (merged|closed|already terminal)")} && exit 0`,
-    "  transient=0",
-    `  printf "%s\\n" "$output" | grep -Eq ${shellQuote(`^${REVIEWER_TRANSIENT_FAILURE}`)} && transient=1`,
-    '  if [ "$rc" -eq 0 ] && [ "$transient" -eq 0 ]; then',
-    "    failures=0",
-    `    backoff=${initialBackoffSeconds}`,
-    `    sleep ${input.pollSeconds}`,
-    "    continue",
-    "  fi",
-    '  failure_rc="$rc"',
-    `  [ "$failure_rc" -eq 0 ] && failure_rc=${REVIEWER_TRANSIENT_EXIT_CODE}`,
-    "  failures=$((failures + 1))",
-    '  output_snippet=$(printf "%s\\n" "$output" | head -c 500)',
-    `  ${emit} watch_error --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field "stderr=$output_snippet" --field "consecutive_failures=$failures" --field "watcher=director" >/dev/null 2>&1 || true`,
-    `  if [ "$failures" -ge ${failureLimit} ]; then`,
-    `    ${emit} watch_dead --field "exit_code=$failure_rc" --field "tick_exit_code=$rc" --field "stderr=$output_snippet" --field "consecutive_failures=$failures" --field "watcher=director" >/dev/null 2>&1 || true`,
-    '    exit "$failure_rc"',
-    "  fi",
-    '  sleep "$backoff"',
-    `  if [ "$backoff" -ge ${backoffCapThreshold} ]; then backoff=${maxBackoffSeconds}; else backoff=$((backoff * 2)); fi`,
-    "done",
-  ].join("\n");
+  return renderShellTemplate("director-watch-loop", {
+    __INITIAL_BACKOFF__: String(initialBackoffSeconds),
+    __TICK_COMMAND__: `${env} ${input.cli} director-tick -n ${shellQuote(input.comboId)}`,
+    __TERMINAL_PATTERN__: shellQuote("reviewer: (merged|closed|already terminal)"),
+    __TRANSIENT_PATTERN__: shellQuote(`^${REVIEWER_TRANSIENT_FAILURE}`),
+    __POLL_SECONDS__: String(input.pollSeconds),
+    __TRANSIENT_EXIT_CODE__: String(REVIEWER_TRANSIENT_EXIT_CODE),
+    __EMIT__: `${env} ${input.cli} emit -n ${shellQuote(input.comboId)}`,
+    __FAILURE_LIMIT__: String(failureLimit),
+    __BACKOFF_CAP_THRESHOLD__: String(backoffCapThreshold),
+    __MAX_BACKOFF__: String(maxBackoffSeconds),
+  }).trimEnd();
 }
 // -/ 2/2

@@ -232,9 +232,10 @@ describe("buildRunnerScript", () => {
       activateCoder: "activate-coder",
       activateReviewer: "activate-reviewer",
     });
-    expect(customBase).toContain("git fetch origin 'release-candidate'");
-    expect(customBase).toContain("git rebase 'origin/release-candidate'");
-    expect(customBase).toContain("git merge-base HEAD 'origin/release-candidate'");
+    expect(customBase).toContain("runner_base_ref='origin/release-candidate'");
+    expect(customBase).toContain("runner_origin_branch='release-candidate'");
+    expect(customBase).toContain('git rebase "$runner_base_ref"');
+    expect(customBase).toContain('git fetch origin "$runner_origin_branch"');
   });
 
   it("sequences coder, gatekeeper, PR detection, and reviewer activation without eager coder responding", () => {
@@ -253,7 +254,7 @@ describe("buildRunnerScript", () => {
   it("renders optional human-readable runner progress for the coder pane", () => {
     expect(script).toContain('runner_progress="${COMBO_CHEN_RUNNER_PROGRESS:-0}"');
     expect(script).toContain("runner_status()");
-    expect(script).toContain("runner: syncing worktree with origin/main");
+    expect(script).toContain("runner: syncing worktree with $runner_base_ref");
     expect(script).toContain("runner: starting coder");
     expect(script).toContain("runner: coder finished; starting gatekeeper");
     expect(script).toContain("runner: gatekeeper finished; detecting PR");
@@ -263,7 +264,7 @@ describe("buildRunnerScript", () => {
 
   it("keeps the runner shell body in an external template file", () => {
     const comboSource = readFileSync(new URL("./combo.ts", import.meta.url), "utf8");
-    const template = readFileSync(new URL("./runner-template.sh", import.meta.url), "utf8");
+    const template = readFileSync(new URL("../shell/templates/runner.sh", import.meta.url), "utf8");
 
     expect(comboSource).not.toContain("return `#!/bin/sh");
     expect(template).toContain("#!/bin/sh");
@@ -272,7 +273,7 @@ describe("buildRunnerScript", () => {
   });
 
   it("fails fast when worktree entry or coder lifecycle emits fail", () => {
-    const template = readFileSync(new URL("./runner-template.sh", import.meta.url), "utf8");
+    const template = readFileSync(new URL("../shell/templates/runner.sh", import.meta.url), "utf8");
 
     expect(template).toContain("cd __WORKTREE__ || {");
     expect(template).toContain("__EMIT__ coder_started || exit 1");
@@ -570,7 +571,7 @@ exit 1
       fakeNoMistakes,
       `#!/bin/sh
 if [ "$1" = "status" ]; then
-  sleep 2
+  sleep 1
   printf 'daemon: running\\n'
   printf 'gate: %s\\n' "$NO_MISTAKES_GATE"
   exit 0
