@@ -3851,7 +3851,7 @@ describe("run", () => {
     expect(mirrorPush).toBeGreaterThan(daemonStart);
     expect(axiRun).toBeGreaterThan(daemonStart);
     expect(axiRun).toBeGreaterThan(mirrorPush);
-    expect(runner).toContain('mirror_intent="no-mistakes.intent=');
+    expect(runner).toContain("mirror_intent='no-mistakes.intent=");
     expect(runner).not.toContain("activate-coder");
     expect(runner).toContain("activate-reviewer -n 'o-r-7'");
 
@@ -4899,7 +4899,7 @@ describe("resume", () => {
     const script = readFileSync(scriptPath, "utf8");
     expect(script).toContain("no-mistakes daemon start");
     expect(script).toContain('git push -o "$mirror_intent" no-mistakes');
-    expect(script).toContain('mirror_intent="no-mistakes.intent=');
+    expect(script).toContain("mirror_intent='no-mistakes.intent=");
     expect(script).toContain("no-mistakes axi run --intent");
     expect(script).toContain('no-mistakes axi status > "$status_probe_log" 2>&1');
     expect(script).toContain("exec no-mistakes attach");

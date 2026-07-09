@@ -5,7 +5,9 @@ __AXI_STATUS_LIB__
 if git remote get-url no-mistakes >/dev/null 2>&1; then
   mirror_branch=__MIRROR_BRANCH__
   mirror_ref=__MIRROR_REF__
-  mirror_intent="no-mistakes.intent=__MIRROR_INTENT__"
+  # Single quotes: the intent value is base64 (never contains a quote) and
+  # must not be exposed to $/backtick expansion.
+  mirror_intent='no-mistakes.intent=__MIRROR_INTENT__'
   no-mistakes daemon start 2>/dev/null || no-mistakes status 2>/dev/null | grep -Eq 'daemon:.*running' || exit 1
   export COMBO_CHEN_NO_MISTAKES_DAEMON_STARTED=1
 __ABORT_PREVIOUS_RUN__

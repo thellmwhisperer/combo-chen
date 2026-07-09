@@ -811,7 +811,7 @@ exit 1
       ensurePrAutoclose: "combo-chen ensure-pr-autoclose -n o-r-7 --pr-url",
     });
 
-    expect(script).toContain('mirror_intent="no-mistakes.intent=SW1wbGVtZW50IGlzc3VlIDc="');
+    expect(script).toContain("mirror_intent='no-mistakes.intent=SW1wbGVtZW50IGlzc3VlIDc='");
     expect(script).toContain(
       'git push -o "$mirror_intent" no-mistakes --force-with-lease="$mirror_ref:$mirror_sha" "HEAD:$mirror_ref"',
     );
