@@ -11,6 +11,9 @@ rm -f "$combo_chen_gate_script_done"
   exit "$combo_chen_gate_script_inner_code"
 ) &
 combo_chen_gate_script_pid=$!
+# Do not orphan the background gate script if this wrapper dies before wait
+# (tmux window killed or replaced, signal during the attach probe).
+trap 'kill "$combo_chen_gate_script_pid" 2>/dev/null || true' EXIT INT TERM
 combo_chen_gate_attach_code=0
 (
 __ATTACH_WITH_DONE__
@@ -21,6 +24,7 @@ if [ "$combo_chen_gate_attach_code" -ne 0 ]; then
 fi
 combo_chen_gate_script_code=0
 wait "$combo_chen_gate_script_pid" || combo_chen_gate_script_code=$?
+trap - EXIT INT TERM
 if [ -f "$combo_chen_gate_script_done" ]; then
   combo_chen_gate_script_code=$(cat "$combo_chen_gate_script_done" 2>/dev/null || printf "%s" "$combo_chen_gate_script_code")
 fi

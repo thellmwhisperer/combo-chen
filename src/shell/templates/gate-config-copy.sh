@@ -1,6 +1,6 @@
 # Copy the combo worktree .no-mistakes.yaml into the daemon's active run
 # worktree so the gate runner validates with pinned commands. Embedded by
-# no-mistakes-gatekeeper-run.sh, which defines the axi-status-lib functions.
+# gatekeeper-run.sh, which defines the axi-status-lib functions.
 no_mistakes_expected_branch=__EXPECTED_BRANCH__
 if [ -z "$no_mistakes_expected_branch" ]; then
   no_mistakes_expected_branch=$(git branch --show-current 2>/dev/null || true)

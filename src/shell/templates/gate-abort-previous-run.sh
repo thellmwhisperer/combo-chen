@@ -1,5 +1,5 @@
 # Abort any active no-mistakes run on the expected branch before starting a
-# new gate. Embedded by no-mistakes-gatekeeper-run.sh and mirror-publish.sh,
+# new gate. Embedded by gatekeeper-run.sh and gate-mirror-publish.sh,
 # which define the axi-status-lib functions.
 no_mistakes_expected_branch=__EXPECTED_BRANCH__
 if [ -z "$no_mistakes_expected_branch" ]; then

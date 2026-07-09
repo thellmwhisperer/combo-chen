@@ -40,8 +40,24 @@ function runShellLib(assertions: string): { status: number | null; stdout: strin
 }
 
 describe("renderShellTemplate", () => {
-  it("substitutes placeholders and rejects unresolved ones", () => {
+  it("does not throw when a template has no placeholders", () => {
     expect(() => renderShellTemplate("axi-status-lib")).not.toThrow();
+  });
+
+  it("substitutes provided placeholder values", () => {
+    const rendered = renderShellTemplate("daemon-start-guard", { __GUARDED_COMMAND__: "echo hi" });
+    expect(rendered).toContain("echo hi");
+    expect(rendered).not.toContain("__GUARDED_COMMAND__");
+  });
+
+  it("throws when a placeholder is left unresolved", () => {
+    expect(() => renderShellTemplate("daemon-start-guard")).toThrow(/placeholder not rendered/);
+  });
+
+  it("never re-substitutes placeholder-shaped text inside inserted values", () => {
+    expect(() =>
+      renderShellTemplate("daemon-start-guard", { __GUARDED_COMMAND__: "echo __GUARDED_COMMAND__" }),
+    ).toThrow(/placeholder not rendered/);
   });
 });
 
