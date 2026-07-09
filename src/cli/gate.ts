@@ -501,6 +501,10 @@ function gateFailureReasonScript(): string {
   return renderShellTemplate("gate-failure-reason").trimEnd();
 }
 
+function gateAwaitingApprovalScript(emit: string): string {
+  return renderShellTemplate("gate-awaiting-approval", { __EMIT__: emit }).trimEnd();
+}
+
 function gateStatusIdleScript(emit: string, options: { withHeadSha: boolean }): string {
   return renderShellTemplate("gate-status-idle", {
     __EMIT__: emit,
@@ -555,6 +559,7 @@ function buildGateRunScript(input: GateRunScriptInput & { kind: "initial" | "pos
       expectedBranch: input.combo.branch,
     }).join("\n"),
     __ALREADY_RUNNING_GUARD__: gateAlreadyRunningGuardScript(input),
+    __AWAITING_APPROVAL_CHECK__: gateAwaitingApprovalScript(input.emit),
     __RECOVERY_SCRIPT__: checksPassedContextCanceledRecoveryScript().join("\n"),
     __FAILURE_REASON__: gateFailureReasonScript(),
     __BRANCH__: shellQuote(input.combo.branch),

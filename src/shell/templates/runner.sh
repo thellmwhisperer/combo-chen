@@ -230,21 +230,13 @@ __GATEKEEPER_MIRROR_SCRIPT__
 __GATEKEEPER_RUN_SCRIPT__
 ) < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?
 
-if grep -Eq '^outcome:[[:space:]]*awaiting_approval[[:space:]]*$' "$gatekeeper_log"; then
-  gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  __EMIT__ gate_status --field state=awaiting_approval --field head_sha="$gatekeeper_head_sha"
-  __EMIT__ needs_human --field reason=gate_waiting
-  exit 0
-fi
+__AWAITING_APPROVAL_CHECK__
 
 __GATEKEEPER_RECOVERY_SCRIPT__
 
 if [ "$gatekeeper_code" -ne 0 ]; then
   gatekeeper_head_sha=$(git rev-parse HEAD 2>/dev/null || true)
-  gatekeeper_failure_reason=gate_failed
-  if grep -Eiq 'daemon.*(dead|died|exited|not running)|connection refused|ECONNREFUSED' "$gatekeeper_log"; then
-    gatekeeper_failure_reason=daemon_dead
-  fi
+__FAILURE_REASON__
   __EMIT__ gate_status --field state=failed --field head_sha="$gatekeeper_head_sha"
   __EMIT__ gate_failed --field exit_code=$gatekeeper_code --field reason="$gatekeeper_failure_reason"
   exit $gatekeeper_code

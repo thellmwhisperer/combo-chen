@@ -275,6 +275,8 @@ export function buildRunnerScript(input: RunnerInput): string {
       expectedBranch: combo.branch,
     }).join("\n"),
     __GATEKEEPER_RECOVERY_SCRIPT__: checksPassedContextCanceledRecoveryScript().join("\n"),
+    __FAILURE_REASON__: renderShellTemplate("gate-failure-reason").trimEnd(),
+    __AWAITING_APPROVAL_CHECK__: renderShellTemplate("gate-awaiting-approval", { __EMIT__: emit }).trimEnd(),
     __BRANCH__: shellQuote(combo.branch),
     __ENSURE_PR_AUTOCLOSE__: ensurePrAutoclose,
     __ACTIVATE_REVIEWER__: activateReviewer,
