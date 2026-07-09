@@ -632,9 +632,8 @@ Assets are platform archives named
 rooted at `combo-chen-vX.Y.Z/` and contains `bin/combo-chen` with executable
 mode, built from `dist/cli.mjs`, plus package metadata, README, LICENSE, and
 `combo-chen.example.toml`. The installed CLI is self-contained: runtime
-dependencies and the runner template are bundled into `dist/cli.mjs`, so
-extracted archives run without `node_modules`, sibling `dist` chunks, or
-`dist/runner-template.sh`.
+dependencies and every shell template are bundled into `dist/cli.mjs`, so
+extracted archives run without `node_modules` or sibling `dist` chunks.
 
 `checksums.txt` is sha256sum-compatible: one SHA-256 digest and filename per
 line, sorted by filename, covering every uploaded `.tar.gz` asset. `pnpm
