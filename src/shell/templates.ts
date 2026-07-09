@@ -62,9 +62,10 @@ export function renderShellTemplate(name: string, values: Record<string, string>
   if (rendered.includes(AXI_STATUS_LIB_PLACEHOLDER)) {
     rendered = rendered.split(AXI_STATUS_LIB_PLACEHOLDER).join(shellTemplate("axi-status-lib").trimEnd());
   }
-  for (const [placeholder, value] of Object.entries(values)) {
-    rendered = rendered.split(placeholder).join(value);
-  }
+  // Single pass over the template text: substituted values are never
+  // re-scanned, so a value containing placeholder-shaped text cannot be
+  // double-substituted (it fails the unresolved check below instead).
+  rendered = rendered.replace(/__[A-Z0-9_]+__/g, (token) => values[token] ?? token);
   const unresolved = rendered.match(/__[A-Z0-9_]+__/);
   if (unresolved !== null) {
     throw new Error(`shell template placeholder not rendered: ${name}: ${unresolved[0]}`);
