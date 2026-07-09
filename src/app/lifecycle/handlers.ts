@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent
- * @deps ../../core/{events,runtime-ledger,state}, ../../cli/{args,closure,gate,park,reconcile,resume,sessions}
+ * @deps ../../core/{events,runtime-ledger,state}, ../../infra/{config-snapshot,tmux}, ../../roles/coder, ../../cli/{args,closure,gate,park,reconcile,resume,sessions,watchers}
  */
 import {
   appendEvent,

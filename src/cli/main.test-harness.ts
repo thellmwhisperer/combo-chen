@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports fakeDeps, idleActiveRuntime, exec, home, seedNeedsHumanCombo, seedCodexGnhfRun, writeCoderThreadArtifact, writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID
- * @deps vitest, node:{child_process,crypto,fs,os,path,url}, ../core, ../infra, ../roles, ./main
+ * @deps vitest, node:{child_process,crypto,fs,os,path,url}, ../core, ../infra, ../roles, ./{gate,main,passive-update,update-refresh}
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
