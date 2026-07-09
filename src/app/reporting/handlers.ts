@@ -20,7 +20,7 @@
  *   needs-human aggregation; forensics parsing/recording; tmux and local-head probes.
  *
  * @exports showStatus, showForensics, reportNeedsHuman
- * @deps ../../core/{events,gate-lease,guards,runtime-ledger,state}, ../../cli/{forensics,github,reconcile,status}
+ * @deps ../../core/{combo,events,gate-lease,guards,runtime-ledger,state}, ../../infra/{config-snapshot,tmux}, ../../cli/{forensics,github,reconcile,status}
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import { readGateLeases } from "../../core/gate-lease.js";
