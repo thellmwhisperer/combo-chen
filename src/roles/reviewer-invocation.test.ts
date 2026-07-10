@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the reviewer role. ~120 lines, testing
+ * @overview Unit tests for the reviewer role. ~155 lines, testing
  *   the default reviewer prompt contract (COMMENT-only, never-APPROVE,
  *   lgtm convention, reviewer!=coder rule), shell-safe review submission,
  *   reviewer instructions, and reviewer invocation command rendering.
@@ -125,6 +125,39 @@ describe("buildReviewerInvocation", () => {
         reviewerInstructions,
       }),
     ).toThrow(ReviewerInvocationError);
+  });
+
+  it.each([
+    ["escaped quote before a separator", 'reviewer \\" ; echo extra'],
+    ["unmatched single quote", "reviewer 'unterminated"],
+    ["unmatched double quote", 'reviewer "unterminated'],
+    ["background command", "reviewer {prompt} & echo extra"],
+    ["command substitution", "reviewer $(echo extra) {prompt}"],
+    ["backtick substitution", "reviewer `echo extra` {prompt}"],
+    ["newline", "reviewer {prompt}\necho extra"],
+    ["shell grouping", "reviewer (echo extra) {prompt}"],
+    ["shell comment", "reviewer {prompt} # ignored"],
+    ["trailing escape", "reviewer {prompt} \\"],
+  ])("rejects unsupported shell syntax: %s", (_case, reviewerCommand) => {
+    expect(() =>
+      buildReviewerInvocation({
+        reviewerCommand,
+        combo,
+        prUrl,
+        reviewerInstructions,
+      }),
+    ).toThrow(ReviewerInvocationError);
+  });
+
+  it("accepts escaped and quoted arguments in one plain reviewer command", () => {
+    expect(() =>
+      buildReviewerInvocation({
+        reviewerCommand: 'reviewer path\\ with\\ spaces "quoted value" {prompt}',
+        combo,
+        prUrl,
+        reviewerInstructions,
+      }),
+    ).not.toThrow();
   });
 });
 // -/ 1/1

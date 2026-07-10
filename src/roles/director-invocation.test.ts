@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the promptable director role. ~50 lines, prompt
+ * @overview Unit tests for the promptable director role. ~55 lines, prompt
  *   contract and command rendering.
  *
  *   READING GUIDE
@@ -33,6 +33,9 @@ describe("defaultDirectorPrompt", () => {
     expect(prompt).toContain("Stay in this tmux window");
     expect(prompt).toContain("director-watch");
     expect(prompt).toContain("needs_human");
+    expect(prompt).toContain("Do not review or answer review threads");
+    expect(prompt).toContain("GitHub writes");
+    expect(prompt).toContain("reviewer or gatekeeper");
   });
 });
 
