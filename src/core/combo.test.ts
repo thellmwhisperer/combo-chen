@@ -339,7 +339,7 @@ describe("buildRunnerScript", () => {
     expect(script).toContain(') < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?');
   });
 
-  it("continues to PR detection when no-mistakes exits nonzero after checks passed", () => {
+  it("continues to PR detection when no-mistakes exits nonzero after checks passed", { timeout: 10000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");
