@@ -31,6 +31,8 @@
 
 // -- 1/3 HELPER · release naming primitives --
 const PACKAGE_NAME = "combo-chen";
+const RELEASE_VERSION_PATTERN =
+  /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 
 export const RELEASE_CHECKSUMS_FILE = "checksums.txt";
 
@@ -59,8 +61,11 @@ export const RELEASE_TARGETS = [
 
 function releaseVersionTag(version: string): string {
   const trimmed = version.trim();
-  const normalized = trimmed.startsWith("v") ? trimmed.slice(1) : trimmed;
-  if (normalized.length === 0) throw new Error("release version is required");
+  const match = RELEASE_VERSION_PATTERN.exec(trimmed);
+  if (match === null) throw new Error(`invalid combo-chen release version: ${version}`);
+  const normalized = `${Number.parseInt(match[1]!, 10)}.${Number.parseInt(match[2]!, 10)}.${Number.parseInt(match[3]!, 10)}${
+    match[4] === undefined ? "" : `-${match[4]}`
+  }`;
   return `v${normalized}`;
 }
 

@@ -45,7 +45,9 @@ function scanUpdateBoundary(source: string): unknown[] {
       encoding: "utf8",
     });
     if (result.stdout.trim().length === 0) {
-      throw new Error(`update boundary scan failed: ${result.stderr.trim()}`);
+      throw new Error(
+        `update boundary scan failed: ${result.error?.message || result.stderr.trim() || "unknown error"}`,
+      );
     }
     return JSON.parse(result.stdout) as unknown[];
   } finally {
@@ -59,6 +61,8 @@ describe("update module boundary rule", () => {
   it("rejects an outside internal import and permits the declared entry point", () => {
     expect(scanUpdateBoundary('import { runUpdateCommand } from "../update/command.js";')).toHaveLength(1);
     expect(scanUpdateBoundary('import { runUpdateCommand } from "../update/index.js";')).toHaveLength(0);
+    expect(scanUpdateBoundary('const runUpdateCommand = import("../update/command.js");')).toHaveLength(1);
+    expect(scanUpdateBoundary('const runUpdateCommand = import("../update/index.js");')).toHaveLength(0);
   });
 });
 // -/ 2/2

@@ -191,7 +191,12 @@ export function resolveLatestReleaseCandidate(input: UpdateReleaseResolverInput)
     if (release.draft === true) continue;
     if (mode === "stable" && release.prerelease) continue;
 
-    const candidate = normalizeCandidate(release);
+    let candidate: ResolvedUpdateReleaseCandidate;
+    try {
+      candidate = normalizeCandidate(release);
+    } catch {
+      continue;
+    }
     if (
       latest === undefined ||
       compareNormalizedReleaseVersions(candidate.normalized, latest.normalized) > 0

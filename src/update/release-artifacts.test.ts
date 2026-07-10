@@ -91,5 +91,14 @@ describe("release artifacts", () => {
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  combo-chen-v1.2.3-linux-x64.tar.gz\n",
     );
   });
+
+  it("rejects malformed release versions before deriving archive paths", () => {
+    expect(() => releaseArchiveEntries("1.2.3/../x")).toThrow(
+      "invalid combo-chen release version: 1.2.3/../x",
+    );
+    expect(() => releaseAssetFileNames("1.2.3/../x")).toThrow(
+      "invalid combo-chen release version: 1.2.3/../x",
+    );
+  });
 });
 // -/ 1/1
