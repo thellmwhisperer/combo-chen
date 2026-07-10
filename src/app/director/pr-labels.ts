@@ -1,5 +1,5 @@
 /**
- * @overview Combo PR label projection helpers.
+ * @overview Director-owned combo PR label projection helpers.
  *   ~590 lines, deterministic desired-label, diff, and GitHub mutation helpers.
  *
  *   READING GUIDE
@@ -25,7 +25,7 @@
  *   GH label parsing
  *
  * @exports ComboPrLabel, ComboPrLabelProjectionInput, ComboPrLabelProjection, ComboPrLabelDiff, SyncComboPrLabelsInput, SyncComboPrLabelsResult, projectComboPrLabels, diffComboPrLabels, syncComboPrLabels
- * @deps ../../core/events, ../director/reviewer, ../gate/gate, ./checks, ./github, node:child_process
+ * @deps ../../core/events, ../gate/gate, ../github/checks, ../github/github, ./reviewer, node:child_process
  */
 import { execSync } from "node:child_process";
 import { appendEvent, type ComboEvent } from "../../core/events.js";
@@ -35,10 +35,10 @@ import {
   checkSignalIsSuccess,
   externalReviewSkippedByConfiguredAgent,
   requiredChecksSucceeded,
-} from "./checks.js";
+} from "../github/checks.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "../gate/gate.js";
-import type { GhRunner } from "./github.js";
-import { livePinnedLgtmSha } from "../director/reviewer.js";
+import type { GhRunner } from "../github/github.js";
+import { livePinnedLgtmSha } from "./reviewer.js";
 
 // -- 1/4 CORE - label catalogue + public types <- START HERE --
 const COMBO_PR_LABELS = [

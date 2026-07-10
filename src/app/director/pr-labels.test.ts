@@ -21,7 +21,7 @@
  *   event, checkRun, labels
  *
  * @exports none
- * @deps ../../core/events, ./github, ./pr-labels, node:fs, node:os, node:path, vitest
+ * @deps ../../core/events, ../github/github, ./pr-labels, node:fs, node:os, node:path, vitest
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { readEvents, type ComboEvent } from "../../core/events.js";
-import type { GhResult } from "./github.js";
+import type { GhResult } from "../github/github.js";
 import { diffComboPrLabels, projectComboPrLabels, syncComboPrLabels } from "./pr-labels.js";
 
 // -- 1/1 CORE - label projection tests <- START HERE --
