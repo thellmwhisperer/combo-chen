@@ -18,7 +18,7 @@
  *   Command-specific fixtures live inside their describe block.
  *
  * @exports none
- * @deps ../../cli/main.test-harness
+ * @deps ../../testing/cli-harness
  */
 
 import {
@@ -45,7 +45,7 @@ import {
   spawnSync,
   tmpdir,
   writeFileSync,
-} from "../../cli/main.test-harness.js";
+} from "../../testing/cli-harness.js";
 
 // -- 1/1 CORE · command contracts <- START HERE --
 describe("run", () => {

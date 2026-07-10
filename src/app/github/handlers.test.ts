@@ -18,7 +18,7 @@
  *   Command-specific fixtures live inside their describe block.
  *
  * @exports none
- * @deps ../../cli/main.test-harness
+ * @deps ../../testing/cli-harness
  */
 
 import {
@@ -38,7 +38,7 @@ import {
   runDirFor,
   writeCombo,
   writeFileSync,
-} from "../../cli/main.test-harness.js";
+} from "../../testing/cli-harness.js";
 
 describe("intent and PR autoclose", () => {
   it("prints the canonical issue PR intent with the verbatim autoclose requirement", async () => {

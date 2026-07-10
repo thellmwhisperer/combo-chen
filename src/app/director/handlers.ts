@@ -20,14 +20,14 @@
  *   None.
  *
  * @exports activateComboReviewer, tickComboReviewer, sendDirectorPrompt, tickComboDirector, watchDirector, activateComboCoder, nudgeComboReviewComments
- * @deps ../../core/state, ../../infra/config-snapshot, ../../cli/{coder,director,director-prompt,reviewer}
+ * @deps ../../core/state, ../../infra/config-snapshot, ../deps, ./coder, ./director, ./prompt, ./reviewer
  */
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
-import { activateCoder, nudgeReviewComments } from "../../cli/coder.js";
-import { tickDirector } from "../../cli/director.js";
-import { promptDirector } from "../../cli/director-prompt.js";
-import { activateReviewer, tickReviewer } from "../../cli/reviewer.js";
+import { activateCoder, nudgeReviewComments } from "./coder.js";
+import { tickDirector } from "./director.js";
+import { promptDirector } from "./prompt.js";
+import { activateReviewer, tickReviewer } from "./reviewer.js";
 import type { AppDeps } from "../deps.js";
 
 // -- 1/2 CORE · watchDirector <- START HERE --

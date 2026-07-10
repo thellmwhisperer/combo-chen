@@ -20,7 +20,7 @@
  *   None.
  *
  * @exports printIntent, ensurePrAutoclose
- * @deps node:{fs,path}, ../../core/state, ../../roles/gatekeeper, ../../cli/{github,work-plan}
+ * @deps ../../core/state, ../../roles/gatekeeper, ../deps, ../work-items/work-plan, ./github, node:fs, node:path
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -32,8 +32,8 @@ import {
   ensureIssueAutocloseInPrBody,
   hasIssueAutocloseInPrBody,
 } from "../../roles/gatekeeper.js";
-import { fetchIssueDetails } from "../../cli/github.js";
-import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../../cli/work-plan.js";
+import { fetchIssueDetails } from "./github.js";
+import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/work-plan.js";
 import type { AppDeps } from "../deps.js";
 
 // -- 1/2 CORE · printIntent <- START HERE --

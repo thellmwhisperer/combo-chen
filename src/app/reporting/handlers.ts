@@ -20,7 +20,7 @@
  *   needs-human aggregation; forensics parsing/recording; tmux and local-head probes.
  *
  * @exports showStatus, showForensics, reportNeedsHuman
- * @deps ../../core/{combo,events,gate-lease,guards,runtime-ledger,state}, ../../infra/{config-snapshot,tmux}, ../../cli/{forensics,github,reconcile,status}
+ * @deps ../../core/combo, ../../core/events, ../../core/gate-lease, ../../core/guards, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../deps, ../github/github, ../lifecycle/reconcile, ./forensics, ./status
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import { readGateLeases } from "../../core/gate-lease.js";
@@ -41,10 +41,10 @@ import {
   analyzeForensicsCombo,
   renderForensicsMarkdown,
   renderForensicsOutcomeMarkdown,
-} from "../../cli/forensics.js";
-import { fetchForensicsGithubFacts } from "../../cli/github.js";
-import { reconcileCombos } from "../../cli/reconcile.js";
-import { deepComboStatus, formatGateLeaseStatus } from "../../cli/status.js";
+} from "./forensics.js";
+import { fetchForensicsGithubFacts } from "../github/github.js";
+import { reconcileCombos } from "../lifecycle/reconcile.js";
+import { deepComboStatus, formatGateLeaseStatus } from "./status.js";
 import type { AppDeps } from "../deps.js";
 
 // -- 1/3 CORE · showStatus <- START HERE --

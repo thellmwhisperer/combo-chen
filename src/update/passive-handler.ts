@@ -18,14 +18,14 @@
  *   None.
  *
  * @exports checkForPassiveUpdate
- * @deps ../app/deps, ../cli/passive-update
+ * @deps ../app/deps, ./passive
  */
 import type { AppDeps } from "../app/deps.js";
 import {
   defaultPassiveUpdateCommandDeps,
   runPassiveUpdateCheck,
   shouldRunPassiveUpdateForCommand,
-} from "../cli/passive-update.js";
+} from "./passive.js";
 
 // -- 1/1 CORE · checkForPassiveUpdate <- START HERE --
 export async function checkForPassiveUpdate(
