@@ -272,7 +272,7 @@ function hasNormalCompletionBeforeNextHumanRequest(events: ComboEvent[], startIn
 
 function parseForensicsFormat(value: string): ForensicsFormat {
   if (value === "markdown" || value === "json") return value;
-  throw new Error("--format must be \"markdown\" or \"json\"");
+  throw new Error('--format must be "markdown" or "json"');
 }
 
 function parseForensicsIssueFilter(value: string | undefined): Set<number> | undefined {
