@@ -40,11 +40,10 @@ function scanUpdateBoundary(source: string): unknown[] {
   try {
     mkdirSync(srcDir, { recursive: true });
     writeFileSync(fixturePath, source);
-    const result = spawnSync(
-      astGrepPath,
-      ["scan", "--rule", rulePath, "--json=compact", "src/fixture.ts"],
-      { cwd: fixtureDir, encoding: "utf8" },
-    );
+    const result = spawnSync(astGrepPath, ["scan", "--rule", rulePath, "--json=compact", "src/fixture.ts"], {
+      cwd: fixtureDir,
+      encoding: "utf8",
+    });
     if (result.stdout.trim().length === 0) {
       throw new Error(`update boundary scan failed: ${result.stderr.trim()}`);
     }
