@@ -28,6 +28,13 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.79](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.78...combo-chen-v0.0.79) (2026-07-10)
+
+
+### Bug Fixes
+
+* **review:** address CodeRabbit findings ([ad4c43b](https://github.com/thellmwhisperer/combo-chen/commit/ad4c43bc1b2c36a5fdae3623cd0caea458089014))
+
 ## [0.0.78](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.77...combo-chen-v0.0.78) (2026-07-09)
 
 
@@ -974,5 +981,3 @@
 * **judge:** normalize short lgtm pins ([b558115](https://github.com/thellmwhisperer/combo-chen/commit/b5581159a35f53f4ee6daf5408c8c3bfa6168716))
 * **release-please:** Implemented the three requested Gordon review fixes in `.github/workflows/release-please.yml` and verified them with local typecheck and tests. ([095101a](https://github.com/thellmwhisperer/combo-chen/commit/095101a82ea34c0b2959eb2b73aa87950548b198))
 * **release-please:** validate token, approve before auto-merge ([917f896](https://github.com/thellmwhisperer/combo-chen/commit/917f89619205e0a05f67760be6ef4c263225aad1))
-
-
