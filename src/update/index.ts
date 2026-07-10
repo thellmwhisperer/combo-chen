@@ -21,6 +21,8 @@
  *   releaseAssetFileName, releaseAssetFileNames Release archive naming helpers.
  *   releaseArchiveRoot, releaseArchiveEntries  Release archive layout helpers.
  *   formatChecksums                            Release checksum renderer.
+ *   produceReleaseAssets                       Reproducible release asset producer.
+ *   ProduceReleaseAssetsOptions, ProducedReleaseAsset, ProduceReleaseAssetsResult Producer contracts.
  *   PASSIVE_UPDATE_CACHE_FILE                  Shared test fixture constant.
  *   PASSIVE_UPDATE_DISABLE_ENV                 Passive-check process policy constant.
  *   refreshPostUpdateLocalState                Shared test harness refresh seam.
@@ -30,8 +32,8 @@
  *   ---------
  *   All implementation modules re-exported below remain private to src/update.
  *
- * @exports runSelfUpdate, checkForPassiveUpdate, UpdateCommandDeps, PassiveUpdateCliDeps, defaultUpdateCommandDeps, runUpdateCommand, ReleaseMetadata, releaseMetadata, formatReleaseMetadata, RELEASE_CHECKSUMS_FILE, RELEASE_TARGETS, ReleaseTarget, ReleaseArchiveEntry, ReleaseChecksum, releaseAssetFileName, releaseAssetFileNames, releaseArchiveRoot, releaseArchiveEntries, formatChecksums, PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_DISABLE_ENV, refreshPostUpdateLocalState, classifyInstallTarget
- * @deps ./command, ./handler, ./passive, ./passive-handler, ./passive-update, ./refresh, ./release-artifacts, ./release-metadata, ./update-contract
+ * @exports runSelfUpdate, checkForPassiveUpdate, UpdateCommandDeps, PassiveUpdateCliDeps, defaultUpdateCommandDeps, runUpdateCommand, ReleaseMetadata, releaseMetadata, formatReleaseMetadata, RELEASE_CHECKSUMS_FILE, RELEASE_TARGETS, ReleaseTarget, ReleaseArchiveEntry, ReleaseChecksum, releaseAssetFileName, releaseAssetFileNames, releaseArchiveRoot, releaseArchiveEntries, formatChecksums, ProduceReleaseAssetsOptions, ProducedReleaseAsset, ProduceReleaseAssetsResult, produceReleaseAssets, PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_DISABLE_ENV, refreshPostUpdateLocalState, classifyInstallTarget
+ * @deps ./command, ./handler, ./passive, ./passive-handler, ./passive-update, ./refresh, ./release-artifacts, ./release-metadata, ./release-producer, ./update-contract
  */
 
 // -- 1/1 CORE · declared update entry point <- START HERE --
@@ -53,6 +55,12 @@ export {
   type ReleaseTarget,
 } from "./release-artifacts.js";
 export { formatReleaseMetadata, releaseMetadata, type ReleaseMetadata } from "./release-metadata.js";
+export {
+  produceReleaseAssets,
+  type ProduceReleaseAssetsOptions,
+  type ProducedReleaseAsset,
+  type ProduceReleaseAssetsResult,
+} from "./release-producer.js";
 export { PASSIVE_UPDATE_DISABLE_ENV } from "./passive-update.js";
 export { classifyInstallTarget } from "./update-contract.js";
 // -/ 1/1

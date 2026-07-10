@@ -20,12 +20,12 @@
  *   parseReleaseAssetsArgs, packageVersion, resolveOutputDir.
  *
  * @exports RunReleaseAssetsCommandOptions, runReleaseAssetsCommand
- * @deps node:{fs,path}, ./release-producer
+ * @deps node:{fs,path}, ../update/index
  */
 import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
-import { produceReleaseAssets, type ProduceReleaseAssetsResult } from "./release-producer.js";
+import { produceReleaseAssets, type ProduceReleaseAssetsResult } from "../update/index.js";
 
 // -- 1/3 HELPER · command data contracts --
 interface ParsedReleaseAssetsArgs {
