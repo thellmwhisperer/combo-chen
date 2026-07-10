@@ -22,7 +22,7 @@
  *   combo, writeThreadArtifact
  *
  * @exports none
- * @deps ../../core/events, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ../../roles/coder, ./coder, node:fs, node:os, node:path, vitest
+ * @deps ../../core/events, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ../../roles/coder-invocation, ./coder, node:fs, node:os, node:path, vitest
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,7 +33,7 @@ import { appendEvent, readEvents } from "../../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
-import { CODER_THREAD_ARTIFACT } from "../../roles/coder.js";
+import { CODER_THREAD_ARTIFACT } from "../../roles/coder-invocation.js";
 import { activateCoder, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
 
 // -- 1/3 HELPER · Test harness --

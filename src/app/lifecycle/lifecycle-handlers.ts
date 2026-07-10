@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent
- * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
+ * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
  */
 import {
   appendEvent,
@@ -33,7 +33,7 @@ import {
 import { updateRuntimeLedger } from "../../core/runtime-ledger.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
-import { persistCoderThreadArtifact } from "../../roles/coder.js";
+import { persistCoderThreadArtifact } from "../../roles/coder-invocation.js";
 import { parseEventFields } from "./event-fields.js";
 import { closeMergedCombo } from "./closure.js";
 import { GATEKEEPER_WINDOW, refreshGatekeeperWindow } from "../gate/gate.js";

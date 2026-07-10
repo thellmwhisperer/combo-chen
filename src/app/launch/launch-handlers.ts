@@ -21,7 +21,7 @@
  *   Treehouse path parsing, lease acquisition, rollback, and best-effort cleanup.
  *
  * @exports launchCombo, runOverture
- * @deps ../../core/combo, ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder, ../../roles/director, ../../roles/gatekeeper, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ../work-items/work-plan, ./overture, node:fs, node:path
+ * @deps ../../core/combo, ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../../roles/director-invocation, ../../roles/gatekeeper, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./overture, node:fs, node:path
  */
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,8 +33,8 @@ import { comboHome, writeCombo, type ComboRecord } from "../../core/state.js";
 import { renderWorkPlanMarkdown } from "../../core/work-plan.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
 import { killSessionArgs, newSessionArgs, newWindowArgs } from "../../infra/tmux.js";
-import { buildCoderInvocation, defaultWorkPlanPrompt } from "../../roles/coder.js";
-import { buildDirectorInvocation } from "../../roles/director.js";
+import { buildCoderInvocation, defaultWorkPlanPrompt } from "../../roles/coder-invocation.js";
+import { buildDirectorInvocation } from "../../roles/director-invocation.js";
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
@@ -58,7 +58,7 @@ import {
   ensureWindowPresent,
   idleRoleWindowCommand,
 } from "../runtime/sessions.js";
-import { WORK_PLAN_ARTIFACT } from "../work-items/work-plan.js";
+import { WORK_PLAN_ARTIFACT } from "../work-items/persisted-work-plan.js";
 import { buildDirectorWatchCommand } from "../director/watchers.js";
 import type { AppDeps } from "../deps.js";
 

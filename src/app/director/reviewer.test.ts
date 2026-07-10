@@ -20,7 +20,7 @@
  *   combo, writeCoderThreadArtifact
  *
  * @exports none
- * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/config-snapshot, ../../roles/coder, ./reviewer, node:fs, node:os, node:path, vitest
+ * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/config-snapshot, ../../roles/coder-invocation, ./reviewer, node:fs, node:os, node:path, vitest
  */
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,7 +37,7 @@ import {
 } from "../../core/work-plan.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
-import { CODER_THREAD_ARTIFACT } from "../../roles/coder.js";
+import { CODER_THREAD_ARTIFACT } from "../../roles/coder-invocation.js";
 import {
   activateReviewer,
   canonicalLgtmShaForHead,

@@ -29,7 +29,7 @@
  *   checkNoMistakesRunway, checkTeamIdentity, runDirReusable, writeOvertureArtifact
  *
  * @exports OvertureDeps, TeamIdentityResolution, TeamIdentityResolver, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
- * @deps ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/tmux, ../../roles/reviewer, ../github/github, ../reporting/status, node:crypto, node:fs, node:path
+ * @deps ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/tmux, ../../roles/reviewer-invocation, ../github/github, ../reporting/status, node:crypto, node:fs, node:path
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -58,7 +58,7 @@ import {
   type ComboTeamRole,
 } from "../../infra/config.js";
 import { hasSessionArgs, type TmuxResult } from "../../infra/tmux.js";
-import { assertReviewerCommandSafe } from "../../roles/reviewer.js";
+import { assertReviewerCommandSafe } from "../../roles/reviewer-invocation.js";
 import { fetchIssueDetails, remoteSlug, type GhRunner, type IssueDetails } from "../github/github.js";
 import { parseNoMistakesAxiStatus } from "../reporting/status.js";
 

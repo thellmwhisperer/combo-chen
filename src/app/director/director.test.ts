@@ -20,7 +20,7 @@
  *   combo, event, fakeDeps, seedReadyCandidate, writeCoderThreadArtifact
  *
  * @exports none
- * @deps ../../core/events, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ../../roles/coder, ../gate/gate, ../runtime/sessions, ./director, node:fs, node:os, node:path, vitest
+ * @deps ../../core/events, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ../../roles/coder-invocation, ../gate/gate, ../runtime/sessions, ./director, node:fs, node:os, node:path, vitest
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +31,7 @@ import { appendEvent, readEvents, type ComboEvent } from "../../core/events.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
-import { CODER_THREAD_ARTIFACT } from "../../roles/coder.js";
+import { CODER_THREAD_ARTIFACT } from "../../roles/coder-invocation.js";
 import {
   gateStateAllowsReady,
   headStateAllowsReady,
