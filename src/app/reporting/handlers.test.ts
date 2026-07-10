@@ -127,10 +127,83 @@ describe("forensics", () => {
     });
 
     await expect(exec(deps, ["forensics", "--issues", "7", "--record-outcome"])).rejects.toThrow(
-      "Cannot record forensics outcome for o-r-7: missing PR link and head SHA",
+      "Failed to record forensics outcome(s):\no-r-7: missing PR link and head SHA",
     );
 
     expect(ghCalls.some((args) => args[0] === "issue" && args[1] === "comment")).toBe(false);
+  });
+
+  it("continues recording later outcomes and aggregates validation and GitHub failures", async () => {
+    const h = home();
+    seedIssueCombo(h, "o-r-7", 7);
+    for (const issueNumber of [8, 9]) {
+      const id = `o-r-${issueNumber}`;
+      const dir = seedIssueCombo(h, id, issueNumber);
+      const sha = `def${issueNumber}560`;
+      writeFileSync(
+        join(dir, "journal.jsonl"),
+        [
+          {
+            t: "2026-06-11T10:00:00.000Z",
+            event: "combo_created",
+            issue_url: `https://github.com/o/r/issues/${issueNumber}`,
+          },
+          {
+            t: "2026-06-11T10:08:00.000Z",
+            event: "pr_opened",
+            url: `https://github.com/o/r/pull/${issueNumber}`,
+          },
+          { t: "2026-06-11T10:09:00.000Z", event: "gate_validated", sha },
+          { t: "2026-06-11T10:10:00.000Z", event: "lgtm", sha },
+        ]
+          .map((event) => JSON.stringify(event))
+          .join("\n"),
+      );
+    }
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(args);
+        if (args[0] === "pr" && args[1] === "view") {
+          const issueNumber = args[2]?.endsWith("/9") ? 9 : 8;
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              headRefOid: `def${issueNumber}560`,
+              state: "OPEN",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [],
+            }),
+            stderr: "",
+          };
+        }
+        if (args[0] === "issue" && args[1] === "view") {
+          return { status: 0, stdout: JSON.stringify({ state: "OPEN", closedAt: null }), stderr: "" };
+        }
+        if (args[0] === "api") return { status: 0, stdout: "[]", stderr: "" };
+        if (args[0] === "issue" && args[1] === "comment" && args[2]?.endsWith("/8")) {
+          return { status: 1, stdout: "", stderr: "permission denied" };
+        }
+        if (args[0] === "issue" && args[1] === "comment" && args[2]?.endsWith("/9")) {
+          return { status: 0, stdout: "https://github.com/o/r/issues/9#issuecomment-1\n", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: `unexpected gh ${args.join(" ")}` };
+      },
+    });
+
+    await expect(exec(deps, ["forensics", "--issues", "7,8,9", "--record-outcome"])).rejects.toThrow(
+      [
+        "Failed to record forensics outcome(s):",
+        "o-r-7: missing PR link and head SHA",
+        "o-r-8: permission denied",
+      ].join("\n"),
+    );
+
+    expect(out).toContain("forensics: recorded outcome for o-r-9 on https://github.com/o/r/issues/9");
+    expect(
+      ghCalls.some((args) => args[0] === "issue" && args[1] === "comment" && args[2]?.endsWith("/9")),
+    ).toBe(true);
   });
 
   it("records the generated outcome block on the source issue when requested", async () => {
