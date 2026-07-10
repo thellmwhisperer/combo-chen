@@ -38,7 +38,7 @@ import {
   symlinkSync,
   tmpdir,
   writeFileSync,
-} from "./main.test-harness.js";
+} from "../testing/cli-harness.js";
 
 // -- 1/1 CORE · command contracts <- START HERE --
 describe("resolvePollMs", () => {

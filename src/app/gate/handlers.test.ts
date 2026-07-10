@@ -18,7 +18,7 @@
  *   Command-specific fixtures live inside their describe block.
  *
  * @exports none
- * @deps ../../cli/main.test-harness
+ * @deps ../../testing/cli-harness
  */
 
 import {
@@ -41,7 +41,7 @@ import {
   type Deps,
   writeCombo,
   writeFileSync,
-} from "../../cli/main.test-harness.js";
+} from "../../testing/cli-harness.js";
 
 describe("gate-restart", () => {
   const HEAD = "abcdef012345abcdef012345abcdef0123456789";

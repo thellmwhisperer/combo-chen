@@ -21,7 +21,7 @@
  *   Treehouse path parsing, lease acquisition, rollback, and best-effort cleanup.
  *
  * @exports launchCombo, runOverture
- * @deps node:{fs,path}, ../../core/{combo,events,runtime-ledger,state,work-plan}, ../../infra/{config-snapshot,tmux}, ../../roles/{coder,director,gatekeeper}, ../../cli/{gate,overture,sessions,watchers,work-plan}
+ * @deps ../../core/combo, ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder, ../../roles/director, ../../roles/gatekeeper, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ../work-items/work-plan, ./overture, node:fs, node:path
  */
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,8 +47,8 @@ import {
   propagateNoMistakesConfig,
   scriptedMirrorGatekeeperCommandTemplate,
   startGatekeeperWindow,
-} from "../../cli/gate.js";
-import { assertOverturePassed, prepareOverture, renderOvertureChecklist } from "../../cli/overture.js";
+} from "../gate/gate.js";
+import { assertOverturePassed, prepareOverture, renderOvertureChecklist } from "./overture.js";
 import {
   CODER_WINDOW,
   DIRECTOR_WINDOW,
@@ -57,9 +57,9 @@ import {
   REVIEWER_WINDOW,
   ensureWindowPresent,
   idleRoleWindowCommand,
-} from "../../cli/sessions.js";
-import { WORK_PLAN_ARTIFACT } from "../../cli/work-plan.js";
-import { buildDirectorWatchCommand } from "../../cli/watchers.js";
+} from "../runtime/sessions.js";
+import { WORK_PLAN_ARTIFACT } from "../work-items/work-plan.js";
+import { buildDirectorWatchCommand } from "../director/watchers.js";
 import type { AppDeps } from "../deps.js";
 
 export interface LaunchOptions {

@@ -18,10 +18,10 @@
  *   None.
  *
  * @exports runSelfUpdate
- * @deps ../app/deps, ../cli/update
+ * @deps ../app/deps, ./command
  */
 import type { AppDeps } from "../app/deps.js";
-import { defaultUpdateCommandDeps, runUpdateCommand, type UpdateCommandDeps } from "../cli/update.js";
+import { defaultUpdateCommandDeps, runUpdateCommand, type UpdateCommandDeps } from "./command.js";
 
 // -- 1/1 CORE · runSelfUpdate <- START HERE --
 export async function runSelfUpdate(

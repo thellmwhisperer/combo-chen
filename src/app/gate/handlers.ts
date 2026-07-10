@@ -20,13 +20,13 @@
  *   None.
  *
  * @exports restartGate, handleGateLease
- * @deps ../../core/{events,state}, ../../cli/{gate,gate-lease,sessions}
+ * @deps ../../core/events, ../../core/state, ../deps, ../runtime/sessions, ./gate, ./lease
  */
 import { latestPrUrlFromEvents, readEvents } from "../../core/events.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
-import { restartPostAddressGate, startInitialGateRetry } from "../../cli/gate.js";
-import { acquireGateLeaseForCombo, releaseGateLeaseForCombo } from "../../cli/gate-lease.js";
-import { ensureComboSession } from "../../cli/sessions.js";
+import { restartPostAddressGate, startInitialGateRetry } from "./gate.js";
+import { acquireGateLeaseForCombo, releaseGateLeaseForCombo } from "./lease.js";
+import { ensureComboSession } from "../runtime/sessions.js";
 import type { AppDeps } from "../deps.js";
 
 // -- 1/2 CORE · restartGate <- START HERE --

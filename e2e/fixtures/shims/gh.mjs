@@ -175,7 +175,7 @@ if (args[0] === "api") {
           html_url: "https://github.com/o/r/pull/1#discussion_r1",
           user: { login: "coderabbitai[bot]" },
           body: "Please validate this mechanical issue.",
-          path: "src/cli/update.ts",
+          path: "src/update/command.ts",
           line: 163,
         },
       ])}\n`,

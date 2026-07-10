@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent
- * @deps ../../core/{events,runtime-ledger,state}, ../../infra/{config-snapshot,tmux}, ../../roles/coder, ../../cli/{args,closure,gate,park,reconcile,resume,sessions,watchers}
+ * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
  */
 import {
   appendEvent,
@@ -34,12 +34,12 @@ import { updateRuntimeLedger } from "../../core/runtime-ledger.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import { persistCoderThreadArtifact } from "../../roles/coder.js";
-import { parseEventFields } from "../../cli/args.js";
-import { closeMergedCombo } from "../../cli/closure.js";
-import { GATEKEEPER_WINDOW, refreshGatekeeperWindow } from "../../cli/gate.js";
-import { parkCombo } from "../../cli/park.js";
-import { reconcileCombos } from "../../cli/reconcile.js";
-import { resumeCombo } from "../../cli/resume.js";
+import { parseEventFields } from "./event-fields.js";
+import { closeMergedCombo } from "./closure.js";
+import { GATEKEEPER_WINDOW, refreshGatekeeperWindow } from "../gate/gate.js";
+import { parkCombo } from "./park.js";
+import { reconcileCombos } from "./reconcile.js";
+import { resumeCombo } from "./resume.js";
 import {
   CODER_WINDOW,
   DIRECTOR_WINDOW,
@@ -49,9 +49,9 @@ import {
   ensureComboSession,
   ensureJournalPane,
   resolveAttachCombo,
-} from "../../cli/sessions.js";
+} from "../runtime/sessions.js";
 import { attachSessionArgs, killSessionArgs } from "../../infra/tmux.js";
-import { resolvePollMs } from "../../cli/watchers.js";
+import { resolvePollMs } from "../director/watchers.js";
 import type { AppDeps } from "../deps.js";
 
 // -- 1/3 CORE · emitComboEvent <- START HERE --

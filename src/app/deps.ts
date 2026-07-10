@@ -19,12 +19,12 @@
  *   None.
  *
  * @exports AppDeps
- * @deps ../cli/{overture,passive-update,status,update}, ../infra/tmux
+ * @deps ../infra/tmux, ../update/command, ../update/passive, ./launch/overture, ./reporting/status
  */
-import type { TeamIdentityResolver } from "../cli/overture.js";
-import type { PassiveUpdateCliDeps } from "../cli/passive-update.js";
-import type { CommandResult } from "../cli/status.js";
-import type { UpdateCommandDeps } from "../cli/update.js";
+import type { TeamIdentityResolver } from "./launch/overture.js";
+import type { PassiveUpdateCliDeps } from "../update/passive.js";
+import type { CommandResult } from "./reporting/status.js";
+import type { UpdateCommandDeps } from "../update/command.js";
 import type { TmuxResult } from "../infra/tmux.js";
 
 // -- 1/1 CORE · AppDeps <- START HERE --

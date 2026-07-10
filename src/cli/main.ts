@@ -61,8 +61,8 @@ import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadat
 import { tmux as realTmux } from "../infra/tmux.js";
 import { runSelfUpdate } from "../update/handler.js";
 import { checkForPassiveUpdate } from "../update/passive-handler.js";
-import { resolveConfiguredTeamIdentity } from "./team-identity.js";
-export { buildDirectorWatchCommand, resolvePollMs } from "./watchers.js";
+import { resolveConfiguredTeamIdentity } from "../infra/team-identity.js";
+export { buildDirectorWatchCommand, resolvePollMs } from "../app/director/watchers.js";
 export type Deps = AppDeps;
 
 // -- 1/3 HELPER · Production adapters --
