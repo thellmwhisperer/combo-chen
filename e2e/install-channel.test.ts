@@ -24,7 +24,7 @@
  *   produceArchive, runInstall, runInstalledCli, tempDir.
  *
  * @exports none
- * @deps vitest, node:{child_process,fs,path,url}, ../src/update/index, ../src/infra/release-producer
+ * @deps vitest, node:{child_process,fs,path,url}, ../src/update/index
  */
 import { spawnSync } from "node:child_process";
 import {
@@ -42,10 +42,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { produceReleaseAssets } from "../src/infra/release-producer.js";
 import {
   classifyInstallTarget,
   defaultUpdateCommandDeps,
+  produceReleaseAssets,
   releaseArchiveRoot,
   releaseAssetFileName,
   runUpdateCommand,
