@@ -779,7 +779,7 @@ install targets, or inspect active combo sessions.
 
 ### U2 download, checksum verification, and staging
 
-U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
+U2 (`src/update/update-staging.ts`) implements download, SHA-256 checksum
 verification, and isolated extraction for a resolved update plan. The
 `stageResolvedUpdate` primitive downloads the selected archive asset and
 `checksums.txt`, verifies the digest before extraction, extracts into an
