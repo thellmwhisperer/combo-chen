@@ -28,6 +28,13 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.80](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.79...combo-chen-v0.0.80) (2026-07-10)
+
+
+### Bug Fixes
+
+* **update:** address review follow-ups ([c36a665](https://github.com/thellmwhisperer/combo-chen/commit/c36a6659ce2ded8ac525de0c7014460b9ff54e85))
+
 ## [0.0.79](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.78...combo-chen-v0.0.79) (2026-07-10)
 
 
