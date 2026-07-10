@@ -1,0 +1,16 @@
+# Buried with #285: GitHub adapters and parsers are lower-level services for
+# director orchestration, so importing director internals here creates a cycle
+# between state projection and transport.
+id: github-no-director-import
+language: TypeScript
+files:
+  - "src/app/github/**"
+rule:
+  kind: string
+  regex: "(?:\\.\\./)+director(?:/|['\"]|$)"
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+message: app/github must not import or re-export app/director; move orchestration into the director domain
+severity: error

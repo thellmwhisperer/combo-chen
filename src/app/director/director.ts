@@ -28,7 +28,7 @@
  *   worker recovery helpers, human-hold helpers, retry-count helpers, required READY check helpers, review-comment helpers
  *
  * @exports DirectorDeps, tickDirector, headStateAllowsReady, gateStateAllowsReady, reviewStateAllowsReady
- * @deps ../../core/combo, ../../core/events, ../../core/gh-api, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../gate/gate, ../github/checks, ../github/github, ../github/pr-labels, ../lifecycle/closure, ../runtime/sessions, ./coder, ./reviewer, ./watch-status, ./worker-monitor
+ * @deps ../../core/combo, ../../core/events, ../../core/gh-api, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../gate/gate, ../github/checks, ../github/github, ../lifecycle/closure, ../runtime/sessions, ./coder, ./pr-labels, ./reviewer, ./watch-status, ./worker-monitor
  */
 import { deriveStatus } from "../../core/combo.js";
 import {
@@ -59,7 +59,7 @@ import {
   startInitialGateRetry,
 } from "../gate/gate.js";
 import { blockingReadyMergeState, parsePrView } from "../github/github.js";
-import { syncComboPrLabels } from "../github/pr-labels.js";
+import { syncComboPrLabels } from "./pr-labels.js";
 import {
   closurePendingReviewerEvent,
   livePinnedLgtmSha,
