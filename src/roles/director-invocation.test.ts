@@ -8,11 +8,11 @@
  *   2. Then buildDirectorInvocation tests   <- command template rendering.
  *
  * @exports none
- * @deps vitest, ./director
+ * @deps vitest, ./director-invocation
  */
 import { describe, expect, it } from "vitest";
 
-import { buildDirectorInvocation, defaultDirectorPrompt } from "./director.js";
+import { buildDirectorInvocation, defaultDirectorPrompt } from "./director-invocation.js";
 
 const combo = {
   id: "o-r-9",

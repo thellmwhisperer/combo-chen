@@ -31,7 +31,7 @@
  *   buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
- * @deps ../../core/combo, ../../core/events, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/gatekeeper, ../../shell/templates, ../github/github, ../runtime/sessions, ../work-items/work-plan, node:fs, node:path
+ * @deps ../../core/combo, ../../core/events, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/gatekeeper, ../../shell/templates, ../github/github, ../runtime/sessions, ../work-items/persisted-work-plan, node:fs, node:path
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -63,7 +63,7 @@ import {
 } from "../../roles/gatekeeper.js";
 import { fetchIssueDetails } from "../github/github.js";
 import { GATE_RUNNER_WINDOW, windowSet } from "../runtime/sessions.js";
-import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/work-plan.js";
+import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/persisted-work-plan.js";
 
 // -- 1/5 HELPER · Types and constants --
 export interface GateDeps {

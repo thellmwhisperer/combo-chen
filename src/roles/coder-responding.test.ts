@@ -22,7 +22,7 @@
  *   └─────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{fs,os,path}, ../core/events, ./coder,
+ * @deps vitest, node:{fs,os,path}, ../core/events, ./coder-invocation,
  *   ./coder-responding
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -31,7 +31,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { readEvents } from "../core/events.js";
-import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT } from "./coder.js";
+import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT } from "./coder-invocation.js";
 import {
   buildReviewNudgePrompt,
   buildCoderRespondingResumeCommand,

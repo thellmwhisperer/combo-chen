@@ -17,7 +17,7 @@
  *   └─────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{fs,os,path,url}, ./coder
+ * @deps vitest, node:{fs,os,path,url}, ./coder-invocation
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +31,7 @@ import {
   defaultPrompt,
   extractCodexThreadIdFromJsonl,
   persistCoderThreadArtifact,
-} from "./coder.js";
+} from "./coder-invocation.js";
 
 const combo = {
   id: "o-r-7",

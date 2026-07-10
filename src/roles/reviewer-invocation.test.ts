@@ -15,11 +15,15 @@
  *   └────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, ./reviewer
+ * @deps vitest, ./reviewer-invocation
  */
 import { describe, expect, it } from "vitest";
 
-import { ReviewerInvocationError, buildReviewerInvocation, defaultReviewerPrompt } from "./reviewer.js";
+import {
+  ReviewerInvocationError,
+  buildReviewerInvocation,
+  defaultReviewerPrompt,
+} from "./reviewer-invocation.js";
 
 const combo = {
   id: "o-r-9",
