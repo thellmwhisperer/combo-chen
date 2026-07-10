@@ -55,11 +55,11 @@
  *   InstallTargetClassification, ActiveComboState, ReadOnlyUpdatePlan, normalizeReleaseVersion,
  *   selectUpdateAsset, parseUpdateChecksums, lookupUpdateChecksum, classifyInstallTarget,
  *   compareReleaseCandidate, compareNormalizedReleaseVersions
- * @deps node:fs, ../core/release-artifacts
+ * @deps node:fs, ./release-artifacts
  */
 import { realpathSync } from "node:fs";
 
-import { RELEASE_TARGETS, releaseAssetFileName } from "../core/release-artifacts.js";
+import { RELEASE_TARGETS, releaseAssetFileName } from "./release-artifacts.js";
 
 // -- 1/3 HELPER · Update contract types --
 /** Release channel after tag parsing plus GitHub prerelease flag normalization. */

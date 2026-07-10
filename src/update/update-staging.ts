@@ -29,12 +29,12 @@
  *   UpdateStagingDeps, ResolvedUpdateAsset, ResolvedUpdateChecksums, ResolvedUpdateStagingPlan,
  *   StagedUpdateArtifact, UpdateStagingErrorCode, UpdateStagingCleanup, UpdateStagingError,
  *   stageResolvedUpdate
- * @deps node:{crypto,path}, ../core/release-artifacts, ../core/guards, ./update-contract
+ * @deps node:{crypto,path}, ../core/guards, ./release-artifacts, ./update-contract
  */
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
-import { RELEASE_CHECKSUMS_FILE } from "../core/release-artifacts.js";
+import { RELEASE_CHECKSUMS_FILE } from "./release-artifacts.js";
 import { errorMessage } from "../core/guards.js";
 import { lookupUpdateChecksum, parseUpdateChecksums } from "./update-contract.js";
 

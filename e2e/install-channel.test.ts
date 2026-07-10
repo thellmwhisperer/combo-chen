@@ -42,13 +42,15 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
-import {
-  releaseAssetFileName,
-  releaseArchiveRoot,
-  type ReleaseTarget,
-} from "../src/core/release-artifacts.js";
-import { classifyInstallTarget, defaultUpdateCommandDeps, runUpdateCommand } from "../src/update/index.js";
 import { produceReleaseAssets } from "../src/infra/release-producer.js";
+import {
+  classifyInstallTarget,
+  defaultUpdateCommandDeps,
+  releaseArchiveRoot,
+  releaseAssetFileName,
+  runUpdateCommand,
+  type ReleaseTarget,
+} from "../src/update/index.js";
 
 // -- 1/3 HELPER · producer + install harness --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));

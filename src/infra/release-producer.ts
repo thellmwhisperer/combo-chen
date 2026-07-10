@@ -21,7 +21,7 @@
  *   writeTarOctal, writeTarChecksum, sha256Hex, tarMtimeSeconds.
  *
  * @exports ProduceReleaseAssetsOptions, ProducedReleaseAsset, ProduceReleaseAssetsResult, produceReleaseAssets
- * @deps node:{crypto,fs,path,zlib}, ../core/release-artifacts
+ * @deps node:{crypto,fs,path,zlib}, ../update/index
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,7 +36,7 @@ import {
   releaseAssetFileName,
   type ReleaseArchiveEntry,
   type ReleaseTarget,
-} from "../core/release-artifacts.js";
+} from "../update/index.js";
 
 // -- 1/3 HELPER · producer data contracts --
 const TAR_BLOCK_SIZE = 512;
