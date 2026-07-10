@@ -25,13 +25,13 @@
  *
  * @exports InstallReplacementInput, InstallReplacementResult, InstallReplacementDeps,
  *   replaceInstallTargetFromStagedArtifact
- * @deps node:{crypto,fs,path}, ./update-contract
+ * @deps node:{crypto,fs,path}, ../core/update-contract
  */
 import { randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, renameSync, rmSync, statSync, type Stats } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { classifyInstallTarget, type InstallTargetClassification } from "./update-contract.js";
+import { classifyInstallTarget, type InstallTargetClassification } from "../core/update-contract.js";
 
 // -- 1/3 HELPER · update install replacement types --
 const STAGED_INSTALL_EXECUTABLE = "bin/combo-chen";
