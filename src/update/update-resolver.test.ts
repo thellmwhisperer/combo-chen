@@ -128,6 +128,34 @@ describe("update release resolver", () => {
     });
   });
 
+  it("ignores malformed release tags and still selects valid candidates", () => {
+    expect(
+      resolveLatestReleaseCandidate({
+        releases: [release("not-a-version"), release("v1.3.0")],
+      }),
+    ).toMatchObject({
+      status: "found",
+      mode: "stable",
+      candidate: {
+        tagName: "v1.3.0",
+        prerelease: false,
+        normalized: { version: "1.3.0", channel: "stable" },
+      },
+    });
+  });
+
+  it("reports missing_release when only malformed release tags remain", () => {
+    expect(
+      resolveLatestReleaseCandidate({
+        releases: [release("not-a-version"), release("still-not-a-version")],
+      }),
+    ).toEqual({
+      status: "missing_release",
+      mode: "stable",
+      reason: "no stable GitHub release found",
+    });
+  });
+
   it("returns an update_available read-only plan when the candidate is newer", () => {
     expect(
       resolveReadOnlyUpdatePlan({

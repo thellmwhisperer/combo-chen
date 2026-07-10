@@ -8,14 +8,21 @@ files:
 ignores:
   - "src/update/**"
 rule:
-  all:
-    - kind: string
-    - regex: "(?:\\.\\./)+(?:src/)?update/"
-    - not:
-        regex: "(?:\\.\\./)+(?:src/)?update/index(?:\\.js)?"
-    - inside:
-        any:
-          - kind: import_statement
-          - kind: export_statement
+  any:
+    - all:
+        - kind: string
+        - regex: "(?:\\.\\./)+(?:src/)?update/"
+        - not:
+            regex: "(?:\\.\\./)+(?:src/)?update/index(?:\\.js)?"
+        - inside:
+            any:
+              - kind: import_statement
+              - kind: export_statement
+    - all:
+        - kind: call_expression
+        - pattern: import($$$ARGS)
+        - regex: "(?:\\.\\./)+(?:src/)?update/"
+        - not:
+            regex: "(?:\\.\\./)+(?:src/)?update/index(?:\\.js)?"
 message: callers outside src/update must import its declared entry point (update/index)
 severity: error

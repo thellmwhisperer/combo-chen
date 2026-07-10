@@ -8,5 +8,6 @@ output/
 .opencode/
 .idea/
 .lavish/
+.gnhf/
 pnpm-lock.yaml
 CHANGELOG.md
