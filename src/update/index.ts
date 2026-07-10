@@ -25,7 +25,7 @@
  *   All implementation modules re-exported below remain private to src/update.
  *
  * @exports runSelfUpdate, checkForPassiveUpdate, UpdateCommandDeps, PassiveUpdateCliDeps, defaultUpdateCommandDeps, runUpdateCommand, PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_DISABLE_ENV, refreshPostUpdateLocalState, classifyInstallTarget
- * @deps ./command, ./handler, ./passive, ./passive-handler, ./refresh, ../core/passive-update, ../core/update-contract
+ * @deps ./command, ./handler, ./passive, ./passive-handler, ./passive-update, ./refresh, ./update-contract
  */
 
 // -- 1/1 CORE · declared update entry point <- START HERE --
@@ -34,6 +34,6 @@ export { runSelfUpdate } from "./handler.js";
 export { PASSIVE_UPDATE_CACHE_FILE, type PassiveUpdateCliDeps } from "./passive.js";
 export { checkForPassiveUpdate } from "./passive-handler.js";
 export { refreshPostUpdateLocalState } from "./refresh.js";
-export { PASSIVE_UPDATE_DISABLE_ENV } from "../core/passive-update.js";
-export { classifyInstallTarget } from "../core/update-contract.js";
+export { PASSIVE_UPDATE_DISABLE_ENV } from "./passive-update.js";
+export { classifyInstallTarget } from "./update-contract.js";
 // -/ 1/1

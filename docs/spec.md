@@ -769,7 +769,7 @@ installs whose real executable path is under
 
 ### U1 release resolver and latest/beta check flow
 
-U1 (`src/core/update-resolver.ts`) consumes GitHub Releases metadata plus
+U1 (`src/update/update-resolver.ts`) consumes GitHub Releases metadata plus
 current build metadata and returns a read-only update decision. Stable mode
 ignores GitHub prereleases, beta mode includes them, candidates are normalized
 through the U0 contract, current builds are compared with the selected

@@ -427,7 +427,7 @@ U72-A adds the internal detector API at `src/core/active-runtime.ts`.
 It does not prompt, run tmux/git/gh/no-mistakes commands, write journals, create
 ledgers, restart daemons, or change update/install targets.
 
-U1 (`src/core/update-resolver.ts`) implements the release resolver and
+U1 (`src/update/update-resolver.ts`) implements the release resolver and
 latest/beta check flow. It consumes GitHub Releases metadata plus current build
 metadata, ignores prereleases in stable mode, includes prereleases in beta mode,
 normalizes candidates through the U0 contract, selects expected platform assets,

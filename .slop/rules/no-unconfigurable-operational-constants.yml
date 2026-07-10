@@ -2,11 +2,11 @@
 # Cite: PR #268 / 2026-07-06 wave introduced GATEKEEPER_STATUS_TIMEOUT_MS as a
 # bare timeout constant in src/cli/worker-monitor.ts; operational timeouts must
 # have env/repo config paths. Existing blessed constants are:
-# UPDATE_DOWNLOAD_TIMEOUT_MS (src/cli/update.ts, env-backed),
-# DEFAULT_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS (src/cli/update.ts),
-# DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS (src/cli/passive-update.ts),
+# UPDATE_DOWNLOAD_TIMEOUT_MS (src/update/command.ts, env-backed),
+# DEFAULT_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS (src/update/command.ts),
+# DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS (src/update/passive.ts),
 # JOURNAL_APPEND_LOCK_TIMEOUT_MS/JOURNAL_APPEND_LOCK_STALE_MS/JOURNAL_APPEND_LOCK_POLL_MS
-# (src/core/events.ts), DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS (src/core/passive-update.ts),
+# (src/core/events.ts), DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS (src/update/passive-update.ts),
 # and DEFAULT_GATE_LEASE_STALE_MS (src/core/gate-lease.ts).
 id: no-unconfigurable-operational-constants
 language: TypeScript
