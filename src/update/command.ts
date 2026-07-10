@@ -28,7 +28,7 @@
  *   parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
- * @deps ../app/reporting/display, ../core/active-runtime, ../core/guards, ../core/release-artifacts, ../core/state, ../core/update-contract, ../core/update-install, ../core/update-resolver, ../core/update-staging, ../infra/release-metadata, ./refresh, node:child_process, node:fs, node:os, node:path
+ * @deps ../app/reporting/display, ../core/active-runtime, ../core/guards, ../core/release-artifacts, ../core/state, ../core/update-contract, ../core/update-resolver, ../core/update-staging, ../infra/release-metadata, ./refresh, ./update-install, node:child_process, node:fs, node:os, node:path
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -43,7 +43,7 @@ import {
   replaceInstallTargetFromStagedArtifact,
   type InstallReplacementInput,
   type InstallReplacementResult,
-} from "../core/update-install.js";
+} from "./update-install.js";
 import {
   resolveReadOnlyUpdatePlan,
   type GitHubReleaseAssetMetadata,
