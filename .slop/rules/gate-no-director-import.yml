@@ -1,0 +1,16 @@
+# Buried with #285: gate orchestration is a lower-level service consumed by
+# director orchestration, so importing director internals here reverses the
+# dependency direction and creates a domain cycle.
+id: gate-no-director-import
+language: TypeScript
+files:
+  - "src/app/gate/**"
+rule:
+  kind: string
+  regex: "(?:\\.\\./)+director(?:/|['\"]|$)"
+  inside:
+    any:
+      - kind: import_statement
+      - kind: export_statement
+message: app/gate must not import or re-export app/director; move orchestration into the director domain
+severity: error

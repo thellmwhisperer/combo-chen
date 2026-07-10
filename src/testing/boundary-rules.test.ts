@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const astGrepPath = join(repoRoot, "node_modules", ".bin", "sg");
 
-// -- 1/3 HELPER · scanBoundaryRule --
+// -- 1/4 HELPER · scanBoundaryRule --
 function scanBoundaryRule(ruleName: string, fixturePath: string, source: string): unknown[] {
   const fixtureDir = mkdtempSync(join(tmpdir(), "boundary-rule-fixture-"));
   const absoluteFixturePath = join(fixtureDir, fixturePath);
@@ -53,9 +53,9 @@ function scanBoundaryRule(ruleName: string, fixturePath: string, source: string)
     rmSync(fixtureDir, { recursive: true, force: true });
   }
 }
-// -/ 1/3
+// -/ 1/4
 
-// -- 2/3 CORE · update boundary contract <- START HERE --
+// -- 2/4 CORE · update boundary contract <- START HERE --
 describe("update module boundary rule", () => {
   it("rejects an outside internal import and permits the declared entry point", () => {
     expect(
@@ -88,9 +88,9 @@ describe("update module boundary rule", () => {
     ).toHaveLength(0);
   });
 });
-// -/ 2/3
+// -/ 2/4
 
-// -- 3/3 CORE · GitHub domain boundary contract --
+// -- 3/4 CORE · GitHub domain boundary contract --
 describe("GitHub domain boundary rule", () => {
   it("rejects director imports while permitting lower-level core imports", () => {
     expect(
@@ -109,4 +109,25 @@ describe("GitHub domain boundary rule", () => {
     ).toHaveLength(0);
   });
 });
-// -/ 3/3
+// -/ 3/4
+
+// -- 4/4 CORE · Gate domain boundary contract --
+describe("Gate domain boundary rule", () => {
+  it("rejects director imports while permitting lower-level GitHub imports", () => {
+    expect(
+      scanBoundaryRule(
+        "gate-no-director-import.yml",
+        "src/app/gate/fixture.ts",
+        'import { tickDirector } from "../director/director.js";',
+      ),
+    ).toHaveLength(1);
+    expect(
+      scanBoundaryRule(
+        "gate-no-director-import.yml",
+        "src/app/gate/fixture.ts",
+        'import { fetchIssueDetails } from "../github/github.js";',
+      ),
+    ).toHaveLength(0);
+  });
+});
+// -/ 4/4
