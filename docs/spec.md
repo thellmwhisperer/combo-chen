@@ -885,8 +885,9 @@ runs without assuming every target repo is combo-chen.
 The project also ships with static slop probes under `.slop/rules/`:
 
 - **core-no-child-process** (`error`): forbids `node:child_process` imports in
-  `src/core/` — execution belongs in `cli/`, `roles/`, or `infra/`. This is the
-  hard CI/no-mistakes gate.
+  `src/core/` — execution belongs in `app/`, `roles/`, `infra/`, or `update/`;
+  `cli/` remains the thin Commander adapter. This is the hard CI/no-mistakes
+  gate.
 - **no-duplicate-helpers** (`error`): tombstone for helpers that were
   duplicated across modules and consolidated into `src/core/guards.ts`
   (`errorMessage`, `isRecord`, `isErrnoException`) and `src/core/events.ts`
@@ -912,7 +913,7 @@ The project also ships with static slop probes under `.slop/rules/`:
 - **no-adhoc-axi-status-scrape** (`error`): tombstone for ad hoc parsing of
   `no-mistakes axi status` output. Cite: #281. Canonical parsers:
   `src/shell/templates/axi-status-lib.sh` for shell,
-  `parseNoMistakesAxiStatus` in `src/cli/status.ts` for TS.
+  `parseNoMistakesAxiStatus` in `src/app/reporting/status.ts` for TS.
 - **script-string-assertion** (`warning`, pending burial): flags `toContain`
   assertions on script/runner targets that freeze internal strings; prefer
   executed-script contract assertions. Remaining stock is tracked in the rule

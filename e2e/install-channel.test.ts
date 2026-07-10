@@ -25,7 +25,7 @@
  *
  * @exports none
  * @deps vitest, node:{child_process,fs,path,url}, ../src/core/update-contract,
- *   ../src/cli/update, ../src/infra/release-producer
+ *   ../src/update/command, ../src/infra/release-producer
  */
 import { spawnSync } from "node:child_process";
 import {
@@ -49,7 +49,7 @@ import {
   type ReleaseTarget,
 } from "../src/core/release-artifacts.js";
 import { classifyInstallTarget } from "../src/core/update-contract.js";
-import { defaultUpdateCommandDeps, runUpdateCommand } from "../src/cli/update.js";
+import { defaultUpdateCommandDeps, runUpdateCommand } from "../src/update/command.js";
 import { produceReleaseAssets } from "../src/infra/release-producer.js";
 
 // -- 1/3 HELPER · producer + install harness --
