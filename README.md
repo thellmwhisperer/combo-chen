@@ -434,7 +434,7 @@ normalizes candidates through the U0 contract, selects expected platform assets,
 and returns a read-only update decision without downloads, extraction,
 replacement, or live combo inspection.
 
-U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
+U2 (`src/update/update-staging.ts`) implements download, SHA-256 checksum
 verification, and isolated extraction primitives. It accepts a resolved update
 plan or fixture, downloads the archive and `checksums.txt`, verifies the digest
 before extraction, extracts into an isolated staging directory, and returns a

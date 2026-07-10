@@ -29,14 +29,14 @@
  *   UpdateStagingDeps, ResolvedUpdateAsset, ResolvedUpdateChecksums, ResolvedUpdateStagingPlan,
  *   StagedUpdateArtifact, UpdateStagingErrorCode, UpdateStagingCleanup, UpdateStagingError,
  *   stageResolvedUpdate
- * @deps node:{crypto,path}, ./release-artifacts, ./guards, ./update-contract
+ * @deps node:{crypto,path}, ../core/release-artifacts, ../core/guards, ../core/update-contract
  */
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
-import { RELEASE_CHECKSUMS_FILE } from "./release-artifacts.js";
-import { errorMessage } from "./guards.js";
-import { lookupUpdateChecksum, parseUpdateChecksums } from "./update-contract.js";
+import { RELEASE_CHECKSUMS_FILE } from "../core/release-artifacts.js";
+import { errorMessage } from "../core/guards.js";
+import { lookupUpdateChecksum, parseUpdateChecksums } from "../core/update-contract.js";
 
 // -- 1/3 HELPER · staging contracts --
 export type UpdateDownloadKind = "archive" | "checksums";

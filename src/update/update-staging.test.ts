@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for U2 update download/checksum/staging primitives.
+ * @overview Unit tests for the update-owned U2 download/checksum/staging primitives.
  *   ~520 lines, no exports, pins mocked download, checksum, extraction, and cleanup boundaries.
  *
  *   READING GUIDE
