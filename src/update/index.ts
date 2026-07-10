@@ -16,6 +16,11 @@
  *   UpdateCommandDeps, PassiveUpdateCliDeps    Injectable application contracts.
  *   defaultUpdateCommandDeps, runUpdateCommand Update integration-test seam.
  *   ReleaseMetadata, releaseMetadata, formatReleaseMetadata Release build identity and rendering.
+ *   RELEASE_CHECKSUMS_FILE, RELEASE_TARGETS    Release artifact constants.
+ *   ReleaseTarget, ReleaseArchiveEntry, ReleaseChecksum Release artifact data contracts.
+ *   releaseAssetFileName, releaseAssetFileNames Release archive naming helpers.
+ *   releaseArchiveRoot, releaseArchiveEntries  Release archive layout helpers.
+ *   formatChecksums                            Release checksum renderer.
  *   PASSIVE_UPDATE_CACHE_FILE                  Shared test fixture constant.
  *   PASSIVE_UPDATE_DISABLE_ENV                 Passive-check process policy constant.
  *   refreshPostUpdateLocalState                Shared test harness refresh seam.
@@ -25,8 +30,8 @@
  *   ---------
  *   All implementation modules re-exported below remain private to src/update.
  *
- * @exports runSelfUpdate, checkForPassiveUpdate, UpdateCommandDeps, PassiveUpdateCliDeps, defaultUpdateCommandDeps, runUpdateCommand, ReleaseMetadata, releaseMetadata, formatReleaseMetadata, PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_DISABLE_ENV, refreshPostUpdateLocalState, classifyInstallTarget
- * @deps ./command, ./handler, ./passive, ./passive-handler, ./passive-update, ./refresh, ./release-metadata, ./update-contract
+ * @exports runSelfUpdate, checkForPassiveUpdate, UpdateCommandDeps, PassiveUpdateCliDeps, defaultUpdateCommandDeps, runUpdateCommand, ReleaseMetadata, releaseMetadata, formatReleaseMetadata, RELEASE_CHECKSUMS_FILE, RELEASE_TARGETS, ReleaseTarget, ReleaseArchiveEntry, ReleaseChecksum, releaseAssetFileName, releaseAssetFileNames, releaseArchiveRoot, releaseArchiveEntries, formatChecksums, PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_DISABLE_ENV, refreshPostUpdateLocalState, classifyInstallTarget
+ * @deps ./command, ./handler, ./passive, ./passive-handler, ./passive-update, ./refresh, ./release-artifacts, ./release-metadata, ./update-contract
  */
 
 // -- 1/1 CORE · declared update entry point <- START HERE --
@@ -35,6 +40,18 @@ export { runSelfUpdate } from "./handler.js";
 export { PASSIVE_UPDATE_CACHE_FILE, type PassiveUpdateCliDeps } from "./passive.js";
 export { checkForPassiveUpdate } from "./passive-handler.js";
 export { refreshPostUpdateLocalState } from "./refresh.js";
+export {
+  RELEASE_CHECKSUMS_FILE,
+  RELEASE_TARGETS,
+  formatChecksums,
+  releaseArchiveEntries,
+  releaseArchiveRoot,
+  releaseAssetFileName,
+  releaseAssetFileNames,
+  type ReleaseArchiveEntry,
+  type ReleaseChecksum,
+  type ReleaseTarget,
+} from "./release-artifacts.js";
 export { formatReleaseMetadata, releaseMetadata, type ReleaseMetadata } from "./release-metadata.js";
 export { PASSIVE_UPDATE_DISABLE_ENV } from "./passive-update.js";
 export { classifyInstallTarget } from "./update-contract.js";

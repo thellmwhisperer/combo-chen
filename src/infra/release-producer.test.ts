@@ -19,7 +19,7 @@
  *   writeFixtureRepo, readTarGzipMembers, readOctal, nullTerminatedAscii.
  *
  * @exports none
- * @deps vitest, node:{crypto,fs,os,path,zlib}, ../core/release-artifacts, ./release-producer
+ * @deps vitest, node:{crypto,fs,os,path,zlib}, ../update/index, ./release-producer
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -28,7 +28,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
-import { RELEASE_CHECKSUMS_FILE, formatChecksums } from "../core/release-artifacts.js";
+import { RELEASE_CHECKSUMS_FILE, formatChecksums } from "../update/index.js";
 import { produceReleaseAssets } from "./release-producer.js";
 
 interface TarMember {
