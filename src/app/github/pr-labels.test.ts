@@ -1,0 +1,633 @@
+/**
+ * @overview Unit tests for combo PR label projection.
+ *   ~635 lines, deterministic GitHub-label state from journal + live PR facts.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at projectComboPrLabels tests <- desired live labels.
+ *   2. Then diffComboPrLabels tests        <- add/remove plan for GitHub.
+ *   3. Test helpers                        <- event/check fixtures.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   journal events + fake PR/check facts -> desired combo labels -> add/remove diff
+ *
+ *   PUBLIC API
+ *   ----------
+ *   none (test file)
+ *
+ *   INTERNALS
+ *   ---------
+ *   event, checkRun, labels
+ *
+ * @exports none
+ * @deps ../../core/events, ./github, ./pr-labels, node:fs, node:os, node:path, vitest
+ */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+import { readEvents, type ComboEvent } from "../../core/events.js";
+import type { GhResult } from "./github.js";
+import { diffComboPrLabels, projectComboPrLabels, syncComboPrLabels } from "./pr-labels.js";
+
+// -- 1/1 CORE - label projection tests <- START HERE --
+const OLD_HEAD = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const HEAD = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const PR_URL = "https://github.com/o/r/pull/7";
+
+function event(name: ComboEvent["event"], payload: Record<string, unknown> = {}): ComboEvent {
+  return { t: new Date(0).toISOString(), event: name, ...payload };
+}
+
+function checkRun(name: string, conclusion: string): unknown {
+  return { __typename: "CheckRun", name, status: "COMPLETED", conclusion };
+}
+
+function labels(input: Parameters<typeof projectComboPrLabels>[0]): string[] {
+  return projectComboPrLabels(input).labels;
+}
+
+function runDir(): string {
+  return mkdtempSync(join(tmpdir(), "combo-chen-pr-labels-"));
+}
+
+function ghOk(stdout: unknown = ""): GhResult {
+  return { status: 0, stdout: typeof stdout === "string" ? stdout : JSON.stringify(stdout), stderr: "" };
+}
+
+describe("combo PR label projection", () => {
+  it("returns no combo labels for non-open PRs and removes only known combo labels", () => {
+    const projection = projectComboPrLabels({
+      events: [event("pr_opened", { url: PR_URL })],
+      pr: { state: "MERGED", headSha: HEAD },
+    });
+
+    expect(projection.labels).toEqual([]);
+    expect(projection.reason).toBe("pr_not_open");
+    expect(diffComboPrLabels(["bug", "combo:ready", "combo:working-reviewer"], projection.labels)).toEqual({
+      add: [],
+      remove: ["combo:working-reviewer", "combo:ready"],
+    });
+  });
+
+  it("projects a single work-in-progress label with coder taking reviewer precedence", () => {
+    expect(
+      labels({
+        events: [event("pr_opened", { url: PR_URL })],
+        pr: { state: "OPEN", headSha: HEAD },
+        activity: { reviewerActive: true },
+      }),
+    ).toEqual(["combo:working-reviewer"]);
+
+    expect(
+      labels({
+        events: [
+          event("pr_opened", { url: PR_URL }),
+          event("review_comment", {
+            author: "reviewer",
+            kind: "requested_changes",
+            url: "https://github.com/o/r/pull/7#discussion_r1",
+            head_sha: HEAD,
+          }),
+        ],
+        pr: { state: "OPEN", headSha: HEAD },
+        activity: { reviewerActive: true },
+      }),
+    ).toEqual(["combo:working-coder"]);
+
+    expect(
+      labels({
+        events: [event("pr_opened", { url: PR_URL }), event("gate_started")],
+        pr: { state: "OPEN", headSha: HEAD },
+        activity: { gateActive: true, reviewerActive: true },
+      }),
+    ).toEqual(["combo:working-gate"]);
+  });
+
+  it("does not project gate ownership from a retained idle gatekeeper window", () => {
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_started"),
+        event("gate_status", { state: "idle", head_sha: OLD_HEAD }),
+        event("gate_validated", { sha: OLD_HEAD }),
+      ],
+      pr: { state: "OPEN", headSha: HEAD },
+      activity: { gateActive: true },
+    });
+
+    expect(projection.labels).toEqual(["combo:stale"]);
+    expect(diffComboPrLabels(["combo:stale"], projection.labels)).toEqual({ add: [], remove: [] });
+  });
+
+  it("projects current-head LGTM, configured green check, and READY labels only when live signals agree", () => {
+    expect(
+      labels({
+        events: [
+          event("pr_opened", { url: PR_URL }),
+          event("gate_validated", { sha: HEAD }),
+          event("lgtm", { sha: HEAD }),
+          event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+        ],
+        pr: {
+          state: "OPEN",
+          headSha: HEAD,
+          statusCheckRollup: [
+            checkRun("unit", "SUCCESS"),
+            checkRun("ExternalReview", "SUCCESS"),
+            checkRun("ReviewDog", "SUCCESS"),
+          ],
+        },
+        requiredCheckNames: ["ReviewDog"],
+        greenCheckNames: ["ExternalReview"],
+      }),
+    ).toEqual(["combo:lgtm", "combo:external-review-green", "combo:ready"]);
+  });
+
+  it("does not project provider green or READY when a configured external agent says review skipped", () => {
+    expect(
+      labels({
+        events: [
+          event("pr_opened", { url: PR_URL }),
+          event("gate_validated", { sha: HEAD }),
+          event("lgtm", { sha: HEAD }),
+          event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+        ],
+        pr: {
+          state: "OPEN",
+          headSha: HEAD,
+          statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("CodeRabbit", "SUCCESS")],
+          comments: [
+            {
+              author: { login: "coderabbitai[bot]" },
+              body: "## Review skipped\nAuto reviews are disabled. Invoke @coderabbitai review.",
+            },
+          ],
+        },
+        requiredCheckNames: ["CodeRabbit"],
+        ambientCheckNames: ["coderabbitai"],
+        greenCheckNames: ["CodeRabbit"],
+      }),
+    ).toEqual(["combo:lgtm"]);
+  });
+
+  it("uses explicit configured green check names for the provider green label", () => {
+    expect(
+      labels({
+        events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+        pr: {
+          state: "OPEN",
+          headSha: HEAD,
+          statusCheckRollup: [checkRun("ExternalReview", "FAILURE"), checkRun("ReviewDog", "SUCCESS")],
+        },
+        greenCheckNames: ["ReviewDog"],
+      }),
+    ).toEqual(["combo:lgtm", "combo:external-review-green"]);
+  });
+
+  it("does not project the provider green label from an unconfigured check name", () => {
+    expect(
+      labels({
+        events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+        pr: {
+          state: "OPEN",
+          headSha: HEAD,
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
+        },
+      }),
+    ).toEqual(["combo:lgtm"]);
+  });
+
+  it("plans removal of stale current-head signal labels after a PR head changes", () => {
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: OLD_HEAD }),
+        event("lgtm", { sha: OLD_HEAD }),
+        event("ready_for_merge", { sha: OLD_HEAD, pr_url: PR_URL }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
+      },
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(projection.labels).toEqual(["combo:stale"]);
+    expect(
+      diffComboPrLabels(
+        ["combo:lgtm", "combo:external-review-green", "combo:ready", "documentation"],
+        projection.labels,
+      ),
+    ).toEqual({
+      add: ["combo:stale"],
+      remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
+    });
+  });
+
+  it("removes the provider green label when the configured live check is no longer SUCCESS", () => {
+    const projection = projectComboPrLabels({
+      events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "FAILURE")],
+      },
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(projection.labels).toEqual(["combo:lgtm"]);
+    expect(diffComboPrLabels(["combo:external-review-green"], projection.labels)).toEqual({
+      add: ["combo:lgtm"],
+      remove: ["combo:external-review-green"],
+    });
+  });
+
+  it("invalidates READY-style labels when GitHub reports the PR is dirty or conflicting", () => {
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: HEAD }),
+        event("lgtm", { sha: HEAD }),
+        event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        mergeStateStatus: "DIRTY",
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
+      },
+      activity: { gateActive: true },
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(projection.labels).toEqual(["combo:conflict"]);
+    expect(
+      diffComboPrLabels(["combo:lgtm", "combo:external-review-green", "combo:ready"], projection.labels),
+    ).toEqual({
+      add: ["combo:conflict"],
+      remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
+    });
+  });
+
+  it("invalidates READY-style labels while a newer local addressed head is being gated", () => {
+    const localHead = "dddddddddddddddddddddddddddddddddddddddd";
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: HEAD }),
+        event("lgtm", { sha: HEAD }),
+        event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+        event("review_comment", {
+          author: "coderabbitai[bot]",
+          kind: "review_comment",
+          url: "https://github.com/o/r/pull/7#discussion_r1",
+          head_sha: HEAD,
+        }),
+        event("address_done", { head_sha: localHead }),
+        event("gate_stale", { old_sha: HEAD, new_sha: localHead }),
+        event("gate_started"),
+        event("gate_status", { state: "fix_inflight", head_sha: localHead }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
+      },
+      activity: { gateActive: true },
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(projection.labels).toEqual(["combo:working-gate", "combo:stale"]);
+    expect(
+      diffComboPrLabels(
+        ["combo:working-gate", "combo:lgtm", "combo:external-review-green", "combo:ready"],
+        projection.labels,
+      ),
+    ).toEqual({
+      add: ["combo:stale"],
+      remove: ["combo:lgtm", "combo:external-review-green", "combo:ready"],
+    });
+  });
+
+  it("keeps the coder owner label when a newer local addressed head has a failed gate", () => {
+    const localHead = "dddddddddddddddddddddddddddddddddddddddd";
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: HEAD }),
+        event("lgtm", { sha: HEAD }),
+        event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+        event("review_comment", {
+          author: "teseo",
+          kind: "review",
+          url: "https://github.com/o/r/pull/7#pullrequestreview-1",
+          head_sha: HEAD,
+        }),
+        event("address_done", { head_sha: localHead }),
+        event("gate_stale", { old_sha: HEAD, new_sha: localHead }),
+        event("gate_started"),
+        event("gate_status", { state: "fix_inflight", head_sha: localHead }),
+        event("gate_status", { state: "failed", head_sha: localHead }),
+        event("gate_failed", { exit_code: 1, reason: "gate_failed" }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [checkRun("unit", "SUCCESS"), checkRun("ExternalReview", "SUCCESS")],
+      },
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(projection.labels).toEqual(["combo:working-coder", "combo:stale"]);
+    expect(diffComboPrLabels(["combo:stale"], projection.labels)).toEqual({
+      add: ["combo:working-coder"],
+      remove: [],
+    });
+  });
+
+  it("does not project a work label when the PR is ready at the current head", () => {
+    const projection = projectComboPrLabels({
+      events: [
+        event("pr_opened", { url: PR_URL }),
+        event("gate_validated", { sha: HEAD }),
+        event("lgtm", { sha: HEAD }),
+        event("ready_for_merge", { sha: HEAD, pr_url: PR_URL }),
+      ],
+      pr: {
+        state: "OPEN",
+        headSha: HEAD,
+        statusCheckRollup: [checkRun("test", "SUCCESS")],
+      },
+      activity: { reviewerActive: true },
+      requiredCheckNames: ["test"],
+    });
+
+    expect(projection.labels).toEqual(["combo:lgtm", "combo:ready"]);
+    expect(
+      diffComboPrLabels(["combo:lgtm", "combo:ready", "combo:working-reviewer"], projection.labels),
+    ).toEqual({
+      add: [],
+      remove: ["combo:working-reviewer"],
+    });
+  });
+
+  it("applies an idempotent fake-GitHub label diff and journals mutation metadata", () => {
+    const calls: string[][] = [];
+    let liveLabels: Array<{ name: string }> = [{ name: "combo:ready" }, { name: "documentation" }];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: liveLabels,
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
+        });
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--remove-label") {
+        const removed = new Set(String(args[4]).split(","));
+        liveLabels = liveLabels.filter((label) => !removed.has(label.name));
+        return ghOk();
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--add-label") {
+        liveLabels = liveLabels.concat(
+          String(args[4])
+            .split(",")
+            .map((name) => ({ name })),
+        );
+        return ghOk();
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    const result = syncComboPrLabels({
+      gh,
+      runDir: dir,
+      prUrl: PR_URL,
+      events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+      greenCheckNames: ["ExternalReview"],
+      source: "test",
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.diff).toEqual({
+      add: ["combo:lgtm", "combo:external-review-green"],
+      remove: ["combo:ready"],
+    });
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+      ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+    ]);
+    expect(readEvents(dir)).toHaveLength(2);
+    expect(readEvents(dir)[0]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["combo:ready", "documentation"],
+      new_labels: ["documentation"],
+      added_labels: [],
+      removed_labels: ["combo:ready"],
+      reason: "current",
+      source: "test",
+    });
+    expect(readEvents(dir)[1]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["documentation"],
+      new_labels: ["documentation", "combo:lgtm", "combo:external-review-green"],
+      added_labels: ["combo:lgtm", "combo:external-review-green"],
+      removed_labels: [],
+      reason: "current",
+      source: "test",
+    });
+  });
+
+  it("provisions missing combo labels and retries bounded add mutations", () => {
+    const calls: string[][] = [];
+    let addAttempts = 0;
+    let liveLabels: Array<{ name: string }> = [{ name: "documentation" }];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: liveLabels,
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
+        });
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--add-label") {
+        addAttempts += 1;
+        if (addAttempts === 1) {
+          return { status: 1, stdout: "", stderr: "'combo:lgtm' not found" };
+        }
+        if (addAttempts === 2) {
+          return { status: 1, stdout: "", stderr: "'combo:external-review-green' not found" };
+        }
+        liveLabels = liveLabels.concat(
+          String(args[4])
+            .split(",")
+            .map((name) => ({ name })),
+        );
+        return ghOk();
+      }
+      if (args[0] === "label" && args[1] === "create") {
+        return ghOk();
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    const result = syncComboPrLabels({
+      gh,
+      runDir: dir,
+      prUrl: PR_URL,
+      events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+      greenCheckNames: ["ExternalReview"],
+      source: "test",
+    });
+
+    expect(result.changed).toBe(true);
+    expect(addAttempts).toBe(3);
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
+      [
+        "label",
+        "create",
+        "combo:lgtm",
+        "--color",
+        "5319E7",
+        "--description",
+        "Combo reviewer LGTM is pinned to the current PR head.",
+        "--force",
+        "--repo",
+        "o/r",
+      ],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
+      [
+        "label",
+        "create",
+        "combo:external-review-green",
+        "--color",
+        "0E8A16",
+        "--description",
+        "Configured external review signal is green for the current PR head.",
+        "--force",
+        "--repo",
+        "o/r",
+      ],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+    ]);
+    expect(readEvents(dir)).toHaveLength(1);
+    expect(readEvents(dir)[0]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["documentation"],
+      new_labels: ["documentation", "combo:lgtm", "combo:external-review-green"],
+      added_labels: ["combo:lgtm", "combo:external-review-green"],
+      removed_labels: [],
+      reason: "current",
+      source: "test",
+    });
+  });
+
+  it("journals a successful removal with refreshed labels before a later add failure", () => {
+    const calls: string[][] = [];
+    let liveLabels: Array<{ name: string }> = [{ name: "combo:ready" }, { name: "documentation" }];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: liveLabels,
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
+        });
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--remove-label") {
+        liveLabels = [{ name: "documentation" }];
+        return ghOk();
+      }
+      if (args[0] === "pr" && args[1] === "edit" && args[3] === "--add-label") {
+        return { status: 1, stdout: "", stderr: "add failed" };
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    expect(() =>
+      syncComboPrLabels({
+        gh,
+        runDir: dir,
+        prUrl: PR_URL,
+        events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+        greenCheckNames: ["ExternalReview"],
+        source: "test",
+      }),
+    ).toThrow("add failed");
+
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+      ["pr", "edit", PR_URL, "--remove-label", "combo:ready"],
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+      ["pr", "edit", PR_URL, "--add-label", "combo:lgtm,combo:external-review-green"],
+    ]);
+    expect(readEvents(dir)).toHaveLength(1);
+    expect(readEvents(dir)[0]).toMatchObject({
+      event: "pr_labels_updated",
+      pr_url: PR_URL,
+      head_sha: HEAD,
+      old_labels: ["combo:ready", "documentation"],
+      new_labels: ["documentation"],
+      added_labels: [],
+      removed_labels: ["combo:ready"],
+      reason: "current",
+      source: "test",
+    });
+  });
+
+  it("skips GitHub mutations and journal writes when live labels already match", () => {
+    const calls: string[][] = [];
+    const gh = (args: string[]): GhResult => {
+      calls.push(args);
+      if (args[0] === "pr" && args[1] === "view") {
+        return ghOk({
+          headRefOid: HEAD,
+          state: "OPEN",
+          labels: [{ name: "combo:lgtm" }, { name: "combo:external-review-green" }],
+          statusCheckRollup: [checkRun("ExternalReview", "SUCCESS")],
+        });
+      }
+      return { status: 1, stdout: "", stderr: `unexpected gh call: ${args.join(" ")}` };
+    };
+    const dir = runDir();
+
+    const result = syncComboPrLabels({
+      gh,
+      runDir: dir,
+      prUrl: PR_URL,
+      events: [event("pr_opened", { url: PR_URL }), event("lgtm", { sha: HEAD })],
+      greenCheckNames: ["ExternalReview"],
+    });
+
+    expect(result.changed).toBe(false);
+    expect(result.diff).toEqual({ add: [], remove: [] });
+    expect(calls).toEqual([
+      ["pr", "view", PR_URL, "--json", "headRefOid,state,mergeStateStatus,statusCheckRollup,comments,labels"],
+    ]);
+    expect(readEvents(dir)).toEqual([]);
+  });
+});
+// -/ 1/1

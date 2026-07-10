@@ -14,7 +14,7 @@
  *   └──────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{fs,os,path,url}, ./config
+ * @deps vitest, node:{fs,os,path,url}, ../app/launch/overture, ./config
  */
 import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,7 +30,7 @@ const PUBLIC_DOCS = ["README.md", "docs/spec.md", "AGENTS.md"].map((path) => joi
 const SPEC = join(REPO_ROOT, "docs", "spec.md");
 const GITIGNORE = join(REPO_ROOT, ".gitignore");
 const LAUNCH_SKILL = join(REPO_ROOT, "skills", "launch-combo", "SKILL.md");
-const OVERTURE_SOURCE = join(REPO_ROOT, "src", "cli", "overture.ts");
+const OVERTURE_SOURCE = join(REPO_ROOT, "src", "app", "launch", "overture.ts");
 const OLD_ROLE_TERMS =
   /\b(rower|hodor|gordon)\b|\brower_timeout_minutes\b|\bthread[-_ ]sitter\b|\bactivate-(judge|thread-sitter)\b|\bjudge-tick\b/i;
 const OLD_PHASE_TERMS = /\b(ROWING|JUDGING)\b/;

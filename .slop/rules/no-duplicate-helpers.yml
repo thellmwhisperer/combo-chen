@@ -4,7 +4,7 @@
 # latestPrUrl 3 variants. yesNo lived privately in src/cli/forensics.ts and
 # was about to grow a second copy in director-watch-status. Canonical homes:
 # src/core/guards.ts (errorMessage, isRecord, isErrnoException),
-# src/core/events.ts (latestPrUrlFromEvents), src/cli/display.ts (yesNo).
+# src/core/events.ts (latestPrUrlFromEvents), src/app/reporting/display.ts (yesNo).
 # Covers function declarations plus const/let arrow-function and
 # function-expression forms so the easy bypasses fail too.
 id: no-duplicate-helpers
@@ -14,7 +14,7 @@ files:
 ignores:
   - "src/core/guards.ts"
   - "src/core/events.ts"
-  - "src/cli/display.ts"
+  - "src/app/reporting/display.ts"
 rule:
   any:
     - kind: function_declaration
@@ -31,5 +31,5 @@ rule:
             any:
               - kind: arrow_function
               - kind: function_expression
-message: duplicated helper; import errorMessage/isRecord/isErrnoException from src/core/guards.ts, latestPrUrlFromEvents from src/core/events.ts, or yesNo from src/cli/display.ts
+message: duplicated helper; import errorMessage/isRecord/isErrnoException from src/core/guards.ts, latestPrUrlFromEvents from src/core/events.ts, or yesNo from src/app/reporting/display.ts
 severity: error
