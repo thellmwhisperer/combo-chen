@@ -21,7 +21,7 @@
  *   produceAndExtract, runExtractedCli.
  *
  * @exports none
- * @deps vitest, node:{child_process,fs,path,url}, ../src/core/release-artifacts, ../src/infra/release-producer
+ * @deps vitest, node:{child_process,fs,path,url}, ../src/core/release-artifacts, ../src/infra/release-producer, ../src/update/index
  */
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -30,9 +30,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { PASSIVE_UPDATE_DISABLE_ENV } from "../src/core/passive-update.js";
 import { releaseArchiveRoot } from "../src/core/release-artifacts.js";
 import { produceReleaseAssets } from "../src/infra/release-producer.js";
+import { PASSIVE_UPDATE_DISABLE_ENV } from "../src/update/index.js";
 
 // -- 1/2 HELPER · produce + extract + run --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
