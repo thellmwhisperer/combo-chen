@@ -6,11 +6,17 @@ language: TypeScript
 files:
   - "src/app/github/**"
 rule:
-  kind: string
-  regex: "(?:\\.\\./)+director(?:/|['\"]|$)"
-  inside:
-    any:
-      - kind: import_statement
-      - kind: export_statement
+  any:
+    - all:
+        - kind: string
+        - regex: "(?:\\.\\./)+director(?:/|['\"]|$)"
+        - inside:
+            any:
+              - kind: import_statement
+              - kind: export_statement
+    - all:
+        - kind: call_expression
+        - pattern: import($$$ARGS)
+        - regex: "(?:\\.\\./)+director(?:/|['\"]|$)"
 message: app/github must not import or re-export app/director; move orchestration into the director domain
 severity: error

@@ -19,21 +19,22 @@
  *   scanBoundaryRule.
  *
  * @exports none
- * @deps vitest, node:{child_process,fs,os,path,url}
+ * @deps vitest, node:{child_process,fs,path,url}
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const astGrepPath = join(repoRoot, "node_modules", ".bin", "sg");
+const fixtureRoot = join(repoRoot, ".tmp");
 
 // -- 1/4 HELPER · scanBoundaryRule --
 function scanBoundaryRule(ruleName: string, fixturePath: string, source: string): unknown[] {
-  const fixtureDir = mkdtempSync(join(tmpdir(), "boundary-rule-fixture-"));
+  mkdirSync(fixtureRoot, { recursive: true });
+  const fixtureDir = mkdtempSync(join(fixtureRoot, "boundary-rule-fixture-"));
   const absoluteFixturePath = join(fixtureDir, fixturePath);
   try {
     mkdirSync(join(absoluteFixturePath, ".."), { recursive: true });
@@ -92,12 +93,19 @@ describe("update module boundary rule", () => {
 
 // -- 3/4 CORE · GitHub domain boundary contract --
 describe("GitHub domain boundary rule", () => {
-  it("rejects director imports while permitting lower-level core imports", () => {
+  it("rejects static and dynamic director imports while permitting lower-level core imports", () => {
     expect(
       scanBoundaryRule(
         "github-no-director-import.yml",
         "src/app/github/fixture.ts",
         'import { tickDirector } from "../director/director.js";',
+      ),
+    ).toHaveLength(1);
+    expect(
+      scanBoundaryRule(
+        "github-no-director-import.yml",
+        "src/app/github/fixture.ts",
+        'const director = import("../director/director.js");',
       ),
     ).toHaveLength(1);
     expect(
@@ -107,13 +115,20 @@ describe("GitHub domain boundary rule", () => {
         'import { appendEvent } from "../../core/events.js";',
       ),
     ).toHaveLength(0);
+    expect(
+      scanBoundaryRule(
+        "github-no-director-import.yml",
+        "src/app/github/fixture.ts",
+        'const events = import("../../core/events.js");',
+      ),
+    ).toHaveLength(0);
   });
 });
 // -/ 3/4
 
 // -- 4/4 CORE · Gate domain boundary contract --
 describe("Gate domain boundary rule", () => {
-  it("rejects director imports while permitting lower-level GitHub imports", () => {
+  it("rejects static and dynamic director imports while permitting lower-level GitHub imports", () => {
     expect(
       scanBoundaryRule(
         "gate-no-director-import.yml",
@@ -125,7 +140,21 @@ describe("Gate domain boundary rule", () => {
       scanBoundaryRule(
         "gate-no-director-import.yml",
         "src/app/gate/fixture.ts",
+        'const director = import("../director/director.js");',
+      ),
+    ).toHaveLength(1);
+    expect(
+      scanBoundaryRule(
+        "gate-no-director-import.yml",
+        "src/app/gate/fixture.ts",
         'import { fetchIssueDetails } from "../github/github.js";',
+      ),
+    ).toHaveLength(0);
+    expect(
+      scanBoundaryRule(
+        "gate-no-director-import.yml",
+        "src/app/gate/fixture.ts",
+        'const github = import("../github/github.js");',
       ),
     ).toHaveLength(0);
   });
