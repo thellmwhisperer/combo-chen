@@ -22,10 +22,11 @@
  * @deps vitest, node:{child_process,fs,path,url}
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { tmpdir } from "node:os";
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const rulePath = join(repoRoot, ".slop", "rules", "update-boundary.yml");
@@ -33,15 +34,16 @@ const astGrepPath = join(repoRoot, "node_modules", ".bin", "sg");
 
 // -- 1/2 HELPER · scanUpdateBoundary --
 function scanUpdateBoundary(source: string): unknown[] {
-  const fixtureDir = join(repoRoot, "src", "boundary-rule-fixture");
-  const fixturePath = join(fixtureDir, "fixture.ts");
+  const fixtureDir = mkdtempSync(join(tmpdir(), "boundary-rule-fixture-"));
+  const srcDir = join(fixtureDir, "src");
+  const fixturePath = join(srcDir, "fixture.ts");
   try {
-    mkdirSync(fixtureDir, { recursive: true });
+    mkdirSync(srcDir, { recursive: true });
     writeFileSync(fixturePath, source);
     const result = spawnSync(
       astGrepPath,
-      ["scan", "--rule", rulePath, "--json=compact", relative(repoRoot, fixturePath)],
-      { cwd: repoRoot, encoding: "utf8" },
+      ["scan", "--rule", rulePath, "--json=compact", "src/fixture.ts"],
+      { cwd: fixtureDir, encoding: "utf8" },
     );
     if (result.stdout.trim().length === 0) {
       throw new Error(`update boundary scan failed: ${result.stderr.trim()}`);
