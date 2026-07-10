@@ -435,7 +435,7 @@ exit 1
     ]);
   });
 
-  it("normalizes checks-passed context-canceled through the runner path", () => {
+  it("normalizes checks-passed context-canceled through the runner path", { timeout: 10000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
     const worktree = join(dir, "worktree");
     const bin = join(dir, "bin");

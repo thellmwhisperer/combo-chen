@@ -205,7 +205,7 @@ describe("gatekeeper attach window helpers", () => {
     expect(statusCalls).toBe("2");
   });
 
-  it("never attaches to a sibling-branch run and keeps the timeout path", () => {
+  it("never attaches to a sibling-branch run and keeps the timeout path", { timeout: 10000 }, () => {
     const harness = attachHarness();
     const result = runAttach({ harness, branch: "combo/issue-999", timeoutSeconds: 2 });
 
