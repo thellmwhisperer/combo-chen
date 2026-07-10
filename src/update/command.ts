@@ -28,7 +28,7 @@
  *   parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
- * @deps ../app/reporting/display, ../core/active-runtime, ../core/guards, ../core/release-artifacts, ../core/state, ../core/update-contract, ../core/update-resolver, ../infra/release-metadata, ./refresh, ./update-install, ./update-staging, node:child_process, node:fs, node:os, node:path
+ * @deps ../app/reporting/display, ../core/active-runtime, ../core/guards, ../core/release-artifacts, ../core/state, ../infra/release-metadata, ./refresh, ./update-contract, ./update-install, ./update-resolver, ./update-staging, node:child_process, node:fs, node:os, node:path
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -38,7 +38,7 @@ import { join } from "node:path";
 import { detectActiveComboRuntime, type ActiveComboRuntimeDetection } from "../core/active-runtime.js";
 import { errorMessage, isRecord } from "../core/guards.js";
 import { comboHome } from "../core/state.js";
-import { classifyInstallTarget, type CurrentBuildMetadata } from "../core/update-contract.js";
+import { classifyInstallTarget, type CurrentBuildMetadata } from "./update-contract.js";
 import {
   replaceInstallTargetFromStagedArtifact,
   type InstallReplacementInput,
@@ -48,7 +48,7 @@ import {
   resolveReadOnlyUpdatePlan,
   type GitHubReleaseAssetMetadata,
   type GitHubReleaseMetadata,
-} from "../core/update-resolver.js";
+} from "./update-resolver.js";
 import {
   stageResolvedUpdate,
   type StagedUpdateArtifact,

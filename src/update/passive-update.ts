@@ -28,9 +28,9 @@
  *
  * @exports PASSIVE_UPDATE_DISABLE_ENV, DEFAULT_PASSIVE_UPDATE_CACHE_TTL_MS, PassiveUpdatePlanStatus,
  *   PassiveUpdateCacheEntry, PassiveUpdateCheckInput, PassiveUpdateCheckResult, checkPassiveUpdate
- * @deps ./guards, ./update-contract, ./update-resolver
+ * @deps ../core/guards, ./update-contract, ./update-resolver
  */
-import { errorMessage } from "./guards.js";
+import { errorMessage } from "../core/guards.js";
 import type { CurrentBuildMetadata } from "./update-contract.js";
 import {
   resolveReadOnlyUpdatePlan,
