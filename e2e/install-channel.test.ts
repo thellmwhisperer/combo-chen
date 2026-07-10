@@ -24,8 +24,7 @@
  *   produceArchive, runInstall, runInstalledCli, tempDir.
  *
  * @exports none
- * @deps vitest, node:{child_process,fs,path,url}, ../src/core/update-contract,
- *   ../src/update/command, ../src/infra/release-producer
+ * @deps vitest, node:{child_process,fs,path,url}, ../src/update/index
  */
 import { spawnSync } from "node:child_process";
 import {
@@ -44,13 +43,14 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
 import {
-  releaseAssetFileName,
+  classifyInstallTarget,
+  defaultUpdateCommandDeps,
+  produceReleaseAssets,
   releaseArchiveRoot,
+  releaseAssetFileName,
+  runUpdateCommand,
   type ReleaseTarget,
-} from "../src/core/release-artifacts.js";
-import { classifyInstallTarget } from "../src/core/update-contract.js";
-import { defaultUpdateCommandDeps, runUpdateCommand } from "../src/update/command.js";
-import { produceReleaseAssets } from "../src/infra/release-producer.js";
+} from "../src/update/index.js";
 
 // -- 1/3 HELPER · producer + install harness --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));

@@ -349,10 +349,10 @@ export function compareReleaseCandidate(input: {
   candidate: ReleaseCandidate;
 }): UpdateVersionComparison {
   const current = normalizeReleaseVersion(input.current.version);
-  const candidate = normalizeReleaseVersion(input.candidate.tagName);
-  if (input.candidate.prerelease) {
-    candidate.channel = "prerelease";
-  }
+  const candidateVersion = normalizeReleaseVersion(input.candidate.tagName);
+  const candidate: NormalizedReleaseVersion = input.candidate.prerelease
+    ? { ...candidateVersion, channel: "prerelease" }
+    : candidateVersion;
   const order = compareNormalizedReleaseVersions(candidate, current);
 
   let state: UpdateVersionComparison["state"];

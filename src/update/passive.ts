@@ -33,7 +33,7 @@
  * @exports PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_LOOKUP_TIMEOUT_ENV, DEFAULT_PASSIVE_UPDATE_LOOKUP_TIMEOUT_MS,
  *   PassiveUpdateCliCacheEntry, PassiveUpdateCliDeps, passiveUpdateCachePath, defaultPassiveUpdateCommandDeps,
  *   readPassiveUpdateCache, writePassiveUpdateCache, shouldRunPassiveUpdateForCommand, runPassiveUpdateCheck
- * @deps ../core/passive-update, ../core/state, ../core/update-contract, ../infra/release-metadata, ./command, node:fs, node:path
+ * @deps ../core/state, ./command, ./passive-update, ./release-metadata, ./update-contract, node:fs, node:path
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -43,10 +43,10 @@ import {
   type PassiveUpdateCacheEntry,
   type PassiveUpdateCheckInput,
   type PassiveUpdateCheckResult,
-} from "../core/passive-update.js";
+} from "./passive-update.js";
 import { comboHome } from "../core/state.js";
-import type { CurrentBuildMetadata } from "../core/update-contract.js";
-import { releaseMetadata } from "../infra/release-metadata.js";
+import type { CurrentBuildMetadata } from "./update-contract.js";
+import { releaseMetadata } from "./release-metadata.js";
 import { fetchGitHubReleases, type UpdateCommandDeps } from "./command.js";
 
 // -- 1/3 HELPER · CLI cache/dependency contract --
