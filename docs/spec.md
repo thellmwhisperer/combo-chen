@@ -926,10 +926,11 @@ These are surfaced in the package scripts:
   scope; `severity: error` rules fail the command, `severity: warning` rules
   print without failing (a temporary state for rules whose pre-existing stock
   is still being cleaned). It then gates non-test jscpd duplication with
-  `--threshold 1.7`, a ratchet pinned just above the current baseline so new
+  `--threshold 1.65`, a ratchet pinned just above the current baseline so new
   duplication fails; the threshold only moves down, in the PR that removes
-  clones (#283 lowered it from 2 after the shell extraction). CI and
-  no-mistakes lint run this.
+  clones (#283 lowered it from 2 after the shell extraction; #284 lowered it
+  further after update subsystem consolidation). CI and no-mistakes lint run
+  this.
 - `pnpm slop:report` — runs a verbose non-test jscpd clone listing plus the
   same `sg scan`, for reading warning output in full.
 - `pnpm surface` — outputs the function-level structure outline of all

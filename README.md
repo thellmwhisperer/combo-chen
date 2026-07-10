@@ -660,7 +660,7 @@ autonomous runs:
   `severity: error` findings fail the command, and `severity: warning`
   findings print without failing (warning is a temporary state for rules
   whose pre-existing stock is still being cleaned; the rule file says so).
-  It then gates non-test jscpd duplication with `--threshold 1.7`, a ratchet
+  It then gates non-test jscpd duplication with `--threshold 1.65`, a ratchet
   pinned just above the current baseline so new duplication fails: a PR that
   trips it must remove duplication or raise the threshold explicitly in the
   same PR with justification, and the threshold only moves down, in the PR
