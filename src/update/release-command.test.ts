@@ -19,14 +19,14 @@
  *   writeFixtureRepo, readRootPackageJson.
  *
  * @exports none
- * @deps vitest, node:{fs,os,path}, ../core/release-artifacts, ./release-command
+ * @deps vitest, node:{fs,os,path}, ./release-artifacts, ./release-command
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { RELEASE_CHECKSUMS_FILE, releaseAssetFileNames } from "../core/release-artifacts.js";
+import { RELEASE_CHECKSUMS_FILE, releaseAssetFileNames } from "./release-artifacts.js";
 import { runReleaseAssetsCommand } from "./release-command.js";
 
 interface PackageJson {

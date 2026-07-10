@@ -28,7 +28,7 @@
  *   parseAsset, defaultExtractArchive, commandError.
  *
  * @exports GhCommandOptions, UpdateCommandDeps, UpdateCommandOptions, defaultUpdateCommandDeps, runUpdateCommand, fetchGitHubReleases
- * @deps ../app/reporting/display, ../core/active-runtime, ../core/guards, ../core/release-artifacts, ../core/state, ../core/update-contract, ../core/update-install, ../core/update-resolver, ../core/update-staging, ../infra/release-metadata, ./refresh, node:child_process, node:fs, node:os, node:path
+ * @deps ../app/reporting/display, ../core/active-runtime, ../core/guards, ../core/state, ./refresh, ./release-artifacts, ./release-metadata, ./update-contract, ./update-install, ./update-resolver, ./update-staging, node:child_process, node:fs, node:os, node:path
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -38,26 +38,26 @@ import { join } from "node:path";
 import { detectActiveComboRuntime, type ActiveComboRuntimeDetection } from "../core/active-runtime.js";
 import { errorMessage, isRecord } from "../core/guards.js";
 import { comboHome } from "../core/state.js";
-import { classifyInstallTarget, type CurrentBuildMetadata } from "../core/update-contract.js";
+import { classifyInstallTarget, type CurrentBuildMetadata } from "./update-contract.js";
 import {
   replaceInstallTargetFromStagedArtifact,
   type InstallReplacementInput,
   type InstallReplacementResult,
-} from "../core/update-install.js";
+} from "./update-install.js";
 import {
   resolveReadOnlyUpdatePlan,
   type GitHubReleaseAssetMetadata,
   type GitHubReleaseMetadata,
-} from "../core/update-resolver.js";
+} from "./update-resolver.js";
 import {
   stageResolvedUpdate,
   type StagedUpdateArtifact,
   type UpdateDownloadRequest,
   type UpdateExtractionInput,
   type UpdateExtractionResult,
-} from "../core/update-staging.js";
-import { RELEASE_CHECKSUMS_FILE } from "../core/release-artifacts.js";
-import { releaseMetadata } from "../infra/release-metadata.js";
+} from "./update-staging.js";
+import { RELEASE_CHECKSUMS_FILE } from "./release-artifacts.js";
+import { releaseMetadata } from "./release-metadata.js";
 import { refreshPostUpdateLocalState, type PostUpdateRefreshResult } from "./refresh.js";
 import { formatComboList } from "../app/reporting/display.js";
 

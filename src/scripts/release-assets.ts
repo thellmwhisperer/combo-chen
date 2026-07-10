@@ -20,9 +20,9 @@
  *   main.
  *
  * @exports none
- * @deps ../infra/release-command
+ * @deps ../update/index
  */
-import { runReleaseAssetsCommand } from "../infra/release-command.js";
+import { runReleaseAssetsCommand } from "../update/index.js";
 
 // -- 1/1 CORE · main <- START HERE --
 function main(): void {

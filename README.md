@@ -427,14 +427,14 @@ U72-A adds the internal detector API at `src/core/active-runtime.ts`.
 It does not prompt, run tmux/git/gh/no-mistakes commands, write journals, create
 ledgers, restart daemons, or change update/install targets.
 
-U1 (`src/core/update-resolver.ts`) implements the release resolver and
+U1 (`src/update/update-resolver.ts`) implements the release resolver and
 latest/beta check flow. It consumes GitHub Releases metadata plus current build
 metadata, ignores prereleases in stable mode, includes prereleases in beta mode,
 normalizes candidates through the U0 contract, selects expected platform assets,
 and returns a read-only update decision without downloads, extraction,
 replacement, or live combo inspection.
 
-U2 (`src/core/update-staging.ts`) implements download, SHA-256 checksum
+U2 (`src/update/update-staging.ts`) implements download, SHA-256 checksum
 verification, and isolated extraction primitives. It accepts a resolved update
 plan or fixture, downloads the archive and `checksums.txt`, verifies the digest
 before extraction, extracts into an isolated staging directory, and returns a
@@ -660,7 +660,7 @@ autonomous runs:
   `severity: error` findings fail the command, and `severity: warning`
   findings print without failing (warning is a temporary state for rules
   whose pre-existing stock is still being cleaned; the rule file says so).
-  It then gates non-test jscpd duplication with `--threshold 1.7`, a ratchet
+  It then gates non-test jscpd duplication with `--threshold 1.65`, a ratchet
   pinned just above the current baseline so new duplication fails: a PR that
   trips it must remove duplication or raise the threshold explicitly in the
   same PR with justification, and the threshold only moves down, in the PR
