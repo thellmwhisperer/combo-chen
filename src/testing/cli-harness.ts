@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports fakeDeps, idleActiveRuntime, exec, home, seedNeedsHumanCombo, seedCodexGnhfRun, writeCoderThreadArtifact, writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID
- * @deps ../app/gate/gate, ../cli/main, ../core/combo, ../core/events, ../core/gate-lease, ../core/runtime-ledger, ../core/state, ../core/work-plan, ../infra/config, ../infra/config-snapshot, ../infra/release-metadata, ../roles/coder, ../roles/gatekeeper, ../update/index, node:child_process, node:crypto, node:fs, node:os, node:path, node:url, vitest
+ * @deps ../app/gate/gate, ../cli/main, ../core/combo, ../core/events, ../core/gate-lease, ../core/runtime-ledger, ../core/state, ../core/work-plan, ../infra/config, ../infra/config-snapshot, ../roles/coder, ../roles/gatekeeper, ../update/index, node:child_process, node:crypto, node:fs, node:os, node:path, node:url, vitest
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -48,7 +48,6 @@ import { listCombos, runDirFor, writeCombo } from "../core/state.js";
 import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";
 import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from "../infra/config-snapshot.js";
-import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import { CODER_THREAD_ARTIFACT } from "../roles/coder.js";
 import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
 import { GATEKEEPER_WINDOW } from "../app/gate/gate.js";
@@ -62,7 +61,9 @@ import {
 import {
   PASSIVE_UPDATE_CACHE_FILE,
   PASSIVE_UPDATE_DISABLE_ENV,
+  formatReleaseMetadata,
   refreshPostUpdateLocalState,
+  releaseMetadata,
 } from "../update/index.js";
 
 export {

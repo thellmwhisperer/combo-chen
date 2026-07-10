@@ -15,6 +15,7 @@
  *   runSelfUpdate, checkForPassiveUpdate       CLI handler entry points.
  *   UpdateCommandDeps, PassiveUpdateCliDeps    Injectable application contracts.
  *   defaultUpdateCommandDeps, runUpdateCommand Update integration-test seam.
+ *   ReleaseMetadata, releaseMetadata, formatReleaseMetadata Release build identity and rendering.
  *   PASSIVE_UPDATE_CACHE_FILE                  Shared test fixture constant.
  *   PASSIVE_UPDATE_DISABLE_ENV                 Passive-check process policy constant.
  *   refreshPostUpdateLocalState                Shared test harness refresh seam.
@@ -24,8 +25,8 @@
  *   ---------
  *   All implementation modules re-exported below remain private to src/update.
  *
- * @exports runSelfUpdate, checkForPassiveUpdate, UpdateCommandDeps, PassiveUpdateCliDeps, defaultUpdateCommandDeps, runUpdateCommand, PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_DISABLE_ENV, refreshPostUpdateLocalState, classifyInstallTarget
- * @deps ./command, ./handler, ./passive, ./passive-handler, ./passive-update, ./refresh, ./update-contract
+ * @exports runSelfUpdate, checkForPassiveUpdate, UpdateCommandDeps, PassiveUpdateCliDeps, defaultUpdateCommandDeps, runUpdateCommand, ReleaseMetadata, releaseMetadata, formatReleaseMetadata, PASSIVE_UPDATE_CACHE_FILE, PASSIVE_UPDATE_DISABLE_ENV, refreshPostUpdateLocalState, classifyInstallTarget
+ * @deps ./command, ./handler, ./passive, ./passive-handler, ./passive-update, ./refresh, ./release-metadata, ./update-contract
  */
 
 // -- 1/1 CORE · declared update entry point <- START HERE --
@@ -34,6 +35,7 @@ export { runSelfUpdate } from "./handler.js";
 export { PASSIVE_UPDATE_CACHE_FILE, type PassiveUpdateCliDeps } from "./passive.js";
 export { checkForPassiveUpdate } from "./passive-handler.js";
 export { refreshPostUpdateLocalState } from "./refresh.js";
+export { formatReleaseMetadata, releaseMetadata, type ReleaseMetadata } from "./release-metadata.js";
 export { PASSIVE_UPDATE_DISABLE_ENV } from "./passive-update.js";
 export { classifyInstallTarget } from "./update-contract.js";
 // -/ 1/1
