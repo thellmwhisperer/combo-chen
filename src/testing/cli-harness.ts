@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports fakeDeps, idleActiveRuntime, exec, home, seedNeedsHumanCombo, seedCodexGnhfRun, writeCoderThreadArtifact, writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID
- * @deps ../app/gate/gate, ../cli/main, ../core/combo, ../core/events, ../core/gate-lease, ../core/passive-update, ../core/runtime-ledger, ../core/state, ../core/work-plan, ../infra/config, ../infra/config-snapshot, ../infra/release-metadata, ../roles/coder, ../roles/gatekeeper, ../update/passive, ../update/refresh, node:child_process, node:crypto, node:fs, node:os, node:path, node:url, vitest
+ * @deps ../app/gate/gate, ../cli/main, ../core/combo, ../core/events, ../core/gate-lease, ../core/runtime-ledger, ../core/state, ../core/work-plan, ../infra/config, ../infra/config-snapshot, ../infra/release-metadata, ../roles/coder, ../roles/gatekeeper, ../update/index, node:child_process, node:crypto, node:fs, node:os, node:path, node:url, vitest
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -43,7 +43,6 @@ import { describe, expect, it, vi } from "vitest";
 import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { acquireGateLease } from "../core/gate-lease.js";
-import { PASSIVE_UPDATE_DISABLE_ENV } from "../core/passive-update.js";
 import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
 import { listCombos, runDirFor, writeCombo } from "../core/state.js";
 import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
@@ -60,8 +59,11 @@ import {
   isDirectRun,
   type Deps,
 } from "../cli/main.js";
-import { PASSIVE_UPDATE_CACHE_FILE } from "../update/passive.js";
-import { refreshPostUpdateLocalState } from "../update/refresh.js";
+import {
+  PASSIVE_UPDATE_CACHE_FILE,
+  PASSIVE_UPDATE_DISABLE_ENV,
+  refreshPostUpdateLocalState,
+} from "../update/index.js";
 
 export {
   CONFIG_SNAPSHOT_FILE,

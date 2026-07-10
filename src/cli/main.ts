@@ -26,7 +26,7 @@
  *   cliInvocation and the process entrypoint.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
- * @deps commander, node:{child_process,fs,url}, ../app/{deps,director,gate,github,launch,lifecycle,reporting}, ../infra/{release-metadata,tmux}, ../update/{handler,passive-handler}
+ * @deps commander, node:{child_process,fs,url}, ../app/{deps,director,gate,github,launch,lifecycle,reporting}, ../infra/{release-metadata,tmux}, ../update/index
  */
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
@@ -59,8 +59,7 @@ import {
 import { reportNeedsHuman, showForensics, showStatus } from "../app/reporting/handlers.js";
 import { formatReleaseMetadata, releaseMetadata } from "../infra/release-metadata.js";
 import { tmux as realTmux } from "../infra/tmux.js";
-import { runSelfUpdate } from "../update/handler.js";
-import { checkForPassiveUpdate } from "../update/passive-handler.js";
+import { checkForPassiveUpdate, runSelfUpdate } from "../update/index.js";
 import { resolveConfiguredTeamIdentity } from "../infra/team-identity.js";
 export { buildDirectorWatchCommand, resolvePollMs } from "../app/director/watchers.js";
 export type Deps = AppDeps;
