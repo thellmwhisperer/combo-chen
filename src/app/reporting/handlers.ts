@@ -313,23 +313,31 @@ function recordForensicsOutcomes(
   deps: Pick<AppDeps, "gh" | "out">,
   reports: ReturnType<typeof analyzeForensicsCombo>[],
 ): void {
+  const failures: string[] = [];
+  const recorded: string[] = [];
   for (const report of reports) {
-    if (report.issueUrl.trim() === "") {
-      throw new Error("Cannot record forensics outcome for " + report.id + ": combo has no GitHub issue URL");
+    try {
+      if (report.issueUrl.trim() === "") {
+        throw new Error("combo has no GitHub issue URL");
+      }
+      const missing = missingOutcomeEvidence(report);
+      if (missing.length > 0) {
+        throw new Error("missing " + missing.join(" and "));
+      }
+      const body = renderForensicsOutcomeMarkdown(report);
+      const result = deps.gh(["issue", "comment", report.issueUrl, "--body", body]);
+      if (result.status !== 0) {
+        throw new Error(result.stderr.trim() || result.stdout.trim() || "gh issue comment failed");
+      }
+      recorded.push(report.id);
+      deps.out("forensics: recorded outcome for " + report.id + " on " + report.issueUrl);
+    } catch (error) {
+      failures.push(report.id + ": " + errorMessage(error));
     }
-    const missing = missingOutcomeEvidence(report);
-    if (missing.length > 0) {
-      throw new Error(
-        "Cannot record forensics outcome for " + report.id + ": missing " + missing.join(" and "),
-      );
-    }
-    const body = renderForensicsOutcomeMarkdown(report);
-    const result = deps.gh(["issue", "comment", report.issueUrl, "--body", body]);
-    if (result.status !== 0) {
-      const detail = result.stderr.trim() || result.stdout.trim() || "gh issue comment failed";
-      throw new Error("Failed to record forensics outcome for " + report.id + ": " + detail);
-    }
-    deps.out("forensics: recorded outcome for " + report.id + " on " + report.issueUrl);
+  }
+  if (failures.length > 0) {
+    const recordedSummary = recorded.length === 0 ? "" : "\nRecorded outcome(s): " + recorded.join(", ");
+    throw new Error("Failed to record forensics outcome(s):\n" + failures.join("\n") + recordedSummary);
   }
 }
 

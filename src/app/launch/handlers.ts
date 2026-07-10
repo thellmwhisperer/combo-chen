@@ -314,24 +314,37 @@ function treehouseLeasePath(stdout: string): string {
 }
 
 function returnTreehouseWorktreeBestEffort(
-  deps: Pick<AppDeps, "treehouse">,
+  deps: Pick<AppDeps, "out" | "treehouse">,
   repoDir: string,
   worktree: string,
 ): void {
-  deps.treehouse(["return", "--force", worktree], repoDir);
+  const result = deps.treehouse(["return", "--force", worktree], repoDir);
+  if (result.status !== 0) {
+    deps.out("warning: failed to return treehouse worktree " + worktree + ": " + commandFailureText(result));
+  }
 }
 
-function deleteBranchBestEffort(deps: Pick<AppDeps, "git">, repoDir: string, branch: string): void {
-  deps.git(["branch", "-D", branch], repoDir);
+function deleteBranchBestEffort(deps: Pick<AppDeps, "git" | "out">, repoDir: string, branch: string): void {
+  const result = deps.git(["branch", "-D", branch], repoDir);
+  if (result.status !== 0) {
+    deps.out(
+      "warning: failed to delete combo branch " +
+        branch +
+        " from " +
+        repoDir +
+        ": " +
+        commandFailureText(result),
+    );
+  }
 }
 
-function rollbackTreehouseLaunch(deps: Pick<AppDeps, "git" | "treehouse">, combo: ComboRecord): void {
+function rollbackTreehouseLaunch(deps: Pick<AppDeps, "git" | "out" | "treehouse">, combo: ComboRecord): void {
   returnTreehouseWorktreeBestEffort(deps, combo.repoDir, combo.worktree);
   deleteBranchBestEffort(deps, combo.repoDir, combo.branch);
 }
 
 function acquireTreehouseWorktree(input: {
-  deps: Pick<AppDeps, "git" | "treehouse">;
+  deps: Pick<AppDeps, "git" | "out" | "treehouse">;
   combo: ComboRecord;
   baseRef: string;
 }): ComboRecord {

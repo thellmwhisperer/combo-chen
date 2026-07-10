@@ -653,6 +653,47 @@ describe("run", () => {
     expect(branchDeleteIndex).toBeGreaterThan(treehouseReturnIndex);
   });
 
+  it("reports failed best-effort worktree and branch rollback operations", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "has-session") return { status: 1, stdout: "", stderr: "" };
+        if (args[0] === "new-session") return { status: 0, stdout: "", stderr: "" };
+        if (args[0] === "list-windows") return { status: 0, stdout: "journal\n", stderr: "" };
+        if (args[0] === "new-window" && args.includes("director")) {
+          return { status: 1, stdout: "", stderr: "window failed" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+    const treehouse = deps.treehouse;
+    deps.treehouse = (args, cwd) => {
+      if (args[0] !== "return") return treehouse(args, cwd);
+      calls.push(["treehouse", `cwd=${cwd}`, ...args]);
+      return { status: 1, stdout: "", stderr: "lease busy" };
+    };
+    const git = deps.git;
+    deps.git = (args, cwd) => {
+      if (!(args[0] === "branch" && args[1] === "-D")) return git(args, cwd);
+      calls.push(["git", `cwd=${cwd}`, ...args]);
+      return { status: 1, stdout: "", stderr: "branch checked out" };
+    };
+
+    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /director.*window failed/,
+    );
+
+    expect(out).toContain(
+      `warning: failed to return treehouse worktree ${join(repoDir, ".worktrees", "issue-7")}: lease busy`,
+    );
+    expect(out).toContain(
+      "warning: failed to delete combo branch combo/issue-7 from " + repoDir + ": branch checked out",
+    );
+  });
+
   it("rolls back run state after killing tmux when role-window setup fails", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
