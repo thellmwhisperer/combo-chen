@@ -1,7 +1,7 @@
 # Tombstones for helpers that were duplicated across modules and consolidated.
 # Cite: PR #247 reintroduced a private errorMessage in src/cli/main.ts while
 # six copies already existed; isRecord had 5 copies, isErrnoException 2, and
-# latestPrUrl 3 variants. yesNo lived privately in src/cli/forensics.ts and
+# latestPrUrl 3 variants. yesNo lived privately in src/app/reporting/forensics.ts and
 # was about to grow a second copy in director-watch-status. Canonical homes:
 # src/core/guards.ts (errorMessage, isRecord, isErrnoException),
 # src/core/events.ts (latestPrUrlFromEvents), src/app/reporting/display.ts (yesNo).
