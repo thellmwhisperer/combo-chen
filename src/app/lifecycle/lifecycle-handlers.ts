@@ -64,11 +64,15 @@ export function emitComboEvent(
   const home = comboHome(deps.env);
   const runDir = runDirFor(home, options.name);
   const canonicalEvent = canonicalEventName(event);
+  const payload = parseEventFields(options.field);
   if (canonicalEvent === "coder_done") {
     const combo = readCombo(runDir);
-    persistCoderThreadArtifact({ runDir, worktree: combo.worktree });
+    const jsonlPath = payload["gnhf_iteration_jsonl"];
+    if (typeof jsonlPath !== "string" || jsonlPath.trim() === "") {
+      throw new Error("coder_done requires gnhf_iteration_jsonl from the current gnhf run");
+    }
+    persistCoderThreadArtifact({ runDir, worktree: combo.worktree, jsonlPath });
   }
-  const payload = parseEventFields(options.field);
   appendEvent(runDir, event as EventName, payload);
   if (canonicalEvent === "pr_opened" && typeof payload["url"] === "string") {
     updateRuntimeLedger(runDir, {
