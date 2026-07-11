@@ -15,7 +15,7 @@
  *
  *   INTERNALS
  *   ---------
- *   Command-specific fixtures live inside their describe block.
+ *   launchFixtureDir, home; command-specific fixtures live inside their describe block.
  *
  * @exports none
  * @deps ../../testing/cli-harness
@@ -31,7 +31,6 @@ import {
   existsSync,
   expect,
   fakeDeps,
-  home,
   it,
   join,
   listCombos,
@@ -43,15 +42,28 @@ import {
   runDirFor,
   shellQuote,
   spawnSync,
-  tmpdir,
   writeFileSync,
 } from "../../testing/cli-harness.js";
 
 // -- 1/1 CORE · command contracts <- START HERE --
 describe("run", () => {
+  function launchFixtureDir(prefix: string): string {
+    const fixtureRoot = join(process.cwd(), ".tmp");
+    mkdirSync(fixtureRoot, { recursive: true });
+    return mkdtempSync(join(fixtureRoot, prefix));
+  }
+
+  function home(): string {
+    return launchFixtureDir("combo-chen-home-");
+  }
+
+  it("creates launch fixtures under the repository .tmp directory", () => {
+    expect(launchFixtureDir("combo-chen-launch-")).toContain(join(process.cwd(), ".tmp"));
+  });
+
   it("creates the record, the runner script, the tmux session, and the birth event", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
@@ -223,7 +235,7 @@ describe("run", () => {
 
   it("preserves human-readable role topology through a first-pass READY and closure path", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const prUrl = "https://github.com/o/r/pull/7";
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const mergeSha = "cccccccccccccccccccccccccccccccccccccccc";
@@ -334,7 +346,7 @@ describe("run", () => {
 
   it("launches from a local markdown plan and persists the normalized work-plan artifact", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const planPath = join(repoDir, "launch-plan.md");
     writeFileSync(
       planPath,
@@ -458,8 +470,8 @@ describe("run", () => {
 
   it("redacts external markdown plan source references before persistence", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
-    const externalDir = mkdtempSync(join(tmpdir(), "combo-chen-private-user-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
+    const externalDir = launchFixtureDir("combo-chen-private-user-");
     const planPath = join(externalDir, "secret-plan.md");
     writeFileSync(
       planPath,
@@ -495,7 +507,7 @@ describe("run", () => {
 
   it("shell-quotes the combo id in runner command invocations", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const hostileIssue = "https://github.com/o; echo pwn/r's/issues/7";
     const hostileId = "o; echo pwn-r's-7";
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
@@ -514,7 +526,7 @@ describe("run", () => {
 
   it("uses configured gatekeeper attach retry settings in the gatekeeper tmux window", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       "[hodor]\nattach_timeout_seconds = 45\nattach_retry_interval_seconds = 15\n",
@@ -539,7 +551,7 @@ describe("run", () => {
 
   it("waits for an active no-mistakes run before attaching when attach would exit cleanly", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
@@ -549,7 +561,7 @@ describe("run", () => {
     );
     const command = gatekeeperWindow?.at(-1) ?? "";
     const head = "abc1234";
-    const bin = mkdtempSync(join(tmpdir(), "combo-chen-bin-"));
+    const bin = launchFixtureDir("combo-chen-bin-");
     const noMistakesCalls = join(bin, "no-mistakes-calls");
     const statusAttempts = join(bin, "status-attempts");
     writeFileSync(
@@ -600,6 +612,8 @@ describe("run", () => {
 
     const result = spawnSync("sh", ["-c", command], {
       encoding: "utf8",
+      timeout: 10000,
+      killSignal: "SIGKILL",
       env: {
         ...process.env,
         COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
@@ -621,7 +635,7 @@ describe("run", () => {
 
   it("cleans run state and treehouse lease even when tmux rollback kill fails", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
@@ -655,7 +669,7 @@ describe("run", () => {
 
   it("reports failed best-effort worktree and branch rollback operations", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
@@ -696,7 +710,7 @@ describe("run", () => {
 
   it("rolls back run state after killing tmux when role-window setup fails", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
@@ -732,7 +746,7 @@ describe("run", () => {
 
   it("blocks an occupied run dir before creating a worktree", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const runDir = runDirFor(h, "o-r-7");
     mkdirSync(join(runDir, CONFIG_SNAPSHOT_FILE), { recursive: true });
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
@@ -752,7 +766,7 @@ describe("run", () => {
 
   it("forces publish-only mode on a no-placeholder repo-level no-mistakes gatekeeper command", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const customGatekeeper = `printf '%s:%s' "\${intent}" "\${issue_body}" && no-mistakes axi run --intent "\${intent}"`;
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
@@ -770,7 +784,7 @@ describe("run", () => {
 
   it("renders the default gatekeeper intent with an explicit issue autoclose keyword", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       gh: (args) => {
@@ -801,7 +815,7 @@ describe("run", () => {
 
   it("renders gatekeeper command placeholders with safely quoted issue facts in the runner", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const gatekeeperCommand =
       "no-mistakes axi run --yes --url {issue_url} --title {issue_title} --body {issue_body} --branch {branch}";
     writeFileSync(
@@ -843,7 +857,7 @@ describe("run", () => {
 
   it("rejects unknown gatekeeper command placeholders during runner generation", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
       '[gatekeeper]\ncommand = "no-mistakes axi run {isue_url}"\n',
@@ -862,7 +876,7 @@ describe("run", () => {
 
   it("refuses a second combo for the same issue while the session lives", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
