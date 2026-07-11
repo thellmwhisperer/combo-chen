@@ -1,7 +1,7 @@
 /**
  * @overview Run identity and persistence: one directory per combo under the
  *   combo home, holding combo.json (the record) and journal.jsonl (the spine).
- *   ~175 lines, 14 exports.
+ *   ~205 lines, 14 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -35,7 +35,7 @@
  *   │ ComboStateError      Thrown on malformed URLs, missing/corrupt  │
  *   │                        records, or id/directory mismatches       │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
- *   │ ISSUE_URL, slugForComboId, shortSourceHash                       │
+ *   │ ISSUE_URL, slugForComboId, shortSourceHash, parseComboRecord     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ComboStateError, IssueRef, ComboRecord, WorkItemDescriptor, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos, describeWorkItem, cleanOptional
@@ -136,7 +136,7 @@ export function readCombo(runDir: string): ComboRecord {
   if (!existsSync(path)) {
     throw new ComboStateError(`No combo record at ${path}`);
   }
-  return JSON.parse(readFileSync(path, "utf8")) as ComboRecord;
+  return parseComboRecord(path);
 }
 
 export function listCombos(home: string, onCorrupt?: (id: string, error: unknown) => void): ComboRecord[] {
@@ -149,9 +149,6 @@ export function listCombos(home: string, onCorrupt?: (id: string, error: unknown
     if (!existsSync(join(dir, RECORD))) continue;
     try {
       const combo = readCombo(dir);
-      if (typeof combo.id !== "string" || combo.id === "" || typeof combo.createdAt !== "string") {
-        throw new ComboStateError(`combo record at ${dir} is missing id or createdAt`);
-      }
       // Consumers rebuild the run dir from combo.id, so an id that does not
       // match its directory silently points them at the wrong run.
       if (combo.id !== entry.name) {
@@ -164,6 +161,24 @@ export function listCombos(home: string, onCorrupt?: (id: string, error: unknown
     }
   }
   return combos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+function parseComboRecord(path: string): ComboRecord {
+  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    !("id" in value) ||
+    typeof value.id !== "string" ||
+    value.id === "" ||
+    !("issueUrl" in value) ||
+    typeof value.issueUrl !== "string" ||
+    !("createdAt" in value) ||
+    typeof value.createdAt !== "string"
+  ) {
+    throw new ComboStateError(`combo record at ${path} is missing id, issueUrl, or createdAt`);
+  }
+  return value as ComboRecord;
 }
 
 export function describeWorkItem(

@@ -316,7 +316,9 @@ describe("buildRunnerScript", () => {
 
     expect(template).toContain("cd __WORKTREE__ || {");
     expect(template).toContain("__EMIT__ coder_started || exit 1");
-    expect(template).toContain("  __EMIT__ coder_done || exit 1");
+    expect(template).toContain(
+      '  __EMIT__ coder_done --field gnhf_iteration_jsonl="$gnhf_current_iteration_jsonl" || exit 1',
+    );
     expect(template).toContain("  __EMIT__ coder_failed --field exit_code=$code");
     expect(template).toContain('|| exit "$code"');
   });
@@ -469,7 +471,7 @@ exit 1
       });
       expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
         "coder_started",
-        "coder_done",
+        "coder_done --field gnhf_iteration_jsonl=",
         "gate_started",
         `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
         `gate_status --field state=idle --field head_sha=${prHead} --field recovery=checks_passed_context_canceled`,
@@ -550,7 +552,7 @@ exit 1
     expect(result.status).toBe(0);
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
       `gate_status --field state=idle --field head_sha=${localHead} --field recovery=checks_passed_context_canceled`,
@@ -671,7 +673,7 @@ exit 1
     expect(result.status).toBe(1);
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
       `gate_status --field state=failed --field head_sha=${localHead}`,
@@ -797,7 +799,7 @@ exit 1
     expect(gateFailed).toBe("gate_failed --field exit_code=1 --field reason=gate_failed");
     expect(events.slice(0, -1)).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
       `gate_status --field state=failed --field head_sha=${localHead}`,
@@ -1056,6 +1058,8 @@ if [ -t 1 ]; then
 fi
 echo "fake coder completed"
 echo "fake coder stderr" >&2
+mkdir -p .gnhf/runs/current-run
+printf '%s\n' '{"type":"thread.started","thread_id":"current-thread"}' > .gnhf/runs/current-run/iteration-1.jsonl
 exit 0
 `,
     );
@@ -1106,7 +1110,7 @@ exit 1
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/current-run/iteration-1.jsonl",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=",
       "gate_status --field state=idle --field head_sha=",
@@ -1273,7 +1277,7 @@ exit 1
     expect(result.stdout).toContain("runner: coder stop condition met; starting gatekeeper");
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/implement-demo/iteration-1.jsonl",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=head-sha",
       "gate_status --field state=idle --field head_sha=head-sha",
@@ -1543,7 +1547,7 @@ exit 1
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=head-sha",
       "gate_status --field state=idle --field head_sha=head-sha",
@@ -1623,7 +1627,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=fake-head",
       "gate_status --field state=idle --field head_sha=fake-head",
@@ -1730,7 +1734,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=fake-head",
       "gate_status --field state=idle --field head_sha=fake-head",
@@ -2235,7 +2239,7 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${headSha}`,
       `gate_status --field state=awaiting_approval --field head_sha=${headSha}`,

@@ -1,7 +1,7 @@
 /**
  * @overview Coder adapter: turns config + combo facts into a gnhf command,
  *   appends the helper-surface preflight, and extracts Codex thread IDs for
- *   resume. ~195 lines, 9 exports.
+ *   resume. ~180 lines, 9 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -30,14 +30,14 @@
  *   │ LEGACY_ROWER_THREAD_ARTIFACT Legacy rower thread artifact filename     │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────────┤
  *   │ repoHasSurfaceScript       Detect target repo support for pnpm surface│
- *   │ latestGnhfIterationJsonl   Find newest iteration-1.jsonl in .gnhf    │
+ *   │ validatedGnhfJsonlPath     Constrain the selected JSONL to the run dir│
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, defaultWorkPlanPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
  * @deps node:fs, node:path, ../infra/config, ../core/state, ../core/work-plan
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { renderCommand } from "../infra/config.js";
 import type { ComboRecord } from "../core/state.js";
@@ -144,11 +144,12 @@ export function extractCodexThreadIdFromJsonl(jsonlPath: string): string | undef
   return latestThreadId;
 }
 
-export function persistCoderThreadArtifact(input: { runDir: string; worktree: string }): CoderThreadArtifact {
-  const jsonlPath = latestGnhfIterationJsonl(input.worktree);
-  if (jsonlPath === undefined) {
-    throw new Error(`No gnhf JSONL found in ${input.worktree}/.gnhf/runs`);
-  }
+export function persistCoderThreadArtifact(input: {
+  runDir: string;
+  worktree: string;
+  jsonlPath: string;
+}): CoderThreadArtifact {
+  const jsonlPath = validatedGnhfJsonlPath(input.worktree, input.jsonlPath);
   const threadId = extractCodexThreadIdFromJsonl(jsonlPath);
   if (threadId === undefined) {
     throw new Error(`No thread.started event found in ${jsonlPath}`);
@@ -164,20 +165,22 @@ export function persistCoderThreadArtifact(input: { runDir: string; worktree: st
   return artifact;
 }
 
-function latestGnhfIterationJsonl(worktree: string): string | undefined {
-  const runsDir = join(worktree, ".gnhf", "runs");
-  if (!existsSync(runsDir)) return undefined;
-
-  let latest: { path: string; mtimeMs: number } | undefined;
-  for (const entry of readdirSync(runsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const candidate = join(runsDir, entry.name, "iteration-1.jsonl");
-    if (!existsSync(candidate)) continue;
-    const mtimeMs = statSync(candidate).mtimeMs;
-    if (latest === undefined || mtimeMs > latest.mtimeMs) {
-      latest = { path: candidate, mtimeMs };
-    }
+function validatedGnhfJsonlPath(worktree: string, inputPath: string): string {
+  const resolvedWorktree = resolve(worktree);
+  const runsDir = resolve(resolvedWorktree, ".gnhf", "runs");
+  const jsonlPath = resolve(resolvedWorktree, inputPath);
+  const withinRuns = relative(runsDir, jsonlPath);
+  if (
+    withinRuns === "" ||
+    withinRuns === ".." ||
+    withinRuns.startsWith(`..${sep}`) ||
+    isAbsolute(withinRuns)
+  ) {
+    throw new Error(`gnhf JSONL path must be inside ${runsDir}: ${inputPath}`);
   }
-  return latest?.path;
+  if (!existsSync(jsonlPath)) {
+    throw new Error(`No gnhf JSONL found at ${jsonlPath}`);
+  }
+  return jsonlPath;
 }
 // -/ 3/3

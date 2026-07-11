@@ -213,14 +213,25 @@ describe("emit", () => {
       });
       const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-      await exec(deps, ["emit", "-n", "o-r-7", doneEvent]);
+      await exec(deps, [
+        "emit",
+        "-n",
+        "o-r-7",
+        doneEvent,
+        "--field",
+        "gnhf_iteration_jsonl=.gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      ]);
 
       expect(JSON.parse(readFileSync(join(dir, CODER_THREAD_ARTIFACT), "utf8"))).toEqual({
         agent: "codex",
         thread_id: CODEX_THREAD_ID,
         source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
       });
-      expect(readEvents(dir).map((event) => event.event)).toEqual(["coder_done"]);
+      const events = readEvents(dir);
+      expect(events.map((event) => event.event)).toEqual(["coder_done"]);
+      expect(events[0]).toMatchObject({
+        gnhf_iteration_jsonl: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      });
     });
   }
 
