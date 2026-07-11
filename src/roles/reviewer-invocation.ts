@@ -66,7 +66,7 @@ function hasUnsupportedShellSyntax(command: string): boolean {
         quote = undefined;
         continue;
       }
-      if (c === "`" || (c === "$" && command[i + 1] === "(")) return true;
+      if (c === "`" || (c === "$" && (command[i + 1] === "(" || command[i + 1] === "{"))) return true;
       continue;
     }
     if (c === "'" || c === '"') {
@@ -75,7 +75,7 @@ function hasUnsupportedShellSyntax(command: string): boolean {
     }
     if (c === ";" || c === "|" || c === "<" || c === ">" || c === "&") return true;
     if (c === "(" || c === ")" || c === "`") return true;
-    if (c === "$" && command[i + 1] === "(") return true;
+    if (c === "$" && (command[i + 1] === "(" || command[i + 1] === "{")) return true;
     if (c === "#" && (i === 0 || /\s/.test(command[i - 1]!))) return true;
   }
   return quote !== undefined;
