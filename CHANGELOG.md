@@ -32,6 +32,16 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.81](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.80...combo-chen-v0.0.81) (2026-07-11)
+
+
+### Bug Fixes
+
+* **boundaries:** catch dynamic director imports ([c9cf9a8](https://github.com/thellmwhisperer/combo-chen/commit/c9cf9a832ced5b2e61f43b7e70c1fdb2fe9458c8))
+* **roles:** enforce plain reviewer commands ([5c21cf9](https://github.com/thellmwhisperer/combo-chen/commit/5c21cf9df87d5597a104319891424a12e81023ca))
+* **runtime:** harden persisted state boundaries ([6ffeed5](https://github.com/thellmwhisperer/combo-chen/commit/6ffeed529a8b602d63c741c5719f1b9f314ce06f))
+* **runtime:** validate persisted combo artifacts ([dbfba53](https://github.com/thellmwhisperer/combo-chen/commit/dbfba532a485fd32f07e3272c90bb3ca23a2e751))
+
 ## [0.0.80](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.79...combo-chen-v0.0.80) (2026-07-10)
 
 
