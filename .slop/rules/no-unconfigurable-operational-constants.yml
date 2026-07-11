@@ -1,6 +1,6 @@
 # Tombstone for hardcoded operational constants that should flow through config.
 # Cite: PR #268 / 2026-07-06 wave introduced GATEKEEPER_STATUS_TIMEOUT_MS as a
-# bare timeout constant in src/cli/worker-monitor.ts; operational timeouts must
+# bare timeout constant in src/app/director/worker-monitor.ts; operational timeouts must
 # have env/repo config paths. Existing blessed constants are:
 # UPDATE_DOWNLOAD_TIMEOUT_MS (src/update/command.ts, env-backed),
 # DEFAULT_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS (src/update/command.ts),
