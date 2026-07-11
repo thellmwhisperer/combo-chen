@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for combo state persistence. ~75 lines, testing
+ * @overview Unit tests for combo state persistence. ~200 lines, testing
  *   GitHub issue URL parsing and combo-id derivation, combo home directory
  *   resolution, and combo record read/write/list round-trips.
  *
@@ -46,8 +46,6 @@ describe("issue identity", () => {
       number: 128,
     });
   });
-  // -/ 2/2
-
   it("rejects anything that is not a GitHub issue URL", () => {
     expect(() => parseIssueUrl("https://github.com/o/r/pull/3")).toThrow(ComboStateError);
     expect(() => parseIssueUrl("not a url")).toThrow(ComboStateError);
@@ -119,13 +117,46 @@ describe("combo records", () => {
     expect(skipped).toEqual(["no-created-at"]);
   });
 
+  it.each(["repoDir", "worktree", "branch", "tmuxSession"] as const)(
+    "treats a combo record with an empty %s as corrupt",
+    (field) => {
+      const base = home();
+      const id = `empty-${field}`;
+      const dir = runDirFor(base, id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "combo.json"),
+        `${JSON.stringify({
+          id,
+          issueUrl: "https://github.com/o/r/issues/7",
+          repoDir: "/repos/r",
+          worktree: "/repos/r/.worktrees/issue-7",
+          branch: "combo/issue-7",
+          tmuxSession: "combo-chen-o-r-7",
+          createdAt: "2026-06-10T00:00:00.000Z",
+          [field]: "",
+        })}\n`,
+      );
+
+      expect(() => readCombo(dir)).toThrow(ComboStateError);
+    },
+  );
+
   it("treats a combo record whose id mismatches its directory as corrupt", () => {
     const base = home();
     const dir = runDirFor(base, "dir-name");
     mkdirSync(dir, { recursive: true });
     writeFileSync(
       join(dir, "combo.json"),
-      `${JSON.stringify({ id: "other-id", createdAt: "2026-06-10T00:00:00.000Z" })}\n`,
+      `${JSON.stringify({
+        id: "other-id",
+        issueUrl: "https://github.com/o/r/issues/7",
+        repoDir: "/repos/r",
+        worktree: "/repos/r/.worktrees/issue-7",
+        branch: "combo/issue-7",
+        tmuxSession: "combo-chen-o-r-7",
+        createdAt: "2026-06-10T00:00:00.000Z",
+      })}\n`,
     );
 
     expect(() => listCombos(base)).toThrow(ComboStateError);
@@ -158,3 +189,4 @@ describe("combo records", () => {
     expect(skipped).toEqual(["bad-combo"]);
   });
 });
+// -/ 2/2

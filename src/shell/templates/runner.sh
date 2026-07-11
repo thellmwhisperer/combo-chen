@@ -211,6 +211,7 @@ fi
 rm -f "$coder_start_marker" "$gnhf_iteration_snapshot"
 
 if [ "$code" -eq 0 ]; then
+  [ -n "$gnhf_current_iteration_jsonl" ] || exit 1
   __EMIT__ coder_done --field gnhf_iteration_jsonl="$gnhf_current_iteration_jsonl" || exit 1
 else
   if [ "$runner_progress" = "1" ]; then

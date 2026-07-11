@@ -173,10 +173,24 @@ function parseComboRecord(path: string): ComboRecord {
     value.id === "" ||
     !("issueUrl" in value) ||
     typeof value.issueUrl !== "string" ||
+    !("repoDir" in value) ||
+    typeof value.repoDir !== "string" ||
+    value.repoDir.trim() === "" ||
+    !("worktree" in value) ||
+    typeof value.worktree !== "string" ||
+    value.worktree.trim() === "" ||
+    !("branch" in value) ||
+    typeof value.branch !== "string" ||
+    value.branch.trim() === "" ||
+    !("tmuxSession" in value) ||
+    typeof value.tmuxSession !== "string" ||
+    value.tmuxSession.trim() === "" ||
     !("createdAt" in value) ||
     typeof value.createdAt !== "string"
   ) {
-    throw new ComboStateError(`combo record at ${path} is missing id, issueUrl, or createdAt`);
+    throw new ComboStateError(
+      `combo record at ${path} is missing id, issueUrl, repoDir, worktree, branch, tmuxSession, or createdAt`,
+    );
   }
   return value as ComboRecord;
 }
