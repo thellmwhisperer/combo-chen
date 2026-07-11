@@ -113,7 +113,7 @@ describe("update module boundary rule", () => {
 
 // -- 4/5 CORE · GitHub domain boundary contract --
 describe("GitHub domain boundary rule", () => {
-  it("rejects static and dynamic director imports while permitting lower-level core imports", () => {
+  it("rejects director imports and re-exports while permitting lower-level core imports", () => {
     expect(
       scanBoundaryRule(
         "github-no-director-import.yml",
@@ -126,6 +126,20 @@ describe("GitHub domain boundary rule", () => {
         "github-no-director-import.yml",
         "src/app/github/fixture.ts",
         'const director = import("../director/director.js");',
+      ),
+    ).toHaveLength(1);
+    expect(
+      scanBoundaryRule(
+        "github-no-director-import.yml",
+        "src/app/github/fixture.ts",
+        'export { tickDirector } from "../director/director.js";',
+      ),
+    ).toHaveLength(1);
+    expect(
+      scanBoundaryRule(
+        "github-no-director-import.yml",
+        "src/app/github/fixture.ts",
+        'export * from "../director/director.js";',
       ),
     ).toHaveLength(1);
     expect(
@@ -148,7 +162,7 @@ describe("GitHub domain boundary rule", () => {
 
 // -- 5/5 CORE · Gate domain boundary contract --
 describe("Gate domain boundary rule", () => {
-  it("rejects static and dynamic director imports while permitting lower-level GitHub imports", () => {
+  it("rejects director imports and re-exports while permitting lower-level GitHub imports", () => {
     expect(
       scanBoundaryRule(
         "gate-no-director-import.yml",
@@ -161,6 +175,20 @@ describe("Gate domain boundary rule", () => {
         "gate-no-director-import.yml",
         "src/app/gate/fixture.ts",
         'const director = import("../director/director.js");',
+      ),
+    ).toHaveLength(1);
+    expect(
+      scanBoundaryRule(
+        "gate-no-director-import.yml",
+        "src/app/gate/fixture.ts",
+        'export { tickDirector } from "../director/director.js";',
+      ),
+    ).toHaveLength(1);
+    expect(
+      scanBoundaryRule(
+        "gate-no-director-import.yml",
+        "src/app/gate/fixture.ts",
+        'export * from "../director/director.js";',
       ),
     ).toHaveLength(1);
     expect(
