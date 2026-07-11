@@ -40,7 +40,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { CODER_THREAD_ARTIFACT } from "../src/roles/coder.js";
+import { CODER_THREAD_ARTIFACT } from "../src/roles/coder-invocation.js";
 
 // -- 1/3 HELPER · Command runner + JSON helpers --
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));

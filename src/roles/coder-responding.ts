@@ -38,7 +38,7 @@
  *
  * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
  * @deps node:fs, node:path, ../core/events, ../core/gh-api, ../core/guards, ../core/pr-url,
- *   ../infra/config, ../infra/tmux, ./coder
+ *   ../infra/config, ../infra/tmux, ./coder-invocation
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -49,7 +49,11 @@ import { isRecord } from "../core/guards.js";
 import { parseGitHubPullRequestUrl, type GitHubPullRequestRef } from "../core/pr-url.js";
 import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
-import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, type CoderThreadArtifact } from "./coder.js";
+import {
+  CODER_THREAD_ARTIFACT,
+  LEGACY_ROWER_THREAD_ARTIFACT,
+  type CoderThreadArtifact,
+} from "./coder-invocation.js";
 
 export { readGhArray } from "../core/gh-api.js";
 

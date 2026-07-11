@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent
- * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
+ * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
  */
 import {
   appendEvent,
@@ -33,7 +33,7 @@ import {
 import { updateRuntimeLedger } from "../../core/runtime-ledger.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
-import { persistCoderThreadArtifact } from "../../roles/coder.js";
+import { persistCoderThreadArtifact } from "../../roles/coder-invocation.js";
 import { parseEventFields } from "./event-fields.js";
 import { closeMergedCombo } from "./closure.js";
 import { GATEKEEPER_WINDOW, refreshGatekeeperWindow } from "../gate/gate.js";
@@ -64,12 +64,26 @@ export function emitComboEvent(
   const home = comboHome(deps.env);
   const runDir = runDirFor(home, options.name);
   const canonicalEvent = canonicalEventName(event);
+  const payload = parseEventFields(options.field);
+  if (canonicalEvent === "coder_done") {
+    const jsonlPath = payload["gnhf_iteration_jsonl"];
+    if (typeof jsonlPath !== "string" || jsonlPath.trim() === "") {
+      throw new Error("coder_done requires gnhf_iteration_jsonl from the current gnhf run");
+    }
+  }
+  appendEvent(runDir, event as EventName, payload);
   if (canonicalEvent === "coder_done") {
     const combo = readCombo(runDir);
-    persistCoderThreadArtifact({ runDir, worktree: combo.worktree });
+    const jsonlPath = payload["gnhf_iteration_jsonl"] as string;
+    try {
+      persistCoderThreadArtifact({ runDir, worktree: combo.worktree, jsonlPath });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(
+        "combo-chen: coder_done artifact persistence failed for " + options.name + ": " + detail + "\n",
+      );
+    }
   }
-  const payload = parseEventFields(options.field);
-  appendEvent(runDir, event as EventName, payload);
   if (canonicalEvent === "pr_opened" && typeof payload["url"] === "string") {
     updateRuntimeLedger(runDir, {
       cli,

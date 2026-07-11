@@ -3,7 +3,7 @@
 # quote-stripping existed for id: but not head:, so the gatekeeper attach
 # window could never match and polled to timeout (false worker_stalled,
 # manual recovery). Canonical parsers: src/shell/templates/axi-status-lib.sh
-# for generated shell, parseNoMistakesAxiStatus in src/cli/status.ts for TS.
+# for generated shell, parseNoMistakesAxiStatus in src/app/reporting/status.ts for TS.
 id: no-adhoc-axi-status-scrape
 language: TypeScript
 files:

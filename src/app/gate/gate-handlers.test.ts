@@ -43,6 +43,7 @@ import {
   writeFileSync,
 } from "../../testing/cli-harness.js";
 
+// -- 1/1 CORE · gate handler integration contracts <- START HERE --
 describe("gate-restart", () => {
   const HEAD = "abcdef012345abcdef012345abcdef0123456789";
 
@@ -246,3 +247,4 @@ describe("gate-restart", () => {
     expect(existsSync(join(dir, `gatekeeper-post-${HEAD.slice(0, 12)}.sh`))).toBe(true);
   });
 });
+// -/ 1/1

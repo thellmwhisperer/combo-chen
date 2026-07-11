@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the coder role. ~152 lines, testing
+ * @overview Unit tests for the coder role. ~230 lines, testing
  *   default prompt generation, coder invocation rendering, codex thread-id
  *   extraction from JSONL, and thread artifact persistence.
  *
@@ -17,7 +17,7 @@
  *   └─────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, node:{fs,os,path,url}, ./coder
+ * @deps vitest, node:{fs,os,path,url}, ./coder-invocation
  */
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,7 +31,7 @@ import {
   defaultPrompt,
   extractCodexThreadIdFromJsonl,
   persistCoderThreadArtifact,
-} from "./coder.js";
+} from "./coder-invocation.js";
 
 const combo = {
   id: "o-r-7",
@@ -50,10 +50,12 @@ function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-function seedGnhfRun(worktree: string): void {
-  const runDir = join(worktree, ".gnhf", "runs", "implement-github-iss-e6510c");
+function seedGnhfRun(worktree: string, runName = "implement-github-iss-e6510c"): string {
+  const runDir = join(worktree, ".gnhf", "runs", runName);
   mkdirSync(runDir, { recursive: true });
-  writeFileSync(join(runDir, "iteration-1.jsonl"), readFileSync(codexJsonlFixture, "utf8"));
+  const jsonlPath = join(runDir, "iteration-1.jsonl");
+  writeFileSync(jsonlPath, readFileSync(codexJsonlFixture, "utf8"));
+  return jsonlPath;
 }
 
 function comboWithSurfaceScript(): typeof combo {
@@ -197,9 +199,9 @@ describe("coder thread artifact", () => {
   it("persists the codex thread id from a gnhf iteration JSONL fixture", () => {
     const runDir = tempDir("combo-chen-run-");
     const worktree = tempDir("combo-chen-worktree-");
-    seedGnhfRun(worktree);
+    const jsonlPath = seedGnhfRun(worktree);
 
-    const artifact = persistCoderThreadArtifact({ runDir, worktree });
+    const artifact = persistCoderThreadArtifact({ runDir, worktree, jsonlPath });
 
     expect(artifact).toEqual({
       agent: "codex",
@@ -207,6 +209,22 @@ describe("coder thread artifact", () => {
       source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
     });
     expect(JSON.parse(readFileSync(join(runDir, CODER_THREAD_ARTIFACT), "utf8"))).toEqual(artifact);
+  });
+
+  it("persists the thread from the explicitly selected run when another run overlaps", () => {
+    const runDir = tempDir("combo-chen-run-");
+    const worktree = tempDir("combo-chen-worktree-");
+    const currentJsonl = seedGnhfRun(worktree, "current-run");
+    const overlappingJsonl = seedGnhfRun(worktree, "overlapping-run");
+    writeFileSync(
+      overlappingJsonl,
+      `${JSON.stringify({ type: "thread.started", thread_id: "wrong-overlapping-thread" })}\n`,
+    );
+
+    const artifact = persistCoderThreadArtifact({ runDir, worktree, jsonlPath: currentJsonl });
+
+    expect(artifact.thread_id).not.toBe("wrong-overlapping-thread");
+    expect(artifact.source).toBe(".gnhf/runs/current-run/iteration-1.jsonl");
   });
 });
 // -/ 3/3

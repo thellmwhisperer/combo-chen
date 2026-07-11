@@ -2,7 +2,7 @@
  * @overview Reviewer adapter: renders the configured reviewer command with
  *   PR facts plus the frozen review and anti-slop contract. The loop mechanics
  *   live in the orchestrator; this module owns the reviewer instructions.
- *   ~135 lines, 8 exports.
+ *   ~155 lines, 8 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -27,7 +27,7 @@
  *   │ ReviewerPromptInput       Shape for defaultReviewerPrompt         │
  *   │ IncrementalReviewerPromptInput Shape for incrementalReviewerPrompt │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
- *   │ (none — all exports are public)                                  │
+ *   │ hasUnsupportedShellSyntax  Conservative plain-command lexer      │
  *   └──────────────────────────────────────────────────────────────────┘
  *
  * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation
@@ -47,31 +47,42 @@ export interface ReviewerPromptInput {
   workPlan?: WorkPlan;
 }
 
-function hasUnquotedShellControl(command: string): boolean {
+function hasUnsupportedShellSyntax(command: string): boolean {
   let quote: "'" | '"' | undefined;
   for (let i = 0; i < command.length; i += 1) {
     const c = command[i]!;
-    if (c === "\\" && quote === '"') {
+    if (c === "\n" || c === "\r") return true;
+    if (quote === "'") {
+      if (c === "'") quote = undefined;
+      continue;
+    }
+    if (c === "\\") {
+      if (i + 1 >= command.length) return true;
       i += 1;
       continue;
     }
-    if ((c === "'" || c === '"') && quote === undefined) {
+    if (quote === '"') {
+      if (c === '"') {
+        quote = undefined;
+        continue;
+      }
+      if (c === "`" || (c === "$" && (command[i + 1] === "(" || command[i + 1] === "{"))) return true;
+      continue;
+    }
+    if (c === "'" || c === '"') {
       quote = c;
       continue;
     }
-    if (quote === c) {
-      quote = undefined;
-      continue;
-    }
-    if (quote !== undefined) continue;
-    if (c === ";" || c === "|" || c === "<" || c === ">") return true;
-    if ((c === "&" && command[i + 1] === "&") || (c === "|" && command[i + 1] === "|")) return true;
+    if (c === ";" || c === "|" || c === "<" || c === ">" || c === "&") return true;
+    if (c === "(" || c === ")" || c === "`") return true;
+    if (c === "$" && (command[i + 1] === "(" || command[i + 1] === "{")) return true;
+    if (c === "#" && (i === 0 || /\s/.test(command[i - 1]!))) return true;
   }
-  return false;
+  return quote !== undefined;
 }
 
 export function assertReviewerCommandSafe(command: string): void {
-  if (!hasUnquotedShellControl(command)) return;
+  if (!hasUnsupportedShellSyntax(command)) return;
   throw new ReviewerInvocationError(
     "reviewer command must be one plain command; shell compounds stall on permission prompts",
   );

@@ -36,7 +36,6 @@ import {
   mkdtempSync,
   runDirFor,
   seedNeedsHumanCombo,
-  tmpdir,
   writeCombo,
   writeConfigSnapshot,
   writeFileSync,
@@ -44,6 +43,12 @@ import {
 
 // -- 1/1 CORE · command contracts <- START HERE --
 describe("forensics", () => {
+  function repoFixtureDir(): string {
+    const fixtureRoot = join(process.cwd(), ".tmp");
+    mkdirSync(fixtureRoot, { recursive: true });
+    return mkdtempSync(join(fixtureRoot, "combo-chen-repo-"));
+  }
+
   function seedIssueCombo(homeDir: string, id: string, issueNumber: number): string {
     const dir = runDirFor(homeDir, id);
     writeCombo(dir, {
@@ -57,6 +62,34 @@ describe("forensics", () => {
     });
     return dir;
   }
+
+  it("creates repository fixtures under the repository .tmp directory", () => {
+    expect(repoFixtureDir()).toContain(join(process.cwd(), ".tmp"));
+  });
+
+  it("skips persisted combo records whose issueUrl is missing", async () => {
+    const h = home();
+    const id = "incomplete-combo";
+    const dir = runDirFor(h, id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "combo.json"),
+      `${JSON.stringify({
+        id,
+        repoDir: "/repos/r",
+        worktree: "/repos/r/.worktrees/incomplete-combo",
+        branch: "combo/incomplete-combo",
+        tmuxSession: "combo-chen-incomplete-combo",
+        createdAt: "2026-06-11T10:00:00.000Z",
+      })}\n`,
+    );
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["forensics", "--format", "json"]);
+
+    expect(out[0]).toContain("skipped incomplete-combo:");
+    expect(JSON.parse(out.at(-1) ?? "")).toEqual({ reports: [] });
+  });
 
   it("renders a markdown report for selected issue numbers from local run logs", async () => {
     const h = home();
@@ -449,7 +482,7 @@ describe("forensics", () => {
 
   it("uses the launch config snapshot for GitHub check classification after repo TOML changes", async () => {
     const h = home();
-    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const repoDir = repoFixtureDir();
     writeFileSync(join(repoDir, "combo-chen.toml"), '[reviewer]\nambient = ["launch-bot"]\n');
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {

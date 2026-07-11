@@ -42,10 +42,10 @@ import {
   tickComboDirector,
   tickComboReviewer,
   watchDirector,
-} from "../app/director/handlers.js";
-import { handleGateLease, restartGate } from "../app/gate/handlers.js";
-import { ensurePrAutoclose, printIntent } from "../app/github/handlers.js";
-import { launchCombo, runOverture, type LaunchOptions } from "../app/launch/handlers.js";
+} from "../app/director/director-handlers.js";
+import { handleGateLease, restartGate } from "../app/gate/gate-handlers.js";
+import { ensurePrAutoclose, printIntent } from "../app/github/github-handlers.js";
+import { launchCombo, runOverture, type LaunchOptions } from "../app/launch/launch-handlers.js";
 import {
   attachCombo,
   closeCombo,
@@ -55,8 +55,8 @@ import {
   reconcileComboState,
   resumePersistedCombo,
   stopCombo,
-} from "../app/lifecycle/handlers.js";
-import { reportNeedsHuman, showForensics, showStatus } from "../app/reporting/handlers.js";
+} from "../app/lifecycle/lifecycle-handlers.js";
+import { reportNeedsHuman, showForensics, showStatus } from "../app/reporting/reporting-handlers.js";
 import { tmux as realTmux } from "../infra/tmux.js";
 import {
   checkForPassiveUpdate,
