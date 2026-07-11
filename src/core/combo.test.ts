@@ -11,6 +11,7 @@
  *   ┌─ TEST AREAS ──────────────────────────────────────────────┐
  *   │ deriveStatus         Verifies the phase state machine      │
  *   │ buildRunnerScript    Verifies the generated runner script  │
+ *   │ runRunnerSubprocess  Bounds real runner shell executions   │
  *   └────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
@@ -37,6 +38,27 @@ function runnerSubprocessEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   // Direct runner subprocess tests assert quiet-by-default output; progress is opt-in.
   delete env["COMBO_CHEN_RUNNER_PROGRESS"];
   return env;
+}
+
+function runRunnerSubprocess(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 8_000,
+): ReturnType<typeof spawnSync> {
+  const result = spawnSync("sh", args, {
+    encoding: "utf8",
+    env,
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
+  });
+  if (result.error !== undefined) {
+    const errorCode = (result.error as NodeJS.ErrnoException).code;
+    if (errorCode === "ETIMEDOUT") {
+      throw new Error(`runner subprocess timed out after ${timeoutMs}ms`);
+    }
+    throw new Error(`runner subprocess failed: ${result.error.message}`);
+  }
+  return result;
 }
 
 // -- 1/2 CORE · Phase derivation tests (deriveStatus) --
@@ -216,6 +238,12 @@ describe("buildRunnerScript", () => {
     activateCoder: "node /opt/combo/dist/cli.mjs activate-coder -n o-r-7",
     activateReviewer: "node /opt/combo/dist/cli.mjs activate-reviewer -n o-r-7",
     ensurePrAutoclose: "node /opt/combo/dist/cli.mjs ensure-pr-autoclose -n o-r-7 --pr-url",
+  });
+
+  it("surfaces a clear failure when a runner subprocess times out", () => {
+    expect(() => runRunnerSubprocess(["-c", "sleep 1"], runnerSubprocessEnv(), 10)).toThrow(
+      "runner subprocess timed out after 10ms",
+    );
   });
 
   it("runs inside the worktree", () => {
@@ -413,15 +441,15 @@ exit 1
       );
       chmodSync(runnerPath, 0o755);
 
-      const result = spawnSync("sh", [runnerPath], {
-        encoding: "utf8",
-        env: runnerSubprocessEnv({
+      const result = runRunnerSubprocess(
+        [runnerPath],
+        runnerSubprocessEnv({
           EVENTS_LOG: eventsPath,
           LOCAL_HEAD: localHead,
           PATH: `${bin}:${process.env["PATH"] ?? ""}`,
           PR_HEAD: prHead,
         }),
-      });
+      );
 
       expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
         status: 0,

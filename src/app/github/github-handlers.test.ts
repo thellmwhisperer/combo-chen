@@ -40,6 +40,7 @@ import {
   writeFileSync,
 } from "../../testing/cli-harness.js";
 
+// -- 1/1 CORE · GitHub handler integration contracts <- START HERE --
 describe("intent and PR autoclose", () => {
   it("prints the canonical issue PR intent with the verbatim autoclose requirement", async () => {
     const h = home();
@@ -405,3 +406,4 @@ describe("intent and PR autoclose", () => {
     );
   });
 });
+// -/ 1/1
