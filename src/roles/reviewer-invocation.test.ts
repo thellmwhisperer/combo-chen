@@ -137,6 +137,7 @@ describe("buildReviewerInvocation", () => {
     ["newline", "reviewer {prompt}\necho extra"],
     ["shell grouping", "reviewer (echo extra) {prompt}"],
     ["shell comment", "reviewer {prompt} # ignored"],
+    ["braced variable expansion", "reviewer ${VAR} {prompt}"],
     ["trailing escape", "reviewer {prompt} \\"],
   ])("rejects unsupported shell syntax: %s", (_case, reviewerCommand) => {
     expect(() =>
