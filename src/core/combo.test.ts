@@ -12,6 +12,7 @@
  *   │ deriveStatus         Verifies the phase state machine      │
  *   │ buildRunnerScript    Verifies the generated runner script  │
  *   │ runRunnerSubprocess  Bounds real runner shell executions   │
+ *   │ runnerFixtureDir     Creates isolated runner test fixtures │
  *   └────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
@@ -59,6 +60,12 @@ function runRunnerSubprocess(
     throw new Error(`runner subprocess failed: ${result.error.message}`);
   }
   return result;
+}
+
+function runnerFixtureDir(): string {
+  const fixtureRoot = join(process.cwd(), ".tmp");
+  mkdirSync(fixtureRoot, { recursive: true });
+  return mkdtempSync(join(fixtureRoot, "combo-chen-runner-"));
 }
 
 // -- 1/2 CORE · Phase derivation tests (deriveStatus) --
@@ -246,6 +253,10 @@ describe("buildRunnerScript", () => {
     );
   });
 
+  it("creates runner fixtures under the repository .tmp directory", () => {
+    expect(runnerFixtureDir()).toContain(join(process.cwd(), ".tmp"));
+  });
+
   it("runs inside the worktree", () => {
     expect(script).toContain("cd '/repos/r/.worktrees/issue-7'");
   });
@@ -371,7 +382,7 @@ describe("buildRunnerScript", () => {
     "continues to PR detection when no-mistakes exits nonzero after checks passed",
     { timeout: 10000 },
     () => {
-      const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
+      const dir = runnerFixtureDir();
       const worktree = join(dir, "worktree");
       const bin = join(dir, "bin");
       mkdirSync(worktree, { recursive: true });
