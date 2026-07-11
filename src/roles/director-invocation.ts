@@ -32,6 +32,7 @@ export function defaultDirectorPrompt(input: DirectorPromptInput): string {
     "When routed prompts arrive, reply with the next concrete action.",
     "If the decision touches user intent, answer needs_human with the exact decision needed.",
     "Do not edit code, push commits, merge, approve, or deploy.",
+    "Do not review or answer review threads, post comments, or perform other GitHub writes; route those actions to the reviewer or gatekeeper.",
   ].join(" ");
 }
 

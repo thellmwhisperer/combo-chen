@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the promptable director role. ~50 lines, prompt
+ * @overview Unit tests for the promptable director role. ~55 lines, prompt
  *   contract and command rendering.
  *
  *   READING GUIDE
@@ -8,11 +8,11 @@
  *   2. Then buildDirectorInvocation tests   <- command template rendering.
  *
  * @exports none
- * @deps vitest, ./director
+ * @deps vitest, ./director-invocation
  */
 import { describe, expect, it } from "vitest";
 
-import { buildDirectorInvocation, defaultDirectorPrompt } from "./director.js";
+import { buildDirectorInvocation, defaultDirectorPrompt } from "./director-invocation.js";
 
 const combo = {
   id: "o-r-9",
@@ -33,6 +33,9 @@ describe("defaultDirectorPrompt", () => {
     expect(prompt).toContain("Stay in this tmux window");
     expect(prompt).toContain("director-watch");
     expect(prompt).toContain("needs_human");
+    expect(prompt).toContain("Do not review or answer review threads");
+    expect(prompt).toContain("GitHub writes");
+    expect(prompt).toContain("reviewer or gatekeeper");
   });
 });
 

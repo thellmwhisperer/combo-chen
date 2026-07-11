@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for core combo orchestration. ~2360 lines, testing
+ * @overview Unit tests for core combo orchestration. ~2430 lines, testing
  *   phase derivation (deriveStatus) and the runner shell script generator
  *   (buildRunnerScript) with real subprocess execution.
  *
@@ -11,6 +11,9 @@
  *   ┌─ TEST AREAS ──────────────────────────────────────────────┐
  *   │ deriveStatus         Verifies the phase state machine      │
  *   │ buildRunnerScript    Verifies the generated runner script  │
+ *   │ runRunnerSubprocess  Bounds real runner shell executions   │
+ *   │ runnerFixtureDir     Creates isolated runner test fixtures │
+ *   │ coderWithThread      Gives successful coder shims a JSONL  │
  *   └────────────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
@@ -37,6 +40,45 @@ function runnerSubprocessEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   // Direct runner subprocess tests assert quiet-by-default output; progress is opt-in.
   delete env["COMBO_CHEN_RUNNER_PROGRESS"];
   return env;
+}
+
+function runRunnerSubprocess(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 8_000,
+): ReturnType<typeof spawnSync> {
+  const result = spawnSync("sh", args, {
+    encoding: "utf8",
+    env,
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
+  });
+  if (result.error !== undefined) {
+    const errorCode = (result.error as NodeJS.ErrnoException).code;
+    if (errorCode === "ETIMEDOUT") {
+      throw new Error(`runner subprocess timed out after ${timeoutMs}ms`);
+    }
+    throw new Error(`runner subprocess failed: ${result.error.message}`);
+  }
+  return result;
+}
+
+function runnerFixtureDir(): string {
+  const fixtureRoot = join(process.cwd(), ".tmp");
+  mkdirSync(fixtureRoot, { recursive: true });
+  return mkdtempSync(join(fixtureRoot, "combo-chen-runner-"));
+}
+
+function coderWithThread(command: string): string {
+  return [
+    command,
+    "coder_fixture_code=$?",
+    'if [ "$coder_fixture_code" -eq 0 ] && ! ls .gnhf/runs/*/iteration-1.jsonl >/dev/null 2>&1; then',
+    "  mkdir -p .gnhf/runs/test-current",
+    `  printf '%s\\n' '{"type":"thread.started","thread_id":"test-current-thread"}' > .gnhf/runs/test-current/iteration-1.jsonl`,
+    "fi",
+    '(exit "$coder_fixture_code")',
+  ].join("\n");
 }
 
 // -- 1/2 CORE · Phase derivation tests (deriveStatus) --
@@ -218,6 +260,16 @@ describe("buildRunnerScript", () => {
     ensurePrAutoclose: "node /opt/combo/dist/cli.mjs ensure-pr-autoclose -n o-r-7 --pr-url",
   });
 
+  it("surfaces a clear failure when a runner subprocess times out", () => {
+    expect(() => runRunnerSubprocess(["-c", "sleep 1"], runnerSubprocessEnv(), 10)).toThrow(
+      "runner subprocess timed out after 10ms",
+    );
+  });
+
+  it("creates runner fixtures under the repository .tmp directory", () => {
+    expect(runnerFixtureDir()).toContain(join(process.cwd(), ".tmp"));
+  });
+
   it("runs inside the worktree", () => {
     expect(script).toContain("cd '/repos/r/.worktrees/issue-7'");
   });
@@ -277,7 +329,10 @@ describe("buildRunnerScript", () => {
 
     expect(template).toContain("cd __WORKTREE__ || {");
     expect(template).toContain("__EMIT__ coder_started || exit 1");
-    expect(template).toContain("  __EMIT__ coder_done || exit 1");
+    expect(template).toContain(
+      '  __EMIT__ coder_done --field gnhf_iteration_jsonl="$gnhf_current_iteration_jsonl" || exit 1',
+    );
+    expect(template).toContain('[ -n "$gnhf_current_iteration_jsonl" ] || exit 1');
     expect(template).toContain("  __EMIT__ coder_failed --field exit_code=$code");
     expect(template).toContain('|| exit "$code"');
   });
@@ -285,7 +340,7 @@ describe("buildRunnerScript", () => {
   it("can guard the gatekeeper run with a branch-scoped gate lease", () => {
     const leased = buildRunnerScript({
       combo,
-      coderCommand: "true",
+      coderCommand: coderWithThread("true"),
       gatekeeperCommand: "no-mistakes axi run",
       emit: "emit",
       activateCoder: "activate-coder",
@@ -339,101 +394,105 @@ describe("buildRunnerScript", () => {
     expect(script).toContain(') < /dev/null > "$gatekeeper_log" 2>&1 || gatekeeper_code=$?');
   });
 
-  it("continues to PR detection when no-mistakes exits nonzero after checks passed", () => {
-    const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
-    const worktree = join(dir, "worktree");
-    const bin = join(dir, "bin");
-    mkdirSync(worktree, { recursive: true });
-    mkdirSync(bin, { recursive: true });
+  it(
+    "continues to PR detection when no-mistakes exits nonzero after checks passed",
+    { timeout: 10000 },
+    () => {
+      const dir = runnerFixtureDir();
+      const worktree = join(dir, "worktree");
+      const bin = join(dir, "bin");
+      mkdirSync(worktree, { recursive: true });
+      mkdirSync(bin, { recursive: true });
 
-    const eventsPath = join(dir, "events.log");
-    const localHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const prHead = "cccccccccccccccccccccccccccccccccccccccc";
-    const fakeEmit = join(bin, "emit");
-    writeFileSync(
-      fakeEmit,
-      `#!/bin/sh
+      const eventsPath = join(dir, "events.log");
+      const localHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      const prHead = "cccccccccccccccccccccccccccccccccccccccc";
+      const fakeEmit = join(bin, "emit");
+      writeFileSync(
+        fakeEmit,
+        `#!/bin/sh
 printf '%s\\n' "$*" >> "$EVENTS_LOG"
 `,
-    );
-    chmodSync(fakeEmit, 0o755);
+      );
+      chmodSync(fakeEmit, 0o755);
 
-    const fakeCoder = join(bin, "fake-coder");
-    writeFileSync(fakeCoder, "#!/bin/sh\nexit 0\n");
-    chmodSync(fakeCoder, 0o755);
+      const fakeCoder = join(bin, "fake-coder");
+      writeFileSync(fakeCoder, "#!/bin/sh\nexit 0\n");
+      chmodSync(fakeCoder, 0o755);
 
-    const fakeGatekeeper = join(bin, "fake-no-mistakes");
-    writeFileSync(
-      fakeGatekeeper,
-      `#!/bin/sh
+      const fakeGatekeeper = join(bin, "fake-no-mistakes");
+      writeFileSync(
+        fakeGatekeeper,
+        `#!/bin/sh
 printf '%s\\n' 'outcome: checks-passed'
 printf '%s\\n' 'ci.log: context canceled'
 exit 42
 `,
-    );
-    chmodSync(fakeGatekeeper, 0o755);
+      );
+      chmodSync(fakeGatekeeper, 0o755);
 
-    const fakeGit = join(bin, "git");
-    writeFileSync(
-      fakeGit,
-      `#!/bin/sh
+      const fakeGit = join(bin, "git");
+      writeFileSync(
+        fakeGit,
+        `#!/bin/sh
 if [ "$1" = "fetch" ]; then exit 0; fi
 if [ "$1" = "rebase" ]; then exit 0; fi
 if [ "$1 $2" = "rev-parse HEAD" ]; then printf '%s\\n' "$LOCAL_HEAD"; exit 0; fi
 exit 1
 `,
-    );
-    chmodSync(fakeGit, 0o755);
+      );
+      chmodSync(fakeGit, 0o755);
 
-    const fakeGh = join(bin, "gh");
-    writeFileSync(
-      fakeGh,
-      `#!/bin/sh
+      const fakeGh = join(bin, "gh");
+      writeFileSync(
+        fakeGh,
+        `#!/bin/sh
 if [ "$1 $2" = "pr list" ]; then printf '%s\\n' 'https://github.com/o/r/pull/7'; exit 0; fi
 if [ "$1 $2" = "pr view" ]; then printf '%s\\n' "$PR_HEAD"; exit 0; fi
 exit 1
 `,
-    );
-    chmodSync(fakeGh, 0o755);
+      );
+      chmodSync(fakeGh, 0o755);
 
-    const runnerPath = join(dir, "runner.sh");
-    writeFileSync(
-      runnerPath,
-      buildRunnerScript({
-        combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
-        gatekeeperCommand: shellQuote(fakeGatekeeper),
-        emit: shellQuote(fakeEmit),
-        activateCoder: ":",
-        activateReviewer: ":",
-      }),
-    );
-    chmodSync(runnerPath, 0o755);
+      const runnerPath = join(dir, "runner.sh");
+      writeFileSync(
+        runnerPath,
+        buildRunnerScript({
+          combo: { ...combo, worktree },
+          coderCommand: coderWithThread(shellQuote(fakeCoder)),
+          gatekeeperCommand: shellQuote(fakeGatekeeper),
+          emit: shellQuote(fakeEmit),
+          activateCoder: ":",
+          activateReviewer: ":",
+        }),
+      );
+      chmodSync(runnerPath, 0o755);
 
-    const result = spawnSync("sh", [runnerPath], {
-      encoding: "utf8",
-      env: runnerSubprocessEnv({
-        EVENTS_LOG: eventsPath,
-        LOCAL_HEAD: localHead,
-        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-        PR_HEAD: prHead,
-      }),
-    });
+      const result = runRunnerSubprocess(
+        [runnerPath],
+        runnerSubprocessEnv({
+          EVENTS_LOG: eventsPath,
+          LOCAL_HEAD: localHead,
+          PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+          PR_HEAD: prHead,
+        }),
+      );
 
-    expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
-      status: 0,
-      stdout: "",
-      stderr: "",
-    });
-    expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
-      "coder_started",
-      "coder_done",
-      "gate_started",
-      `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
-      `gate_status --field state=idle --field head_sha=${prHead} --field recovery=checks_passed_context_canceled`,
-      "pr_opened --field url=https://github.com/o/r/pull/7",
-    ]);
-  });
+      expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+        status: 0,
+        stdout: "",
+        stderr: "",
+      });
+      expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
+        "coder_started",
+        "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
+        "gate_started",
+        `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
+        `gate_status --field state=idle --field head_sha=${prHead} --field recovery=checks_passed_context_canceled`,
+        "pr_opened --field url=https://github.com/o/r/pull/7",
+      ]);
+    },
+  );
 
   it("normalizes checks-passed context-canceled through the runner path", { timeout: 10000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "combo-chen-runner-"));
@@ -486,7 +545,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: shellQuote(fakeGatekeeper),
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -507,7 +566,7 @@ exit 1
     expect(result.status).toBe(0);
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
       `gate_status --field state=idle --field head_sha=${localHead} --field recovery=checks_passed_context_canceled`,
@@ -603,7 +662,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: shellQuote(fakeGatekeeper),
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -628,7 +687,7 @@ exit 1
     expect(result.status).toBe(1);
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
       `gate_status --field state=failed --field head_sha=${localHead}`,
@@ -727,7 +786,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: shellQuote(fakeGatekeeper),
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -754,7 +813,7 @@ exit 1
     expect(gateFailed).toBe("gate_failed --field exit_code=1 --field reason=gate_failed");
     expect(events.slice(0, -1)).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${localHead}`,
       `gate_status --field state=failed --field head_sha=${localHead}`,
@@ -809,7 +868,7 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -884,7 +943,7 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -957,7 +1016,7 @@ printf 'coder ran\\n' >> "$TRACE_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1013,6 +1072,8 @@ if [ -t 1 ]; then
 fi
 echo "fake coder completed"
 echo "fake coder stderr" >&2
+mkdir -p .gnhf/runs/current-run
+printf '%s\n' '{"type":"thread.started","thread_id":"current-thread"}' > .gnhf/runs/current-run/iteration-1.jsonl
 exit 0
 `,
     );
@@ -1039,7 +1100,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1063,7 +1124,7 @@ exit 1
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/current-run/iteration-1.jsonl",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=",
       "gate_status --field state=idle --field head_sha=",
@@ -1118,7 +1179,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1206,7 +1267,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1230,7 +1291,7 @@ exit 1
     expect(result.stdout).toContain("runner: coder stop condition met; starting gatekeeper");
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/implement-demo/iteration-1.jsonl",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=head-sha",
       "gate_status --field state=idle --field head_sha=head-sha",
@@ -1296,7 +1357,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1384,7 +1445,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1476,7 +1537,7 @@ exit 1
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: shellQuote(fakeCoder),
+        coderCommand: coderWithThread(shellQuote(fakeCoder)),
         gatekeeperCommand: "true",
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1500,7 +1561,7 @@ exit 1
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=head-sha",
       "gate_status --field state=idle --field head_sha=head-sha",
@@ -1555,7 +1616,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: "true",
+        coderCommand: coderWithThread("true"),
         gatekeeperCommand: renderedDefaultGatekeeperCommand,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -1580,7 +1641,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=fake-head",
       "gate_status --field state=idle --field head_sha=fake-head",
@@ -1661,7 +1722,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: "true",
+        coderCommand: coderWithThread("true"),
         gatekeeperCommand: renderedDefaultGatekeeperCommand,
         gatekeeperMirrorIntent: mirrorIntent,
         emit: shellQuote(fakeEmit),
@@ -1687,7 +1748,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
       "gate_started",
       "gate_status --field state=fix_inflight --field head_sha=fake-head",
       "gate_status --field state=idle --field head_sha=fake-head",
@@ -1764,7 +1825,7 @@ exit 0
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: "true",
+        coderCommand: coderWithThread("true"),
         gatekeeperCommand: renderedDefaultGatekeeperCommand,
         gatekeeperMirrorIntent: Buffer.from("Implement issue 7", "utf8").toString("base64"),
         emit: shellQuote(fakeEmit),
@@ -1897,7 +1958,7 @@ fi
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: "true",
+        coderCommand: coderWithThread("true"),
         gatekeeperCommand: renderedDefaultGatekeeperCommand,
         gatekeeperMirrorIntent: Buffer.from("Implement issue 7", "utf8").toString("base64"),
         emit: shellQuote(fakeEmit),
@@ -2066,7 +2127,7 @@ printf 'no-mistakes %s\\n' "$*" >> "$GATEKEEPER_LOG"
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree },
-        coderCommand: "true",
+        coderCommand: coderWithThread("true"),
         gatekeeperCommand: `${shellQuote(fakeNoMistakes)} axi run --intent test`,
         gatekeeperMirrorIntent: mirrorIntent,
         emit: shellQuote(fakeEmit),
@@ -2167,7 +2228,7 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
       runnerPath,
       buildRunnerScript({
         combo: { ...combo, worktree, branch: "combo/issue-24" },
-        coderCommand: "true",
+        coderCommand: coderWithThread("true"),
         gatekeeperCommand: `${shellQuote(fakeNoMistakes)} axi run --intent ${shellQuote("Implement issue 24")}`,
         emit: shellQuote(fakeEmit),
         activateCoder: ":",
@@ -2192,7 +2253,7 @@ printf 'https://github.com/thellmwhisperer/combo-chen/pull/24\\n'
     });
     expect(readFileSync(eventsPath, "utf8").trim().split("\n")).toEqual([
       "coder_started",
-      "coder_done",
+      "coder_done --field gnhf_iteration_jsonl=.gnhf/runs/test-current/iteration-1.jsonl",
       "gate_started",
       `gate_status --field state=fix_inflight --field head_sha=${headSha}`,
       `gate_status --field state=awaiting_approval --field head_sha=${headSha}`,
@@ -2269,7 +2330,7 @@ exit 130
         runnerPath,
         buildRunnerScript({
           combo: { ...combo, worktree },
-          coderCommand: shellQuote(fakeCoder),
+          coderCommand: coderWithThread(shellQuote(fakeCoder)),
           gatekeeperCommand: "true",
           emit: shellQuote(fakeEmit),
           activateCoder: ":",

@@ -58,14 +58,15 @@ NODE
     rm -f "$gnhf_iteration_snapshot"
   fi
 }
-gnhf_stop_condition_met() {
+gnhf_iteration_jsonl_for_current_run() {
+  mode=$1
   if [ ! -d .gnhf/runs ]; then
     return 1
   fi
   if ! command -v node >/dev/null 2>&1; then
     return 1
   fi
-  node - "$coder_start_marker" "$gnhf_iteration_snapshot" <<'NODE'
+  node - "$coder_start_marker" "$gnhf_iteration_snapshot" "$mode" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 
@@ -78,6 +79,8 @@ try {
 
 const runsDir = path.join(process.cwd(), ".gnhf", "runs");
 const preRunSizes = new Map();
+const mode = process.argv[4];
+if (mode !== "current" && mode !== "stop") process.exit(1);
 
 try {
   const snapshot = fs.readFileSync(process.argv[3], "utf8");
@@ -114,7 +117,22 @@ function isStopConditionResult(value) {
   }
 }
 
+function containsStopCondition(resultText) {
+  const lines = resultText.split(/\r?\n/);
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    if (isStopConditionResult(line)) return true;
+    try {
+      const event = JSON.parse(line);
+      const text = event?.item?.type === "agent_message" ? event.item.text : undefined;
+      if (typeof text === "string" && isStopConditionResult(text)) return true;
+    } catch {}
+  }
+  return false;
+}
+
 try {
+  const candidateDirs = new Set();
   for (const file of walk(runsDir)) {
     const name = path.basename(file);
     if (!name.startsWith("iteration-") || !name.endsWith(".jsonl")) continue;
@@ -130,22 +148,15 @@ try {
       if (stat.mtimeMs < markerMs) continue;
       resultText = content.toString("utf8");
     }
-    const lines = resultText.split(/\r?\n/);
-    for (const line of lines) {
-      if (line.trim() === "") continue;
-      if (isStopConditionResult(line)) process.exit(0);
-      try {
-        const event = JSON.parse(line);
-        const text = event?.item?.type === "agent_message" ? event.item.text : undefined;
-        if (typeof text === "string" && isStopConditionResult(text)) process.exit(0);
-      } catch {}
-    }
+    if (mode === "current" || containsStopCondition(resultText)) candidateDirs.add(path.dirname(resolved));
   }
+  if (candidateDirs.size !== 1) process.exit(1);
+  const iterationOne = path.join([...candidateDirs][0], "iteration-1.jsonl");
+  if (!fs.existsSync(iterationOne)) process.exit(1);
+  process.stdout.write(path.relative(process.cwd(), iterationOne).split(path.sep).join("/"));
 } catch {
   process.exit(1);
 }
-
-process.exit(1);
 NODE
 }
 
@@ -187,14 +198,21 @@ case "$code" in
 esac
 rm -f "$coder_status"
 
-if [ "$code" -ne 0 ] && gnhf_stop_condition_met; then
-  runner_status 'runner: coder stop condition met; starting gatekeeper'
-  code=0
+gnhf_current_iteration_jsonl=
+if [ "$code" -ne 0 ]; then
+  if gnhf_current_iteration_jsonl=$(gnhf_iteration_jsonl_for_current_run stop); then
+    runner_status 'runner: coder stop condition met; starting gatekeeper'
+    code=0
+  fi
+fi
+if [ "$code" -eq 0 ] && [ -z "$gnhf_current_iteration_jsonl" ]; then
+  gnhf_current_iteration_jsonl=$(gnhf_iteration_jsonl_for_current_run current) || gnhf_current_iteration_jsonl=
 fi
 rm -f "$coder_start_marker" "$gnhf_iteration_snapshot"
 
 if [ "$code" -eq 0 ]; then
-  __EMIT__ coder_done || exit 1
+  [ -n "$gnhf_current_iteration_jsonl" ] || exit 1
+  __EMIT__ coder_done --field gnhf_iteration_jsonl="$gnhf_current_iteration_jsonl" || exit 1
 else
   if [ "$runner_progress" = "1" ]; then
     printf '%s\n' "runner: coder failed with exit $code; stopping runner"

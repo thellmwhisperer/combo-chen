@@ -23,7 +23,7 @@
  *   reviewerWorkPlan, hasCompleteWorkItemMetadata
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent, closurePendingReviewerEvent
- * @deps ../../core/events, ../../core/gh-api, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director, ../../roles/reviewer, ../github/github, ../runtime/sessions, ../work-items/work-plan, ./coder, ./prompt, ./watchers
+ * @deps ../../core/events, ../../core/gh-api, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../../roles/reviewer-invocation, ../github/github, ../runtime/sessions, ../work-items/persisted-work-plan, ./coder, ./prompt, ./watchers
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import type { GhApiCache } from "../../core/gh-api.js";
@@ -32,8 +32,8 @@ import { cleanOptional, runDirFor, readCombo, type ComboRecord } from "../../cor
 import type { WorkPlan } from "../../core/work-plan.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import { captureWindowArgs, nudgeWindowArgs, type TmuxResult } from "../../infra/tmux.js";
-import { buildDirectorInvocation } from "../../roles/director.js";
-import { buildReviewerInvocation, incrementalReviewerPrompt } from "../../roles/reviewer.js";
+import { buildDirectorInvocation } from "../../roles/director-invocation.js";
+import { buildReviewerInvocation, incrementalReviewerPrompt } from "../../roles/reviewer-invocation.js";
 import { nudgeReviewComments } from "./coder.js";
 import { promptDirector } from "./prompt.js";
 import {
@@ -53,7 +53,7 @@ import {
   killWindowIfPresent,
 } from "../runtime/sessions.js";
 import { buildDirectorWatchCommand, reviewerTransientFailure } from "./watchers.js";
-import { readPersistedWorkPlan } from "../work-items/work-plan.js";
+import { readPersistedWorkPlan } from "../work-items/persisted-work-plan.js";
 
 // -- 1/4 HELPER · Dependency contracts --
 export interface ActivateReviewerDeps {

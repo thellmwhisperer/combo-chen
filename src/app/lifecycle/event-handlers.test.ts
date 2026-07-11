@@ -196,6 +196,27 @@ describe("emit", () => {
     await expect(exec(deps, ["emit", "-n", "ghost", "coder_started"])).rejects.toThrow(/ENOENT/);
   });
 
+  it("rejects coder_done without a gnhf iteration path before journaling it", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["emit", "-n", "o-r-7", "coder_done"])).rejects.toThrow(
+      "coder_done requires gnhf_iteration_jsonl from the current gnhf run",
+    );
+
+    expect(readEvents(dir)).toEqual([]);
+  });
+
   for (const doneEvent of ["coder_done", "rower_done"] as const) {
     it(`persists the codex thread artifact when ${doneEvent} is emitted`, async () => {
       const h = home();
@@ -213,14 +234,25 @@ describe("emit", () => {
       });
       const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-      await exec(deps, ["emit", "-n", "o-r-7", doneEvent]);
+      await exec(deps, [
+        "emit",
+        "-n",
+        "o-r-7",
+        doneEvent,
+        "--field",
+        "gnhf_iteration_jsonl=.gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      ]);
 
       expect(JSON.parse(readFileSync(join(dir, CODER_THREAD_ARTIFACT), "utf8"))).toEqual({
         agent: "codex",
         thread_id: CODEX_THREAD_ID,
         source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
       });
-      expect(readEvents(dir).map((event) => event.event)).toEqual(["coder_done"]);
+      const events = readEvents(dir);
+      expect(events.map((event) => event.event)).toEqual(["coder_done"]);
+      expect(events[0]).toMatchObject({
+        gnhf_iteration_jsonl: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+      });
     });
   }
 

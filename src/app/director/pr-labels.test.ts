@@ -21,15 +21,14 @@
  *   event, checkRun, labels
  *
  * @exports none
- * @deps ../../core/events, ./github, ./pr-labels, node:fs, node:os, node:path, vitest
+ * @deps ../../core/events, ../github/github, ./pr-labels, node:fs, node:path, vitest
  */
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { readEvents, type ComboEvent } from "../../core/events.js";
-import type { GhResult } from "./github.js";
+import type { GhResult } from "../github/github.js";
 import { diffComboPrLabels, projectComboPrLabels, syncComboPrLabels } from "./pr-labels.js";
 
 // -- 1/1 CORE - label projection tests <- START HERE --
@@ -50,7 +49,9 @@ function labels(input: Parameters<typeof projectComboPrLabels>[0]): string[] {
 }
 
 function runDir(): string {
-  return mkdtempSync(join(tmpdir(), "combo-chen-pr-labels-"));
+  const fixtureRoot = join(process.cwd(), ".tmp");
+  mkdirSync(fixtureRoot, { recursive: true });
+  return mkdtempSync(join(fixtureRoot, "combo-chen-pr-labels-"));
 }
 
 function ghOk(stdout: unknown = ""): GhResult {
@@ -58,6 +59,10 @@ function ghOk(stdout: unknown = ""): GhResult {
 }
 
 describe("combo PR label projection", () => {
+  it("creates label fixtures under the repository .tmp directory", () => {
+    expect(runDir()).toContain(join(process.cwd(), ".tmp"));
+  });
+
   it("returns no combo labels for non-open PRs and removes only known combo labels", () => {
     const projection = projectComboPrLabels({
       events: [event("pr_opened", { url: PR_URL })],

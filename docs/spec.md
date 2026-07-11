@@ -918,6 +918,18 @@ The project also ships with static slop probes under `.slop/rules/`:
   assertions on script/runner targets that freeze internal strings; prefer
   executed-script contract assertions. Remaining stock is tracked in the rule
   file and the rule is promoted to error when it reaches zero.
+- **gate-no-director-import** (`error`): forbids imports or re-exports of
+  `src/app/director/` from `src/app/gate/`. Gate orchestration is a
+  lower-level service consumed by director orchestration; reversing the
+  dependency direction creates a domain cycle. Buried by #285: the
+  director, watchers, worker-monitor, and PR-label orchestration were
+  consolidated under `src/app/director/`.
+- **github-no-director-import** (`error`): forbids imports or re-exports of
+  `src/app/director/` from `src/app/github/`. GitHub adapters and parsers
+  are lower-level services for director orchestration; importing director
+  internals here creates a cycle between state projection and transport.
+  Buried by #285: PR-label orchestration moved out of `src/app/github/`
+  into the director domain.
 
 These are surfaced in the package scripts:
 
