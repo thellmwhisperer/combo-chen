@@ -4,7 +4,7 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at scanBoundaryRule      <- runs a real rule over an isolated TypeScript fixture.
- *   2. Read the describe blocks       <- pin each rejected and allowed dependency direction.
+ *   2. Read the describe blocks       <- pin error handling and each dependency direction.
  *
  *   MAIN FLOW
  *   ---------
@@ -31,8 +31,13 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const astGrepPath = join(repoRoot, "node_modules", ".bin", "sg");
 const fixtureRoot = join(repoRoot, ".tmp");
 
-// -- 1/4 HELPER · scanBoundaryRule --
-function scanBoundaryRule(ruleName: string, fixturePath: string, source: string): unknown[] {
+// -- 1/5 HELPER · scanBoundaryRule --
+function scanBoundaryRule(
+  ruleName: string,
+  fixturePath: string,
+  source: string,
+  executablePath = astGrepPath,
+): unknown[] {
   mkdirSync(fixtureRoot, { recursive: true });
   const fixtureDir = mkdtempSync(join(fixtureRoot, "boundary-rule-fixture-"));
   const absoluteFixturePath = join(fixtureDir, fixturePath);
@@ -40,23 +45,38 @@ function scanBoundaryRule(ruleName: string, fixturePath: string, source: string)
     mkdirSync(join(absoluteFixturePath, ".."), { recursive: true });
     writeFileSync(absoluteFixturePath, source);
     const rulePath = join(repoRoot, ".slop", "rules", ruleName);
-    const result = spawnSync(astGrepPath, ["scan", "--rule", rulePath, "--json=compact", fixturePath], {
+    const result = spawnSync(executablePath, ["scan", "--rule", rulePath, "--json=compact", fixturePath], {
       cwd: fixtureDir,
       encoding: "utf8",
     });
-    if (result.stdout.trim().length === 0) {
-      throw new Error(
-        `boundary scan failed: ${result.error?.message || result.stderr.trim() || "unknown error"}`,
-      );
+    const stdout = result.stdout ?? "";
+    const stderr = result.stderr ?? "";
+    if (stdout.trim().length === 0) {
+      throw new Error(`boundary scan failed: ${result.error?.message || stderr.trim() || "unknown error"}`);
     }
-    return JSON.parse(result.stdout) as unknown[];
+    return JSON.parse(stdout) as unknown[];
   } finally {
     rmSync(fixtureDir, { recursive: true, force: true });
   }
 }
-// -/ 1/4
+// -/ 1/5
 
-// -- 2/4 CORE · update boundary contract <- START HERE --
+// -- 2/5 CORE · scanBoundaryRule error contract <- START HERE --
+describe("scanBoundaryRule error reporting", () => {
+  it("surfaces spawn errors when stdout and stderr are unavailable", () => {
+    expect(() =>
+      scanBoundaryRule(
+        "update-boundary.yml",
+        "src/fixture.ts",
+        'import "../update/command.js";',
+        join(fixtureRoot, "missing-sg-for-error-test"),
+      ),
+    ).toThrow(/ENOENT/);
+  });
+});
+// -/ 2/5
+
+// -- 3/5 CORE · update boundary contract --
 describe("update module boundary rule", () => {
   it("rejects an outside internal import and permits the declared entry point", () => {
     expect(
@@ -89,9 +109,9 @@ describe("update module boundary rule", () => {
     ).toHaveLength(0);
   });
 });
-// -/ 2/4
+// -/ 3/5
 
-// -- 3/4 CORE · GitHub domain boundary contract --
+// -- 4/5 CORE · GitHub domain boundary contract --
 describe("GitHub domain boundary rule", () => {
   it("rejects static and dynamic director imports while permitting lower-level core imports", () => {
     expect(
@@ -124,9 +144,9 @@ describe("GitHub domain boundary rule", () => {
     ).toHaveLength(0);
   });
 });
-// -/ 3/4
+// -/ 4/5
 
-// -- 4/4 CORE · Gate domain boundary contract --
+// -- 5/5 CORE · Gate domain boundary contract --
 describe("Gate domain boundary rule", () => {
   it("rejects static and dynamic director imports while permitting lower-level GitHub imports", () => {
     expect(
@@ -159,4 +179,4 @@ describe("Gate domain boundary rule", () => {
     ).toHaveLength(0);
   });
 });
-// -/ 4/4
+// -/ 5/5
