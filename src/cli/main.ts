@@ -21,10 +21,10 @@
  *
  *   INTERNALS
  *   ---------
- *   cliInvocation and the process entrypoint.
+ *   cliInvocation, capsule crash backstop, and the process entrypoint.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps
- * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting,runtime}, ../core/{events,state}, ../infra/{config-snapshot,team-identity,tmux}, ../update/index
+ * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting,runtime}, ../core/{events,state}, ../infra/{team-identity,tmux}, ../update/index
  */
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
@@ -33,6 +33,7 @@ import { Command } from "commander";
 
 import type { AppDeps } from "../app/deps.js";
 import { classifyCapsulePhase, runAgentProcess, runCapsule } from "../app/capsule/capsule.js";
+import { installCapsuleCrashBackstop } from "../app/capsule/crash-backstop.js";
 import { superviseCapsuleCombo } from "../app/director/supervisor.js";
 import {
   activateComboCoder,
@@ -70,7 +71,7 @@ import {
   runSelfUpdate,
 } from "../update/index.js";
 import { resolveConfiguredTeamIdentity } from "../infra/team-identity.js";
-import { readEvents } from "../core/events.js";
+import { appendEvent, readEvents } from "../core/events.js";
 import { comboHome, readCombo } from "../core/state.js";
 export type Deps = AppDeps;
 
@@ -149,74 +150,86 @@ export function createProgram(deps: AppDeps): Command {
     .description("Run the v1 TypeScript sequencer for a persisted combo run directory")
     .argument("<run-dir>", "Persisted combo run directory")
     .action(async (runDir: string) => {
-      const combo = readCombo(runDir);
-      const home = comboHome(deps.env);
-      const phase = classifyCapsulePhase(readEvents(runDir));
-      if (phase === "closed") {
-        deps.out(`capsule: ${combo.id} is already combo_closed; nothing to do`);
-        return;
-      }
-      if (phase !== "supervise") {
-        const result = await runCapsule(
-          runDir,
-          {
-            env: deps.env,
-            out: deps.out,
-            git: async (request) => {
-              if (request.command !== "git")
-                throw new Error(`unsupported capsule git command: ${request.command}`);
-              const executed = deps.git(request.args, request.cwd);
-              return { exitCode: executed.status, stdout: executed.stdout, stderr: executed.stderr };
-            },
-            runAgent: deps.runAgent,
-            findPrUrl: async () => {
-              const found = deps.gh([
-                "pr",
-                "list",
-                "--head",
-                combo.branch,
-                "--json",
-                "url",
-                "--jq",
-                ".[0].url",
-              ]);
-              return found.status === 0 ? found.stdout.trim() || undefined : undefined;
-            },
-            resolvePrHead: async (prUrl) => {
-              const viewed = deps.gh(["pr", "view", prUrl, "--json", "headRefOid", "--jq", ".headRefOid"]);
-              return viewed.status === 0 ? viewed.stdout.trim() || undefined : undefined;
-            },
-            ensurePrAutoclose: async (prUrl) => {
-              try {
-                ensurePrAutoclose(deps, { name: combo.id, prUrl });
-                return { exitCode: 0, stdout: "", stderr: "" };
-              } catch (error) {
-                return {
-                  exitCode: 1,
-                  stdout: "",
-                  stderr: error instanceof Error ? error.message : String(error),
-                };
-              }
-            },
-            activateReviewer: () => activateComboReviewer(deps, combo.id, cli),
-            // D1 seats: owned role children render and read in their named
-            // windows; the capsule pane hosts only the sequencer.
-            resolveSeatTty: (windowName) => resolveRoleSeatTty(deps, combo, windowName),
-            attachGate: () => {
-              refreshGatekeeperWindow(deps, combo);
-              deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
-            },
-            leaseHome: home,
-          },
-          { startAtGate: phase === "gate" },
-        );
-        if (result.status !== "validated") {
-          if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      const crashBackstop = installCapsuleCrashBackstop(runDir);
+      try {
+        const combo = readCombo(runDir);
+        const home = comboHome(deps.env);
+        const phase = classifyCapsulePhase(readEvents(runDir));
+        if (phase === "closed") {
+          deps.out(`capsule: ${combo.id} is already combo_closed; nothing to do`);
           return;
         }
+        if (phase !== "supervise") {
+          const result = await runCapsule(
+            runDir,
+            {
+              env: deps.env,
+              out: deps.out,
+              git: async (request) => {
+                if (request.command !== "git")
+                  throw new Error(`unsupported capsule git command: ${request.command}`);
+                const executed = deps.git(request.args, request.cwd);
+                return { exitCode: executed.status, stdout: executed.stdout, stderr: executed.stderr };
+              },
+              runAgent: deps.runAgent,
+              findPrUrl: async () => {
+                const found = deps.gh([
+                  "pr",
+                  "list",
+                  "--head",
+                  combo.branch,
+                  "--json",
+                  "url",
+                  "--jq",
+                  ".[0].url",
+                ]);
+                return found.status === 0 ? found.stdout.trim() || undefined : undefined;
+              },
+              resolvePrHead: async (prUrl) => {
+                const viewed = deps.gh(["pr", "view", prUrl, "--json", "headRefOid", "--jq", ".headRefOid"]);
+                return viewed.status === 0 ? viewed.stdout.trim() || undefined : undefined;
+              },
+              ensurePrAutoclose: async (prUrl) => {
+                try {
+                  ensurePrAutoclose(deps, { name: combo.id, prUrl });
+                  return { exitCode: 0, stdout: "", stderr: "" };
+                } catch (error) {
+                  return {
+                    exitCode: 1,
+                    stdout: "",
+                    stderr: error instanceof Error ? error.message : String(error),
+                  };
+                }
+              },
+              activateReviewer: () => activateComboReviewer(deps, combo.id, cli),
+              // D1 seats: owned role children render and read in their named
+              // windows; the capsule pane hosts only the sequencer.
+              resolveSeatTty: (windowName) => resolveRoleSeatTty(deps, combo, windowName),
+              attachGate: () => {
+                refreshGatekeeperWindow(deps, combo);
+                deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
+              },
+              leaseHome: home,
+            },
+            { startAtGate: phase === "gate" },
+          );
+          if (result.status !== "validated") {
+            const terminal = readEvents(runDir).at(-1)?.event;
+            if (terminal !== "needs_human" && terminal !== "combo_closed") {
+              appendEvent(runDir, "needs_human", { reason: `capsule_exit_${result.status}` });
+            }
+            if (result.exitCode !== 0) process.exitCode = result.exitCode;
+            return;
+          }
+        }
+        const supervised = await superviseCapsuleCombo({ deps, home, comboId: combo.id, cli });
+        if (supervised !== 0) process.exitCode = supervised;
+      } catch (error) {
+        crashBackstop.record(error, "capsule_action");
+        throw error;
+      } finally {
+        crashBackstop.dispose();
       }
-      const supervised = await superviseCapsuleCombo({ deps, home, comboId: combo.id, cli });
-      if (supervised !== 0) process.exitCode = supervised;
     });
 
   program

@@ -57,9 +57,11 @@ describe("event schema", () => {
         "coder_started",
         "coder_done",
         "coder_failed",
+        "capsule_crashed",
         "address_done",
         "address_noop",
         "gate_started",
+        "gate_reattached",
         "gate_failed",
         "gate_status",
         "gate_validated",
@@ -104,9 +106,11 @@ describe("event schema", () => {
     expect(EVENT_TYPES.worker_recovered.required).toEqual(["worker", "reason", "attempt"]);
     expect(EVENT_TYPES.director_prompted.required).toEqual(["reason", "target"]);
     expect(EVENT_TYPES.coder_failed.required).toEqual(["exit_code", "has_new_commits"]);
+    expect(EVENT_TYPES.capsule_crashed.required).toEqual(["reason"]);
     expect(EVENT_TYPES.address_done.required).toEqual(["head_sha"]);
     expect(EVENT_TYPES.address_noop.required).toEqual(["head_sha"]);
     expect(EVENT_TYPES.gate_status.required).toEqual(["state"]);
+    expect(EVENT_TYPES.gate_reattached.required).toEqual(["run_id", "head_sha"]);
     expect(EVENT_TYPES.gate_validated.required).toEqual(["sha"]);
     expect(EVENT_TYPES.gate_stale.required).toEqual(["old_sha", "new_sha"]);
     expect(EVENT_TYPES.pr_labels_updated.required).toEqual([

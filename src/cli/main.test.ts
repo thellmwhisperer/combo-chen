@@ -37,6 +37,7 @@ import {
   mkdirSync,
   mkdtempSync,
   pathToFileURL,
+  readEvents,
   releaseMetadata,
   rmSync,
   runDirFor,
@@ -134,6 +135,36 @@ describe("command surface", () => {
 
     expect(out.join("\n")).toContain("already combo_closed");
     expect(calls.some((call) => call[0] === "git")).toBe(false);
+  });
+
+  it("journals capsule_crashed when a capsule action rejects before Commander handles it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-cli-"));
+    const runDir = runDirFor(home, "o-r-7");
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date(0).toISOString(),
+    });
+    const snapshot = loadConfig({ repoDir, env: {} });
+    snapshot.coderCommand = "codex exec {prompt}";
+    writeConfigSnapshot(runDir, snapshot);
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: home } });
+
+    await expect(exec(deps, ["capsule", runDir])).rejects.toThrow(/unsafe coder invocation/i);
+    expect(readEvents(runDir).at(-1)).toEqual(
+      expect.objectContaining({
+        event: "capsule_crashed",
+        origin: "capsule_action",
+        reason: expect.stringMatching(/unsafe coder invocation/i),
+      }),
+    );
   });
 
   it("describes status as the parallel capsule dashboard", () => {

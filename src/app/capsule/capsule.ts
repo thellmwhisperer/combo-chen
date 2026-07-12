@@ -26,6 +26,9 @@
  *   exact next loop action: round numbers are never reused, orphan verdict
  *   artifacts are consumed, interrupted fix turns are judged by commits, and
  *   pending escalations stay parked until a retry decision.
+ *   Interrupted GATING retains custody: axi status identifies the matching
+ *   run, the same --yes gatekeeper command resumes its driver, and the
+ *   capsule loops until that run reaches an outcome.
  *
  *   PUBLIC API
  *   ----------
@@ -48,7 +51,7 @@
  *   escalateSeatUnavailable, SeatOpenError, openSeatFd, waitForVerdictFile,
  *   verdictAttributionDefects, hasCompleteCurrentVerdict, reviewerIdentity,
  *   findingsProjection, escalate, LOOP_ESCALATION_REASONS,
- *   buildGateFacts
+ *   buildGateFacts, runGateWithCustody
  *
  * @exports AgentCompletionArtifact, AgentProcessRequest, AgentTurnResult, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
  * @deps node:{child_process,fs,path}, ../../core/{events,loop-state,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,coder-responding,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./ready
@@ -1401,7 +1404,17 @@ export async function runCapsule(
     out: deps.out,
   };
   const delay = deps.sleep ?? sleep;
-  let gate = await runGate(gateInput);
+  const runGateWithCustody = async (): Promise<InProcessGateResult> => {
+    let current = await runGate(gateInput);
+    while (current.status === "already_running" && current.runId !== undefined) {
+      await deps.attachGate?.(current.runId);
+      deps.out(`capsule: resuming custody of active gate ${current.runId} for ${combo.id}`);
+      await delay(1000);
+      current = await runGate(gateInput);
+    }
+    return current;
+  };
+  let gate = await runGateWithCustody();
   // The capsule owns the initial-gate retry that director-watch performed for
   // v0 runs: bounded relaunches with the snapshot-frozen backoff, then a
   // needs_human gate_failed escalation.
@@ -1417,7 +1430,7 @@ export async function runCapsule(
     if (config.gatekeeperInitialGateRetryBackoffSeconds > 0) {
       await delay(config.gatekeeperInitialGateRetryBackoffSeconds * 1000);
     }
-    gate = await runGate(gateInput);
+    gate = await runGateWithCustody();
   }
   if (gate.status === "failed") {
     appendEvent(runDir, "needs_human", { reason: "gate_failed" });
@@ -1425,9 +1438,6 @@ export async function runCapsule(
       `capsule: initial gate retries exhausted for ${combo.id} ` +
         `after ${config.gatekeeperInitialGateRetryAttempts}`,
     );
-  }
-  if (gate.status === "already_running" && gate.runId !== undefined) {
-    await deps.attachGate?.(gate.runId);
   }
   if (gate.status === "validated") {
     // D3 carry-over: the gate may have rebased (or autofixed) the reviewed
