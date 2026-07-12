@@ -1,0 +1,11 @@
+owner-repo-151 · Extract provider (github_issue:#151)                                          CODER
+
+coder ⚡ ─ review · ─ gate · ─ pr · ─ merge ·
+
+11:46 ▸ launched
+           Extract provider (github_issue:#151)
+now ● coder working · 13:00 ⠋
+
+next: coder loop converges → coder_done → first review
+
+Enter hands on live actor · v decision · q/←/Esc back                                 owner-repo-151
