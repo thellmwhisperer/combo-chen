@@ -24,7 +24,7 @@
  *
  *   INTERNALS
  *   ---------
- *   outputOf, delay, successful, finishSuccessfulGate
+ *   outputOf, successful, finishSuccessfulGate
  *
  * @exports GateProcessRequest, GateProcessResult, GateProcessRunner, AxiStatus, ConfigCopyOutcome, InProcessGateInput, InProcessGateResult, runChildProcess, parseAxiStatus, axiHeadMatches, isAxiRunActive, isAxiRunAttachable, resolveConfigCopyRace, runGatekeeperAndConfigCopy, copyConfigToActiveRun, abortPreviousRun, daemonStartSucceeded, publishGateMirror, findAttachableRun, shouldRecoverChecksPassed, gateIsAwaitingApproval, gateFailureReason, appendGateIdle, withGateLease, runInProcessGate
  * @deps node:{child_process,fs,path}, ../../core/events, ../../core/state, ../../roles/gatekeeper, ./lease
@@ -33,7 +33,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { appendEvent } from "../../core/events.js";
+import { appendEvent, sleep } from "../../core/events.js";
 import type { ComboRecord } from "../../core/state.js";
 import { parseAxiOutcome } from "../../roles/gatekeeper.js";
 import {
@@ -144,21 +144,6 @@ export function resolveConfigCopyRace(input: {
   };
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout);
-        resolve();
-      },
-      { once: true },
-    );
-  });
-}
-
 export async function copyConfigToActiveRun(input: {
   combo: Pick<ComboRecord, "branch" | "worktree">;
   runProcess: GateProcessRunner;
@@ -210,7 +195,7 @@ export async function copyConfigToActiveRun(input: {
         }
       }
     }
-    await delay(retryDelayMs, input.signal);
+    await sleep(retryDelayMs, input.signal);
   }
   return input.signal?.aborted ? "killed" : "failed";
 }
@@ -302,7 +287,7 @@ export async function abortPreviousRun(input: {
       const final = parseAxiStatus(outputOf(finalStatus));
       return final.id === undefined || final.branch !== input.combo.branch || !isAxiRunActive(final.status);
     }
-    await delay(input.retryDelayMs ?? 1000);
+    await sleep(input.retryDelayMs ?? 1000);
   }
   const finalStatus = await input.runProcess({
     command: "no-mistakes",

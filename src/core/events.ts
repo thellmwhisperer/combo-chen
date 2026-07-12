@@ -26,15 +26,15 @@
  *   │ ComboEvent          Single journal entry shape                    │
  *   │ ComboEventError     Thrown on schema/validation violations        │
  *   │ latestPrUrlFromEvents  Find latest pr_opened URL in an event array │
+ *   │ sleep               Abortable setTimeout wrapper                  │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ withJournalAppendLock  Serializes writers per run directory       │
  *   │ existingPrOpenedEvent  Suppresses duplicate PR-open records       │
  *   │ normalizeEvent         Canonicalize event names on read           │
- *   │ sleep                 Abortable setTimeout wrapper                │
  *   │ EVENT_TYPES / CanonicalEventName / legacy alias normalization     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, EventName, ComboEvent, journalPath, appendEvent, appendEvents, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents
+ * @exports ComboEventError, EVENT_TYPES, CanonicalEventName, EventName, ComboEvent, journalPath, appendEvent, appendEvents, readEvents, canonicalEventName, followEvents, latestPrUrlFromEvents, sleep
  * @deps node:fs, node:path, ./guards
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -329,7 +329,9 @@ export async function* followEvents(runDir: string, options: FollowOptions = {})
   }
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+/** Abortable setTimeout wrapper shared by journal followers and retry loops. */
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
     signal?.addEventListener(
