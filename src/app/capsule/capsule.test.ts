@@ -29,7 +29,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { deriveStatus } from "../../core/combo.js";
-import { readEvents } from "../../core/events.js";
+import { appendEvent, readEvents, type ComboEvent } from "../../core/events.js";
 import { writeCombo, type ComboRecord } from "../../core/state.js";
 import {
   LOCAL_REVIEW_CHECKLIST,
@@ -40,7 +40,7 @@ import {
 import { normalizeGitHubIssueWorkPlan, renderWorkPlanMarkdown } from "../../core/work-plan.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
-import { runCapsule, type CapsuleDeps } from "./capsule.js";
+import { classifyCapsulePhase, runCapsule, type CapsuleDeps } from "./capsule.js";
 import type { GateProcessRequest, GateProcessResult } from "../gate/in-process-gate.js";
 
 // -- 1/2 HELPER · persisted fixture and event projection --
@@ -317,19 +317,83 @@ describe("capsule sequencer", () => {
     ]);
   });
 
-  it("preserves autoclose failure ordering before stopping the capsule", async () => {
+  it("preserves autoclose failure ordering before the capsule escalates", async () => {
     const f = fixture();
+    writeConfigSnapshot(
+      f.runDir,
+      loadConfig({ repoDir: f.root, env: { COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS: "0" } }),
+    );
     const h = deps(f);
     h.deps.runGate = undefined;
     h.deps.gateProcess = gateProcess({ exitCode: 0, stdout: "outcome: checks-passed\n", stderr: "" });
     h.deps.ensurePrAutoclose = async () => ({ exitCode: 7, stdout: "", stderr: "edit failed" });
 
     await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "failed", exitCode: 7 });
-    expect(events(f.runDir).slice(-3)).toEqual([
+    expect(events(f.runDir).slice(-4)).toEqual([
       { event: "gate_status", state: "failed", head_sha: "published" },
       { event: "gate_failed", exit_code: 7 },
       { event: "pr_autoclose_failed", exit_code: 7, url: "https://github.com/o/r/pull/7" },
+      { event: "needs_human", reason: "gate_failed" },
     ]);
+  });
+
+  it("skips rebase and coder phases when resuming at the post-coder handoff", async () => {
+    const f = fixture();
+    appendEvent(f.runDir, "coder_started", {});
+    appendEvent(f.runDir, "coder_done", {});
+    const h = deps(f, { heads: ["coded"] });
+    const agentCommands: string[] = [];
+    h.deps.runAgent = async (request) => {
+      agentCommands.push(request.command);
+      verdict(f.runDir);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+
+    await expect(runCapsule(f.runDir, h.deps, { startAtGate: true })).resolves.toEqual({
+      status: "validated",
+      exitCode: 0,
+    });
+    expect(agentCommands).toHaveLength(1);
+    expect(agentCommands[0]).toContain("verdict-1.json");
+    expect(h.gitCalls.some((call) => call.startsWith("rebase") || call.startsWith("fetch"))).toBe(false);
+    expect(events(f.runDir).map((event) => event.event)).toEqual([
+      "coder_started",
+      "coder_done",
+      "local_review_requested",
+      "local_verdict",
+    ]);
+  });
+
+  it("retries a failed initial gate within the configured budget", async () => {
+    const f = fixture();
+    const gateResults = [
+      { status: "failed", exitCode: 1, headSha: "coded" } as const,
+      { status: "failed", exitCode: 1, headSha: "coded" } as const,
+      { status: "validated", exitCode: 0, headSha: "published" } as const,
+    ];
+    const h = deps(f);
+    h.deps.runGate = async () => {
+      const next = gateResults.shift();
+      if (next === undefined) throw new Error("gate invoked past its scripted results");
+      return next;
+    };
+    const sleeps: number[] = [];
+    h.deps.sleep = async (ms) => {
+      sleeps.push(ms);
+    };
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "validated", exitCode: 0 });
+    expect(sleeps).toEqual([10_000, 10_000]);
+    expect(events(f.runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
+  it("journals needs_human gate_failed after exhausting initial gate retries", async () => {
+    const f = fixture();
+    const h = deps(f, { gateResult: { status: "failed", exitCode: 3, headSha: "coded" } });
+    h.deps.sleep = async () => {};
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "failed", exitCode: 3 });
+    expect(events(f.runDir).at(-1)).toEqual({ event: "needs_human", reason: "gate_failed" });
   });
 
   for (const gateResult of [
@@ -541,6 +605,42 @@ describe("capsule local review round", () => {
     const escalation = events(f.runDir).at(-1);
     expect(escalation).toMatchObject({ event: "needs_human", reason: "local_verdict_malformed" });
     expect(String(escalation?.["detail"])).toContain("checklist");
+  });
+});
+
+describe("classifyCapsulePhase", () => {
+  function journal(...names: Array<ComboEvent["event"]>): ComboEvent[] {
+    return names.map((event) => ({ t: new Date(0).toISOString(), event }));
+  }
+
+  it("classifies a fresh or coder-active journal as the full sequence", () => {
+    expect(classifyCapsulePhase([])).toBe("sequence");
+    expect(classifyCapsulePhase(journal("combo_created", "coder_started"))).toBe("sequence");
+  });
+
+  it("classifies a failed coder as the full sequence again", () => {
+    expect(classifyCapsulePhase(journal("coder_started", "coder_done", "coder_started", "coder_failed"))).toBe(
+      "sequence",
+    );
+  });
+
+  it("classifies a completed coder without a PR as the gate phase", () => {
+    expect(classifyCapsulePhase(journal("coder_started", "coder_done"))).toBe("gate");
+    expect(
+      classifyCapsulePhase(journal("coder_started", "coder_done", "local_review_requested", "local_verdict")),
+    ).toBe("gate");
+    expect(classifyCapsulePhase(journal("coder_started", "coder_done", "gate_started", "gate_failed"))).toBe(
+      "gate",
+    );
+  });
+
+  it("classifies an opened PR as supervision, including closure-pending merges", () => {
+    expect(classifyCapsulePhase(journal("coder_done", "pr_opened"))).toBe("supervise");
+    expect(classifyCapsulePhase(journal("coder_done", "pr_opened", "merged"))).toBe("supervise");
+  });
+
+  it("classifies combo_closed as terminal", () => {
+    expect(classifyCapsulePhase(journal("coder_done", "pr_opened", "merged", "combo_closed"))).toBe("closed");
   });
 });
 // -/ 2/2
