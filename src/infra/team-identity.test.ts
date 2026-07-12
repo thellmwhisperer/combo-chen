@@ -72,6 +72,7 @@ function config(): ComboConfig {
     coderGnhfProgressMaxAgeMs: 60000,
     gatekeeperStatusTimeoutMs: 5000,
     sourceBranch: "main",
+    runEngine: "v0",
   };
 }
 
