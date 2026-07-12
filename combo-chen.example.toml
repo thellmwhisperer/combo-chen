@@ -9,7 +9,8 @@
 # budget it genuinely needs. The resolved allowlists are frozen in each run's
 # config snapshot. Prompts are captured as learning signals, never left blocking
 # a pane. Operator loop: grant the decision card, add the requested tool to that
-# role's allowed_tools below, then retry the turn. Repeated runs converge the
+# role's allowed_tools below, then retry the turn. The next supervisor tick
+# recreates and re-prompts the blocked coder turn. Repeated runs converge the
 # allowlists. Full bypass flags are accepted only as an emergency escape hatch:
 # Claude `--dangerously-skip-permissions` / `bypassPermissions`, or Codex
 # `--dangerously-bypass-approvals-and-sandbox`; neither is recommended.

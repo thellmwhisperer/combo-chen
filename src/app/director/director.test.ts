@@ -32,6 +32,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../../roles/coder-invocation.js";
+import { decideComboEscalation } from "../lifecycle/lifecycle-handlers.js";
 import {
   gateStateAllowsReady,
   headStateAllowsReady,
@@ -904,6 +905,83 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(true);
     expect(calls.some((call) => call[1] === "send-keys")).toBe(false);
     expect(out).toContainEqual(expect.stringContaining("add the tool to reviewer's allowed_tools"));
+  });
+
+  it("recreates the blocked coder on the tick after a permission grant retry decision", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const windows = new Set(["coder"]);
+    let promptVisible = true;
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    writeCoderThreadArtifact(runDir);
+    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+    appendEvent(runDir, "review_comment", {
+      author: "external-reviewer",
+      kind: "review_comment",
+      url: "https://github.com/o/r/pull/7#discussion_r1",
+    });
+    const { deps, calls } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: headSha,
+      tmux: (args) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: `${[...windows].join("\n")}\n`, stderr: "" };
+        }
+        if (args[0] === "list-panes") return { status: 0, stdout: "0\n", stderr: "" };
+        if (args[0] === "capture-pane") {
+          return {
+            status: 0,
+            stdout: promptVisible
+              ? "This command requires approval: node scripts/fix.js\n"
+              : "coder resumed and round complete\n",
+            stderr: "",
+          };
+        }
+        if (args[0] === "kill-window") {
+          windows.delete("coder");
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "new-window") {
+          windows.add("coder");
+          promptVisible = false;
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    const escalation = readEvents(runDir).find(
+      (event) => event.event === "needs_human" && event["reason"] === "worker_permission_prompt",
+    );
+    expect(escalation).toBeDefined();
+    expect(calls.some((call) => call[1] === "kill-window")).toBe(false);
+
+    decideComboEscalation(
+      { env: { COMBO_CHEN_HOME: h }, out: deps.out },
+      { name: record.id, verb: "retry", ref: escalation!.t },
+    );
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(calls.some((call) => call[1] === "kill-window")).toBe(true);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "worker_recovered",
+        worker: "coder",
+        reason: "worker_permission_prompt",
+      }),
+    );
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    expect(promptVisible).toBe(false);
+    expect(
+      readEvents(runDir).filter(
+        (event) => event.event === "needs_human" && event["reason"] === "worker_permission_prompt",
+      ),
+    ).toHaveLength(1);
   });
 
   it("passes configured permission prompt patterns into worker pane inspection", async () => {

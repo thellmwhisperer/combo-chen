@@ -37,8 +37,9 @@ Permission prompts form a learning loop: the watchdog journals a typed
 `permission_prompt_detected` event with the worker, requested tool, and command,
 then immediately creates a `needs_human` decision card. The operator flow is
 grant → add the tool to that role's `allowed_tools` → retry the turn. Over repeated
-runs the per-role budgets converge. Prompts are captured as learning signals,
-never left blocking a pane and never silently approved.
+runs the per-role budgets converge. A `retry` decision authorizes the next
+supervisor tick to recreate and re-prompt the blocked coder turn. Prompts are
+captured as learning signals, never left blocking a pane and never silently approved.
 
 ## 2. Launch
 

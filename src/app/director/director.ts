@@ -433,6 +433,27 @@ function activeNonWorkerNeedsHumanReason(events: ComboEvent[]): string | undefin
   return undefined;
 }
 
+function permissionPromptRetryApproved(events: ComboEvent[], finding: WorkerPaneFinding): boolean {
+  let escalation: ComboEvent | undefined;
+  let approved = false;
+  for (const event of events) {
+    if (
+      event.event === "needs_human" &&
+      event["reason"] === "worker_permission_prompt" &&
+      event["worker"] === finding.worker
+    ) {
+      escalation = event;
+      approved = false;
+      continue;
+    }
+    if (escalation !== undefined && event.event === "decision" && event["needs_human_ref"] === escalation.t) {
+      approved = event["verb"] === "retry";
+      escalation = undefined;
+    }
+  }
+  return approved;
+}
+
 function recoverWorkerFindings(input: {
   deps: DirectorDeps;
   home: string;
@@ -447,6 +468,8 @@ function recoverWorkerFindings(input: {
   let recovered = false;
   const actioned = new Set<string>();
   for (const finding of input.findings) {
+    const permissionRetryApproved =
+      finding.reason === "worker_permission_prompt" && permissionPromptRetryApproved(input.events, finding);
     const isStalledOrPrompt =
       (finding.reason === "worker_stalled" || finding.reason === "worker_permission_prompt") &&
       finding.worker === input.coderWindowName;
@@ -454,7 +477,7 @@ function recoverWorkerFindings(input: {
 
     if (
       (!isStalledOrPrompt && !isDeadCoder) ||
-      finding.needsHumanRecorded ||
+      (finding.needsHumanRecorded && !permissionRetryApproved) ||
       actioned.has(`${finding.worker}:${finding.reason}`)
     ) {
       continue;

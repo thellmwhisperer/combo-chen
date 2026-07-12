@@ -389,7 +389,9 @@ export interface WorkerPaneMonitorInput {
   gatekeeperStatusTimeoutMs?: number;
   recoverableDeadWorkers?: string[];
   recoverableStalledWorkers?: string[];
+  /** @deprecated Permission prompts always journal a decision card; retained for frozen callers. */
   recoverablePermissionPromptWorkers?: string[];
+  /** @deprecated Permission prompts are never auto-approved; retained for frozen callers. */
   autoApprovePermissionPromptMaxAttempts?: number;
   permissionPromptPatterns?: string[];
   permissionPromptPolicy?: WorkerPermissionPromptPolicy;
