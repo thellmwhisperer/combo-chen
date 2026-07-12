@@ -136,6 +136,21 @@ export function journalPath(runDir: string): string {
   return join(runDir, JOURNAL);
 }
 
+/**
+ * Journal timestamps double as event identity (a decision resolves a
+ * needs_human by its t via needs_human_ref), so two entries must never share
+ * one. Same-millisecond appends advance past the last journaled timestamp.
+ */
+function allocateTimestamp(candidate: string, lastT: string | undefined): string {
+  if (lastT === undefined || Number.isNaN(Date.parse(lastT)) || candidate > lastT) return candidate;
+  return new Date(Date.parse(lastT) + 1).toISOString();
+}
+
+function lastJournalTimestamp(runDir: string): string | undefined {
+  const last = readEvents(runDir).at(-1);
+  return typeof last?.t === "string" ? last.t : undefined;
+}
+
 export function appendEvent(runDir: string, event: EventName, payload: Record<string, unknown>): ComboEvent {
   const canonical = canonicalEventName(event);
   if (canonical === undefined) {
@@ -156,6 +171,7 @@ export function appendEvent(runDir: string, event: EventName, payload: Record<st
   return withJournalAppendLock(runDir, () => {
     const existingPrOpened = existingPrOpenedEvent(runDir, canonical, safePayload);
     if (existingPrOpened !== undefined) return existingPrOpened;
+    entry.t = allocateTimestamp(entry.t, lastJournalTimestamp(runDir));
     // The run dir is created by writeCombo; emitting to a combo that was
     // never created is a caller bug and should surface, not be papered over.
     appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
@@ -250,11 +266,14 @@ export function appendEvents(
 
   return withJournalAppendLock(runDir, () => {
     const result: ComboEvent[] = [];
+    let lastT = lastJournalTimestamp(runDir);
     for (const { canonical, entry, safePayload } of validated) {
       const existing = existingPrOpenedEvent(runDir, canonical, safePayload);
       if (existing !== undefined) {
         result.push(existing);
       } else {
+        entry.t = allocateTimestamp(entry.t, lastT);
+        lastT = entry.t;
         appendFileSync(journalPath(runDir), `${JSON.stringify(entry)}\n`);
         result.push(entry);
       }

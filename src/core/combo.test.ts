@@ -270,18 +270,65 @@ describe("deriveStatus", () => {
     expect(status.needsHuman).toBe(false);
   });
 
-  it("clears a pending needs_human when a decision answers it", () => {
+  it("clears a pending needs_human only when a decision references its identity", () => {
+    const escalation = ev("needs_human", { reason: "local_verdict_code_3" });
     const events = [
       ev("coder_started"),
       ev("local_review_requested", { round: 1, sha: "abc123" }),
-      ev("needs_human", { reason: "local_verdict_code_3" }),
+      escalation,
     ];
     expect(deriveStatus(events).needsHuman).toBe(true);
 
-    events.push(ev("decision", { needs_human_ref: "2026-07-12T00:00:03.000Z", verb: "retry" }));
-    const decided = deriveStatus(events);
+    const unrelated = deriveStatus([
+      ...events,
+      ev("decision", { needs_human_ref: "1999-01-01T00:00:03.000Z", verb: "retry" }),
+    ]);
+    expect(unrelated.needsHuman).toBe(true);
+    expect(unrelated.reason).toBe("local_verdict_code_3");
+
+    const decided = deriveStatus([
+      ...events,
+      ev("decision", { needs_human_ref: escalation.t, verb: "retry" }),
+    ]);
     expect(decided.needsHuman).toBe(false);
     expect(decided.phase).toBe("LOCAL_REVIEW");
+  });
+
+  it("keeps the other escalation pending when only one of two is decided", () => {
+    const first = { ...ev("needs_human", { reason: "review_no_progress" }), t: "2026-07-12T00:00:01.000Z" };
+    const second = { ...ev("needs_human", { reason: "review_fix_noop" }), t: "2026-07-12T00:00:02.000Z" };
+    const events = [
+      ev("coder_started"),
+      ev("local_review_requested", { round: 1, sha: "abc123" }),
+      first,
+      second,
+    ];
+
+    const oneDecided = deriveStatus([...events, ev("decision", { needs_human_ref: second.t, verb: "skip" })]);
+    expect(oneDecided.needsHuman).toBe(true);
+    expect(oneDecided.reason).toBe("review_no_progress");
+
+    const bothDecided = deriveStatus([
+      ...events,
+      ev("decision", { needs_human_ref: second.t, verb: "skip" }),
+      ev("decision", { needs_human_ref: first.t, verb: "retry" }),
+    ]);
+    expect(bothDecided.needsHuman).toBe(false);
+  });
+
+  it("folds legacy same-timestamp escalations as one identity", () => {
+    // appendEvent now allocates unique timestamps; journals written before
+    // that guarantee may alias, and a decision then resolves the shared ref.
+    const shared = "2026-07-12T00:00:05.000Z";
+    const events = [
+      ev("coder_started"),
+      { ...ev("needs_human", { reason: "review_no_progress" }), t: shared },
+      { ...ev("needs_human", { reason: "review_fix_noop" }), t: shared },
+    ];
+    expect(deriveStatus(events).needsHuman).toBe(true);
+
+    const decided = deriveStatus([...events, ev("decision", { needs_human_ref: shared, verb: "ignore" })]);
+    expect(decided.needsHuman).toBe(false);
   });
 
   it("leaves follow_ups out of phase derivation", () => {
