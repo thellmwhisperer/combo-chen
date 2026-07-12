@@ -7,13 +7,13 @@
  *   2. Then nudgeReviewComments       <- syncs mirror and routes review comments.
  *   3. Then nudgePrConflict           <- routes base-advanced and local PR-head sync conflicts.
  *   4. Then recoverStuckWorker         <- recreates recoverable coder responding mode.
- *   5. Then recoverDeadCoder          <- restarts the initial pre-PR runner.
+ *   5. Then recoverDeadCoder          <- relaunches the capsule sequencer (capsule-owned recovery).
  *   6. Dependency interfaces          <- test seams for tmux/git/gh.
  *
  *   MAIN FLOW
  *   ---------
  *   activateCoder -> tmux worker; nudgeReviewComments/nudgePrConflict -> coder responding prompt
- *     -> recoverStuckWorker/recoverDeadCoder -> restart the right worker path
+ *     -> recoverStuckWorker (responding window) / recoverDeadCoder (capsule pane relaunch)
  *
  *   PUBLIC API
  *   ----------
@@ -24,7 +24,7 @@
  *   nudgeReviewComments        Route fresh review comments to the coder.
  *   nudgePrConflict            Route a dirty/conflicting or out-of-sync PR to coder responding.
  *   recoverStuckWorker         Recreate coder responding and replay the last prompt.
- *   recoverDeadCoder           Recreate the initial coder runner before a PR exists.
+ *   recoverDeadCoder           Relaunch the capsule sequencer for a dead pre-PR coder.
  *
  *   INTERNALS
  *   ---------
@@ -38,6 +38,7 @@ import type { GhApiCache } from "../../core/gh-api.js";
 import { runDirFor, readCombo } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import {
+  hasSessionArgs,
   killWindowArgs,
   listPanesArgs,
   listWindowsArgs,
@@ -53,7 +54,13 @@ import {
   routeReviewComments,
 } from "../../roles/coder-responding.js";
 import { latestPublishedGateSha } from "../gate/gate.js";
-import { CODER_WINDOW, windowSet } from "../runtime/sessions.js";
+import {
+  CAPSULE_WINDOW,
+  CODER_WINDOW,
+  ensureCapsuleComboSession,
+  killWindowIfPresent,
+  windowSet,
+} from "../runtime/sessions.js";
 
 const CODER_RESPONDING_WINDOW = CODER_WINDOW;
 const REVIEW_NUDGE_PROMPT = [
@@ -413,21 +420,33 @@ export function recoverDeadCoder(input: {
   deps: ActivateCoderDeps;
   home: string;
   comboId: string;
+  cli: string;
   recovery: DeadCoderRecovery;
 }): boolean {
-  const { deps, home, comboId, recovery } = input;
+  const { deps, home, comboId, cli, recovery } = input;
   if (recovery.worker !== CODER_WINDOW) return false;
 
   const runDir = runDirFor(home, comboId);
-  appendEvent(runDir, "needs_human", {
-    reason: "coder_dead",
+  const combo = readCombo(runDir);
+  // Capsule-owned recovery: the capsule sequencer owns the initial coder turn,
+  // so a dead pre-PR coder is recovered by relaunching the capsule pane. The
+  // relaunched capsule re-derives its phase from the journal and re-runs the
+  // coder itself; the director never restarts a coder process directly.
+  // Bounded upstream by workerRecoveryAttempts before this is invoked.
+  if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0) {
+    killWindowIfPresent(deps, combo, CAPSULE_WINDOW);
+  }
+  ensureCapsuleComboSession({ deps, combo, home, cli, runDir });
+  appendEvent(runDir, "worker_recovered", {
+    worker: recovery.worker,
+    reason: recovery.reason,
     detail: recovery.detail,
     attempt: recovery.attempt,
     max_attempts: recovery.maxAttempts,
   });
   deps.out(
-    `director: coder dead (${recovery.reason}); escalated to needs_human. ` +
-      `Run "combo-chen decide ${comboId} retry" to restart the capsule, or "take_over" to intervene manually.`,
+    `director: coder dead (${recovery.reason}); relaunched capsule sequencer ` +
+      `attempt ${recovery.attempt}/${recovery.maxAttempts}`,
   );
   return true;
 }

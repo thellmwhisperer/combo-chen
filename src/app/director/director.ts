@@ -147,6 +147,7 @@ export async function tickDirector(input: {
         deps,
         home,
         comboId,
+        cli,
         runDir,
         findings: workerInspection.findings,
         events: readEvents(runDir),
@@ -436,6 +437,7 @@ function recoverWorkerFindings(input: {
   deps: DirectorDeps;
   home: string;
   comboId: string;
+  cli: string;
   runDir: string;
   findings: WorkerPaneFinding[];
   events: ComboEvent[];
@@ -475,6 +477,7 @@ function recoverWorkerFindings(input: {
           deps: input.deps,
           home: input.home,
           comboId: input.comboId,
+          cli: input.cli,
           recovery: {
             worker: finding.worker,
             reason: finding.reason,

@@ -777,22 +777,62 @@ describe("recoverStuckWorker", () => {
 });
 
 describe("recoverDeadCoder", () => {
-  it("escalates dead initial coder to needs_human instead of restarting the runner", () => {
+  /** Stateful tmux fake: tracks windows per session so kill/new/list agree. */
+  function fakeTmux(initial: { session: string; windows: string[] } | undefined) {
+    const calls: string[][] = [];
+    let state = initial === undefined ? undefined : { ...initial, windows: new Set(initial.windows) };
+    const tmux = (args: string[]): { status: number; stdout: string; stderr: string } => {
+      calls.push(["tmux", ...args]);
+      const target = args[args.indexOf("-t") + 1] ?? "";
+      const [session, window] = target.includes(":") ? target.split(":", 2) : [target, undefined];
+      if (args[0] === "has-session") {
+        return { status: state !== undefined && state.session === session ? 0 : 1, stdout: "", stderr: "" };
+      }
+      if (state === undefined || state.session !== session) {
+        if (args[0] === "new-session") {
+          const name = args[args.indexOf("-n") + 1] ?? "0";
+          state = { session: args[args.indexOf("-s") + 1] ?? "", windows: new Set([name]) };
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: "can't find session" };
+      }
+      if (args[0] === "list-windows") {
+        return { status: 0, stdout: `${[...state.windows].join("\n")}\n`, stderr: "" };
+      }
+      if (args[0] === "kill-window" && window !== undefined) {
+        state.windows.delete(window);
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      if (args[0] === "new-window") {
+        state.windows.add(args[args.indexOf("-n") + 1] ?? "window");
+        return { status: 0, stdout: "", stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    return { calls, tmux, windows: () => (state === undefined ? [] : [...state.windows]) };
+  }
+
+  it("relaunches the capsule sequencer for a dead initial coder (capsule-owned recovery)", () => {
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo({ tmuxSession: "combo-chen-owned-session" });
     const runDir = runDirFor(home, record.id);
     mkdirSync(home, { recursive: true });
     writeCombo(runDir, record);
+    const shim = fakeTmux({
+      session: record.tmuxSession,
+      windows: ["capsule", "journal", "director", "coder", "gatekeeper", "reviewer"],
+    });
 
-    recoverDeadCoder({
+    const recovered = recoverDeadCoder({
       deps: {
         env: { COMBO_CHEN_HOME: home },
         out: (line) => out.push(line),
-        tmux: () => ({ status: 0, stdout: "", stderr: "" }),
+        tmux: shim.tmux,
       },
       home,
       comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
       recovery: {
         worker: "coder",
         reason: "worker_dead",
@@ -802,18 +842,93 @@ describe("recoverDeadCoder", () => {
       },
     });
 
+    expect(recovered).toBe(true);
+    expect(shim.calls).toContainEqual([
+      "tmux",
+      "kill-window",
+      "-t",
+      `${record.tmuxSession}:capsule`,
+    ]);
+    const created = shim.calls.find((call) => call[1] === "new-window" && call.includes("capsule"));
+    expect(created).toBeDefined();
+    expect(created?.at(-1)).toContain(" capsule ");
+    expect(created?.at(-1)).toContain(runDir);
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
-        event: "needs_human",
-        reason: "coder_dead",
+        event: "worker_recovered",
+        worker: "coder",
+        reason: "worker_dead",
         detail: "dead pane",
         attempt: 1,
         max_attempts: 2,
       }),
     );
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
     expect(out).toEqual([
-      'director: coder dead (worker_dead); escalated to needs_human. Run "combo-chen decide o-r-7 retry" to restart the capsule, or "take_over" to intervene manually.',
+      "director: coder dead (worker_dead); relaunched capsule sequencer attempt 1/2",
     ]);
+  });
+
+  it("recreates the capsule session when the tmux session is gone", () => {
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+    mkdirSync(home, { recursive: true });
+    writeCombo(runDir, record);
+    const shim = fakeTmux(undefined);
+
+    const recovered = recoverDeadCoder({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: shim.tmux,
+      },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+      recovery: {
+        worker: "coder",
+        reason: "worker_dead",
+        detail: "can't find session",
+        attempt: 2,
+        maxAttempts: 3,
+      },
+    });
+
+    expect(recovered).toBe(true);
+    const createdSession = shim.calls.find((call) => call[1] === "new-session");
+    expect(createdSession).toBeDefined();
+    expect(createdSession?.[createdSession.indexOf("-n") + 1]).toBe("capsule");
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({ event: "worker_recovered", worker: "coder", reason: "worker_dead" }),
+    );
+  });
+
+  it("returns false for a non-coder worker without touching tmux or the journal", () => {
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+    mkdirSync(home, { recursive: true });
+    writeCombo(runDir, record);
+    const shim = fakeTmux({ session: record.tmuxSession, windows: ["capsule"] });
+
+    const recovered = recoverDeadCoder({
+      deps: { env: { COMBO_CHEN_HOME: home }, out: () => undefined, tmux: shim.tmux },
+      home,
+      comboId: record.id,
+      cli: "node /repo/dist/cli.mjs",
+      recovery: {
+        worker: "reviewer",
+        reason: "worker_dead",
+        detail: "dead pane",
+        attempt: 1,
+        maxAttempts: 2,
+      },
+    });
+
+    expect(recovered).toBe(false);
+    expect(shim.calls).toEqual([]);
+    expect(readEvents(runDir)).toEqual([]);
   });
 });
 // -/ 3/3
