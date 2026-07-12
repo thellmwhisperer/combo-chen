@@ -201,6 +201,16 @@ natural call site is the post-publish external-review-green leg in the
 capsule's CodeRabbit-round handling; `updatePrBodyDossier` is ready to call
 when that leg lands. The exit summary folds over verdict files + journal
 events and is emitted at closure (file + stdout).
+W6a adds the patch-id READY core for capsule runs (D3: whole-range
+`git patch-id --stable`, primitive in `src/core/patch-id.ts`): a code-0
+verdict pins `lgtm {sha, patch_id}`; after the gate publishes, the carry-over
+(`src/app/capsule/ready.ts`) re-pins across pure rebases and on mismatch
+journals `lgtm_stale` + `local_review_requested` (re-review round, never
+needs_human). `capsuleReadyAgreement` is the four-leg deterministic READY
+fold; the findings-aware external-review leg (#295 slice B: SUCCESS check is
+not review evidence) reads reviews + threads via
+`src/app/github/review-evidence.ts`. v0 sha-equality READY stays untouched
+until the contract flip (W6b).
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
