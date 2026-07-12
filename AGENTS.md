@@ -195,6 +195,20 @@ and gate (code 0 -> gate, 1/2/3 -> needs_human; the code-1 fix loop is W5b).
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
+v1 (integration line `main-v1`) adds an opt-in capsule engine:
+`[run] engine = "capsule"` (env `COMBO_CHEN_RUN_ENGINE`), snapshot-frozen at
+launch. It replaces `runner.sh` with `combo-chen capsule <run-dir>` as tmux
+pane 0, shrinks the topology (no director-watch shell loop or gate-script
+windows; journal, director, coder, gatekeeper, reviewer remain), retries the
+initial gate inside the capsule, and supervises post-PR through the in-process
+event-driven supervisor (`src/app/director/supervisor.ts`: journal fs.watch
+wake with poll fallback, GitHub sampling timer, journal-derived terminal exit,
+`watch_error`/`watch_dead` parity). `combo-chen capsule` re-derives its phase
+from the journal (`classifyCapsulePhase`), so resume relaunches the same
+command; worker-monitor liveness evidence is injectable per role
+(`WorkerEvidenceSource`). v0 stays the default and byte-identical.
+`--prompt` overrides are not yet supported under the capsule engine.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
