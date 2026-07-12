@@ -22,7 +22,7 @@
  * @exports none
  * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ./closure, node:fs, node:os, node:path, vitest
  */
-import { mkdirSync, mkdtempSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -302,6 +302,8 @@ describe("closeMergedCombo", () => {
     expect(out).toHaveLength(3);
     expect(out[0]).toContain("# Combo closed: o-r-7");
     expect(existsSync(exitSummaryPath(runDir))).toBe(true);
+    // Exit summary survives teardown: the file is non-empty even when resources were already gone.
+    expect(readFileSync(exitSummaryPath(runDir), "utf8").length).toBeGreaterThan(0);
     expect(out[2]).toBe(
       "closure: o-r-7 closed merged PR merge777 by maintainer; already converged: worktree already removed, branch already deleted, tmux session already gone",
     );
