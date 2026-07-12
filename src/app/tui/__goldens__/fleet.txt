@@ -1,18 +1,18 @@
-combo-chen · fleet ● 1 need you                                                                12:00
+combo-chen · fleet ● 1 needs you                                                               12:00
 
 [1] live ● [2] parked [3] closed
 
-❯ ⚑ NEEDS_YOU Migrate pagination (github_issue:#144)                                  41m ago · 4.1h
-    needs you: no-progress
-  ✓ READY Dark mode (github_issue:#146)                                              2.3h ago · 4.0h
-    ready for merge
-  ▶ CODER Add 2FA (github_issue:#142)                                                  5m ago · 2.3h
-    ·●··· coder working · live
-  ▶ CODER Extract provider (github_issue:#151)                                         13m ago · 14m
-    ●···· coder working · live
-  ▶ GATE Fix N+1 (github_issue:#143)                                                  28m ago · 1.7h
-    ●···· no-mistakes validating
-  ▶ CODER Harden guards (github_issue:#149)                                           35m ago · 1.2h
-    ●···· coder working · live
+❯ ⚑ NEEDS_YOU #144 Migrate pagination                                                 41m ago · 4.1h
+    › no-progress: 2 fixes rejected, "cursor contract" still open · (v) card
+  ✓ READY #146 Dark mode                                                             2.3h ago · 4.0h
+    PR #430 · CI ✓ · CodeRabbit ✓ · local lgtm · waiting for you
+  ▶ REVIEW #142 Add 2FA to login flow                                                  3m ago · 2.3h
+    ··●·· coder fixing · round 2
+  ▶ GATE #143 Fix N+1 in bookings                                                      9m ago · 1.7h
+    ···●· no-mistakes · review ✓ · test ● · lint ·   step 2/3
+  ▶ CODER #151 Extract payment provider                                                13m ago · 14m
+    ●···· gnhf loop · iter 1/24 · provider.ts
+  ▶ REVIEW #149 Harden auth route guards                                              40m ago · 1.2h
+    ·●··· reviewer judging · round 0
 
 ↑↓ select · Enter dive · v decision · 1-3 tabs · q quit

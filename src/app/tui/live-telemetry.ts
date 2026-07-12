@@ -44,12 +44,14 @@
 
 // -- 1/5 CORE · types <- START HERE --
 export interface CoderTelemetryFact {
+  readonly mode?: "gnhf";
   readonly iteration?: number;
   readonly maxIterations?: number;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly commitCount?: number;
   readonly lastCommitSubject?: string;
+  readonly currentFile?: string;
 }
 
 export interface GateStepFact {

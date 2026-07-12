@@ -97,7 +97,7 @@ describe("deriveFleetRow v0 journals (no v1 events)", () => {
       now: NOW,
     });
     expect(row.renderPhase).toBe("READY");
-    expect(row.detailLine).toContain("ready");
+    expect(row.detailLine).toContain("waiting for you");
   });
 
   it("renders merged + combo_closed as CLOSED", () => {
@@ -473,7 +473,7 @@ describe("deriveFleetView", () => {
     };
   }
 
-  it("sorts needs-you-first, then READY, then rest by recency", () => {
+  it("sorts needs-you-first, then READY, preserving mock order within a tier", () => {
     const view = deriveFleetView({
       rows: [
         rowFor("PR", { comboId: "pr", lastEventAt: "2026-07-12T11:00:00.000Z" }),
@@ -484,7 +484,7 @@ describe("deriveFleetView", () => {
       tab: "live",
     });
     const ids = view.rows.map((r) => r.comboId);
-    expect(ids).toEqual(["needs", "ready", "coder", "pr"]);
+    expect(ids).toEqual(["needs", "ready", "pr", "coder"]);
   });
 
   it("live tab excludes parked and closed", () => {

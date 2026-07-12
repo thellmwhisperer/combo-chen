@@ -35,11 +35,11 @@
  * @deps ../../core/combo, ../../core/state, ../../core/verdict, ../reporting/status-fold, ./decisions-fold, ./fleet-fold, ./live-telemetry
  */
 import { deriveStatus } from "../../core/combo.js";
-import { describeWorkItem, type ComboRecord } from "../../core/state.js";
+import type { ComboRecord } from "../../core/state.js";
 import type { VerdictFile, VerdictFinding } from "../../core/verdict.js";
 import type { JournalFact } from "../reporting/status-fold.js";
 import { derivePendingDecisions } from "./decisions-fold.js";
-import { deriveFleetRow, type FleetRenderPhase } from "./fleet-fold.js";
+import { ageLabel, deriveFleetRow, tuiWorkItemLabel, type FleetRenderPhase } from "./fleet-fold.js";
 import {
   formatCoderDetail,
   formatGateStepBar,
@@ -75,6 +75,8 @@ export interface ThreadEntry {
   readonly kind: ThreadEntryKind;
   readonly headline: string;
   readonly detail?: string;
+  /** When true, append the live spinner to the first detail line too. */
+  readonly detailSpinner?: boolean;
   readonly findings?: readonly ThreadFinding[];
   /** Projected live entry (no journal event behind it). Rendered last. */
   readonly live?: boolean;
@@ -99,6 +101,11 @@ export interface LiveActor {
   readonly startMs?: number;
   readonly note: string;
   readonly telemetryLine?: string;
+  readonly mode?: "gnhf";
+  readonly iteration?: number;
+  readonly maxIterations?: number;
+  readonly inputTokens?: number;
+  readonly currentFile?: string;
 }
 
 export interface ThreadInput {
@@ -115,6 +122,7 @@ export interface ThreadView {
   readonly workItemLabel: string;
   readonly renderPhase: FleetRenderPhase;
   readonly round: number;
+  readonly ageLabel: string;
   readonly breadcrumb: ThreadBreadcrumb;
   readonly entries: readonly ThreadEntry[];
   readonly liveActor?: LiveActor;
@@ -133,6 +141,7 @@ export function deriveThread(input: ThreadInput): ThreadView {
     combo: input.combo,
     events,
     liveness: input.liveness,
+    telemetry: input.telemetry,
     now,
   });
   const entries = entriesFromEvents(events, verdicts, input.combo);
@@ -141,9 +150,10 @@ export function deriveThread(input: ThreadInput): ThreadView {
   const projection = projectionFrom(status.phase, liveActor, fleet.renderPhase);
   return {
     comboId: input.combo.id,
-    workItemLabel: describeWorkItem(input.combo).label,
+    workItemLabel: tuiWorkItemLabel(input.combo),
     renderPhase: fleet.renderPhase,
     round: reviewRound(events),
+    ageLabel: ageLabel(now - Date.parse(input.combo.createdAt)),
     breadcrumb: breadcrumbFrom(events, status.phase),
     entries: entriesWithLive,
     ...(liveActor === undefined ? {} : { liveActor }),
@@ -160,7 +170,7 @@ function entriesFromEvents(
   combo: ComboRecord,
 ): ThreadEntry[] {
   const entries: ThreadEntry[] = [];
-  const workItem = describeWorkItem(combo).label;
+  const workItem = tuiWorkItemLabel(combo);
   for (const event of events) {
     const entry = entryFor(event, verdicts, workItem);
     if (entry !== undefined) entries.push(entry);
@@ -175,7 +185,9 @@ function entryFor(
 ): ThreadEntry | undefined {
   switch (event.event) {
     case "combo_created":
-      return { at: event.t, kind: "launched", headline: "launched", detail: workItem };
+      return typeof event["note"] === "string"
+        ? { at: event.t, kind: "launched", headline: `launched · ${event["note"]}` }
+        : { at: event.t, kind: "launched", headline: "launched", detail: workItem };
     case "coder_done":
       return { at: event.t, kind: "coder_done", headline: "coder finished" };
     case "coder_failed": {
@@ -279,6 +291,21 @@ function liveActorFrom(
     const note = phase === "LOCAL_REVIEW" ? "coder fixing" : "coder working";
     const startIso = sinceForActor(events, "coder");
     const telemetryLine = telemetry?.coder !== undefined ? formatCoderDetail(telemetry.coder) : undefined;
+    if (telemetry?.coder?.mode === "gnhf") {
+      return {
+        actor: "coder",
+        sinceMs: Math.max(0, now - Date.parse(startIso)),
+        startMs: Date.parse(startIso),
+        note: "coder loop",
+        mode: "gnhf",
+        ...(telemetry.coder.iteration === undefined ? {} : { iteration: telemetry.coder.iteration }),
+        ...(telemetry.coder.maxIterations === undefined
+          ? {}
+          : { maxIterations: telemetry.coder.maxIterations }),
+        ...(telemetry.coder.inputTokens === undefined ? {} : { inputTokens: telemetry.coder.inputTokens }),
+        ...(telemetry.coder.currentFile === undefined ? {} : { currentFile: telemetry.coder.currentFile }),
+      };
+    }
     return {
       actor: "coder",
       sinceMs: Math.max(0, now - Date.parse(startIso)),
@@ -320,6 +347,20 @@ function sinceForActor(events: readonly JournalFact[], actor: "coder" | "reviewe
 
 function liveActorEntry(actor: LiveActor): ThreadEntry {
   const timer = formatMmss(actor.sinceMs);
+  if (actor.mode === "gnhf") {
+    const iteration = actor.iteration ?? 1;
+    const max = actor.maxIterations ?? 24;
+    const tokens = actor.inputTokens === undefined ? "?" : `${(actor.inputTokens / 1000).toFixed(1)}K`;
+    return {
+      at: "now",
+      kind: "note",
+      live: true,
+      headline: `coder loop (gnhf) · live · iteration ${iteration}/${max} · ${timer}`,
+      detail: `reading changed files\niter ${iteration}/${max} · ${tokens} tokens · stop-when: not yet · --max-iterations ${max}`,
+      detailSpinner: true,
+      ...(actor.startMs === undefined ? {} : { startMs: actor.startMs }),
+    };
+  }
   const headline =
     actor.telemetryLine !== undefined
       ? `${actor.note} · ${timer} · ${actor.telemetryLine}`
@@ -337,7 +378,11 @@ function liveActorEntry(actor: LiveActor): ThreadEntry {
 function reviewRound(events: readonly JournalFact[]): number {
   let round = 0;
   for (const event of events) {
-    if (event.event === "local_review_requested" || event.event === "local_verdict") {
+    if (
+      event.event === "local_review_requested" ||
+      event.event === "local_verdict" ||
+      (event.event === "coder_started" && event["mode"] === "review_fix")
+    ) {
       const value = event["round"];
       if (typeof value === "number") round = Math.max(round, value);
     }

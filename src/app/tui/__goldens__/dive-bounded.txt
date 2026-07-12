@@ -1,9 +1,9 @@
-owner-repo-144 · Migrate pagination (github_issue:#144)                                 NEEDS_YOU r3
+owner-repo-144 · #144 Migrate pagination                                         NEEDS_YOU r3 · 4.1h
 
 coder ✓ ─ review ⚡ ─ gate · ─ pr · ─ merge ·
 
 ↑ 8 earlier
-11:19 ⚑ needs you · no-progress
+11:19 ⚑ needs you · no-progress: 2 fixes rejected, "cursor contract" still open
 
 next: nothing until you decide (v)
 
