@@ -7,7 +7,7 @@
  *   1. Start at runCapsule             <- complete persisted-run sequence.
  *   2. Then runCoderPhase              <- commits-first completion and thread bridge.
  *   3. Then runLocalReviewPhase        <- the V-C-V loop, guards, and loop-state.
- *   4. Read runAgentProcess            <- production child/PTY custody boundary.
+ *   4. Read runAgentProcess            <- production child/seat custody boundary.
  *   5. Everything else is artifact and git support.
  *
  *   MAIN FLOW
@@ -31,9 +31,9 @@
  *   CapsuleDeps          Injectable process, gate, and PR boundary.
  *   CapsuleResult        Terminal result returned to the CLI adapter.
  *   CapsulePhase         Journal-derived resume position for a capsule run.
- *   AgentProcessRequest  Owned interactive agent invocation (bounded by timeoutMs).
+ *   AgentProcessRequest  Owned interactive agent invocation (bounded by timeoutMs, seated by seatTty).
  *   AgentTurnResult      Exit facts plus custody's timed-out marker.
- *   runAgentProcess      Spawn an agent as a child on the capsule pane's PTY.
+ *   runAgentProcess      Spawn an agent as an owned child seated on its role window's pty.
  *   classifyCapsulePhase Sequence/gate/supervise/closed resume classification.
  *   runCapsule           Sequence one frozen run directory (optionally from the gate).
  *
@@ -42,15 +42,24 @@
  *   readBaseRef, runRebasePhase, runCoderPhase, snapshotIterations,
  *   freshIterationJsonl, containsStopCondition, runLocalReviewPhase,
  *   resolveLoopEntry, routeFixTurn, escalateWithGuard, runBoundedAgentTurn,
- *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn,
- *   waitForVerdictFile, reviewerIdentity, findingsProjection, escalate,
- *   LOOP_ESCALATION_REASONS, buildGateFacts
+ *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn, agentSeat,
+ *   openSeatFd, waitForVerdictFile, reviewerIdentity, findingsProjection,
+ *   escalate, LOOP_ESCALATION_REASONS, buildGateFacts
  *
  * @exports AgentProcessRequest, AgentTurnResult, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
- * @deps node:{child_process,fs,path}, ../../core/{events,loop-state,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,coder-responding,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../work-items/persisted-work-plan, ./ready
+ * @deps node:{child_process,fs,path}, ../../core/{events,loop-state,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,coder-responding,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./ready
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { appendEvent, readEvents, sleep, type ComboEvent } from "../../core/events.js";
@@ -100,6 +109,7 @@ import {
   type InProcessGateInput,
   type InProcessGateResult,
 } from "../gate/in-process-gate.js";
+import { CODER_WINDOW, REVIEWER_WINDOW } from "../runtime/sessions.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/persisted-work-plan.js";
 import { applyLgtmCarryOver, nextLocalReviewRound, pinLocalLgtm } from "./ready.js";
 
@@ -110,6 +120,12 @@ export interface AgentProcessRequest {
   env?: Record<string, string | undefined>;
   /** Wall-clock bound: production custody terminates the child on expiry. */
   timeoutMs?: number;
+  /**
+   * D1 seat: pty of the role window's pane. The owned child runs its stdio on
+   * this tty, so it is visible and interactive in its named tmux window while
+   * the capsule keeps the parent/child exit-code contract.
+   */
+  seatTty?: string;
 }
 
 /** GateProcessResult plus custody's timeout marker for a terminated child. */
@@ -132,6 +148,12 @@ export interface CapsuleDeps {
   leaseHome?: string;
   /** Abortable delay used between initial-gate retries; defaults to core sleep. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Resolve the seat tty of a role window so owned children run seated there
+   * instead of in the capsule pane. Undefined (or a failed resolution) keeps
+   * the pipeline moving unseated: panes are forensic, never operational.
+   */
+  resolveSeatTty?: (windowName: string) => string | undefined;
 }
 
 export type CapsuleResult = {
@@ -157,16 +179,31 @@ function agentKillGraceMs(env: Record<string, string | undefined>): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_AGENT_KILL_GRACE_MS;
 }
 
+function openSeatFd(seatTty: string | undefined): number | undefined {
+  if (seatTty === undefined) return undefined;
+  try {
+    // O_NOCTTY: the seat renders the child; it must never become the
+    // capsule's controlling terminal.
+    return openSync(seatTty, constants.O_RDWR | constants.O_NOCTTY);
+  } catch {
+    return undefined;
+  }
+}
+
 export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurnResult> {
   return new Promise((resolveResult, reject) => {
-    // In the capsule topology the parent already owns the tmux pane PTY. Inheriting
-    // all three descriptors keeps the child interactive while preserving a real
-    // parent/child exit-code contract with no pane reads or marker files.
+    // D1 custody: the capsule owns the child (real exit code, timeout kill, no
+    // marker files) while the child's stdio sits on the seat tty of its role
+    // window, so the agent is visible and interactive in that window. When no
+    // seat resolves or opens, the child inherits the capsule pane so a broken
+    // pane never blocks the pipeline.
+    const seatFd = openSeatFd(request.seatTty);
     const child = spawn("sh", ["-c", request.command], {
       cwd: request.cwd,
       env: { ...process.env, ...request.env },
-      stdio: "inherit",
+      stdio: seatFd === undefined ? "inherit" : [seatFd, seatFd, seatFd],
     });
+    if (seatFd !== undefined) closeSync(seatFd);
     let timedOut = false;
     let termTimer: NodeJS.Timeout | undefined;
     let killTimer: NodeJS.Timeout | undefined;
@@ -195,6 +232,21 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
       });
     });
   });
+}
+
+/**
+ * Seat for one owned agent turn: the role window's pane tty, spread into the
+ * AgentProcessRequest. An unresolved seat degrades to the capsule pane with an
+ * operator note instead of blocking the turn.
+ */
+function agentSeat(deps: CapsuleDeps, windowName: string): { seatTty?: string } {
+  if (deps.resolveSeatTty === undefined) return {};
+  const seatTty = deps.resolveSeatTty(windowName);
+  if (seatTty === undefined) {
+    deps.out(`capsule: no seat tty for ${windowName}; running its child unseated in the capsule pane`);
+    return {};
+  }
+  return { seatTty };
 }
 
 type AgentTurnOutcome =
@@ -388,7 +440,12 @@ async function runCoderPhase(
   const baseSha = await gitHead(deps, combo);
   const before = snapshotIterations(combo.worktree);
   appendEvent(runDir, "coder_started", {});
-  const coder = await deps.runAgent({ command, cwd: combo.worktree, env: deps.env });
+  const coder = await deps.runAgent({
+    command,
+    cwd: combo.worktree,
+    env: deps.env,
+    ...agentSeat(deps, CODER_WINDOW),
+  });
   const headSha = await gitHead(deps, combo);
   const countResult = await deps.git({
     command: "git",
@@ -487,6 +544,7 @@ async function runVerdictRound(
     cwd: combo.worktree,
     env: deps.env,
     timeoutMs: config.reviewerTurnTimeoutMinutes * 60_000,
+    ...agentSeat(deps, REVIEWER_WINDOW),
   });
   if (turn.kind === "timeout") {
     return {
@@ -618,6 +676,7 @@ async function runCoderFixTurn(
     cwd: combo.worktree,
     env: deps.env,
     timeoutMs: config.fixTurnTimeoutMinutes * 60_000,
+    ...agentSeat(deps, CODER_WINDOW),
   });
   if (turn.kind === "timeout") return { kind: "timeout", timeoutMinutes: config.fixTurnTimeoutMinutes };
   if (turn.kind === "spawn_error") return { kind: "spawn_error", detail: turn.detail };

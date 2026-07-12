@@ -207,6 +207,12 @@ Active features:
   allowlist update → turn retry convergence (never silent approval)
 - Human-readable tmux topology (capsule engine in pane 0, plus journal,
   director, coder, gatekeeper, and reviewer windows; no director-watch window;
+  D1 seats: capsule-owned role children — initial coder pass, verdict rounds,
+  fix turns — run their stdio on the role window's pane tty
+  (`resolveRoleSeatTty`/`seatOccupancy` in `src/app/runtime/sessions.ts`), so
+  each agent is visible and interactive in its named window while the capsule
+  keeps real exit codes and timeout custody; panes stay forensic, never
+  operational;
   the gatekeeper window entry is the static `no-mistakes attach` one-liner;
   reviewer performs no post-publish GitHub writes; coder-response targets the
   persistent coder window; raw event output never replaces the coder role)

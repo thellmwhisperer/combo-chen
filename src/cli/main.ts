@@ -24,7 +24,7 @@
  *   cliInvocation and the process entrypoint.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps
- * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting}, ../core/{events,state}, ../infra/{config-snapshot,team-identity,tmux}, ../update/index
+ * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting,runtime}, ../core/{events,state}, ../infra/{config-snapshot,team-identity,tmux}, ../update/index
  */
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
@@ -61,6 +61,7 @@ import {
   showRecap,
   showStatus,
 } from "../app/reporting/reporting-handlers.js";
+import { resolveRoleSeatTty } from "../app/runtime/sessions.js";
 import { tmux as realTmux } from "../infra/tmux.js";
 import {
   checkForPassiveUpdate,
@@ -198,6 +199,9 @@ export function createProgram(deps: AppDeps): Command {
               }
             },
             activateReviewer: () => activateComboReviewer(deps, combo.id, cli),
+            // D1 seats: owned role children render and read in their named
+            // windows; the capsule pane hosts only the sequencer.
+            resolveSeatTty: (windowName) => resolveRoleSeatTty(deps, combo, windowName),
             attachGate: () => {
               refreshGatekeeperWindow(deps, combo);
               deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
