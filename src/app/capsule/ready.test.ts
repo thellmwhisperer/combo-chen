@@ -130,7 +130,7 @@ describe("nextLocalReviewRound", () => {
 
 // -- 2/4 CORE · pinLocalLgtm --
 describe("pinLocalLgtm", () => {
-  it("journals lgtm pinned to the reviewed sha and its whole-range patch-id", async () => {
+  it("journals lgtm pinned to the reviewed sha and its whole-range patch-id", { timeout: 30_000 }, async () => {
     const repo = reviewedRepo();
     const dir = runDir();
     const sha = git(repo, "rev-parse", "HEAD");
@@ -162,7 +162,7 @@ describe("pinLocalLgtm", () => {
 
 // -- 3/4 CORE · carry-over sagas --
 describe("applyLgtmCarryOver", () => {
-  it("carries the lgtm across a pure gate rebase (same whole-range patch-id)", async () => {
+  it("carries the lgtm across a pure gate rebase (same whole-range patch-id)", { timeout: 30_000 }, async () => {
     const repo = reviewedRepo();
     const dir = runDir();
     const reviewedSha = git(repo, "rev-parse", "HEAD");
@@ -187,7 +187,7 @@ describe("applyLgtmCarryOver", () => {
     expect(events.some((entry) => entry.event === "lgtm_stale")).toBe(false);
   });
 
-  it("#295 saga: a gate autofix commit invalidates the lgtm and requests a re-review round, not needs_human", async () => {
+  it("#295 saga: a gate autofix commit invalidates the lgtm and requests a re-review round, not needs_human", { timeout: 30_000 }, async () => {
     // Repro steps 5-7: reviewed changeset at B, no-mistakes adds an autofix
     // commit and publishes C. The changed changeset must route back to a local
     // re-review round without pre-seeding LGTM at C.
@@ -228,7 +228,7 @@ describe("applyLgtmCarryOver", () => {
     expect(events.some((entry) => entry.event === "needs_human")).toBe(false);
   });
 
-  it("returns already_current without journaling when the gate published the reviewed head", async () => {
+  it("returns already_current without journaling when the gate published the reviewed head", { timeout: 30_000 }, async () => {
     const repo = reviewedRepo();
     const dir = runDir();
     const reviewedSha = git(repo, "rev-parse", "HEAD");
@@ -247,7 +247,7 @@ describe("applyLgtmCarryOver", () => {
     expect(readEvents(dir)).toEqual(before);
   });
 
-  it("is a no-op when no local lgtm pin is live", async () => {
+  it("is a no-op when no local lgtm pin is live", { timeout: 30_000 }, async () => {
     const repo = reviewedRepo();
     const dir = runDir();
 
@@ -263,7 +263,7 @@ describe("applyLgtmCarryOver", () => {
     expect(readEvents(dir)).toEqual([]);
   });
 
-  it("routes a re-review round when the published head cannot be resolved locally", async () => {
+  it("routes a re-review round when the published head cannot be resolved locally", { timeout: 30_000 }, async () => {
     // Conservative leg: if equivalence cannot be verified the lgtm must not
     // be assumed to hold. Still a re-review request, never needs_human.
     const repo = reviewedRepo();

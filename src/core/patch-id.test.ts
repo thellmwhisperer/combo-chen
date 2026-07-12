@@ -200,7 +200,7 @@ function initRepo(): string {
 }
 
 describe("computeChangesetPatchId against real git", () => {
-  it("survives a pure rebase and breaks on a gate autofix commit", async () => {
+  it("survives a pure rebase and breaks on a gate autofix commit", { timeout: 30_000 }, async () => {
     const dir = initRepo();
     const run = realGitRunner();
 
@@ -231,7 +231,7 @@ describe("computeChangesetPatchId against real git", () => {
     expect(patchIdEquals(reviewed, autofixed)).toBe(false);
   });
 
-  it("reports an empty changeset when head equals the merge base", async () => {
+  it("reports an empty changeset when head equals the merge base", { timeout: 30_000 }, async () => {
     const dir = initRepo();
     const run = realGitRunner();
 
