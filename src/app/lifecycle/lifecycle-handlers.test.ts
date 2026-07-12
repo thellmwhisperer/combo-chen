@@ -85,7 +85,10 @@ describe("closure", () => {
       { event: "combo_closed", source: "closure" },
     ]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
-    expect(out).toEqual(["closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete"]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain("# Combo closed: o-r-7");
+    expect(out[1]).toBe("");
+    expect(out[2]).toBe("closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete");
   });
 });
 

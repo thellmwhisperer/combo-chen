@@ -39,6 +39,12 @@ import {
   writeCombo,
   writeFileSync,
 } from "../../testing/cli-harness.js";
+import {
+  DOSSIER_SECTION_START,
+  projectDossierPrBody,
+  type DossierRound,
+} from "../../core/pr-body-dossier.js";
+import { updatePrBodyDossier } from "./github-handlers.js";
 
 // -- 1/1 CORE · GitHub handler integration contracts <- START HERE --
 describe("intent and PR autoclose", () => {
@@ -407,3 +413,213 @@ describe("intent and PR autoclose", () => {
   });
 });
 // -/ 1/1
+
+// -- 2/2 CORE · dossier projection handler --
+const dossierRound = (round: number): DossierRound => ({
+  round,
+  sha: "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0",
+  code: 0,
+  model: "claude-fable-5",
+  runtime: "claude",
+  dossierMarkdown: [
+    `# Review round ${round} @ a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0`,
+    "",
+    `Summary: round ${round}, verdict code 0, reviewed by claude-fable-5 (claude).`,
+    "No findings.",
+    "",
+    "## Checklist",
+    "",
+    "- tdd-first: pass",
+    "",
+  ].join("\n"),
+});
+
+describe("updatePrBodyDossier", () => {
+  it("projects review rounds into the PR body via gh pr edit --body-file", () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        if (args[0] === "pr" && args[1] === "view") {
+          return { status: 0, stdout: "Fixes #7\n\n## Intent\n\nDescribe.\n", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    updatePrBodyDossier(deps, {
+      name: "o-r-7",
+      prUrl: "https://github.com/o/r/pull/9",
+      rounds: [dossierRound(1)],
+    });
+
+    // Should view first to get existing body.
+    expect(ghCalls[0]).toEqual([
+      "gh",
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/9",
+      "--json",
+      "body",
+      "--jq",
+      ".body",
+    ]);
+    // Should edit with the new body file.
+    expect(ghCalls[1]?.slice(0, 5)).toEqual([
+      "gh",
+      "pr",
+      "edit",
+      "https://github.com/o/r/pull/9",
+      "--body-file",
+    ]);
+    const bodyPath = ghCalls[1]?.[5];
+    expect(bodyPath).toBe(join(runDirFor(h, "o-r-7"), "pr-body.dossier.md"));
+    expect(readFileSync(bodyPath!, "utf8")).toContain(DOSSIER_SECTION_START);
+    expect(readFileSync(bodyPath!, "utf8")).toContain("Round 1 — code 0");
+    expect(out).toEqual(["pr dossier updated for o-r-7"]);
+  });
+
+  it("leaves the PR body unchanged when the dossier section is already current", () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    // Precompute the body the projector would produce.
+    const preProjected = projectDossierPrBody({
+      rounds: [dossierRound(1)],
+      existingBody: "Fixes #7\n\n## Intent\n",
+    });
+
+    const ghCalls: string[][] = [];
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        ghCalls.push(["gh", ...args]);
+        return { status: 0, stdout: preProjected, stderr: "" };
+      },
+    });
+
+    updatePrBodyDossier(deps, {
+      name: "o-r-7",
+      prUrl: "https://github.com/o/r/pull/9",
+      rounds: [dossierRound(1)],
+    });
+
+    // Only one call: the initial pr view. No edit needed.
+    expect(ghCalls).toHaveLength(1);
+    expect(out).toEqual(["pr dossier already current for o-r-7"]);
+  });
+
+  it("throws on gh pr view failure", () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: () => ({ status: 1, stdout: "", stderr: "no pr" }),
+    });
+
+    expect(() =>
+      updatePrBodyDossier(deps, {
+        name: "o-r-7",
+        prUrl: "https://github.com/o/r/pull/9",
+        rounds: [dossierRound(1)],
+      }),
+    ).toThrow("gh pr view failed for https://github.com/o/r/pull/9: no pr");
+  });
+
+  it("throws on gh pr edit failure", () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return { status: 0, stdout: "Fixes #7\n", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: "edit rejected" };
+      },
+    });
+
+    expect(() =>
+      updatePrBodyDossier(deps, {
+        name: "o-r-7",
+        prUrl: "https://github.com/o/r/pull/9",
+        rounds: [dossierRound(1)],
+      }),
+    ).toThrow("gh pr edit failed for https://github.com/o/r/pull/9: edit rejected");
+  });
+
+  it("renders multiple rounds as details blocks newest first", () => {
+    const h = home();
+    writeCombo(runDirFor(h, "o-r-7"), {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    let bodyFilePath = "";
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        if (args[0] === "pr" && args[1] === "view") {
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        if (args[0] === "pr" && args[1] === "edit") {
+          bodyFilePath = args[4] ?? "";
+          return { status: 0, stdout: "", stderr: "" };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    updatePrBodyDossier(deps, {
+      name: "o-r-7",
+      prUrl: "https://github.com/o/r/pull/9",
+      rounds: [dossierRound(3), dossierRound(2), dossierRound(1)],
+    });
+
+    const body = readFileSync(bodyFilePath, "utf8");
+    const r3 = body.indexOf("Round 3 — code 0");
+    const r2 = body.indexOf("Round 2 — code 0");
+    const r1 = body.indexOf("Round 1 — code 0");
+    expect(r3).toBeLessThan(r2);
+    expect(r2).toBeLessThan(r1);
+  });
+});
+// -/ 2/2
