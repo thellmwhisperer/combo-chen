@@ -95,7 +95,6 @@ describe("command surface", () => {
         "ensure-pr-autoclose",
         "events",
         "forensics",
-        "gate-restart",
         "intent",
         "needs-human-report",
         "reviewer-tick",

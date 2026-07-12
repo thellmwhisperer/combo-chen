@@ -58,7 +58,7 @@ function commandIsJournalFollower(command) {
 function commandIsIdleRoleWindow(command) {
   return (
     /\[combo-chen\] \S+ window idle; waiting for combo-chen to prompt it\./.test(command) &&
-    /\bsleep 3600\b/.test(command)
+    /\btail -f \/dev\/null\b/.test(command)
   );
 }
 

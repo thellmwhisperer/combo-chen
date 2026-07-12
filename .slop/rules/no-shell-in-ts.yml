@@ -1,7 +1,9 @@
 # Guard against inline shell code in TypeScript. The v0 shell template system
 # is retired; generated shell no longer lives in TS strings. This rule fires
-# on sed, case, while, trap, grep pipe, and printf-substitution patterns
-# embedded in TypeScript — any new shell in TS must justify itself.
+# on sed, while-loop, grep pipe, trap, sleep-loop, and printf-substitution
+# patterns embedded in TypeScript string literals AND template literals (the
+# gatekeeper entry wrapper hid in a template literal, which plain `kind:
+# string` does not match) — any new shell in TS must justify itself.
 id: no-shell-in-ts
 language: TypeScript
 files:
@@ -9,7 +11,10 @@ files:
 ignores:
   - "**/*.test.ts"
 rule:
-  kind: string
-  regex: "sed -n |while \\[ |\\| grep -|trap '|\\$\\(printf |no_mistakes_axi_field"
-message: shell construct inside a TS string literal; inline shell was retired in v1
+  any:
+    - kind: string
+      regex: "sed -n |while \\[ |while : |\\| grep -|trap '|; do sleep |\\$\\(printf |no_mistakes_axi_field"
+    - kind: template_string
+      regex: "sed -n |while \\[ |while : |\\| grep -|trap '|; do sleep |\\$\\(printf |no_mistakes_axi_field"
+message: shell construct inside a TS string or template literal; inline shell was retired in v1
 severity: error

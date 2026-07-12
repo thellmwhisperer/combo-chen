@@ -9,7 +9,8 @@
  *
  *   MAIN FLOW
  *   ---------
- *   ensureGatekeeperWindow -> startGatekeeperWindow -> persistent polling loop -> no-mistakes attach
+ *   ensureGatekeeperWindow -> startGatekeeperWindow -> static no-mistakes attach entry
+ *     refreshGatekeeperWindow -> kill + recreate window (TypeScript process control)
  *
  *   PUBLIC API
  *   ----------
@@ -21,7 +22,7 @@
  *
  *   INTERNALS
  *   ---------
- *   runCommandInGatekeeperWindow
+ *   none
  *
  * @exports GateDeps, GatekeeperWindowDeps, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig
  * @deps ../../core/events, ../../core/shell-quote, ../../core/state, ../../infra/tmux, ../runtime/sessions, node:fs, node:path
@@ -32,19 +33,8 @@ import { join } from "node:path";
 import type { ComboEvent } from "../../core/events.js";
 import { shellQuote } from "../../core/shell-quote.js";
 import type { ComboRecord } from "../../core/state.js";
-import {
-  killWindowArgs,
-  listWindowsArgs,
-  newWindowArgs,
-  nudgeWindowArgs,
-  type TmuxResult,
-} from "../../infra/tmux.js";
+import { killWindowArgs, listWindowsArgs, newWindowArgs, type TmuxResult } from "../../infra/tmux.js";
 import { GATE_RUNNER_WINDOW, windowSet } from "../runtime/sessions.js";
-
-// Minimal shell wrapper: polls no-mistakes attach in a loop so the gatekeeper
-// window stays alive and self-attaches when a run appears. INT drops to shell.
-const GATEKEEPER_ENTRY_COMMAND = (attach: string) =>
-  `combo_chen_idle=1; trap 'combo_chen_idle=0' INT; while [ "$combo_chen_idle" = 1 ]; do (${attach}); sleep 1; done; exec "\${SHELL:-/bin/sh}"`;
 
 // -- 1/3 HELPER · Types and constants --
 export interface GateDeps {
@@ -61,18 +51,19 @@ export const NO_MISTAKES_CONFIG_FILE = ".no-mistakes.yaml";
 // -/ 1/3
 
 // -- 2/3 CORE · Gatekeeper tmux window <- START HERE --
-/** Static entry command: cd into the worktree and attach. No sed/retry/sleep inside. */
+/**
+ * The complete gatekeeper window entry: cd into the worktree and attach.
+ * This static one-liner is the ONLY shell that reaches tmux; every retry,
+ * conditional, and status decision lives in TypeScript process control
+ * (ensure/refresh below recreate the window instead of scripting the pane).
+ */
 export function buildGatekeeperAttachCommand(combo: ComboRecord): string {
   return `cd ${shellQuote(combo.worktree)} && no-mistakes attach`;
 }
 
-function gatekeeperWindowEntry(combo: ComboRecord): string {
-  return GATEKEEPER_ENTRY_COMMAND(buildGatekeeperAttachCommand(combo));
-}
-
 export function startGatekeeperWindow(deps: GatekeeperWindowDeps, combo: ComboRecord): void {
   const created = deps.tmux(
-    newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, gatekeeperWindowEntry(combo)),
+    newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, buildGatekeeperAttachCommand(combo)),
   );
   if (created.status !== 0) {
     throw new Error(
@@ -95,8 +86,32 @@ export function ensureGatekeeperWindow(deps: GatekeeperWindowDeps, combo: ComboR
   startGatekeeperWindow(deps, combo);
 }
 
+/**
+ * Re-attach by recreating the window with the same static entry command.
+ * Deliberately no send-keys/paste-buffer pane reinjection: a stale or dead
+ * attach pane is killed and replaced, so the pane never receives scripted
+ * input. Also removes the legacy v0 gate-runner window when present.
+ */
 export function refreshGatekeeperWindow(deps: GatekeeperWindowDeps, combo: ComboRecord): void {
-  runCommandInGatekeeperWindow(deps, combo, gatekeeperWindowEntry(combo));
+  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to list windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  const windows = windowSet(listed.stdout);
+  for (const stale of [GATE_RUNNER_WINDOW, GATEKEEPER_WINDOW]) {
+    if (!windows.has(stale)) continue;
+    const killed = deps.tmux(killWindowArgs(combo.tmuxSession, stale));
+    if (killed.status !== 0) {
+      throw new Error(
+        `tmux failed to remove "${stale}" in "${combo.tmuxSession}": ` +
+          `${killed.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
+  startGatekeeperWindow(deps, combo);
 }
 // -/ 2/3
 
@@ -157,51 +172,4 @@ export function propagateNoMistakesConfig(repoDir: string, worktree: string): bo
   return true;
 }
 
-function runCommandInGatekeeperWindow(deps: GatekeeperWindowDeps, combo: ComboRecord, command: string): void {
-  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
-  if (listed.status !== 0) {
-    throw new Error(
-      `tmux failed to list windows in "${combo.tmuxSession}": ` +
-        `${listed.stderr.trim() || "unknown error"}`,
-    );
-  }
-  const windows = windowSet(listed.stdout);
-  if (windows.has(GATE_RUNNER_WINDOW)) {
-    const killed = deps.tmux(killWindowArgs(combo.tmuxSession, GATE_RUNNER_WINDOW));
-    if (killed.status !== 0) {
-      throw new Error(
-        `tmux failed to remove legacy "${GATE_RUNNER_WINDOW}" in "${combo.tmuxSession}": ` +
-          `${killed.stderr.trim() || "unknown error"}`,
-      );
-    }
-  }
-  if (!windows.has(GATEKEEPER_WINDOW)) {
-    const created = deps.tmux(newWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, command));
-    if (created.status !== 0) {
-      throw new Error(
-        `tmux failed to start gatekeeper watcher in "${combo.tmuxSession}": ` +
-          `${created.stderr.trim() || "unknown error"}`,
-      );
-    }
-    return;
-  }
-
-  const target = `${combo.tmuxSession}:${GATEKEEPER_WINDOW}`;
-  const interrupted = deps.tmux(["send-keys", "-t", target, "C-c"]);
-  if (interrupted.status !== 0) {
-    throw new Error(
-      `tmux failed to interrupt gatekeeper in "${combo.tmuxSession}": ` +
-        `${interrupted.stderr.trim() || "unknown error"}`,
-    );
-  }
-  for (const args of nudgeWindowArgs(combo.tmuxSession, GATEKEEPER_WINDOW, command)) {
-    const sent = deps.tmux(args);
-    if (sent.status !== 0) {
-      throw new Error(
-        `tmux failed to prompt gatekeeper in "${combo.tmuxSession}": ` +
-          `${sent.stderr.trim() || "unknown error"}`,
-      );
-    }
-  }
-}
 // -/ 3/3

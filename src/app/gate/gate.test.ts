@@ -31,6 +31,7 @@ import {
   buildGatekeeperAttachCommand,
   ensureGatekeeperWindow,
   propagateNoMistakesConfig,
+  refreshGatekeeperWindow,
   remoteShaForRef,
 } from "./gate.js";
 import type { ComboRecord } from "../../core/state.js";
@@ -78,7 +79,7 @@ describe("gatekeeper attach window helpers", () => {
     expect(command).toContain("no-mistakes attach");
   });
 
-  it("starts the gatekeeper window only when it is absent", () => {
+  it("starts the gatekeeper window with only the static attach command", () => {
     const calls: string[][] = [];
     const record = combo();
 
@@ -95,11 +96,43 @@ describe("gatekeeper attach window helpers", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toEqual(["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"]);
     expect(calls[1]?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "gatekeeper"]);
-    const gatekeeperCommand = calls[1]?.at(-1) ?? "";
-    expect(gatekeeperCommand).toContain("combo_chen_idle=1");
-    expect(gatekeeperCommand).toContain("trap 'combo_chen_idle=0' INT");
-    expect(gatekeeperCommand).toContain('while [ "$combo_chen_idle" = 1 ]; do');
-    expect(gatekeeperCommand).toContain('exec "${SHELL:-/bin/sh}"');
+    // The tmux entry is the static attach command, nothing else: no rendered
+    // loop, trap, retry, sleep, or interactive shell fallback around it.
+    expect(calls[1]?.at(-1)).toBe(buildGatekeeperAttachCommand(record));
+  });
+
+  it("keeps the static attach command free of shell control constructs", () => {
+    const command = buildGatekeeperAttachCommand(combo());
+    for (const construct of ["while ", "trap ", "sleep ", "sed ", "case ", "$(", "${SHELL"]) {
+      expect(command).not.toContain(construct);
+    }
+  });
+
+  it("refreshes by recreating the window in TypeScript, never by pane reinjection", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    refreshGatekeeperWindow(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "gate-runner\ngatekeeper\ncoder\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      record,
+    );
+
+    expect(calls).toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:gate-runner"]);
+    expect(calls).toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:gatekeeper"]);
+    const created = calls.find((args) => args[0] === "new-window");
+    expect(created?.slice(0, 5)).toEqual(["new-window", "-t", "combo-chen-o-r-7", "-n", "gatekeeper"]);
+    expect(created?.at(-1)).toBe(buildGatekeeperAttachCommand(record));
+    expect(calls.some((args) => args[0] === "send-keys")).toBe(false);
+    expect(calls.some((args) => args[0] === "set-buffer")).toBe(false);
+    expect(calls.some((args) => args[0] === "paste-buffer")).toBe(false);
   });
 });
 // -/ 2/5

@@ -531,7 +531,7 @@ describe("run", () => {
     expect(artifact).not.toContain(externalDir);
   });
 
-  it("creates a gatekeeper window with a no-mistakes attach idle loop", async () => {
+  it("creates a gatekeeper window whose entry is only the static no-mistakes attach command", async () => {
     const h = home();
     const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
@@ -544,24 +544,10 @@ describe("run", () => {
     expect(gatekeeperWindow).toBeTruthy();
     const command = gatekeeperWindow?.at(-1) ?? "";
     expect(command).toContain("no-mistakes attach");
-    expect(command).toContain("combo_chen_idle=1");
-  });
-
-  it("runs the gatekeeper window command which loops no-mistakes attach", async () => {
-    const h = home();
-    const repoDir = launchFixtureDir("combo-chen-repo-");
-    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
-
-    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
-
-    const gatekeeperWindow = calls.find(
-      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
-    );
-    expect(gatekeeperWindow).toBeTruthy();
-    const command = gatekeeperWindow?.at(-1) ?? "";
-    expect(command).toContain("no-mistakes attach");
-    expect(command).toContain("trap 'combo_chen_idle=0' INT");
-    expect(command).toContain('exec "${SHELL:-/bin/sh}"');
+    // No rendered shell wrapper: no loop, trap, retry, sleep, or shell fallback.
+    for (const construct of ["while ", "trap ", "sleep ", "case ", "${SHELL"]) {
+      expect(command).not.toContain(construct);
+    }
   });
 
   it("cleans run state and treehouse lease even when tmux rollback kill fails", async () => {
