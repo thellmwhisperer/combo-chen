@@ -33,6 +33,7 @@ import {
   newWindowArgs,
   nudgeWindowArgs,
   renameWindowArgs,
+  selectPaneTitleArgs,
   selectWindowArgs,
   splitWindowArgs,
   switchClientArgs,
@@ -113,6 +114,13 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
       "-t",
       "s:rower",
       "rower:RUNNING",
+    ]);
+    expect(selectPaneTitleArgs("combo-chen-o-r-7", "reviewer", "reviewer · judging")).toEqual([
+      "select-pane",
+      "-T",
+      "reviewer · judging",
+      "-t",
+      "combo-chen-o-r-7:reviewer",
     ]);
   });
 

@@ -40,6 +40,7 @@ import {
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
+  selectPaneTitleArgs,
   type TmuxResult,
 } from "../../infra/tmux.js";
 
@@ -201,6 +202,35 @@ export function ensureWindowPresent(
 export function idleRoleWindowCommand(role: string): string {
   return `printf '[combo-chen] ${role} window idle; waiting for combo-chen to prompt it.\\n'; exec tail -f /dev/null`;
 }
+
+// -- Pane title lifecycle --
+// Design choice: keeping child titles live during the turn (they are
+// informative) but resetting on reap satisfies both transparency and
+// the v1 contract. The alternative (allow-set-title off) would prevent
+// children from setting titles entirely.
+export function paneTitleIdle(role: string): string {
+  return `${role} · idle`;
+}
+
+export function paneTitleLive(role: string, detail: string): string {
+  return `${role} · ${detail}`;
+}
+
+export function setPaneTitle(
+  deps: SessionDeps,
+  combo: { tmuxSession: string },
+  role: string,
+  title: string,
+): void {
+  const result = deps.tmux(selectPaneTitleArgs(combo.tmuxSession, role, title));
+  if (result.status !== 0) {
+    throw new Error(
+      `tmux failed to set pane title for "${role}" in "${combo.tmuxSession}": ` +
+        `${result.stderr.trim() || "unknown error"}`,
+    );
+  }
+}
+// -/ pane title lifecycle
 
 /** list-panes format shared by seat resolution and the occupancy assertion. */
 const SEAT_PANE_FORMAT = "#{pane_dead} #{pane_tty}";

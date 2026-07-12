@@ -138,6 +138,10 @@ export function captureWindowArgs(session: string, windowName: string): string[]
 export function renameWindowArgs(session: string, windowName: string, title: string): string[] {
   return ["rename-window", "-t", `${session}:${windowName}`, title];
 }
+
+export function selectPaneTitleArgs(session: string, windowName: string, title: string): string[] {
+  return ["select-pane", "-T", title, "-t", `${session}:${windowName}`];
+}
 // -/ 1/3
 
 // -- 2/3 HELPER · nudgeWindowArgs (paste-buffer path) --

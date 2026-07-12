@@ -116,7 +116,7 @@ import {
   type InProcessGateInput,
   type InProcessGateResult,
 } from "../gate/in-process-gate.js";
-import { CODER_WINDOW, REVIEWER_WINDOW } from "../runtime/sessions.js";
+import { CODER_WINDOW, paneTitleIdle, paneTitleLive, REVIEWER_WINDOW } from "../runtime/sessions.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/persisted-work-plan.js";
 import { applyLgtmCarryOver, nextLocalReviewRound, pinLocalLgtm } from "./ready.js";
 
@@ -150,6 +150,17 @@ export interface AgentProcessRequest {
    * the role child starts and exits.
    */
   onSpawn?: (facts: { pid: number }) => void;
+  /**
+   * Capsule-owned pane-title lifecycle: invoked before the child is spawned
+   * so the seat pane title reflects the live role state (e.g. "reviewer · judging").
+   */
+  onTurnStart?: () => void;
+  /**
+   * Capsule-owned pane-title lifecycle: invoked after every settle path
+   * (normal close, artifact completion, timeout kill, spawn error) so no
+   * child-written title survives the turn.
+   */
+  onTurnEnd?: () => void;
 }
 
 /** GateProcessResult plus custody completion facts for a terminated child. */
@@ -182,6 +193,12 @@ export interface CapsuleDeps {
    * runs unseated in the capsule pane.
    */
   resolveSeatTty?: (windowName: string) => string | undefined;
+  /**
+   * Set the pane title on a role window. Used at turn start (live state)
+   * and turn end (idle state) so tmux tells the truth about who is working.
+   * A missing setter means the embedder owns titles or there is no tmux.
+   */
+  setPaneTitle?: (role: string, title: string) => void;
 }
 
 export type CapsuleResult = {
@@ -232,6 +249,7 @@ function openSeatFd(seatTty: string | undefined): number | undefined {
 }
 
 export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurnResult> {
+  request.onTurnStart?.();
   return new Promise((resolveResult, reject) => {
     // D1 custody: the capsule owns the child (real exit code, timeout kill, no
     // marker files) while the child's stdio sits on the seat tty of its role
@@ -266,6 +284,7 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
       if (settled) return;
       settled = true;
       clearTimers();
+      request.onTurnEnd?.();
       resolveResult(result);
     };
     const terminate = (timeout: boolean): void => {
@@ -298,6 +317,7 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
     }
     child.once("error", (error) => {
       clearTimers();
+      request.onTurnEnd?.();
       reject(error);
     });
     child.once("close", (code, signal) => {
@@ -570,7 +590,18 @@ async function runCoderPhase(
   appendEvent(runDir, "coder_started", {});
   let coder: AgentTurnResult;
   try {
-    coder = await deps.runAgent({ command, cwd: combo.worktree, env: deps.env, ...seat });
+    coder = await deps.runAgent({
+      command,
+      cwd: combo.worktree,
+      env: deps.env,
+      ...seat,
+      onTurnStart: deps.setPaneTitle
+        ? () => deps.setPaneTitle!(CODER_WINDOW, paneTitleLive(CODER_WINDOW, "working"))
+        : undefined,
+      onTurnEnd: deps.setPaneTitle
+        ? () => deps.setPaneTitle!(CODER_WINDOW, paneTitleIdle(CODER_WINDOW))
+        : undefined,
+    });
   } catch (error) {
     if (error instanceof SeatOpenError) {
       return escalateSeatUnavailable(runDir, { window: CODER_WINDOW, detail: error.message });
@@ -716,6 +747,12 @@ async function runVerdictRound(
       },
     },
     ...seat,
+    onTurnStart: deps.setPaneTitle
+      ? () => deps.setPaneTitle!(REVIEWER_WINDOW, paneTitleLive(REVIEWER_WINDOW, `judging round ${round}`))
+      : undefined,
+    onTurnEnd: deps.setPaneTitle
+      ? () => deps.setPaneTitle!(REVIEWER_WINDOW, paneTitleIdle(REVIEWER_WINDOW))
+      : undefined,
   });
   if (turn.kind === "seat_error") {
     return {
@@ -902,6 +939,12 @@ async function runCoderFixTurn(
       },
     },
     ...seat,
+    onTurnStart: deps.setPaneTitle
+      ? () => deps.setPaneTitle!(CODER_WINDOW, paneTitleLive(CODER_WINDOW, "fixing"))
+      : undefined,
+    onTurnEnd: deps.setPaneTitle
+      ? () => deps.setPaneTitle!(CODER_WINDOW, paneTitleIdle(CODER_WINDOW))
+      : undefined,
   });
   if (turn.kind === "seat_error") return { kind: "seat_unavailable", detail: turn.detail };
   if (turn.kind === "timeout") return { kind: "timeout", timeoutMinutes: config.fixTurnTimeoutMinutes };
