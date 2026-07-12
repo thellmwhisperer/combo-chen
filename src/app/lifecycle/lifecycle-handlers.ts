@@ -65,18 +65,12 @@ export function emitComboEvent(
   const runDir = runDirFor(home, options.name);
   const canonicalEvent = canonicalEventName(event);
   const payload = parseEventFields(options.field);
-  if (canonicalEvent === "coder_done") {
-    const jsonlPath = payload["gnhf_iteration_jsonl"];
-    if (typeof jsonlPath !== "string" || jsonlPath.trim() === "") {
-      throw new Error("coder_done requires gnhf_iteration_jsonl from the current gnhf run");
-    }
-  }
   appendEvent(runDir, event as EventName, payload);
-  if (canonicalEvent === "coder_done") {
+  const coderJsonlPath = payload["gnhf_iteration_jsonl"];
+  if (canonicalEvent === "coder_done" && typeof coderJsonlPath === "string" && coderJsonlPath.trim() !== "") {
     const combo = readCombo(runDir);
-    const jsonlPath = payload["gnhf_iteration_jsonl"] as string;
     try {
-      persistCoderThreadArtifact({ runDir, worktree: combo.worktree, jsonlPath });
+      persistCoderThreadArtifact({ runDir, worktree: combo.worktree, jsonlPath: coderJsonlPath });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       process.stderr.write(

@@ -199,6 +199,7 @@ export function fakeDeps(overrides: Partial<Deps> = {}): { deps: Deps; calls: st
       }
       return { status: 1, stdout: "", stderr: "no no-mistakes status" };
     },
+    runAgent: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
     sleep: (ms) => {
       calls.push(["sleep", String(ms)]);
       return Promise.resolve();

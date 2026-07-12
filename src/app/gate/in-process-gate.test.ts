@@ -31,6 +31,7 @@ import { readEvents } from "../../core/events.js";
 import { readGateLease } from "../../core/gate-lease.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import {
+  abortPreviousRun,
   axiHeadMatches,
   copyConfigToActiveRun,
   gateFailureReason,
@@ -368,6 +369,13 @@ describe("gate output and axi status predicates", () => {
     expect(axiHeadMatches("", "abcdef1234567890")).toBe(false);
   });
 
+  it("keeps the first status field like the shell sed parser", () => {
+    expect(parseAxiStatus("id: first\nid: second\nstatus: running\nstatus: done\n")).toEqual({
+      id: "first",
+      status: "running",
+    });
+  });
+
   it("classifies approval, recovery, and daemon death from captured output", () => {
     expect(gateIsAwaitingApproval("outcome: awaiting_approval\n")).toBe(true);
     expect(shouldRecoverChecksPassed(42, "outcome: checks-passed\nfoo context canceled\n", false)).toBe(true);
@@ -378,6 +386,79 @@ describe("gate output and axi status predicates", () => {
 });
 
 describe("mirror and lease orchestration", () => {
+  it("forgives an abort failure when the run became inactive on its own", async () => {
+    const statuses = [
+      "id: 01RUN\nbranch: combo/issue-7\nstatus: running\n",
+      "id: 01RUN\nbranch: combo/issue-7\nstatus: done\n",
+    ];
+    const runProcess = async (request: GateProcessRequest): Promise<GateProcessResult> => {
+      if (request.args.join(" ") === "axi status") {
+        return { exitCode: 0, stdout: statuses.shift() ?? "", stderr: "" };
+      }
+      expect(request.args).toEqual(["axi", "abort"]);
+      return { exitCode: 1, stdout: "", stderr: "already finished" };
+    };
+
+    await expect(
+      abortPreviousRun({
+        combo: { branch: "combo/issue-7", worktree: "/worktree" },
+        runProcess,
+        retryDelayMs: 0,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("checks for an attachable run after mirror publication fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-in-process-gate-"));
+    const record = combo(root);
+    const runDir = join(root, "run");
+    mkdirSync(record.worktree, { recursive: true });
+    mkdirSync(runDir);
+    const calls: GateProcessRequest[] = [];
+    const runProcess = processRunner(
+      [
+        { command: "git rev-parse HEAD", result: { exitCode: 0, stdout: "abcdef123456\n", stderr: "" } },
+        {
+          command: "git remote get-url no-mistakes",
+          result: { exitCode: 0, stdout: "mirror\n", stderr: "" },
+        },
+        { command: "no-mistakes daemon start", result: { exitCode: 0, stdout: "", stderr: "" } },
+        { command: "no-mistakes axi status", result: { exitCode: 0, stdout: "status: done\n", stderr: "" } },
+        { command: "git ls-remote", result: { exitCode: 1, stdout: "", stderr: "mirror unavailable" } },
+        {
+          command: "no-mistakes axi status",
+          result: {
+            exitCode: 0,
+            stdout: "id: 01LIVE\nbranch: combo/issue-7\nhead: abcdef12\nstatus: running\n",
+            stderr: "",
+          },
+        },
+      ],
+      calls,
+    );
+
+    await expect(
+      runInProcessGate({
+        combo: record,
+        runDir,
+        kind: "initial",
+        gatekeeperCommand: "gate-command",
+        mirrorIntent: "intent",
+        runProcess,
+      }),
+    ).resolves.toEqual({
+      status: "already_running",
+      exitCode: 0,
+      headSha: "abcdef123456",
+      runId: "01LIVE",
+    });
+    expect(eventShapes(runDir)).toEqual([
+      { event: "gate_started" },
+      { event: "gate_status", state: "fix_inflight", head_sha: "abcdef123456" },
+      { event: "gate_status", state: "fix_inflight", head_sha: "abcdef123456" },
+    ]);
+  });
+
   it("reuses an already-running daemon, aborts the old run, and force-publishes HEAD", async () => {
     const calls: string[] = [];
     const runProcess = async (request: GateProcessRequest): Promise<GateProcessResult> => {
