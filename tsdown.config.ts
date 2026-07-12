@@ -90,8 +90,13 @@ export default defineConfig([
     clean: true,
     dts: false,
     define: { ...releaseDefines, ...shellTemplatesDefine },
+    alias: {
+      "react-devtools-core": new URL("./src/cli/react-devtools-stub.ts", import.meta.url).pathname,
+    },
     // Release archives run without node_modules; bundle runtime deps in.
     noExternal: () => true,
+    // Ink conditionally imports its React devtools adapter; keep the CLI single-file.
+    outputOptions: { codeSplitting: false },
   },
   {
     entry: { "release-assets": "src/scripts/release-assets.ts" },
