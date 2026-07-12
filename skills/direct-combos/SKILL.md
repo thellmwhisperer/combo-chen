@@ -180,3 +180,29 @@ Choose one of the four registered verbs:
 The command answers the latest pending escalation by default. If several are pending, target the exact journal timestamp with `--ref <timestamp>`; add `--note <text>` when the rationale will matter to the next director. Do not issue `skip`, `take_over`, or `ignore` as convenient ways around a blocked gate or uncertain intent: those verbs leave ownership with the human and do not approve an unreviewed changeset for publication.
 
 `decide` appends a durable `decision` event whose `needs_human_ref` points to the answered escalation. The capsule and fleet views fold that journal relationship to clear the pending decision; a `retry` can resume the applicable autonomous loop, while the other verbs keep that loop from proceeding automatically. Never patch state files or treat a chat answer alone as resolution.
+
+## 6. Map the capsule lifecycle
+
+Use lifecycle commands to preserve the capsule's durable state and role ownership:
+
+| Director intent                        | Command                            | Contract                                                                                                                                                                     |
+| -------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pause for reboot or operator handoff   | `combo-chen park -n <combo-id>`    | Stops the capsule's local tmux processes, writes `park-handoff.md`, and journals `parked` without terminally closing the run or removing its resources.                      |
+| Continue a persisted capsule           | `combo-chen resume -n <combo-id>`  | Rebuilds the frozen capsule topology and resumes at the journal-derived next phase; it does not create a new run or replay completed phases.                                 |
+| Converge resources after a human merge | `combo-chen closure -n <combo-id>` | Confirms GitHub reports the PR as MERGED, waits for no-mistakes to be inactive, records terminal facts, returns the worktree lease, and removes the branch and tmux session. |
+
+After `park`, retain the combo id and handoff path in the fleet record. A receiving director should read `park-handoff.md`, inspect `combo-chen status --deep`, then run `combo-chen resume -n <combo-id>`. Resume also detects a merge that happened while parked and routes directly to closure instead of restarting workers.
+
+The in-process supervisor normally triggers closure after observing `merged`; the explicit closure command is the deterministic fallback when convergence is still pending. A refusal is a guardrail, not permission for manual teardown: resolve the reported GitHub, no-mistakes, git, or Treehouse condition and retry the command.
+
+### Director prohibitions
+
+An external director must never:
+
+- edit the combo worktree or create implementation commits;
+- write to the PR conversation, answer review threads, approve, merge, or deploy;
+- bypass the gate, publish directly, or treat READY as merge authorization;
+- hand-edit the journal, runtime ledger, verdict files, or frozen config snapshot;
+- kill role processes or delete branches, worktrees, run directories, or tmux sessions outside the lifecycle commands.
+
+Route implementation and review findings back through the capsule's durable signals. The human owns merge and intent decisions; closure owns resource teardown.
