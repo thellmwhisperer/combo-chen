@@ -47,6 +47,8 @@ if (cmd === "has-session") {
   process.exit(state.sessions[session] ? 0 : 1);
 }
 
+if (cmd === "wait-for" && args[1] === "-S") process.exit(0);
+
 function windowWithCommand(command = "") {
   return { panes: 1, visibleText: command };
 }
