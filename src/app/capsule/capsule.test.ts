@@ -195,6 +195,10 @@ describe("capsule sequencer", () => {
       "coder_done",
       "local_review_requested",
       "local_verdict",
+      // W6a: the code-0 verdict pins the local lgtm, and the validated gate
+      // carries it to the published head by patch-id equivalence.
+      "lgtm",
+      "lgtm",
     ]);
     expect(h.activateReviewer).toHaveBeenCalledOnce();
   });
@@ -209,6 +213,8 @@ describe("capsule sequencer", () => {
       "coder_done",
       "local_review_requested",
       "local_verdict",
+      "lgtm",
+      "lgtm",
     ]);
   });
 
@@ -295,10 +301,14 @@ describe("capsule sequencer", () => {
         sha: "coded",
         findings: [],
       },
+      // W6a: the code-0 verdict pins the local lgtm before the gate runs.
+      { event: "lgtm", sha: "coded", round: 1, source: "local_verdict" },
       { event: "gate_started" },
       { event: "gate_status", state: "fix_inflight", head_sha: "coded" },
       { event: "gate_status", state: "idle", head_sha: "published" },
       { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
+      // W6a: the published head carries the lgtm by patch-id equivalence.
+      { event: "lgtm", sha: "published", carried_from: "coded", source: "patch_id_carry_over" },
     ]);
     expect(h.activateReviewer).toHaveBeenCalledOnce();
   });
