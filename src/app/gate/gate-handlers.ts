@@ -22,9 +22,7 @@
  * @exports restartGate, handleGateLease
  * @deps ../../core/events, ../../core/state, ../deps, ../runtime/sessions, ./gate, ./lease
  */
-import { latestPrUrlFromEvents, readEvents } from "../../core/events.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
-import { restartPostAddressGate, startInitialGateRetry } from "./gate.js";
 import { acquireGateLeaseForCombo, releaseGateLeaseForCombo } from "./lease.js";
 import { ensureComboSession } from "../runtime/sessions.js";
 import type { AppDeps } from "../deps.js";
@@ -34,49 +32,8 @@ export function restartGate(deps: AppDeps, comboId: string, cli: string): void {
   const home = comboHome(deps.env);
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
-  const recreated = ensureComboSession({ deps, combo, home, cli });
-  const prUrl = latestPrUrlFromEvents(readEvents(runDir));
-  if (prUrl === undefined) {
-    const result = startInitialGateRetry({ deps, combo, runDir, cli });
-    if (result.started) {
-      deps.out(
-        "gate-restart: initial gate restarted for " +
-          combo.id +
-          " at " +
-          result.headSha +
-          (recreated ? " (recreated tmux session)" : ""),
-      );
-    } else {
-      deps.out(
-        "gate-restart: initial gate not started for " +
-          combo.id +
-          " (" +
-          result.reason +
-          ") at " +
-          result.headSha,
-      );
-    }
-    return;
-  }
-  const result = restartPostAddressGate({ deps, combo, runDir, prUrl, cli });
-  if (result.started) {
-    deps.out(
-      "gate-restart: post-address gate restarted for " +
-        combo.id +
-        " at " +
-        result.headSha +
-        (recreated ? " (recreated tmux session)" : ""),
-    );
-  } else {
-    deps.out(
-      "gate-restart: post-address gate not started for " +
-        combo.id +
-        " (" +
-        result.reason +
-        ") at " +
-        result.headSha,
-    );
-  }
+  ensureComboSession({ deps, combo, home, cli });
+  deps.out("gate-restart: " + comboId + " — gate restart not available in this version");
 }
 // -/ 1/2
 

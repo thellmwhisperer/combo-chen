@@ -58,7 +58,7 @@ import {
   readCoderThreadArtifact,
   routeReviewComments,
 } from "../../roles/coder-responding.js";
-import { latestPublishedGateSha, syncNoMistakesMirror } from "../gate/gate.js";
+import { latestPublishedGateSha } from "../gate/gate.js";
 import { CODER_WINDOW, ensureWindowPresent, killWindowIfPresent, windowSet } from "../runtime/sessions.js";
 
 const CODER_RESPONDING_WINDOW = CODER_WINDOW;
@@ -267,14 +267,6 @@ export function nudgeReviewComments(input: {
     throw new Error(`No pr_opened event for combo "${comboId}"`);
   }
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  try {
-    const synced = syncNoMistakesMirror(deps, combo, runDir);
-    if (synced) {
-      deps.out(`mirror synced for ${combo.id}`);
-    }
-  } catch (err) {
-    deps.out(`mirror sync failed for ${combo.id}: ${err instanceof Error ? err.message : String(err)}`);
-  }
   try {
     const comments = fetchReviewCommentSignals(prUrl, deps.gh, ghApiCache, {
       externalCommentAgents: config.externalCommentAgents,

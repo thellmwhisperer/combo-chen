@@ -1,18 +1,19 @@
-# Tombstone for generated shell embedded as TypeScript string literals.
-# Cite: #283 (prune train #286). src/core/combo.ts carried ~300 lines of shell
-# as string arrays, src/app/gate/gate.ts and src/app/director/watchers.ts repeated the pattern, and
-# the ad hoc copies diverged into bug #281 (the attach matcher could never
-# match a quoted head). All generated shell lives in src/shell/templates/*.sh,
-# shellcheck-gated; TS code only renders placeholders.
+# Guard against inline shell code in TypeScript that should be generated from
+# a source-of-truth script file. As of v1 (W6d) the shell template system is
+# retired; the only surviving shell is the gatekeeper-attach window entry
+# commands inlined in src/app/gate/gate.ts (about 80 lines of POSIX). Those are
+# deliberately kept as inlined constants because they are the single canonical
+# source and do not repeat elsewhere. This rule fires on additional inline shell
+# patterns — any new shell in TS must justify itself against this rule.
 id: no-shell-in-ts
 language: TypeScript
 files:
   - "src/**"
 ignores:
   - "**/*.test.ts"
-  - "src/shell/**"
+  - "src/app/gate/gate.ts"
 rule:
   kind: string
-  regex: "sed -n |while \\[ |\\| grep -|trap '|\\$\\(printf "
-message: shell construct inside a TS string literal; move generated shell into src/shell/templates and render placeholders
+  regex: "sed -n |while \\[ |\\| grep -|trap '|\\$\\(printf |no_mistakes_axi_field"
+message: shell construct inside a TS string literal outside the allowed gate.ts block; justify or move to a shell script source file
 severity: error

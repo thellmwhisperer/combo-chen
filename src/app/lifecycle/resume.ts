@@ -37,13 +37,7 @@ import { classifyCapsulePhase, type CapsulePhase } from "../capsule/capsule.js";
 import type { TmuxResult } from "../../infra/tmux.js";
 import { buildDirectorInvocation } from "../../roles/director-invocation.js";
 import { closeMergedCombo } from "./closure.js";
-import {
-  ensureGatekeeperWindow,
-  GATEKEEPER_WINDOW,
-  latestGateStatus,
-  shaMatchesHead,
-  startInitialGateRetry,
-} from "../gate/gate.js";
+import { ensureGatekeeperWindow, GATEKEEPER_WINDOW, latestGateStatus, shaMatchesHead } from "../gate/gate.js";
 import { parsePrView, type GhRunner } from "../github/github.js";
 import { activateReviewer } from "../director/reviewer.js";
 import {
@@ -66,7 +60,6 @@ import {
   PR_READY_FOR_REVIEWER,
   type CommandResult,
 } from "../reporting/status.js";
-import { buildDirectorWatchCommand } from "../director/watchers.js";
 
 // -- 1/3 HELPER · Dependencies --
 export interface ResumeDeps {
@@ -360,13 +353,10 @@ export async function resumeCombo(input: {
   if (state.kind === "initial_gate_retry") {
     const recreated = convergeStableTopology({ deps, combo, home, cli, config });
     pruneLegacyTopology({ deps, combo, config });
-    const result = startInitialGateRetry({ deps, combo, runDir, cli });
-    if (result.started) {
-      deps.out(
-        `resume: initial gate relaunched for ${combo.id} at ${result.headSha}` +
-          `${recreated ? " (recreated tmux session)" : ""}`,
-      );
-    }
+    deps.out(
+      `resume: initial gate retry needed for ${combo.id} but gate restart not available in this version` +
+        `${recreated ? " (recreated tmux session)" : ""}`,
+    );
     return;
   }
 
@@ -458,19 +448,6 @@ function convergeStableTopology(input: {
     retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
   });
   ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
-  ensureWindowPresent(
-    deps,
-    combo,
-    DIRECTOR_WATCH_WINDOW,
-    buildDirectorWatchCommand({
-      cli,
-      comboHome: home,
-      comboId: combo.id,
-      pollSeconds: config.limits.babysitPollSeconds,
-      watchFailureLimit: config.limits.watchFailureLimit,
-      watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
-    }),
-  );
   return recreated;
 }
 

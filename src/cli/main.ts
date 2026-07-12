@@ -18,14 +18,12 @@
  *   defaultDeps       Provide production adapters for application handlers.
  *   isDirectRun       Detect direct execution through URL, cli.mjs, or realpath.
  *   Deps              Compatibility alias for the shared AppDeps contract.
- *   resolvePollMs                 Re-exported watcher cadence helper.
- *   buildDirectorWatchCommand     Re-exported director watcher helper.
  *
  *   INTERNALS
  *   ---------
  *   cliInvocation and the process entrypoint.
  *
- * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
+ * @exports createProgram, defaultDeps, isDirectRun, Deps
  * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting}, ../core/{events,state}, ../infra/{config-snapshot,team-identity,tmux}, ../update/index
  */
 import { spawnSync } from "node:child_process";
@@ -43,17 +41,15 @@ import {
   sendDirectorPrompt,
   tickComboDirector,
   tickComboReviewer,
-  watchDirector,
 } from "../app/director/director-handlers.js";
 import { GATEKEEPER_WINDOW, refreshGatekeeperWindow } from "../app/gate/gate.js";
-import { handleGateLease, restartGate } from "../app/gate/gate-handlers.js";
+import { restartGate } from "../app/gate/gate-handlers.js";
 import { ensurePrAutoclose, printIntent } from "../app/github/github-handlers.js";
 import { launchCombo, runOverture, type LaunchOptions } from "../app/launch/launch-handlers.js";
 import {
   attachCombo,
   closeCombo,
   decideComboEscalation,
-  emitComboEvent,
   parkPersistedCombo,
   printComboEvents,
   reconcileComboState,
@@ -77,7 +73,6 @@ import { resolveConfiguredTeamIdentity } from "../infra/team-identity.js";
 import { readEvents } from "../core/events.js";
 import { comboHome, readCombo } from "../core/state.js";
 import { readConfigSnapshot } from "../infra/config-snapshot.js";
-export { buildDirectorWatchCommand, resolvePollMs } from "../app/director/watchers.js";
 export type Deps = AppDeps;
 
 // -- 1/3 HELPER · Production adapters --
@@ -305,15 +300,6 @@ export function createProgram(deps: AppDeps): Command {
     });
 
   program
-    .command("director-watch", { hidden: true })
-    .description("Run the director orchestration loop")
-    .requiredOption("-n, --name <comboId>", "Combo id")
-    .option("--iterations <n>", "Stop after n ticks; intended for tests and one-shot supervision")
-    .action(async (options: { name: string; iterations?: string }) => {
-      await watchDirector(deps, options, cli);
-    });
-
-  program
     .command("closure")
     .description("Converge one GitHub-merged combo's terminal journal and local resources")
     .requiredOption("-n, --name <comboId>", "Combo id")
@@ -425,22 +411,6 @@ export function createProgram(deps: AppDeps): Command {
     });
 
   program
-    .command("emit", { hidden: true })
-    .description("Append a lifecycle event (used by the runner)")
-    .requiredOption("-n, --name <comboId>", "Combo id")
-    .argument("<event>", "Event name")
-    .option("--skip-gate-window-recovery", "Skip gatekeeper window recovery for gate_started", false)
-    .option(
-      "--field <key=value...>",
-      "Payload fields",
-      (value: string, previous: string[]) => [...previous, value],
-      [],
-    )
-    .action((event: string, options: { name: string; field: string[]; skipGateWindowRecovery: boolean }) => {
-      emitComboEvent(deps, event, options, cli);
-    });
-
-  program
     .command("intent")
     .description(
       "Print the canonical no-mistakes issue PR intent for a combo (inspection/forensics; to relaunch a gate use gate-restart)",
@@ -448,16 +418,6 @@ export function createProgram(deps: AppDeps): Command {
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action((options: { name: string }) => {
       printIntent(deps, options.name);
-    });
-
-  program
-    .command("gate-lease", { hidden: true })
-    .description("Acquire or release the branch-scoped no-mistakes gate lease for generated scripts")
-    .argument("<action>", "acquire or release")
-    .requiredOption("-n, --name <comboId>", "Combo id")
-    .option("--head-sha <sha>", "Current gate head SHA for acquire")
-    .action((action: string, options: { name: string; headSha?: string }) => {
-      handleGateLease(deps, action, options);
     });
 
   program

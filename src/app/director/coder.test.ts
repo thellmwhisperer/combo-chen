@@ -270,7 +270,7 @@ describe("nudgeReviewComments", () => {
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
 
-  it("syncs the mirror, routes fetched PR comments, and reports routed nudges", () => {
+  it("routes fetched PR comments and reports routed nudges", () => {
     const calls: string[][] = [];
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
@@ -335,7 +335,6 @@ describe("nudgeReviewComments", () => {
       head_sha: "abc123",
     });
     expect(calls.filter((call) => call[0] === "git")).toEqual([
-      ["git", `cwd=${record.worktree}`, "remote", "get-url", "no-mistakes"],
       ["git", `cwd=${record.worktree}`, "rev-parse", "HEAD"],
     ]);
     expect(calls.filter((call) => call[0] === "tmux")).toEqual([
