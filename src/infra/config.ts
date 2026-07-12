@@ -22,6 +22,7 @@
  *   │ loadConfig                Cascade: defaults → user → repo → env   │
  *   │ renderCommand             Substitute {placeholders} with safe vals │
  *   │ hasGnhfCommand            Detect configured gnhf wrapper commands  │
+ *   │ isCapsuleEngine           v1 capsule engine opt-in (legacy = v0)   │
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
  *   │ DEFAULT_WORKER_RECOVERY_ATTEMPTS Fallback recovery budget           │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
@@ -33,7 +34,7 @@
  *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, RunEngine, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, isCapsuleEngine, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/shell-quote
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -74,6 +75,9 @@ export type ComboTeam = Partial<Record<ComboTeamRole, ComboTeamIdentity>>;
 
 export type WorkerPermissionPromptPolicy =
   "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
+
+/** Which launch/runtime engine a combo run uses; snapshot-frozen at launch. */
+export type RunEngine = "v0" | "capsule";
 
 export interface ComboConfig {
   roles: ComboRoles;
@@ -128,6 +132,8 @@ export interface ComboConfig {
   gatekeeperStatusTimeoutMs: number;
   /** Required source checkout branch for `combo-chen run`. */
   sourceBranch: string;
+  /** Launch/runtime engine: v0 shell runner (default) or the v1 capsule sequencer. */
+  runEngine: RunEngine;
   /** Optional launch contract declaring the expected effective role identities. */
   team?: ComboTeam;
   /** Launch-time effective role identities resolved during overture. */
@@ -244,8 +250,24 @@ const DEFAULTS = {
   },
   run: {
     source_branch: "main",
+    engine: "v0",
   },
 };
+
+const RUN_ENGINES: RunEngine[] = ["v0", "capsule"];
+
+function pickRunEngine(value: unknown, description: string): RunEngine {
+  const engine = pickNonEmptyString(value, description);
+  if (!RUN_ENGINES.includes(engine as RunEngine)) {
+    throw new ComboConfigError(`${description} must be one of ${RUN_ENGINES.join(", ")}`);
+  }
+  return engine as RunEngine;
+}
+
+/** Legacy pre-v1 snapshots carry no run engine and read as the v0 engine. */
+export function isCapsuleEngine(config: Partial<Pick<ComboConfig, "runEngine">>): boolean {
+  return config.runEngine === "capsule";
+}
 
 // -/ 1/4
 
@@ -706,6 +728,9 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
     runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
   }
+  if (env["COMBO_CHEN_RUN_ENGINE"] !== undefined) {
+    runTable["engine"] = env["COMBO_CHEN_RUN_ENGINE"];
+  }
   if (env["COMBO_CHEN_DIRECTOR_COMMAND"] !== undefined) {
     directorTable["command"] = env["COMBO_CHEN_DIRECTOR_COMMAND"];
   }
@@ -872,6 +897,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "[monitor]",
     ),
     sourceBranch: pickNonEmptyString(runTable["source_branch"], "run.source_branch"),
+    runEngine: pickRunEngine(runTable["engine"], "run.engine"),
     ...(team !== undefined ? { team } : {}),
   };
 }

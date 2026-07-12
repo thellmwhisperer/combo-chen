@@ -24,7 +24,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ComboConfigError, loadConfig, renderCommand, unsafeCoderInvocationReasons } from "./config.js";
+import {
+  ComboConfigError,
+  isCapsuleEngine,
+  loadConfig,
+  renderCommand,
+  unsafeCoderInvocationReasons,
+} from "./config.js";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-test-"));
@@ -772,6 +778,39 @@ describe("loadConfig", () => {
       env: { COMBO_CHEN_SOURCE_BRANCH: "release" },
     });
     expect(envConfig.sourceBranch).toBe("release");
+  });
+
+  it("defaults the run engine to v0 and loads the capsule opt-in from repo config or env", () => {
+    const repoDir = tempDir();
+
+    const defaults = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(defaults.runEngine).toBe("v0");
+    expect(isCapsuleEngine(defaults)).toBe(false);
+
+    writeToml(repoDir, "combo-chen.toml", '[run]\nengine = "capsule"\n');
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.runEngine).toBe("capsule");
+    expect(isCapsuleEngine(repoConfig)).toBe(true);
+
+    const envConfig = loadConfig({
+      repoDir: tempDir(),
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_RUN_ENGINE: "capsule" },
+    });
+    expect(envConfig.runEngine).toBe("capsule");
+  });
+
+  it("rejects an unknown run engine", () => {
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", '[run]\nengine = "steam"\n');
+
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} })).toThrow(
+      /run\.engine/,
+    );
+  });
+
+  it("treats a legacy snapshot without a run engine as the v0 engine", () => {
+    expect(isCapsuleEngine({})).toBe(false);
   });
 
   it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {
