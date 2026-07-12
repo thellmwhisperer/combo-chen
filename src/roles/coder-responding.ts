@@ -24,6 +24,7 @@
  *   │ routeReviewComments           Route new comments → coder window   │
  *   │ fetchReviewCommentSignals     Pull review signals from GitHub     │
  *   │ buildCoderRespondingResumeCommand Resume coder from thread_id     │
+ *   │ buildCoderFixTurnCommand      v1 owned-child resume with a prompt │
  *   │ buildReviewNudgePrompt        Render nudge prompt from template   │
  *   │ readCoderThreadArtifact       Load persisted thread_id            │
  *   │ parsePullRequestUrl           Parse PR URL → {owner,repo,number}  │
@@ -36,9 +37,9 @@
  *   │ isExternalAgentRateLimitComment, isPinnedLgtmReview              │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, routeReviewComments, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
+ * @exports ReviewCommentSignal, buildReviewNudgePrompt, readCoderThreadArtifact, buildCoderRespondingResumeCommand, buildCoderFixTurnCommand, routeReviewComments, fetchReviewCommentSignals, parsePullRequestUrl, readGhArray, signalFromComment, signalFromReview
  * @deps node:fs, node:path, ../core/events, ../core/gh-api, ../core/guards, ../core/pr-url,
- *   ../infra/config, ../infra/tmux, ./coder-invocation
+ *   ../core/shell-quote, ../infra/config, ../infra/tmux, ./coder-invocation
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -47,6 +48,7 @@ import { appendEvent, readEvents } from "../core/events.js";
 import { readGhArray, type GhApiCache } from "../core/gh-api.js";
 import { isRecord } from "../core/guards.js";
 import { parseGitHubPullRequestUrl, type GitHubPullRequestRef } from "../core/pr-url.js";
+import { shellQuote } from "../core/shell-quote.js";
 import { renderCommand } from "../infra/config.js";
 import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
 import {
@@ -120,6 +122,23 @@ export function buildCoderRespondingResumeCommand(
   resumeCommand: string,
 ): string {
   return renderCommand(resumeCommand, { thread_id: artifact.thread_id });
+}
+
+/**
+ * v1 review-loop fix turn: the capsule runs the resumed thread as an owned
+ * child, so the prompt travels in the command instead of a tmux paste. A
+ * template may declare {prompt}; legacy {thread_id}-only templates get the
+ * quoted prompt appended as the trailing positional argument.
+ */
+export function buildCoderFixTurnCommand(
+  artifact: CoderThreadArtifact,
+  resumeCommand: string,
+  prompt: string,
+): string {
+  if (resumeCommand.includes("{prompt}")) {
+    return renderCommand(resumeCommand, { thread_id: artifact.thread_id, prompt });
+  }
+  return `${buildCoderRespondingResumeCommand(artifact, resumeCommand)} ${shellQuote(prompt)}`;
 }
 
 export function routeReviewComments(input: {

@@ -34,6 +34,7 @@ import { readEvents } from "../core/events.js";
 import { CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT } from "./coder-invocation.js";
 import {
   buildReviewNudgePrompt,
+  buildCoderFixTurnCommand,
   buildCoderRespondingResumeCommand,
   parsePullRequestUrl,
   readGhArray,
@@ -104,6 +105,26 @@ describe("coder responding activation commands", () => {
         "hermes --resume {thread_id}",
       ),
     ).toBe("hermes --resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84'");
+  });
+});
+
+describe("buildCoderFixTurnCommand", () => {
+  const artifact = {
+    agent: "codex" as const,
+    thread_id: "019eb3f5-c135-76d2-88c5-0aa8edfe4c84",
+    source: ".gnhf/runs/implement-github-iss-e6510c/iteration-1.jsonl",
+  };
+
+  it("renders a resume template that declares a {prompt} placeholder", () => {
+    expect(
+      buildCoderFixTurnCommand(artifact, "codex exec resume {thread_id} {prompt}", "fix finding one"),
+    ).toBe("codex exec resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84' 'fix finding one'");
+  });
+
+  it("appends the quoted prompt when the template only takes {thread_id}", () => {
+    expect(buildCoderFixTurnCommand(artifact, "codex resume {thread_id}", "fix finding one")).toBe(
+      "codex resume '019eb3f5-c135-76d2-88c5-0aa8edfe4c84' 'fix finding one'",
+    );
   });
 });
 // -/ 1/3
