@@ -14,13 +14,14 @@
  *   PUBLIC API
  *   ----------
  *   fakeDeps, idleActiveRuntime, exec, home, seedNeedsHumanCombo, seedCodexGnhfRun, writeCoderThreadArtifact,
- *   writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID
+ *   writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID,
+ *   SeatedChildFacts, findSeatedChild, waitForSeatedChild, processGroupOf
  *
  *   INTERNALS
  *   ---------
  *   None.
  *
- * @exports fakeDeps, idleActiveRuntime, exec, home, seedNeedsHumanCombo, seedCodexGnhfRun, writeCoderThreadArtifact, writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID
+ * @exports fakeDeps, idleActiveRuntime, exec, home, seedNeedsHumanCombo, seedCodexGnhfRun, writeCoderThreadArtifact, writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID, SeatedChildFacts, findSeatedChild, waitForSeatedChild, processGroupOf
  * @deps ../app/gate/gate, ../cli/main, ../core/events, ../core/gate-lease, ../core/runtime-ledger, ../core/shell-quote, ../core/state, ../core/work-plan, ../infra/config, ../infra/config-snapshot, ../roles/coder-invocation, ../roles/gatekeeper, ../update/index, node:child_process, node:crypto, node:fs, node:os, node:path, node:url, vitest
  */
 import { spawnSync } from "node:child_process";
@@ -262,5 +263,40 @@ export function writeCoderThreadArtifact(runDir: string): void {
 export function writeExecutable(path: string, body: string): void {
   writeFileSync(path, body);
   chmodSync(path, 0o755);
+}
+
+/** Live-process facts for a seated child found by a unique command marker. */
+export interface SeatedChildFacts {
+  pid: number;
+  ppid: number;
+  pgid: number;
+}
+
+export function findSeatedChild(marker: string, ppid: number): SeatedChildFacts | undefined {
+  const listed = spawnSync("ps", ["-Ao", "pid=,ppid=,pgid=,command="], { encoding: "utf8" });
+  for (const line of (listed.stdout ?? "").split("\n")) {
+    if (!line.includes(marker)) continue;
+    const fields = line.trim().split(/\s+/);
+    const facts = { pid: Number(fields[0]), ppid: Number(fields[1]), pgid: Number(fields[2]) };
+    if (!Number.isInteger(facts.pid) || !Number.isInteger(facts.pgid)) continue;
+    if (facts.ppid === ppid) return facts;
+  }
+  return undefined;
+}
+
+export async function waitForSeatedChild(marker: string, ppid: number): Promise<SeatedChildFacts> {
+  const deadline = Date.now() + 8000;
+  for (;;) {
+    const child = findSeatedChild(marker, ppid);
+    if (child !== undefined) return child;
+    if (Date.now() > deadline) throw new Error(`no live seated child matching "${marker}"`);
+    await new Promise((resolveTick) => setTimeout(resolveTick, 50));
+  }
+}
+
+export function processGroupOf(pid: number): number | undefined {
+  const result = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], { encoding: "utf8" });
+  const parsed = Number((result.stdout ?? "").trim());
+  return Number.isInteger(parsed) ? parsed : undefined;
 }
 // -/ 2/2
