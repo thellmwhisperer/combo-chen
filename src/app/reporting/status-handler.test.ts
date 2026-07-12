@@ -3,7 +3,8 @@
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at the describe block  <- command contracts and their effects.
+ *   1. Start at status describe <- dashboard and repair composition.
+ *   2. Then recap describe       <- non-interactive digest contract.
  *
  *   MAIN FLOW
  *   ---------
@@ -38,10 +39,11 @@ import {
   runDirFor,
   tmpdir,
   writeCombo,
+  writeFileSync,
   writeRuntimeLedger,
 } from "../../testing/cli-harness.js";
 
-// -- 1/1 CORE · command contracts <- START HERE --
+// -- 1/2 CORE · status command contracts <- START HERE --
 describe("status", () => {
   it("prints one line per combo with phase and needs-human flag", async () => {
     const h = home();
@@ -459,4 +461,43 @@ describe("status", () => {
     expect(calls).not.toContainEqual(["tmux", "has-session", "-t", "combo-chen-o-r-7"]);
   });
 });
-// -/ 1/1
+// -/ 1/2
+
+// -- 2/2 CORE · recap command contract --
+describe("recap", () => {
+  it("prints a non-interactive digest after an explicit timestamp without runtime probes", async () => {
+    const h = home();
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: "2026-07-12T08:00:00.000Z",
+    });
+    writeFileSync(
+      join(dir, "journal.jsonl"),
+      [
+        { t: "2026-07-12T08:30:00.000Z", event: "coder_started" },
+        {
+          t: "2026-07-12T09:30:00.000Z",
+          event: "decision",
+          needs_human_ref: "2026-07-12T09:00:00.000Z",
+          verb: "retry",
+        },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
+    );
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["recap", "--since", "2026-07-12T09:00:00.000Z"]);
+
+    expect(out.join("\n")).toContain("decision: retry");
+    expect(out.join("\n")).not.toContain("phase CODING");
+    expect(calls).toEqual([]);
+  });
+});
+// -/ 2/2

@@ -1,11 +1,12 @@
 /**
- * @overview Application handlers for needs-human metrics, status, and forensics reports.
+ * @overview Application handlers for status, recap, needs-human metrics, and forensics reports.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at showStatus           <- live capsule dashboard.
- *   2. Then showForensics            <- evidence-rich outcome reports.
- *   3. Use reportNeedsHuman          <- aggregate intervention metrics.
+ *   2. Then showRecap                <- since-you-left journal digest.
+ *   3. Then showForensics            <- evidence-rich outcome reports.
+ *   4. Use reportNeedsHuman          <- aggregate intervention metrics.
  *
  *   MAIN FLOW
  *   ---------
@@ -13,14 +14,14 @@
  *
  *   PUBLIC API
  *   ----------
- *   showStatus, showForensics, reportNeedsHuman
+ *   showStatus, showRecap, showForensics, reportNeedsHuman
  *
  *   INTERNALS
  *   ---------
  *   needs-human aggregation; forensics parsing/recording; tmux and local-head probes.
  *
- * @exports showStatus, showForensics, reportNeedsHuman
- * @deps ../../core/combo, ../../core/events, ../../core/gate-lease, ../../core/guards, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../deps, ../github/github, ../lifecycle/reconcile, ./forensics, ./status
+ * @exports showStatus, showRecap, showForensics, reportNeedsHuman
+ * @deps ../../core/events, ../../core/gate-lease, ../../core/guards, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../deps, ../github/github, ../lifecycle/reconcile, ./forensics, ./status, ./status-fold
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import { readGateLeases } from "../../core/gate-lease.js";
@@ -34,7 +35,6 @@ import {
   runDirFor,
   type ComboRecord,
 } from "../../core/state.js";
-import { deriveStatus } from "../../core/combo.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import { hasSessionArgs, listWindowsArgs } from "../../infra/tmux.js";
 import {
@@ -45,9 +45,10 @@ import {
 import { fetchForensicsGithubFacts } from "../github/github.js";
 import { reconcileCombos } from "../lifecycle/reconcile.js";
 import { deepComboStatus, formatGateLeaseStatus } from "./status.js";
+import { deriveRecap, deriveStatusSurface, renderRecap } from "./status-fold.js";
 import type { AppDeps } from "../deps.js";
 
-// -- 1/3 CORE · showStatus <- START HERE --
+// -- 1/4 CORE · showStatus <- START HERE --
 export async function showStatus(
   deps: AppDeps,
   options: { deep?: boolean; all?: boolean },
@@ -66,18 +67,24 @@ export async function showStatus(
     const runDir = runDirFor(home, combo.id);
     const ledger = readRuntimeLedger(runDir, { cli });
     let events = readEvents(runDir);
-    let status = deriveStatus(events);
-    if (
-      !isParked(events) &&
-      status.phase !== "STOPPED" &&
-      !status.needsHuman &&
-      deps.tmux(hasSessionArgs(combo.tmuxSession)).status !== 0
-    ) {
-      appendEvent(runDir, "needs_human", { reason: "tmux_missing", source: "status" });
-      events = readEvents(runDir);
-      status = deriveStatus(events);
+    let row = deriveStatusSurface({ combo, events, runtimePrUrl: ledger.prUrl });
+    if (!isParked(events) && row.status.phase !== "STOPPED" && !row.status.needsHuman) {
+      row = deriveStatusSurface({
+        combo,
+        events,
+        runtimePrUrl: ledger.prUrl,
+        probes: { sessionExists: deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0 },
+      });
+      if (row.processRepair !== undefined) {
+        appendEvent(runDir, row.processRepair.event, {
+          reason: row.processRepair.reason,
+          source: "status",
+        });
+        events = readEvents(runDir);
+        row = deriveStatusSurface({ combo, events, runtimePrUrl: ledger.prUrl });
+      }
     }
-    return { combo, events, status, runtimePrUrl: ledger.prUrl };
+    return { combo, events, status: row.status, runtimePrUrl: row.prUrl };
   });
   const visibleRows = options.all === true ? rows : rows.filter(({ status }) => status.phase !== "STOPPED");
   if (visibleRows.length === 0) {
@@ -132,9 +139,35 @@ export async function showStatus(
     deps.out(line + " " + (downstream ?? "—"));
   }
 }
-// -/ 1/3
+// -/ 1/4
 
-// -- 2/3 CORE · showForensics --
+// -- 2/4 CORE · showRecap --
+export function showRecap(
+  deps: Pick<AppDeps, "env" | "out">,
+  options: { name?: string; since?: string },
+): void {
+  if (options.since !== undefined && !Number.isFinite(Date.parse(options.since))) {
+    throw new Error(`Invalid --since timestamp: ${options.since}`);
+  }
+  const home = comboHome(deps.env);
+  const combos = listCombos(home, (id, error) =>
+    deps.out("skipped " + id + ": " + errorMessage(error)),
+  ).filter((combo) => options.name === undefined || combo.id === options.name);
+  deps.out(
+    renderRecap(
+      combos.map((combo) =>
+        deriveRecap({
+          combo,
+          events: readEvents(runDirFor(home, combo.id)),
+          ...(options.since !== undefined ? { since: options.since } : {}),
+        }),
+      ),
+    ),
+  );
+}
+// -/ 2/4
+
+// -- 3/4 CORE · showForensics --
 export async function showForensics(
   deps: AppDeps,
   options: { issues?: string; name?: string; format: string; recordOutcome?: boolean },
@@ -192,9 +225,9 @@ export async function showForensics(
   }
   deps.out(renderForensicsMarkdown(reports));
 }
-// -/ 2/3
+// -/ 3/4
 
-// -- 3/3 CORE · reportNeedsHuman and report helpers --
+// -- 4/4 CORE · reportNeedsHuman and report helpers --
 export function reportNeedsHuman(deps: Pick<AppDeps, "env" | "out">): void {
   const home = comboHome(deps.env);
   const counts = new Map<string, number>();
@@ -382,4 +415,4 @@ function collectLocalWorktreeHeadSha(
     return undefined;
   }
 }
-// -/ 3/3
+// -/ 4/4
