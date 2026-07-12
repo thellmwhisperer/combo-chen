@@ -161,3 +161,22 @@ fi
 ```
 
 The cursor advances even when the new events are routine, so the same history does not wake the director later. After a wake, inspect `combo-chen status --deep` and the journal evidence before routing the next action.
+
+## 5. Route decisions durably
+
+A `needs_human` event transfers the named decision to a human; it does not authorize the external director to edit code or improvise product intent. Surface the event's combo id, reason, question or context, and journal timestamp. Obtain the answer from the decision owner, then record it through the lifecycle command:
+
+`combo-chen decide -n <combo-id> <verb>`
+
+Choose one of the four registered verbs:
+
+| Verb        | Use when                                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| `retry`     | The autonomous path may run again after supplying corrected input or a mechanical hint.       |
+| `skip`      | The owner explicitly accepts leaving the blocked finding out of this combo.                   |
+| `take_over` | A human accepts responsibility for the combo instead of allowing autonomous convergence.      |
+| `ignore`    | The owner explicitly ends routing for this escalation without retrying the autonomous action. |
+
+The command answers the latest pending escalation by default. If several are pending, target the exact journal timestamp with `--ref <timestamp>`; add `--note <text>` when the rationale will matter to the next director. Do not issue `skip`, `take_over`, or `ignore` as convenient ways around a blocked gate or uncertain intent: those verbs leave ownership with the human and do not approve an unreviewed changeset for publication.
+
+`decide` appends a durable `decision` event whose `needs_human_ref` points to the answered escalation. The capsule and fleet views fold that journal relationship to clear the pending decision; a `retry` can resume the applicable autonomous loop, while the other verbs keep that loop from proceeding automatically. Never patch state files or treat a chat answer alone as resolution.
