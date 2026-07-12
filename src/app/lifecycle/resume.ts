@@ -479,9 +479,9 @@ function pruneLegacyTopology(input: {
   combo: ComboRecord;
   config: ReturnType<typeof loadRuntimeConfig>;
 }): void {
-  const { deps, combo, config } = input;
+  const { deps, combo } = input;
   removeLegacyTopologyWindows(deps, combo, {
-    removeCoderResponding: config.coderRespondingWindowName === CODER_WINDOW,
+    removeCoderResponding: true,
   });
 }
 // -/ 3/3

@@ -52,9 +52,7 @@ describe("loadConfig", () => {
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.externalCommentAgents).toEqual([]);
-    expect(config.externalReviewCommands).toEqual([]);
     expect(config.readyRequiredChecks).toEqual([]);
-    expect(config.prLabelGreenCheckNames).toEqual([]);
     expect(config.roles.merge).toBe("human");
     expect(config.roles).not.toHaveProperty("rower");
     expect(config.roles).not.toHaveProperty("hodor");
@@ -97,18 +95,11 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("hodorCommand");
     expect(config).not.toHaveProperty("hodorAttachTimeoutSeconds");
     expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
-    expect(config.reviewNudgePrompt).toContain("coder responding mode");
-    expect(config.reviewNudgePrompt).toContain("two-bucket contract");
-    expect(config.reviewNudgePrompt).toContain("Do not push");
-    expect(config.reviewNudgePrompt).toContain("Leave committed local changes");
-    expect(config.reviewNudgePrompt).toContain("gatekeeper/no-mistakes");
-    expect(config.coderRespondingWindowName).toBe("coder");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.reviewerCommand).toBe("claude {prompt}");
     expect(config.reviewerPrompt).toBe("");
-    expect(config.reviewerLogins).toEqual(["claude"]);
     expect(config.directorCommand).toBe("claude {prompt}");
     expect(config.sourceBranch).toBe("main");
   });
@@ -126,8 +117,6 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("hermes:deepseek");
     expect(config.coderCommand).toBe('hermes -z "{prompt}"');
     expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
-    expect(config.reviewNudgePrompt).toBe("Please inspect {url}");
-    expect(config.coderRespondingWindowName).toBe("sitter");
   });
 
   it("loads external comment agents outside the active reviewer command", () => {
@@ -152,48 +141,6 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("claude");
     expect(config.externalCommentAgents).toEqual(["reviewdog"]);
     expect(config).not.toHaveProperty("ambientReviewerAgents");
-  });
-
-  it("loads external review trigger commands separately from comment filters", () => {
-    const repoDir = tempDir();
-    writeToml(
-      repoDir,
-      "combo-chen.toml",
-      [
-        "[external_review]",
-        'commands = ["@coderabbitai review"]',
-        "",
-        "[external_comments]",
-        'agents = ["coderabbitai"]',
-      ].join("\n"),
-    );
-
-    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
-
-    expect(config.externalReviewCommands).toEqual(["@coderabbitai review"]);
-    expect(config.externalCommentAgents).toEqual(["coderabbitai"]);
-  });
-
-  it("loads reviewer GitHub logins for trusted LGTM authors", () => {
-    const repoDir = tempDir();
-    writeToml(
-      repoDir,
-      "combo-chen.toml",
-      [
-        "[roles]",
-        'reviewer = ["claude"]',
-        "",
-        "[reviewer]",
-        'logins = ["Javi", "claude-reviewer"]',
-        "",
-        "[reviewer.claude]",
-        'command = "claude {prompt}"',
-      ].join("\n"),
-    );
-
-    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
-
-    expect(config.reviewerLogins).toEqual(["Javi", "claude-reviewer"]);
   });
 
   it("lets repo and env config override the promptable director command", () => {
@@ -257,19 +204,6 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
       /team\.reviewer\.model must be a non-empty string/,
     );
-  });
-
-  it("lets env override reviewer GitHub logins", () => {
-    const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", ["[reviewer]", 'logins = ["repo-reviewer"]'].join("\n"));
-
-    const config = loadConfig({
-      repoDir,
-      userConfigPath: join(tempDir(), "missing.toml"),
-      env: { COMBO_CHEN_REVIEWER_LOGINS: "env-reviewer\nsecond-reviewer" },
-    });
-
-    expect(config.reviewerLogins).toEqual(["env-reviewer", "second-reviewer"]);
   });
 
   it("auto-includes non-active reviewer role entries as external comment agents", () => {
@@ -356,25 +290,6 @@ describe("loadConfig", () => {
     });
 
     expect(config.externalCommentAgents).toEqual(["reviewdog", "copilot"]);
-  });
-
-  it("loads green PR label check names from PR label config and env", () => {
-    const repoDir = tempDir();
-    writeToml(
-      repoDir,
-      "combo-chen.toml",
-      ["[pr_labels]", 'green_check_names = ["ExternalReview Pro"]'].join("\n"),
-    );
-
-    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
-    expect(repoConfig.prLabelGreenCheckNames).toEqual(["ExternalReview Pro"]);
-
-    const envConfig = loadConfig({
-      repoDir,
-      userConfigPath: join(tempDir(), "missing.toml"),
-      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "ExternalReview Enterprise\nExternalReview CI" },
-    });
-    expect(envConfig.prLabelGreenCheckNames).toEqual(["ExternalReview Enterprise", "ExternalReview CI"]);
   });
 
   it("keeps configured external comment agents out of coder and active reviewer roles", () => {
@@ -959,10 +874,32 @@ describe("loadConfig", () => {
     expect(config.reviewerAgent).toBe("hermes:gemini");
     expect(config.reviewerCommand).toBe("hermes review {pr_url} {prompt}");
     expect(config.reviewerPrompt).toBe("project reviewer instructions 1234");
-    expect(config.reviewNudgePrompt).toBe("Please review {url}");
-    expect(config.coderRespondingWindowName).toBe("coder-reply");
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
+  });
+
+  it("loads unified v1 role commands while keeping implement and respond distinct", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles.coder]",
+        'implement_command = "repo-coder {worktree} {prompt}"',
+        'respond_command = "repo-coder --respond {prompt}"',
+        "[roles.reviewer]",
+        'command = "local-review {worktree} {prompt}"',
+        'prompt = "review locally"',
+        "[roles.gate]",
+        'command = "repo-gate {worktree}"',
+      ].join("\n"),
+    );
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+    expect(config.coderCommand).toBe("repo-coder {worktree} {prompt}");
+    expect(config.coderResumeCommand).toBe("repo-coder --respond {prompt}");
+    expect(config.reviewerCommand).toBe("local-review {worktree} {prompt}");
+    expect(config.reviewerPrompt).toBe("review locally");
+    expect(config.gatekeeperCommand).toBe("repo-gate {worktree}");
   });
 
   it("refuses to launch when gordon would judge their own cooking", () => {
@@ -1066,18 +1003,6 @@ describe("loadConfig", () => {
     );
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
       /command template/,
-    );
-  });
-
-  it("rejects non-string coder responding templates during config load", () => {
-    const repoDir = tempDir();
-    writeToml(repoDir, "combo-chen.toml", "[coder_responding]\nwindow_name = 123\n");
-
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
-      ComboConfigError,
-    );
-    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") })).toThrow(
-      /coder_responding.window_name/,
     );
   });
 

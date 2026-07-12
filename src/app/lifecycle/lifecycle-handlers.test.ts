@@ -336,7 +336,7 @@ describe("park", () => {
     const summaryPath = readEvents(dir).at(-1)?.summary_path;
     expect(typeof summaryPath).toBe("string");
     const summary = readFileSync(summaryPath as string, "utf8");
-    expect(summary).toContain("downstream: PR ready for reviewer");
+    expect(summary).toContain("downstream: no-mistakes unavailable");
   });
 
   it("writes a resumable handoff summary and stops tmux without terminally stopping the combo", async () => {

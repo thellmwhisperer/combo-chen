@@ -275,7 +275,7 @@ describe("resume", () => {
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
     expect(newWindows.some((call) => call.includes("director-watch"))).toBe(true);
-    expect(out.join("\n")).toContain("resume: PR ready for reviewer");
+    expect(out.join("\n")).toContain("resume: PR exists at https://github.com/o/r/pull/7");
   });
 
   it("rebuilds a missing capsule session with capsule as window 0 and the frozen window order", async () => {

@@ -438,41 +438,6 @@ describe("inspectWorkerPanes", () => {
     expect(timeouts).toEqual([1234]);
   });
 
-  it("does not flag a stalled-looking reviewer while an external review request is in flight", () => {
-    const { record, runDir } = combo();
-    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(runDir, "external_review_requested", {
-      sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      command: "@coderabbitai review",
-      pr_url: "https://github.com/o/r/pull/7",
-    });
-    const { deps, out } = fakeDeps({
-      reviewer: "waiting for external review...\n",
-    });
-
-    expect(
-      inspectWorkerPanes({
-        deps,
-        combo: record,
-        runDir,
-        workerWindows: ["reviewer"],
-        stallTicks: 2,
-      }).escalated,
-    ).toBe(false);
-    const result = inspectWorkerPanes({
-      deps,
-      combo: record,
-      runDir,
-      workerWindows: ["reviewer"],
-      stallTicks: 2,
-    });
-
-    expect(result.escalated).toBe(false);
-    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; external review active");
-    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(out).toContainEqual(expect.stringContaining("external review active"));
-  });
-
   it("does not flag a stalled-looking reviewer after a recent reviewer artifact", () => {
     const { record, runDir } = combo();
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });

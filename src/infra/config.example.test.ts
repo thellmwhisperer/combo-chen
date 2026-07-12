@@ -122,18 +122,12 @@ describe("combo-chen.example.toml", () => {
     expect(config.roles.gatekeeper).toBe("no-mistakes");
     expect(config.roles.reviewer).toEqual(["claude"]);
     expect(config.externalCommentAgents).toEqual(["coderabbitai"]);
-    expect(config.externalReviewCommands).toEqual(["@coderabbitai review"]);
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
-    expect(config.prLabelGreenCheckNames).toEqual(["CodeRabbit"]);
-    expect(config.reviewerLogins).toEqual(["claude"]);
     expect(config.workerPermissionPromptPolicy).toBe("escalate");
     expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
-    expect(config.coderRespondingWindowName).toBe("coder");
     expect(config.workerRecoveryAttempts).toBe(2);
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
-    expect(config.reviewNudgePrompt).toContain("Do not push");
-    expect(config.reviewNudgePrompt).toContain("gatekeeper/no-mistakes");
     expect(config.reviewerAgent).toBe("claude");
     expect(config.directorCommand).toBe("claude {prompt}");
     expect(config.limits.coderTimeoutMinutes).toBe(180);

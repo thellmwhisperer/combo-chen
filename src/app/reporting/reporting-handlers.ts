@@ -134,7 +134,6 @@ export async function showStatus(
       localHeadSha: collectLocalWorktreeHeadSha(deps, combo),
       requiredCheckNames: config.readyRequiredChecks,
       ambientCheckNames: config.externalCommentAgents,
-      reviewerLogins: config.reviewerLogins,
     });
     deps.out(line + " " + (downstream ?? "—"));
   }
@@ -205,7 +204,6 @@ export async function showForensics(
         {
           requiredCheckNames: config.readyRequiredChecks,
           ambientCheckNames: config.externalCommentAgents,
-          reviewerLogins: config.reviewerLogins,
         },
       ),
       tmux: collectForensicsTmuxFacts(deps, combo),

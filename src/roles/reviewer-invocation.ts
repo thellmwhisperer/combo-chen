@@ -2,42 +2,32 @@
  * @overview Reviewer adapter: renders the configured reviewer command with
  *   changeset facts plus the frozen review and anti-slop contract. The loop
  *   mechanics live in the orchestrator; this module owns the reviewer
- *   instructions. v0 reviews an open PR and posts to GitHub; the v1 local
- *   pre-publish prompt reviews the local changeset and writes the verdict
- *   artifact instead. ~280 lines, 13 exports.
+ *   instructions. Reviewers operate locally and write verdict artifacts.
  *
  *   READING GUIDE
  *   ─────────────
- *   1. Start at buildReviewerInvocation  ← v0 entry: renders the PR command
+ *   1. Start at buildLocalReviewerInvocation ← local artifact-producing entry
  *   2. assertReviewerCommandSafe         ← prevents prompt-stalling shells
- *   3. defaultReviewerPrompt             ← the frozen v0 review contract
- *   4. localReviewerPrompt               ← v1 verdict-file review contract
- *   5. buildLocalReviewerInvocation      ← v1 entry used by the capsule
+ *   3. localReviewerPrompt               ← verdict-file review contract
  *
  *   MAIN FLOW
  *   ─────────
- *   v0: cli/main.ts → buildReviewerInvocation → defaultReviewerPrompt
- *     → renderCommand → executed in reviewer tmux window
- *   v1: capsule → buildLocalReviewerInvocation → localReviewerPrompt
+ *   capsule → buildLocalReviewerInvocation → localReviewerPrompt
  *     → renderCommand → owned reviewer child in the capsule pane
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
- *   │ buildReviewerInvocation   Render v0 reviewer command from template │
  *   │ assertReviewerCommandSafe Reject compound reviewer shell commands │
- *   │ defaultReviewerPrompt     v0 review + anti-slop prompt            │
- *   │ incrementalReviewerPrompt v0 delta-only re-review prompt          │
  *   │ localReviewerPrompt       v1 verdict-file review prompt           │
  *   │ buildLocalReviewerInvocation v1 reviewer command for the capsule  │
  *   │ LOCAL_REVIEW_PROMPT_VERSION  Versioned in-repo prompt template    │
  *   │ CRITICAL_SURFACES         Minimum-code-1 calibration list         │
  *   │ ReviewerInvocationError   Reviewer command safety error           │
- *   │ ReviewerPromptInput / ReviewerInput / IncrementalReviewerPromptInput │
  *   │ LocalReviewPromptInput / LocalReviewerInput                       │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ hasUnsupportedShellSyntax  Conservative plain-command lexer      │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation, LOCAL_REVIEW_PROMPT_VERSION, CRITICAL_SURFACES, LocalReviewPromptInput, localReviewerPrompt, LocalReviewerInput, buildLocalReviewerInvocation
+ * @exports ReviewerInvocationError, assertReviewerCommandSafe, LOCAL_REVIEW_PROMPT_VERSION, CRITICAL_SURFACES, LocalReviewPromptInput, localReviewerPrompt, LocalReviewerInput, buildLocalReviewerInvocation
  * @deps ../core/{state,verdict,work-plan}, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
@@ -47,13 +37,6 @@ import { renderCommand } from "../infra/config.js";
 
 // -- 1/1 CORE · Prompt definitions + invocation ← START HERE --
 export class ReviewerInvocationError extends Error {}
-
-export interface ReviewerPromptInput {
-  combo: ComboRecord;
-  prUrl: string;
-  reviewerInstructions: string;
-  workPlan?: WorkPlan;
-}
 
 function hasUnsupportedShellSyntax(command: string): boolean {
   let quote: "'" | '"' | undefined;
@@ -96,67 +79,7 @@ export function assertReviewerCommandSafe(command: string): void {
   );
 }
 
-export function defaultReviewerPrompt(input: ReviewerPromptInput): string {
-  const reviewerInstructions = input.reviewerInstructions.trim();
-  const workPlanContext =
-    input.workPlan === undefined
-      ? undefined
-      : `Work plan context:\n${renderWorkPlanMarkdown(input.workPlan).trim()}`;
-  return [
-    `Review PR ${input.prUrl} for combo ${input.combo.id}.`,
-    ...(reviewerInstructions.length > 0 ? [`Reviewer instructions: ${reviewerInstructions}.`] : []),
-    ...(workPlanContext === undefined ? [] : [workPlanContext]),
-    "Hard rules: reviewer != coder; never write code, push commits, merge, or deploy.",
-    "All GitHub writes must be COMMENT reviews or issue comments; never APPROVE or submit formal approvals.",
-    "Every review body must include exactly one machine-readable verdict block:",
-    "combo-chen-reviewer-verdict:\nhead: <current PR head SHA>\ncode: <0|1|2|3>",
-    "Verdict codes: 0 = OK, current-head LGTM; 1 = mechanical fix required; 2 = ambiguous or intent-sensitive; 3 = needs human.",
-    'Pin every acceptable verdict on its own line as "lgtm @ <sha>" using at least seven hex characters; prefer the full current PR head SHA.',
-    "On a new push, treat any earlier LGTM as stale and re-review only the delta since the last reviewed SHA.",
-    "If anything is intent-touching, emit needs_human instead of deciding product intent.",
-    "Anti-slop checks: if a helper was added, verify pnpm surface or an equivalent repo search was consulted and route code 1 when an equivalent helper already exists.",
-    "Route code 1 for new config without who/when/why in the PR, any compatibility path without a removal issue or date, and script-string assertions that should be contract tests.",
-    "Treat many new top-level functions or exports in one module as a surface budget breach unless the PR justifies the shape.",
-    'Submit reviews with one allowlist-friendly command: gh pr review <pr-url> --comment --body "<body>".',
-    "Do not use heredocs, temp files, cat, rm, shell redirection, pipes, semicolons, or &&/||.",
-    "Run one plain command per tool call; if a command fails, inspect that single failure and continue with the next plain command.",
-  ].join(" ");
-}
-
-export interface IncrementalReviewerPromptInput extends ReviewerPromptInput {
-  oldSha: string;
-  newSha: string;
-}
-
-export function incrementalReviewerPrompt(input: IncrementalReviewerPromptInput): string {
-  return [
-    defaultReviewerPrompt(input),
-    `Previous LGTM at ${input.oldSha} is stale because the PR head is now ${input.newSha}.`,
-    `Review only the incremental delta ${input.oldSha}..${input.newSha}.`,
-    `If the new head is acceptable, pin the verdict exactly as "lgtm @ ${input.newSha}".`,
-  ].join(" ");
-}
-
-export interface ReviewerInput extends ReviewerPromptInput {
-  reviewerCommand: string;
-  prompt?: string;
-}
-
-export function buildReviewerInvocation(input: ReviewerInput): string {
-  assertReviewerCommandSafe(input.reviewerCommand);
-  const prompt = input.prompt ?? defaultReviewerPrompt(input);
-  return renderCommand(input.reviewerCommand, {
-    issue_url: input.combo.issueUrl,
-    pr_url: input.prUrl,
-    worktree: input.combo.worktree,
-    repo: input.combo.repoDir,
-    branch: input.combo.branch,
-    prompt,
-  });
-}
-// -/ 1/2
-
-// -- 2/2 CORE · v1 local pre-publish review prompt (PRD s3) --
+// -- 1/1 CORE · local pre-publish review prompt (PRD s3) --
 /**
  * Versioned in-repo review template (recon 4.2 item 4): bump on any
  * calibration or contract change so run transcripts identify the prompt
@@ -238,4 +161,4 @@ export function buildLocalReviewerInvocation(input: LocalReviewerInput): string 
     prompt: localReviewerPrompt(input),
   });
 }
-// -/ 2/2
+// -/ 1/1
