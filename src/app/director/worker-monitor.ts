@@ -1,7 +1,6 @@
 /**
- * @overview Worker pane monitor. ~570 lines, detects permission prompts,
- *   terminal worker holds, dead panes, and unchanged panes before the director
- *   silently waits.
+ * @overview Worker pane monitor. ~600 lines, turns permission prompts into
+ *   typed learning signals, and detects terminal/dead/unchanged worker panes.
  *
  *   READING GUIDE
  *   -------------
@@ -12,7 +11,7 @@
  *   MAIN FLOW
  *   ---------
  *   director-tick -> inspectWorkerPanes -> tmux capture/list-panes
- *     -> needs_human event when a worker is stuck
+ *     -> typed permission signal or needs_human when a worker is stuck
  *
  *   PUBLIC API
  *   ----------
@@ -31,8 +30,8 @@
  *   INTERNALS
  *   ---------
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
- *   hasPermissionPrompt, hasGnhfTerminalFailure, newestGnhfLogPath, coderGnhfProgressAge,
- *   gnhfRunEndRecorded, gnhfCoderEvidenceSource, autoApprovePermissionPrompt,
+ *   permissionPromptRequest, hasGnhfTerminalFailure, newestGnhfLogPath, coderGnhfProgressAge,
+ *   gnhfRunEndRecorded, gnhfCoderEvidenceSource,
  *   workerRecoveryAttempts, gatekeeperRunActive, reviewerOrchestratorEvidence,
  *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
@@ -45,11 +44,7 @@ import { join } from "node:path";
 
 import { appendEvent, readEvents, type ComboEvent } from "../../core/events.js";
 import type { ComboRecord } from "../../core/state.js";
-import {
-  DEFAULT_WORKER_RECOVERY_ATTEMPTS,
-  DEFAULT_PERMISSION_PROMPT_PATTERNS,
-  type WorkerPermissionPromptPolicy,
-} from "../../infra/config.js";
+import { DEFAULT_PERMISSION_PROMPT_PATTERNS, type WorkerPermissionPromptPolicy } from "../../infra/config.js";
 import {
   captureWindowArgs,
   hasSessionArgs,
@@ -199,25 +194,24 @@ function compilePermissionPromptPatterns(patterns: string[]): RegExp[] {
   return patterns.map((pattern) => new RegExp(pattern, "i"));
 }
 
-function hasPermissionPrompt(pane: string, patterns: RegExp[]): boolean {
-  return pane.split(/\r?\n/).some((line) => patterns.some((pattern) => pattern.test(line)));
+interface PermissionPromptRequest {
+  tool: string;
+  command: string;
+}
+
+function permissionPromptRequest(pane: string, patterns: RegExp[]): PermissionPromptRequest | undefined {
+  for (const line of pane.split(/\r?\n/)) {
+    if (!patterns.some((pattern) => pattern.test(line))) continue;
+    const requested = /requires approval:\s*(.+)$/i.exec(line)?.[1]?.trim();
+    if (requested === undefined) return { tool: "unknown", command: line.trim() };
+    const tool = /^(?:["']?)([^\s"']+)/.exec(requested)?.[1] ?? "unknown";
+    return { tool, command: requested };
+  }
+  return undefined;
 }
 
 function hasGnhfTerminalFailure(pane: string): boolean {
   return /"success"\s*:\s*false/.test(pane) && /gnhf\s+again\s+to\s+resume/i.test(pane);
-}
-
-function autoApprovePermissionPrompt(
-  deps: WorkerMonitorDeps,
-  combo: ComboRecord,
-  worker: string,
-): { recovered: true } | { recovered: false; detail: string } {
-  const result = deps.tmux(["send-keys", "-t", `${combo.tmuxSession}:${worker}`, "y", "C-m"]);
-  if (result.status === 0) return { recovered: true };
-  return {
-    recovered: false,
-    detail: result.stderr.trim() || result.stdout.trim() || "tmux send-keys failed",
-  };
 }
 
 export function workerRecoveryAttempts(events: ComboEvent[], worker: string, reason: string): number {
@@ -466,13 +460,9 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
         : { gatekeeperStatusTimeoutMs: input.gatekeeperStatusTimeoutMs }),
     });
   const recoverableStalledWorkers = new Set(input.recoverableStalledWorkers ?? []);
-  const recoverablePermissionPromptWorkers = new Set(input.recoverablePermissionPromptWorkers ?? []);
-  const autoApprovePermissionPromptMaxAttempts =
-    input.autoApprovePermissionPromptMaxAttempts ?? DEFAULT_WORKER_RECOVERY_ATTEMPTS;
   const permissionPromptPatterns = compilePermissionPromptPatterns(
     input.permissionPromptPatterns ?? DEFAULT_PERMISSION_PROMPT_PATTERNS,
   );
-  const permissionPromptPolicy = input.permissionPromptPolicy ?? "escalate";
   let escalated = false;
 
   for (const worker of new Set(input.workerWindows)) {
@@ -526,62 +516,27 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       continue;
     }
 
-    if (hasPermissionPrompt(pane, permissionPromptPatterns)) {
-      if (permissionPromptPolicy === "auto-approve-known-safe") {
-        const attempts = workerRecoveryAttempts(readEvents(runDir), worker, "worker_permission_prompt");
-        if (attempts >= autoApprovePermissionPromptMaxAttempts) {
-          findings.push(
-            recordFinding({
-              runDir,
-              deps,
-              worker,
-              reason: "worker_permission_prompt",
-              detail: `recovery attempts exhausted after ${autoApprovePermissionPromptMaxAttempts}; permission prompt`,
-            }),
-          );
-          escalated = true;
-          continue;
-        }
-        const recovery = autoApprovePermissionPrompt(deps, combo, worker);
-        if (recovery.recovered) {
-          appendEvent(runDir, "worker_recovered", {
-            worker,
-            reason: "worker_permission_prompt",
-            detail: "permission prompt auto-approved",
-            attempt: attempts + 1,
-            max_attempts: autoApprovePermissionPromptMaxAttempts,
-          });
-          summaries.push(
-            `worker ${worker}: permission_prompt=auto-approved attempt=${attempts + 1}/${autoApprovePermissionPromptMaxAttempts}`,
-          );
-          deps.out(
-            `director: worker ${worker} permission prompt auto-approved attempt ${attempts + 1}/${autoApprovePermissionPromptMaxAttempts}`,
-          );
-          continue;
-        }
-        findings.push(
-          recordFinding({
-            runDir,
-            deps,
-            worker,
-            reason: "worker_permission_prompt",
-            detail: `permission prompt auto-approve failed: ${recovery.detail}`,
-          }),
-        );
-        escalated = true;
-        continue;
+    const permissionRequest = permissionPromptRequest(pane, permissionPromptPatterns);
+    if (permissionRequest !== undefined) {
+      if (
+        !events.some(
+          (event) =>
+            event.event === "permission_prompt_detected" &&
+            event["worker"] === worker &&
+            event["command"] === permissionRequest.command,
+        )
+      ) {
+        appendEvent(runDir, "permission_prompt_detected", { worker, ...permissionRequest });
       }
-      const deferNeedsHuman =
-        permissionPromptPolicy === "recreate-non-interactive" &&
-        recoverablePermissionPromptWorkers.has(worker);
       findings.push(
         recordFinding({
           runDir,
           deps,
           worker,
           reason: "worker_permission_prompt",
-          detail: "permission prompt",
-          deferNeedsHuman,
+          detail:
+            `permission prompt requested tool=${permissionRequest.tool} command=${JSON.stringify(permissionRequest.command)}; ` +
+            `grant, add the tool to ${worker}'s allowed_tools, then retry the turn`,
         }),
       );
       escalated = true;

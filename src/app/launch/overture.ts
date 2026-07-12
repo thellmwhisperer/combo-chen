@@ -1,6 +1,6 @@
 /**
- * @overview Deterministic launch runway for combo creation. ~480 lines,
- *   6 exports, checks launch inputs/resources before worker windows start.
+ * @overview Deterministic launch runway for combo creation. ~715 lines,
+ *   11 exports, checks launch inputs/resources before worker windows start.
  *
  *   READING GUIDE
  *   -------------
@@ -16,7 +16,11 @@
  *   ----------
  *   OvertureDeps            Injected process adapters.
  *   TeamIdentityResolver    Resolve effective role identity for declared teams.
+ *   TeamIdentityResolution  One resolved team-role identity.
+ *   OvertureCheckStatus     Machine-readable OK, warning, or failure state.
  *   OvertureCheck           One machine-readable check result.
+ *   OvertureResources       Frozen resource ledger for the proposed run.
+ *   OvertureResult          Persisted runway result and checks.
  *   OverturePreparation     Full prepared launch context for run.
  *   prepareOverture         Resolve work item/config/resources and write artifact.
  *   renderOvertureChecklist Render the checklist for CLI output.
@@ -26,9 +30,10 @@
  *   ---------
  *   OVERTURE_ARTIFACT, OVERTURE_SCHEMA_VERSION, OvertureBlockedError, readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
  *   checkBaseRef, checkTreehouseAvailable, checkBranchFree,
- *   checkNoMistakesRunway, checkTeamIdentity, runDirReusable, writeOvertureArtifact
+ *   checkNoMistakesRunway, checkTeamIdentity, checkRoleCommandAutonomous, hasBypassEscapeHatch,
+ *   runDirReusable, writeOvertureArtifact
  *
- * @exports OvertureDeps, TeamIdentityResolution, TeamIdentityResolver, OvertureCheck, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
+ * @exports OvertureDeps, TeamIdentityResolution, TeamIdentityResolver, OvertureCheckStatus, OvertureCheck, OvertureResources, OvertureResult, OverturePreparation, prepareOverture, renderOvertureChecklist, assertOverturePassed
  * @deps ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/tmux, ../../roles/reviewer-invocation, ../github/github, ../reporting/status, node:crypto, node:fs, node:path
  */
 import { createHash } from "node:crypto";
@@ -95,7 +100,7 @@ export interface OvertureDeps {
   resolveTeamIdentity?: TeamIdentityResolver;
 }
 
-export type OvertureCheckStatus = "ok" | "failed";
+export type OvertureCheckStatus = "ok" | "warn" | "failed";
 
 export interface OvertureCheck {
   id: string;
@@ -185,6 +190,10 @@ function ok(id: string, resource: string, detail?: string): OvertureCheck {
 
 function failed(id: string, resource: string, detail: string): OvertureCheck {
   return { id, status: "failed", resource, detail };
+}
+
+function warn(id: string, resource: string, detail: string): OvertureCheck {
+  return { id, status: "warn", resource, detail };
 }
 
 function errorDetail(prefix: string, result: CommandResult): string {
@@ -295,6 +304,58 @@ function checkConfigFilePredictable(repoDir: string, worktree: string): Overture
   const source = join(repoDir, ".no-mistakes.yaml");
   if (!existsSync(source)) return ok("no_mistakes_config_predictable", source, "no repo config");
   return ok("no_mistakes_config_predictable", `${source} -> ${join(worktree, ".no-mistakes.yaml")}`);
+}
+
+function hasFlag(command: string, flag: string): boolean {
+  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`).test(command);
+}
+
+/**
+ * Autonomous role posture: every role declares a snapshot-frozen tool budget.
+ * Full bypass remains a last-resort escape hatch, never the recommended mode.
+ *
+ * Posture                  | overture result
+ * non-empty role allowlist | OK (recommended, learning-loop compatible)
+ * bypass-class CLI flag    | WARN (accepted emergency escape hatch)
+ * neither                  | FAIL (a pane prompt would have no learning budget)
+ */
+function hasBypassEscapeHatch(command: string): boolean {
+  return (
+    hasFlag(command, "--dangerously-bypass-approvals-and-sandbox") ||
+    hasFlag(command, "--dangerously-skip-permissions") ||
+    /(?:^|\s)--permission-mode(?:=|\s+)bypassPermissions(?:\s|$)/.test(command)
+  );
+}
+
+function checkRoleCommandAutonomous(config: ComboConfig): OvertureCheck {
+  const commands: Record<ComboTeamRole, string> = {
+    coder: `${config.coderCommand} ${config.coderResumeCommand}`,
+    reviewer: config.reviewerCommand,
+    gatekeeper: config.gatekeeperCommand,
+    director: config.directorCommand,
+  };
+  const bypassRoles: string[] = [];
+  for (const role of TEAM_ROLE_ORDER) {
+    if (config.roleToolAllowlists[role].length > 0) continue;
+    if (hasBypassEscapeHatch(commands[role])) {
+      bypassRoles.push(role);
+      continue;
+    }
+    return failed(
+      "role_command_autonomous",
+      role,
+      `missing explicit tool allowlist; declare allowed_tools for ${role}. Prompts are captured as learning signals, never left blocking a pane`,
+    );
+  }
+  if (bypassRoles.length > 0) {
+    return warn(
+      "role_command_autonomous",
+      "roles",
+      `bypass escape hatch used by ${bypassRoles.join(", ")}; prefer explicit allowed_tools`,
+    );
+  }
+  return ok("role_command_autonomous", "roles", "all roles declare explicit tool allowlists");
 }
 
 const TEAM_ROLE_ORDER: ComboTeamRole[] = ["coder", "gatekeeper", "reviewer", "director"];
@@ -565,11 +626,12 @@ export function prepareOverture(input: PrepareOvertureInput): OverturePreparatio
       ),
     );
   }
+  checks.push(checkRoleCommandAutonomous(config));
   checks.push(...noMistakes.checks);
   checks.push(checkConfigFilePredictable(input.repoDir, worktree));
 
   const result: OvertureResult = {
-    ok: checks.every((check) => check.status === "ok"),
+    ok: checks.every((check) => check.status !== "failed"),
     createdAt: combo.createdAt,
     resources,
     ...(teamIdentity.resolvedTeam !== undefined ? { resolvedTeam: teamIdentity.resolvedTeam } : {}),
@@ -605,10 +667,15 @@ function writeOvertureArtifact(runDir: string, result: OvertureResult): void {
 }
 
 export function renderOvertureChecklist(result: OvertureResult): string[] {
+  const markerFor = (status: OvertureCheckStatus): string => {
+    if (status === "ok") return "OK";
+    if (status === "warn") return "WARN";
+    return "X";
+  };
   return [
     `overture ${result.resources.comboId}`,
     ...result.checks.map((check) => {
-      const marker = check.status === "ok" ? "OK" : "X";
+      const marker = markerFor(check.status);
       return `${marker} ${check.id}: ${check.resource}${check.detail === undefined ? "" : ` ${check.detail}`}`;
     }),
     ...(result.artifactPath === undefined ? [] : [`artifact ${result.artifactPath}`]),

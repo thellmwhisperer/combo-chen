@@ -1,5 +1,6 @@
 /**
- * @overview Overture launch handler integration tests.
+ * @overview Overture launch handler integration tests. ~430 lines, covering
+ *   resource runway, role autonomy envelopes, and team identity contracts.
  *
  *   READING GUIDE
  *   -------------
@@ -56,6 +57,7 @@ describe("overture", () => {
     expect(out).toContain(`OK no_mistakes_available: ${repoDir}`);
     expect(out).toContain("OK no_mistakes_run_free: combo/issue-7 no active run");
     expect(out).toContain("OK team_identity: team undeclared; identity check skipped");
+    expect(out).toContainEqual(expect.stringContaining("OK role_command_autonomous: roles"));
     expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
       false,
     );
@@ -90,6 +92,58 @@ describe("overture", () => {
       status: "ok",
       resource: "team",
       detail: "undeclared; identity check skipped",
+    });
+  });
+
+  it("blocks a role that has no explicit tool allowlist", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[roles.reviewer]\ncommand = "claude --permission-mode auto {prompt}"\nallowed_tools = []\n',
+    );
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
+      /role_command_autonomous: reviewer.*missing explicit tool allowlist/,
+    );
+
+    expect(out.join("\n")).toContain("Prompts are captured as learning signals");
+  });
+
+  it("accepts bypass only as a warning escape hatch when the allowlist is empty", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(
+      join(repoDir, "combo-chen.toml"),
+      '[roles.coder]\nrespond_command = "codex --dangerously-bypass-approvals-and-sandbox resume {thread_id}"\nallowed_tools = []\n',
+    );
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(out.join("\n")).toContain("WARN role_command_autonomous: roles bypass escape hatch used by coder");
+  });
+
+  it("keeps harness-neutral commands autonomous through their declared tool budget", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[roles.reviewer]\ncommand = "opencode run {prompt}"\n');
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["overture", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(out.join("\n")).toContain("OK role_command_autonomous: roles");
+    const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      ok: boolean;
+      checks: Array<{ id: string; status: string; detail?: string }>;
+    };
+    expect(artifact.ok).toBe(true);
+    expect(artifact.checks).toContainEqual({
+      id: "role_command_autonomous",
+      status: "ok",
+      resource: "roles",
+      detail: "all roles declare explicit tool allowlists",
     });
   });
 
@@ -310,7 +364,7 @@ describe("overture", () => {
       checks: Array<{ id: string; status: string; resource: string }>;
     };
     expect(artifact.ok).toBe(true);
-    expect(artifact.checks.every((check) => check.status === "ok")).toBe(true);
+    expect(artifact.checks.every((check) => check.status !== "failed")).toBe(true);
     expect(artifact.resources).toMatchObject({
       comboId: id,
       base: "origin/release-candidate",

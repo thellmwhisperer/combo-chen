@@ -65,6 +65,7 @@ describe("loadConfig", () => {
       expect.arrayContaining(["^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$"]),
     );
     expect(config.workerPermissionPromptPolicy).toBe("escalate");
+    expect(config.roleToolAllowlists.reviewer).toEqual(["node", "pnpm", "git", "rg"]);
     // No quotes around {prompt}: renderCommand substitutes values as
     // already-quoted shell tokens.
     expect(config.coderCommand).toContain("npx -y gnhf@0.1.41");
@@ -73,11 +74,13 @@ describe("loadConfig", () => {
     expect(config.coderCommand).toContain("--prevent-sleep on");
     expect(config.coderCommand).toContain("--meteor-frequency 0");
     expect(config.coderCommand).toContain("--current-branch {prompt}");
-    expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.coderResumeCommand).toBe(
+      "codex --ask-for-approval never --sandbox workspace-write resume {thread_id}",
+    );
     expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
     expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
     expect(config.gatekeeperCommand).toContain("--skip=ci");
-    expect(config.directorCommand).toBe("claude {prompt}");
+    expect(config.directorCommand).toBe("claude --permission-mode auto {prompt}");
     expect(config.gatekeeperInitialGateRetryAttempts).toBe(2);
     expect(config.gatekeeperInitialGateRetryBackoffSeconds).toBe(10);
     expect(config.gatekeeperCommand.indexOf("no-mistakes daemon start")).toBeLessThan(
@@ -92,9 +95,9 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
-    expect(config.reviewerCommand).toBe("claude {prompt}");
+    expect(config.reviewerCommand).toBe("claude --permission-mode auto {prompt}");
     expect(config.reviewerPrompt).toBe("");
-    expect(config.directorCommand).toBe("claude {prompt}");
+    expect(config.directorCommand).toBe("claude --permission-mode auto {prompt}");
     expect(config.sourceBranch).toBe("main");
   });
 
@@ -111,6 +114,33 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("hermes:deepseek");
     expect(config.coderCommand).toBe('hermes -z "{prompt}"');
     expect(config.coderResumeCommand).toBe("hermes --resume {thread_id}");
+  });
+
+  it("loads per-role tool allowlists from the role config tables", () => {
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      [
+        "[roles.coder]",
+        'allowed_tools = ["git", "node"]',
+        "[roles.reviewer]",
+        'allowed_tools = ["git"]',
+        "[roles.gate]",
+        'allowed_tools = ["no-mistakes"]',
+        "[director]",
+        'allowed_tools = ["tmux"]',
+      ].join("\n"),
+    );
+
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
+
+    expect(config.roleToolAllowlists).toEqual({
+      coder: ["git", "node"],
+      reviewer: ["git"],
+      gatekeeper: ["no-mistakes"],
+      director: ["tmux"],
+    });
   });
 
   it("loads external comment agents outside the active reviewer command", () => {

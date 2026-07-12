@@ -1,5 +1,5 @@
 /**
- * @overview Per-run config snapshot persistence. ~110 lines, 5 exports,
+ * @overview Per-run config snapshot persistence. ~130 lines, 7 exports,
  *   writes, reads, migrates, and resolves the frozen ComboConfig artifact used by a combo.
  *
  *   READING GUIDE
@@ -34,7 +34,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { join } from "node:path";
 import { pid } from "node:process";
 
-import { DEFAULT_REVIEW_SETTINGS, loadConfig, type ComboConfig } from "./config.js";
+import {
+  DEFAULT_REVIEW_SETTINGS,
+  DEFAULT_ROLE_TOOL_ALLOWLISTS,
+  DEFAULT_WORKER_PERMISSION_PROMPT_POLICY,
+  loadConfig,
+  type ComboConfig,
+} from "./config.js";
 
 // -- 1/1 CORE · config snapshot artifact <- START HERE --
 export const CONFIG_SNAPSHOT_FILE = "config.snapshot.json";
@@ -82,9 +88,9 @@ export function readConfigSnapshot(runDir: string): ConfigSnapshot {
   const parsed = JSON.parse(readFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), "utf8")) as ComboConfig & {
     schemaVersion?: number;
   };
-  // Pre-W5b snapshots predate the [review] loop bounds; missing fields read
-  // as the documented defaults so an older frozen run never loses the round
-  // cap or the agent turn timeouts (undefined would disable both).
+  // Older snapshots predate the [review] loop bounds and autonomous permission
+  // recovery default. Missing fields read as current documented defaults so a
+  // frozen run cannot silently lose its bounds or wait for a human pane prompt.
   return {
     ...parsed,
     schemaVersion: parsed.schemaVersion ?? CONFIG_SNAPSHOT_SCHEMA_VERSION,
@@ -94,6 +100,9 @@ export function readConfigSnapshot(runDir: string): ConfigSnapshot {
       parsed.reviewerTurnTimeoutMinutes ?? DEFAULT_REVIEW_SETTINGS.reviewerTurnTimeoutMinutes,
     fixTurnTimeoutMinutes: parsed.fixTurnTimeoutMinutes ?? DEFAULT_REVIEW_SETTINGS.fixTurnTimeoutMinutes,
     reviewVerdictWaitMs: parsed.reviewVerdictWaitMs ?? DEFAULT_REVIEW_SETTINGS.verdictWaitMs,
+    workerPermissionPromptPolicy:
+      parsed.workerPermissionPromptPolicy ?? DEFAULT_WORKER_PERMISSION_PROMPT_POLICY,
+    roleToolAllowlists: parsed.roleToolAllowlists ?? DEFAULT_ROLE_TOOL_ALLOWLISTS,
   };
 }
 

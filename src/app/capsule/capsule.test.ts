@@ -762,7 +762,7 @@ describe("capsule review loop (W5b)", () => {
       expect.objectContaining({ event: "local_verdict", round: 2, code: 0, sha: "fixed" }),
     ]);
     const fixCommand = h.agentCommands[2]!;
-    expect(fixCommand).toContain("codex resume");
+    expect(fixCommand).toContain("--sandbox workspace-write resume");
     expect(fixCommand).toContain("hardcoded-timeout");
     expect(fixCommand).toContain("review-1-coded.md");
     expect(fixCommand).not.toContain("gnhf");
@@ -1005,7 +1005,7 @@ describe("capsule review loop resume (W5b fix round 1)", () => {
       status: "validated",
       exitCode: 0,
     });
-    expect(h.agentCommands[0]).toContain("codex resume");
+    expect(h.agentCommands[0]).toContain("--sandbox workspace-write resume");
     const journal = events(f.runDir);
     expect(
       journal.filter((event) => event.event === "local_review_requested" && event.round === 1),
@@ -1076,7 +1076,7 @@ describe("capsule review loop resume (W5b fix round 1)", () => {
       status: "validated",
       exitCode: 0,
     });
-    expect(h.agentCommands[0]).toContain("codex resume");
+    expect(h.agentCommands[0]).toContain("--sandbox workspace-write resume");
     expect(
       events(f.runDir).filter((event) => event.event === "coder_started" && event["mode"] === "review_fix"),
     ).toHaveLength(2);

@@ -1,6 +1,6 @@
 /**
- * @overview Unit tests for worker pane monitoring. ~970 lines, permission
- *   prompt recovery/escalation, unchanged-pane stall, and dead-pane escalation.
+ * @overview Unit tests for worker pane monitoring. ~1060 lines, permission
+ *   prompt learning/escalation, unchanged-pane stall, and dead-pane escalation.
  *
  *   READING GUIDE
  *   -------------
@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   fake tmux panes -> inspectWorkerPanes -> needs_human events + snapshot file
+ *   fake tmux panes -> inspectWorkerPanes -> learning/needs_human events + snapshot file
  *
  *   PUBLIC API
  *   ----------
@@ -108,99 +108,11 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
   });
 
-  it("auto-approves a known-safe permission prompt without escalating", () => {
-    const { record, runDir } = combo();
-    const { deps, out, calls } = fakeDeps({
-      reviewer: "Do you want to proceed? [y/N]\n",
-    });
-
-    const result = inspectWorkerPanes({
-      deps,
-      combo: record,
-      runDir,
-      workerWindows: ["reviewer"],
-      permissionPromptPolicy: "auto-approve-known-safe",
-    });
-
-    expect(result.escalated).toBe(false);
-    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(calls).toContainEqual(["send-keys", "-t", "combo-chen-o-r-7:reviewer", "y", "C-m"]);
-    expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt auto-approved"));
-  });
-
-  it("keeps auto-approval target in argv when the tmux session contains shell metacharacters", () => {
-    const { record, runDir } = combo();
-    record.tmuxSession = "--combo-chen-'\"`$(printf pwn)\n";
-    const { deps, calls } = fakeDeps({
-      reviewer: "Do you want to proceed? [y/N]\n",
-    });
-
-    const result = inspectWorkerPanes({
-      deps,
-      combo: record,
-      runDir,
-      workerWindows: ["reviewer"],
-      permissionPromptPolicy: "auto-approve-known-safe",
-    });
-
-    expect(result.escalated).toBe(false);
-    expect(calls).toContainEqual(["send-keys", "-t", `${record.tmuxSession}:reviewer`, "y", "C-m"]);
-  });
-
-  it("escalates a persistent auto-approved prompt after the recovery budget is exhausted", () => {
+  it("captures the requested tool and command as a learning signal without approving it", () => {
     const { record, runDir } = combo();
     const { deps, calls } = fakeDeps({
-      reviewer: "Do you want to proceed? [y/N]\n",
+      reviewer: "This command requires approval: node scripts/review.js\n",
     });
-    const input = {
-      deps,
-      combo: record,
-      runDir,
-      workerWindows: ["reviewer"],
-      permissionPromptPolicy: "auto-approve-known-safe" as const,
-      autoApprovePermissionPromptMaxAttempts: 1,
-    };
-
-    expect(inspectWorkerPanes(input).escalated).toBe(false);
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({
-        event: "worker_recovered",
-        reason: "worker_permission_prompt",
-        worker: "reviewer",
-        detail: "permission prompt auto-approved",
-        attempt: 1,
-        max_attempts: 1,
-      }),
-    );
-
-    const result = inspectWorkerPanes(input);
-
-    expect(result.escalated).toBe(true);
-    expect(calls.filter((call) => call[0] === "send-keys")).toHaveLength(1);
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({
-        event: "needs_human",
-        reason: "worker_permission_prompt",
-        worker: "reviewer",
-        detail: "recovery attempts exhausted after 1; permission prompt",
-      }),
-    );
-  });
-
-  it("escalates a permission prompt when auto-approval fails", () => {
-    const { record, runDir } = combo();
-    const out: string[] = [];
-    const deps: WorkerMonitorDeps = {
-      out: (line) => out.push(line),
-      tmux: (args) => {
-        if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
-        if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-        if (args[0] === "capture-pane")
-          return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
-        if (args[0] === "send-keys") return { status: 1, stdout: "", stderr: "blocked target" };
-        return { status: 0, stdout: "", stderr: "" };
-      },
-    };
 
     const result = inspectWorkerPanes({
       deps,
@@ -211,15 +123,23 @@ describe("inspectWorkerPanes", () => {
     });
 
     expect(result.escalated).toBe(true);
+    expect(calls.some((call) => call[0] === "send-keys")).toBe(false);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "permission_prompt_detected",
+        worker: "reviewer",
+        tool: "node",
+        command: "node scripts/review.js",
+      }),
+    );
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
         event: "needs_human",
         reason: "worker_permission_prompt",
         worker: "reviewer",
-        detail: "permission prompt auto-approve failed: blocked target",
+        detail: expect.stringContaining("add the tool to reviewer's allowed_tools"),
       }),
     );
-    expect(out).toContainEqual(expect.stringContaining("permission prompt auto-approve failed"));
   });
 
   it("does not treat ordinary review prose about permission prompts as an interactive prompt", () => {
@@ -258,7 +178,7 @@ describe("inspectWorkerPanes", () => {
     );
   });
 
-  it("returns recoverable permission-prompt findings without journaling needs_human", () => {
+  it("never recreates a permission-prompted worker instead of recording the decision", () => {
     const { record, runDir } = combo();
     const { deps } = fakeDeps({
       "coder-responding": "Do you want to proceed? [y/N]\n",
@@ -278,11 +198,11 @@ describe("inspectWorkerPanes", () => {
       {
         worker: "coder-responding",
         reason: "worker_permission_prompt",
-        detail: "permission prompt",
-        needsHumanRecorded: false,
+        detail: expect.stringContaining("grant, add the tool"),
+        needsHumanRecorded: true,
       },
     ]);
-    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(true);
   });
 
   it("uses the configured unchanged-pane threshold", () => {

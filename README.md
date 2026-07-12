@@ -222,12 +222,12 @@ required_checks = ["CodeRabbit"]
 agents = ["coderabbitai"]
 
 [reviewer.claude]
-command = "claude {prompt}"
+command = "claude --permission-mode auto {prompt}"
 
 [director]
 # Promptable interactive director window; the in-process supervisor owns
 # deterministic observation.
-command = "claude {prompt}"
+command = "claude --permission-mode auto {prompt}"
 
 # [team] declares the expected effective identity per role. Overture resolves each
 # tool's actual config and fails on mismatch. Undeclared: current behavior, noted
@@ -259,21 +259,23 @@ The default Codex coder path is gnhf-managed: combo-chen runs pinned `gnhf` with
 `--meteor-frequency 0`, and `--current-branch`. gnhf 0.1.41 does not expose a
 generic Codex CLI profile/flag pass-through, so Codex terminal flags are not
 part of the normal coder command. Coder responding mode resumes the captured
-thread with the configured resume command (default `codex resume {thread_id}`)
+thread with the configured resume command (default
+`codex --ask-for-approval never --sandbox workspace-write resume {thread_id}`)
 through the persistent `coder` tmux window.
-The recommended `codex --profile sitter --no-alt-screen resume {thread_id}`
+The recommended
+`codex --ask-for-approval never --sandbox workspace-write --profile sitter --no-alt-screen resume {thread_id}`
 keeps tmux scrollback visible and the session resumable/auditable without
 changing the underlying default. Custom `resume_command` templates remain
 supported for local wrappers or other agents.
 
 If combo-chen later adds a direct noninteractive Codex runner, it must keep
-`-C {worktree}` explicit, use an autonomous isolated sandbox such as
-`--sandbox workspace-write --ask-for-approval never`, emit parseable events with
-`--json`, and capture the final answer with `-o {run_dir}/final.md`.
+`-C {worktree}` explicit, use the role's explicit tool budget, emit
+parseable events with `--json`, and capture the final answer with
+`-o {run_dir}/final.md`.
 `--search` stays opt-in per issue. Normal project agents should keep project
-rules and user config enabled, avoid `--ephemeral`, and avoid
-`dangerously-bypass-approvals-and-sandbox` unless another sandbox boundary owns
-that risk.
+rules and user config enabled and avoid `--ephemeral`. Permission prompts are
+captured as learning signals and escalated into the allowlist convergence loop;
+they are never left blocking a pane.
 
 Reviewer commands are tmux-visible interactive role commands by default and
 therefore honor project context. If a reviewer role is later moved to a
@@ -554,11 +556,10 @@ Recovery playbook:
   budget. Stalled post-PR coder-response surfaces are recreated and
   re-prompted under the same budget. After the budget is exhausted a
   `needs_human` event is journaled.
-- Worker permission prompts: the `[monitor].permission_prompt_policy` knob
-  (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
-  interactive prompts are auto-approved, trigger coder-response recreation, or
-  escalate to `needs_human`. Auto-approve and recreate attempts share the
-  configured worker recovery budget. Default is `escalate`.
+- Worker permission prompts: the monitor journals `permission_prompt_detected`
+  with the role, tool, and command, then creates a `needs_human` decision card.
+  Grant it, add the tool to that role's `allowed_tools`, and retry the turn.
+  Prompts are learning signals and are never silently approved or left blocking.
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
   rerun reviewer activation or prompt the reviewer without changing the coder
   branch.

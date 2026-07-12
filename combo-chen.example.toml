@@ -5,20 +5,32 @@
 # user wins on local setup. Copy this file and edit; the real config is
 # gitignored by default.
 
+# ROLE PERMISSION ENVELOPE (v1): every role declares the smallest executable
+# budget it genuinely needs. The resolved allowlists are frozen in each run's
+# config snapshot. Prompts are captured as learning signals, never left blocking
+# a pane. Operator loop: grant the decision card, add the requested tool to that
+# role's allowed_tools below, then retry the turn. Repeated runs converge the
+# allowlists. Full bypass flags are accepted only as an emergency escape hatch:
+# Claude `--dangerously-skip-permissions` / `bypassPermissions`, or Codex
+# `--dangerously-bypass-approvals-and-sandbox`; neither is recommended.
+
 [roles]
 merge = "human"                   # hard default: earn automerge with data first
 
 [roles.coder]
+allowed_tools = ["node", "pnpm", "git", "rg"]
 # Implement and respond are distinct invocations. Both may use {worktree} and
 # {prompt}; the built-in defaults remain in effect when these are omitted.
-# implement_command = "codex exec --cd {worktree} {prompt}"
-# respond_command = "codex exec --cd {worktree} {prompt}"
+# implement_command = "codex --ask-for-approval never --sandbox workspace-write exec --cd {worktree} {prompt}"
+# respond_command = "codex --ask-for-approval never --sandbox workspace-write exec --cd {worktree} {prompt}"
 
 [roles.reviewer]
+allowed_tools = ["node", "pnpm", "git", "rg"]
 # Reviewer writes its verdict artifact locally; it never comments on GitHub.
-command = "claude {prompt}"
+command = "claude --permission-mode auto {prompt}"
 
 [roles.gate]
+allowed_tools = ["node", "pnpm", "git", "no-mistakes", "gh-axi"]
 # no-mistakes remains the normal publisher. Repo policy chooses its agent.
 command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}"
 
@@ -56,15 +68,15 @@ command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_in
 # Omit command/resume_command to use combo-chen's safe built-in codex/gnhf defaults:
 # coder command: pinned gnhf runs `--agent codex` with max-iteration,
 # stop-condition, sleep-prevention, and low-noise telemetry flags.
-# resume command: codex resume {thread_id}
-# gnhf 0.1.41 does not expose a Codex profile/flag pass-through for the
-# coder path, so Codex terminal/profile flags belong in resume_command or a
-# repo-owned wrapper.
+# resume command: codex --ask-for-approval never --sandbox workspace-write resume {thread_id}
+# gnhf 0.1.41 does not expose a Codex flag pass-through for the coder path;
+# the snapshot-frozen roles.coder.allowed_tools budget remains the canonical
+# learning contract for the wrapper and its resumed Codex child.
 # Override only when this repo owns a custom coder wrapper:
 # command = 'repo-coder --current-branch {prompt}'
 # {placeholders}: thread_id. Used by coder responding mode to resume the same
 # implementation context after PR review comments land.
-# resume_command = 'codex --profile sitter --no-alt-screen resume {thread_id}'
+# resume_command = 'codex --ask-for-approval never --sandbox workspace-write --profile sitter --no-alt-screen resume {thread_id}'
 # combo-chen always appends a surface preflight to every coder prompt:
 # the coder is instructed to run `pnpm surface` before writing any new
 # helper and reuse existing exports instead of duplicating them.
@@ -116,13 +128,14 @@ initial_gate_retry_backoff_seconds = 10
 # prevents parallel capsules from colliding on the single no-mistakes daemon.
 
 [director]
+allowed_tools = ["git", "tmux", "combo-chen", "gh-axi"]
 # Promptable interactive director window, created at launch. It does not poll;
 # the in-process supervisor inside the capsule pane does deterministic
 # observation, and this window is prompted only when ambiguity, malformed
 # signals, intent-touching choices, or uncoded recovery need judgment.
 # Environment override: COMBO_CHEN_DIRECTOR_COMMAND.
 # {placeholders}: issue_url, worktree, repo, branch, prompt.
-command = "claude {prompt}"
+command = "claude --permission-mode auto {prompt}"
 
 [review]
 # v1 local pre-publish review loop (verdict -> coder fix turn -> re-review).
@@ -172,8 +185,9 @@ worker_recovery_attempts = 2
 coder_gnhf_progress_max_age_ms = 600000
 # Timeout for probing no-mistakes to check gatekeeper orchestrator evidence (ms).
 gatekeeper_status_timeout_ms = 5000
-permission_prompt_policy = "escalate" # one of: escalate, auto-approve-known-safe, recreate-non-interactive
+permission_prompt_policy = "escalate" # prompts always become learning events + decision cards
 permission_prompt_patterns = [
+  '^\s*This command requires approval:\s*.+$',
   '^\s*Do you want to (?:proceed|continue)\?\s*(?:\[[yn]/[yn]\])?\s*$',
   '^\s*(?:Allow|Approve|Confirm)\?\s*\[[yn]/[yn]\]\s*$',
   '^\s*(?:Press|Type)\s+(?:y|yes)\s+to\s+(?:continue|proceed|confirm)\.?\s*$',
