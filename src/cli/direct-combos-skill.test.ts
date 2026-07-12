@@ -69,6 +69,28 @@ describe("direct-combos skill", () => {
     expect(markdown).toContain("`needs_human_ref`");
   });
 
+  it("documents lifecycle handoff, resumption, closure, and director prohibitions", () => {
+    const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
+
+    expect(markdown).toContain("## 6. Map the capsule lifecycle");
+    for (const command of [
+      "combo-chen park -n <combo-id>",
+      "combo-chen resume -n <combo-id>",
+      "combo-chen closure -n <combo-id>",
+    ]) {
+      expect(markdown).toContain(`\`${command}\``);
+    }
+    expect(markdown).toContain("park-handoff.md");
+    expect(markdown).toContain("GitHub reports the PR as MERGED");
+    for (const prohibition of [
+      "edit the combo worktree",
+      "write to the PR conversation",
+      "bypass the gate",
+    ]) {
+      expect(markdown).toContain(prohibition);
+    }
+  });
+
   it("mentions only registered combo-chen subcommands", () => {
     const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
     const mentionedCommands = Array.from(
