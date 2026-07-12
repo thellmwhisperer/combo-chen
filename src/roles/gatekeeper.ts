@@ -36,11 +36,11 @@
  *   └────────────────────────────────────────────────────────────────────────┘
  *
  * @exports GatekeeperInput, buildIssuePrIntent, buildWorkPlanPrIntent, buildNoMistakesPushIntent, hasIssueAutocloseInPrBody, ensureIssueAutocloseInPrBody, buildGatekeeperInvocation, parseAxiOutcome
- * @deps ../core/state, ../core/combo, ../core/work-plan, ../infra/config
+ * @deps ../core/state, ../core/shell-quote, ../core/work-plan, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
 import { parseIssueUrl } from "../core/state.js";
-import { shellQuote } from "../core/combo.js";
+import { shellQuote } from "../core/shell-quote.js";
 import { renderWorkPlanMarkdown, type WorkPlan } from "../core/work-plan.js";
 import { ComboConfigError } from "../infra/config.js";
 

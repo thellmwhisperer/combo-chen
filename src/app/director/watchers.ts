@@ -22,9 +22,9 @@
  *   REVIEWER_TRANSIENT_FAILURE, REVIEWER_TRANSIENT_EXIT_CODE
  *
  * @exports resolvePollMs, reviewerTransientFailure, buildDirectorWatchCommand
- * @deps ../../core/combo, ../../shell/templates
+ * @deps ../../core/shell-quote, ../../shell/templates
  */
-import { shellQuote } from "../../core/combo.js";
+import { shellQuote } from "../../core/shell-quote.js";
 import { renderShellTemplate } from "../../shell/templates.js";
 
 // -- 1/2 HELPER · Poll cadence and transient marker --

@@ -21,14 +21,15 @@
  *   Treehouse path parsing, lease acquisition, rollback, and best-effort cleanup.
  *
  * @exports launchCombo, runOverture
- * @deps ../../core/combo, ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../../roles/director-invocation, ../../roles/gatekeeper, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./overture, node:fs, node:path
+ * @deps ../../core/combo, ../../core/events, ../../core/runtime-ledger, ../../core/shell-quote, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../../roles/director-invocation, ../../roles/gatekeeper, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./overture, node:fs, node:path
  */
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { buildRunnerScript, shellQuote } from "../../core/combo.js";
+import { buildRunnerScript } from "../../core/combo.js";
 import { appendEvent } from "../../core/events.js";
 import { buildRuntimeLedger, writeRuntimeLedger } from "../../core/runtime-ledger.js";
+import { shellQuote } from "../../core/shell-quote.js";
 import { comboHome, writeCombo, type ComboRecord } from "../../core/state.js";
 import { renderWorkPlanMarkdown } from "../../core/work-plan.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";

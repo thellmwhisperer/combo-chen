@@ -21,7 +21,7 @@
  *   None.
  *
  * @exports fakeDeps, idleActiveRuntime, exec, home, seedNeedsHumanCombo, seedCodexGnhfRun, writeCoderThreadArtifact, writeExecutable, decodedGeneratedGatekeeperIntent, ISSUE, CODEX_THREAD_ID
- * @deps ../app/gate/gate, ../cli/main, ../core/combo, ../core/events, ../core/gate-lease, ../core/runtime-ledger, ../core/state, ../core/work-plan, ../infra/config, ../infra/config-snapshot, ../roles/coder-invocation, ../roles/gatekeeper, ../update/index, node:child_process, node:crypto, node:fs, node:os, node:path, node:url, vitest
+ * @deps ../app/gate/gate, ../cli/main, ../core/events, ../core/gate-lease, ../core/runtime-ledger, ../core/shell-quote, ../core/state, ../core/work-plan, ../infra/config, ../infra/config-snapshot, ../roles/coder-invocation, ../roles/gatekeeper, ../update/index, node:child_process, node:crypto, node:fs, node:os, node:path, node:url, vitest
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -40,10 +40,10 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
-import { shellQuote } from "../core/combo.js";
 import { appendEvent, readEvents } from "../core/events.js";
 import { acquireGateLease } from "../core/gate-lease.js";
 import { buildRuntimeLedger, writeRuntimeLedger } from "../core/runtime-ledger.js";
+import { shellQuote } from "../core/shell-quote.js";
 import { listCombos, runDirFor, writeCombo } from "../core/state.js";
 import { normalizeMarkdownWorkPlan, renderWorkPlanMarkdown } from "../core/work-plan.js";
 import { loadConfig } from "../infra/config.js";

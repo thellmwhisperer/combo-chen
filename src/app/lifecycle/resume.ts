@@ -24,10 +24,10 @@
  *   classifyResumeState, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers, director-watch window management for initial-gate retry
  *
  * @exports ResumeDeps, resumeCombo
- * @deps ../../core/combo, ../../core/events, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../director/reviewer, ../director/watchers, ../gate/gate, ../github/github, ../reporting/status, ../runtime/sessions, ./closure
+ * @deps ../../core/events, ../../core/shell-quote, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../director/reviewer, ../director/watchers, ../gate/gate, ../github/github, ../reporting/status, ../runtime/sessions, ./closure
  */
-import { shellQuote } from "../../core/combo.js";
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
+import { shellQuote } from "../../core/shell-quote.js";
 import { readCombo, runDirFor, type ComboRecord } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import type { TmuxResult } from "../../infra/tmux.js";

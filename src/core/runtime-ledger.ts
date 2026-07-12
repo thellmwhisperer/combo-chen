@@ -32,13 +32,13 @@
  *   hydratePrUrlFromJournal, commandSet, workItemFacts, timestamp, cleanRecord
  *
  * @exports RUNTIME_LEDGER_FILE, RuntimeLedger, RuntimeLedgerInput, RuntimeLedgerReadOptions, RuntimeLedgerUpdate, RuntimeRoleWindows, buildRuntimeLedger, readRuntimeLedger, updateRuntimeLedger, writeRuntimeLedger
- * @deps node:{fs,path}, ./combo, ./events, ./state
+ * @deps node:{fs,path}, ./events, ./shell-quote, ./state
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { shellQuote } from "./combo.js";
 import { latestPrUrlFromEvents, readEvents } from "./events.js";
+import { shellQuote } from "./shell-quote.js";
 import { cleanOptional, readCombo, type ComboRecord } from "./state.js";
 
 // -- 1/2 HELPER · Types and constants --

@@ -10,7 +10,6 @@
  *   3. buildNoMistakesMirrorPublishScript <- gate mirror push with intent
  *   4. buildNoMistakesGatekeeperRunScript <- stale-run guard + config handoff + gate run
  *   5. checksPassedContextCanceledRecoveryScript <- normalizes post-success cancel evidence
- *   6. shellQuote                    <- POSIX-safe shell quoting
  *
  *   MAIN FLOW (called from cli/main.ts)
  *   -----------------------------------
@@ -18,7 +17,7 @@
  *     -> buildRunnerScript(input)     <- renders the runner template
  *       -> buildNoMistakesMirrorPublishScript() when gate mirror intent exists
  *       -> renderShellTemplate() with src/shell/templates/runner.sh
- *       -> shellQuote() for safety
+ *       -> shellQuote() (core/shell-quote) for safety
  *     -> writes runner script to disk
  *     -> tmux executes it
  *
@@ -28,7 +27,6 @@
  *   │ buildNoMistakesGatekeeperRunScript Stale guard + config + gate │
  *   │ checksPassedContextCanceledRecoveryScript Gate success recovery│
  *   │ guardNoMistakesDaemonStart Re-export from ../shell/templates   │
- *   │ shellQuote           POSIX-safe single-quoting                 │
  *   ├─ PHASE DERIVATION ────────────────────────────────────────────┤
  *   │ deriveStatus         Maps event journal -> ComboStatus         │
  *   │ Phase                "SETUP"|"CODING"|"LOCAL_REVIEW"|...       │
@@ -36,24 +34,18 @@
  *   │ RunnerInput          Input shape for buildRunnerScript         │
  *   └────────────────────────────────────────────────────────────────┘
  *
- * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, buildNoMistakesGatekeeperRunScript, checksPassedContextCanceledRecoveryScript, gateLeaseScriptLines, guardNoMistakesDaemonStart, deriveStatus, shellQuote, Phase, ComboStatus, RunnerInput
- * @deps ../shell/templates, ./events, ./state
+ * @exports buildRunnerScript, buildNoMistakesMirrorPublishScript, buildNoMistakesGatekeeperRunScript, checksPassedContextCanceledRecoveryScript, gateLeaseScriptLines, guardNoMistakesDaemonStart, deriveStatus, Phase, ComboStatus, RunnerInput
+ * @deps ../shell/templates, ./events, ./shell-quote, ./state
  */
 import { guardNoMistakesDaemonStart, renderShellTemplate } from "../shell/templates.js";
 import type { ComboEvent } from "./events.js";
+import { shellQuote } from "./shell-quote.js";
 import type { ComboRecord } from "./state.js";
 
 export { guardNoMistakesDaemonStart } from "../shell/templates.js";
 
 export type Phase =
-  | "SETUP"
-  | "CODING"
-  | "LOCAL_REVIEW"
-  | "GATING"
-  | "REVIEWING"
-  | "READY"
-  | "STOPPED"
-  | "STALLED";
+  "SETUP" | "CODING" | "LOCAL_REVIEW" | "GATING" | "REVIEWING" | "READY" | "STOPPED" | "STALLED";
 
 export interface ComboStatus {
   phase: Phase;
@@ -181,7 +173,7 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
 
 // -/ 1/3
 
-// -- 2/3 HELPER · RunnerInput + shellQuote + template-backed builders --
+// -- 2/3 HELPER · RunnerInput + template-backed builders --
 
 export interface RunnerInput {
   combo: ComboRecord;
@@ -203,11 +195,6 @@ export interface RunnerInput {
   gateLeaseAcquire?: string;
   /** Full invocation prefix for releasing the branch-scoped gate lease. */
   gateLeaseRelease?: string;
-}
-
-//    POSIX-safe single-quoting. Paths, branch names, anything.
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 function expectedBranchValue(expectedBranch: string | undefined): string {

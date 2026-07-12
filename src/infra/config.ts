@@ -34,14 +34,14 @@
  *   └───────────────────────────────────────────────────────────────────┘
  *
  * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
- * @deps node:fs, node:os, node:path, smol-toml, ../core/combo
+ * @deps node:fs, node:os, node:path, smol-toml, ../core/shell-quote
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
-import { shellQuote } from "../core/combo.js";
+import { shellQuote } from "../core/shell-quote.js";
 
 // -- 1/4 HELPER · Types + role aliases + DEFAULTS --
 export class ComboConfigError extends Error {}
