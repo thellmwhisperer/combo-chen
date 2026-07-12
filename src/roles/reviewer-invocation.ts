@@ -1,39 +1,47 @@
 /**
  * @overview Reviewer adapter: renders the configured reviewer command with
- *   PR facts plus the frozen review and anti-slop contract. The loop mechanics
- *   live in the orchestrator; this module owns the reviewer instructions.
- *   ~155 lines, 8 exports.
+ *   changeset facts plus the frozen review and anti-slop contract. The loop
+ *   mechanics live in the orchestrator; this module owns the reviewer
+ *   instructions. v0 reviews an open PR and posts to GitHub; the v1 local
+ *   pre-publish prompt reviews the local changeset and writes the verdict
+ *   artifact instead. ~280 lines, 13 exports.
  *
  *   READING GUIDE
  *   ─────────────
- *   1. Start at buildReviewerInvocation  ← main entry: renders the command
+ *   1. Start at buildReviewerInvocation  ← v0 entry: renders the PR command
  *   2. assertReviewerCommandSafe         ← prevents prompt-stalling shells
- *   3. defaultReviewerPrompt             ← the frozen review contract
- *   4. incrementalReviewerPrompt         ← delta-only re-review prompt
+ *   3. defaultReviewerPrompt             ← the frozen v0 review contract
+ *   4. localReviewerPrompt               ← v1 verdict-file review contract
+ *   5. buildLocalReviewerInvocation      ← v1 entry used by the capsule
  *
  *   MAIN FLOW
  *   ─────────
- *   cli/main.ts → buildReviewerInvocation({combo, prUrl, reviewerInstructions, reviewerCommand})
- *     → defaultReviewerPrompt / incrementalReviewerPrompt → renderCommand
- *     → executed in reviewer tmux window
+ *   v0: cli/main.ts → buildReviewerInvocation → defaultReviewerPrompt
+ *     → renderCommand → executed in reviewer tmux window
+ *   v1: capsule → buildLocalReviewerInvocation → localReviewerPrompt
+ *     → renderCommand → owned reviewer child in the capsule pane
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
- *   │ buildReviewerInvocation   Render reviewer command from template    │
+ *   │ buildReviewerInvocation   Render v0 reviewer command from template │
  *   │ assertReviewerCommandSafe Reject compound reviewer shell commands │
- *   │ defaultReviewerPrompt     Standard review + anti-slop prompt      │
- *   │ incrementalReviewerPrompt Delta-only re-review prompt             │
+ *   │ defaultReviewerPrompt     v0 review + anti-slop prompt            │
+ *   │ incrementalReviewerPrompt v0 delta-only re-review prompt          │
+ *   │ localReviewerPrompt       v1 verdict-file review prompt           │
+ *   │ buildLocalReviewerInvocation v1 reviewer command for the capsule  │
+ *   │ LOCAL_REVIEW_PROMPT_VERSION  Versioned in-repo prompt template    │
+ *   │ CRITICAL_SURFACES         Minimum-code-1 calibration list         │
  *   │ ReviewerInvocationError   Reviewer command safety error           │
- *   │ ReviewerInput             Shape for buildReviewerInvocation       │
- *   │ ReviewerPromptInput       Shape for defaultReviewerPrompt         │
- *   │ IncrementalReviewerPromptInput Shape for incrementalReviewerPrompt │
+ *   │ ReviewerPromptInput / ReviewerInput / IncrementalReviewerPromptInput │
+ *   │ LocalReviewPromptInput / LocalReviewerInput                       │
  *   ├─ INTERNALS ──────────────────────────────────────────────────────┤
  *   │ hasUnsupportedShellSyntax  Conservative plain-command lexer      │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation
- * @deps ../core/{state,work-plan}, ../infra/config
+ * @exports ReviewerInvocationError, ReviewerPromptInput, defaultReviewerPrompt, IncrementalReviewerPromptInput, incrementalReviewerPrompt, ReviewerInput, assertReviewerCommandSafe, buildReviewerInvocation, LOCAL_REVIEW_PROMPT_VERSION, CRITICAL_SURFACES, LocalReviewPromptInput, localReviewerPrompt, LocalReviewerInput, buildLocalReviewerInvocation
+ * @deps ../core/{state,verdict,work-plan}, ../infra/config
  */
 import type { ComboRecord } from "../core/state.js";
+import { LOCAL_REVIEW_CHECKLIST, verdictFilePath, type ProducingIdentity } from "../core/verdict.js";
 import { renderWorkPlanMarkdown, type WorkPlan } from "../core/work-plan.js";
 import { renderCommand } from "../infra/config.js";
 
@@ -146,4 +154,88 @@ export function buildReviewerInvocation(input: ReviewerInput): string {
     prompt,
   });
 }
-// -/ 1/1
+// -/ 1/2
+
+// -- 2/2 CORE · v1 local pre-publish review prompt (PRD s3) --
+/**
+ * Versioned in-repo review template (recon 4.2 item 4): bump on any
+ * calibration or contract change so run transcripts identify the prompt
+ * revision that produced a verdict.
+ */
+export const LOCAL_REVIEW_PROMPT_VERSION = 1;
+
+/**
+ * PRD s3 calibration contract: any finding on one of these surfaces is
+ * minimum code 1, even if pre-existing.
+ */
+export const CRITICAL_SURFACES = [
+  { id: "journal integrity", description: "append-only journal.jsonl writes and the event schema" },
+  { id: "coder_done trust signals", description: "evidence used to trust coder completion" },
+  { id: "role boundaries", description: "no role gains publishing, merging, or another role's authority" },
+  { id: "publishing", description: "pushes, PR creation, and anything else that leaves the machine" },
+] as const satisfies ReadonlyArray<{ id: string; description: string }>;
+
+export interface LocalReviewPromptInput {
+  combo: ComboRecord;
+  runDir: string;
+  round: number;
+  sha: string;
+  baseRef: string;
+  reviewerInstructions: string;
+  identity?: ProducingIdentity;
+  workPlan?: WorkPlan;
+}
+
+export function localReviewerPrompt(input: LocalReviewPromptInput): string {
+  const reviewerInstructions = input.reviewerInstructions.trim();
+  const workPlanContext =
+    input.workPlan === undefined
+      ? undefined
+      : `Work plan context:\n${renderWorkPlanMarkdown(input.workPlan).trim()}`;
+  const verdictPath = verdictFilePath(input.runDir, input.round);
+  const identityHint =
+    input.identity === undefined
+      ? "declaring the model and runtime that produced this review"
+      : `declaring the model and runtime that produced this review (expected: model ${input.identity.model}, runtime ${input.identity.runtime})`;
+  const surfaces = CRITICAL_SURFACES.map((surface) => `${surface.id} (${surface.description})`).join("; ");
+  const checklist = LOCAL_REVIEW_CHECKLIST.map((item) => `${item.id} (${item.requirement})`).join("; ");
+  return [
+    `Local pre-publish review (prompt v${LOCAL_REVIEW_PROMPT_VERSION}), round ${input.round}, for combo ${input.combo.id}.`,
+    `Review the local changeset ${input.baseRef}..HEAD at sha ${input.sha} in worktree ${input.combo.worktree}. There is no PR yet.`,
+    ...(reviewerInstructions.length > 0 ? [`Reviewer instructions: ${reviewerInstructions}.`] : []),
+    ...(workPlanContext === undefined ? [] : [workPlanContext]),
+    "Hard rules: reviewer != coder; never write code, commit, push, merge, or deploy.",
+    "Do not write to GitHub at all: no comments, no reviews, no approvals. Your only output is the verdict artifact below.",
+    `Write exactly one verdict artifact: first write ${verdictPath}.tmp, then rename it to ${verdictPath} in one mv. Never write the final path directly; the rename is the completeness signal the harness waits for.`,
+    `The verdict JSON must contain: schemaVersion 1; round ${input.round}; code 0|1|2|3; reviewed {"sha": "${input.sha}"} pinning the full reviewed sha; identity {"model", "runtime"} ${identityHint}; findings; followUps; checklist; and optional attackTable and notVerified blocks.`,
+    "Each finding: id (a stable kebab-case slug you assign; carry the exact same id for the same finding in later rounds even when line numbers move), severity blocker|major|minor|note, file, optional line, title, body, optional criticalSurface.",
+    "Verdict codes: 0 = OK, changeset LGTM; 1 = mechanical fix required; 2 = ambiguous or intent-sensitive; 3 = needs human.",
+    `Critical surfaces of this repo: ${surfaces}.`,
+    "Any finding touching a critical surface is minimum code 1, even if pre-existing and even if the happy path avoids it; set that finding's criticalSurface field.",
+    "Real-but-deferable findings go in the followUps block as {title, body?, findingId?}; prose is never the only home of a finding.",
+    `The checklist must contain every one of these ids with status pass, fail, or n_a plus a note for fail or n_a: ${checklist}.`,
+    "A verdict missing any checklist id is malformed and will not be routed; you will be re-prompted.",
+    "Record the attacks you attempted as attackTable rows {attack, result clean|finding|not_verified, findingId?, note?} and anything you could not verify in notVerified; reference findings by id, never restate them.",
+    "Anti-slop checks: if a helper was added, verify pnpm surface or an equivalent repo search was consulted and route code 1 when an equivalent helper already exists.",
+    "Route code 1 for new config without who/when/why in the changeset, any compatibility path without a removal issue or date, and script-string assertions that should be contract tests.",
+    "Treat many new top-level functions or exports in one module as a surface budget breach unless the changeset justifies the shape.",
+    "If anything is intent-touching, use code 2 or 3 instead of deciding product intent.",
+  ].join(" ");
+}
+
+export interface LocalReviewerInput extends LocalReviewPromptInput {
+  reviewerCommand: string;
+}
+
+export function buildLocalReviewerInvocation(input: LocalReviewerInput): string {
+  assertReviewerCommandSafe(input.reviewerCommand);
+  return renderCommand(input.reviewerCommand, {
+    issue_url: input.combo.issueUrl,
+    worktree: input.combo.worktree,
+    repo: input.combo.repoDir,
+    branch: input.combo.branch,
+    run_dir: input.runDir,
+    prompt: localReviewerPrompt(input),
+  });
+}
+// -/ 2/2
