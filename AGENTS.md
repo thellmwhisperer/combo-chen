@@ -185,6 +185,13 @@ view, W7c): bare `combo-chen` on a TTY opens the home; the TUI substrate is
 pure folds in `src/app/tui/` (fleet-fold, navigation) rendering from journal +
 combo + injected liveness; Ink 6.8.0 + React 19.2.7 bundled single-file via
 tsdown `codeSplitting: false` + react-devtools-core alias stub.
+W5a adds the pre-publish verdict artifact + one capsule review round: the
+schema, checklist contract, and finding-fingerprint semantics live in
+`src/core/verdict.ts`; the tier-2 dossier renders deterministically from the
+verdict (`src/core/review-dossier.ts`); the versioned local review prompt with
+critical-surfaces calibration is `localReviewerPrompt` in
+`src/roles/reviewer-invocation.ts`; the capsule runs the round between coder
+and gate (code 0 -> gate, 1/2/3 -> needs_human; the code-1 fix loop is W5b).
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
