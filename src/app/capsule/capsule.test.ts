@@ -3,9 +3,10 @@
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at capsule happy path        <- rebase, coder, gate, and PR order.
+ *   1. Start at capsule happy path        <- rebase, coder, review, gate, PR order.
  *   2. Then coder completion              <- commits-first and optional JSONL bridge.
- *   3. Finish at terminal gate outcomes   <- attach, lease, and missing PR behavior.
+ *   3. Then the local review round        <- verdict routing and escalations.
+ *   4. Finish at terminal gate outcomes   <- attach, lease, and missing PR behavior.
  *
  *   MAIN FLOW
  *   ---------
@@ -17,18 +18,25 @@
  *
  *   INTERNALS
  *   ---------
- *   fixture, events, successfulGate
+ *   fixture, events, deps, verdict, gateProcess
  *
  * @exports none
- * @deps node:{fs,os,path}, vitest, ../../core/{events,state,work-plan}, ../../infra/{config,config-snapshot}, ./capsule
+ * @deps node:{fs,os,path}, vitest, ../../core/{combo,events,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ./capsule
  */
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+import { deriveStatus } from "../../core/combo.js";
 import { readEvents } from "../../core/events.js";
 import { writeCombo, type ComboRecord } from "../../core/state.js";
+import {
+  LOCAL_REVIEW_CHECKLIST,
+  VERDICT_SCHEMA_VERSION,
+  writeVerdictFile,
+  type VerdictFile,
+} from "../../core/verdict.js";
 import { normalizeGitHubIssueWorkPlan, renderWorkPlanMarkdown } from "../../core/work-plan.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
@@ -84,21 +92,63 @@ function gateProcess(
   };
 }
 
+function verdict(runDir: string, overrides: Partial<VerdictFile> = {}): VerdictFile {
+  const artifact: VerdictFile = {
+    schemaVersion: VERDICT_SCHEMA_VERSION,
+    round: 1,
+    code: 0,
+    reviewed: { sha: "coded" },
+    identity: { model: "claude-fable-5", runtime: "claude" },
+    checklist: LOCAL_REVIEW_CHECKLIST.map((item) => ({ id: item.id, status: "pass" as const })),
+    findings: [],
+    followUps: [],
+    ...overrides,
+  };
+  writeVerdictFile(runDir, artifact);
+  return artifact;
+}
+
 function deps(
+  f: { runDir: string },
   input: {
     heads?: string[];
     coderExitCode?: number;
     gateResult?: Awaited<ReturnType<NonNullable<CapsuleDeps["runGate"]>>>;
   } = {},
-): { deps: CapsuleDeps; gitCalls: string[]; activateReviewer: ReturnType<typeof vi.fn> } {
+): {
+  deps: CapsuleDeps;
+  gitCalls: string[];
+  agentCommands: string[];
+  activateReviewer: ReturnType<typeof vi.fn>;
+  setCoder: (fn: CapsuleDeps["runAgent"]) => void;
+  setReviewer: (fn: CapsuleDeps["runAgent"]) => void;
+} {
   const heads = [...(input.heads ?? ["base", "coded"])];
   const gitCalls: string[] = [];
+  const agentCommands: string[] = [];
   const activateReviewer = vi.fn();
+  let coder: CapsuleDeps["runAgent"] = async () => ({
+    exitCode: input.coderExitCode ?? 0,
+    stdout: "",
+    stderr: "",
+  });
+  let reviewer: CapsuleDeps["runAgent"] = async () => {
+    verdict(f.runDir);
+    return { exitCode: 0, stdout: "", stderr: "" };
+  };
+  let agentCalls = 0;
   return {
     gitCalls,
+    agentCommands,
     activateReviewer,
+    setCoder: (fn) => {
+      coder = fn;
+    },
+    setReviewer: (fn) => {
+      reviewer = fn;
+    },
     deps: {
-      env: {},
+      env: { COMBO_CHEN_LOCAL_VERDICT_WAIT_MS: "50" },
       out: () => undefined,
       git: async (request) => {
         gitCalls.push(request.args.join(" "));
@@ -107,7 +157,11 @@ function deps(
         if (request.args[0] === "rev-list") return { exitCode: 0, stdout: "1\n", stderr: "" };
         return { exitCode: 0, stdout: "", stderr: "" };
       },
-      runAgent: async () => ({ exitCode: input.coderExitCode ?? 0, stdout: "", stderr: "" }),
+      runAgent: async (request) => {
+        agentCommands.push(request.command);
+        agentCalls += 1;
+        return agentCalls === 1 ? coder(request) : reviewer(request);
+      },
       runGate: async (gateInput) => {
         if (input.gateResult !== undefined) return input.gateResult;
         if (gateInput.activateReviewer !== undefined) await gateInput.activateReviewer();
@@ -124,9 +178,9 @@ function deps(
 
 // -- 2/2 CORE · runCapsule contracts <- START HERE --
 describe("capsule sequencer", () => {
-  it("sequences rebase, commits-first coder completion, initial gate, and reviewer activation", async () => {
+  it("sequences rebase, commits-first coder completion, local review, initial gate, and reviewer activation", async () => {
     const f = fixture();
-    const h = deps();
+    const h = deps(f);
 
     await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "validated", exitCode: 0 });
     expect(h.gitCalls.slice(0, 5)).toEqual([
@@ -136,22 +190,32 @@ describe("capsule sequencer", () => {
       "rev-parse HEAD",
       "rev-list --count base..coded",
     ]);
-    expect(events(f.runDir)).toEqual([{ event: "coder_started" }, { event: "coder_done" }]);
+    expect(events(f.runDir).map((event) => event.event)).toEqual([
+      "coder_started",
+      "coder_done",
+      "local_review_requested",
+      "local_verdict",
+    ]);
     expect(h.activateReviewer).toHaveBeenCalledOnce();
   });
 
   it("treats a nonzero coder exit with new commits as coder_done", async () => {
     const f = fixture();
-    const h = deps({ coderExitCode: 17 });
+    const h = deps(f, { coderExitCode: 17 });
 
     await expect(runCapsule(f.runDir, h.deps)).resolves.toMatchObject({ status: "validated" });
-    expect(events(f.runDir).map((event) => event.event)).toEqual(["coder_started", "coder_done"]);
+    expect(events(f.runDir).map((event) => event.event)).toEqual([
+      "coder_started",
+      "coder_done",
+      "local_review_requested",
+      "local_verdict",
+    ]);
   });
 
   it("harvests the optional gnhf thread bridge without writing lifecycle markers", async () => {
     const f = fixture();
-    const h = deps({ coderExitCode: 17 });
-    h.deps.runAgent = async () => {
+    const h = deps(f, { coderExitCode: 17 });
+    h.setCoder(async () => {
       const run = join(f.combo.worktree, ".gnhf", "runs", "fresh");
       mkdirSync(run, { recursive: true });
       writeFileSync(
@@ -168,7 +232,7 @@ describe("capsule sequencer", () => {
         ].join("\n"),
       );
       return { exitCode: 17, stdout: "", stderr: "" };
-    };
+    });
 
     await expect(runCapsule(f.runDir, h.deps)).resolves.toMatchObject({ status: "validated" });
     expect(events(f.runDir)[1]).toEqual({
@@ -190,7 +254,7 @@ describe("capsule sequencer", () => {
     const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as Record<string, unknown>;
     snapshot["coderCommand"] = "npx gnhf --agent codex {prompt}";
     writeFileSync(snapshotPath, `${JSON.stringify(snapshot)}\n`);
-    const h = deps();
+    const h = deps(f);
     const runAgent = vi.fn(h.deps.runAgent);
     h.deps.runAgent = runAgent;
 
@@ -200,7 +264,7 @@ describe("capsule sequencer", () => {
 
   it("journals rebase_conflict and never starts the coder", async () => {
     const f = fixture();
-    const h = deps();
+    const h = deps(f);
     h.deps.git = async (request) => {
       if (request.args[0] === "rebase") return { exitCode: 42, stdout: "", stderr: "conflict" };
       if (request.args[0] === "merge-base") return { exitCode: 0, stdout: "merge-base\n", stderr: "" };
@@ -213,7 +277,7 @@ describe("capsule sequencer", () => {
 
   it("consumes the in-process initial gate and preserves the PR-opened event sequence", async () => {
     const f = fixture();
-    const h = deps();
+    const h = deps(f);
     h.deps.runGate = undefined;
     h.deps.gateProcess = gateProcess({ exitCode: 0, stdout: "outcome: checks-passed\n", stderr: "" });
 
@@ -221,6 +285,16 @@ describe("capsule sequencer", () => {
     expect(events(f.runDir)).toEqual([
       { event: "coder_started" },
       { event: "coder_done" },
+      { event: "local_review_requested", round: 1, sha: "coded" },
+      {
+        event: "local_verdict",
+        round: 1,
+        code: 0,
+        verdict_path: "verdict-1.json",
+        identity: { model: "claude-fable-5", runtime: "claude" },
+        sha: "coded",
+        findings: [],
+      },
       { event: "gate_started" },
       { event: "gate_status", state: "fix_inflight", head_sha: "coded" },
       { event: "gate_status", state: "idle", head_sha: "published" },
@@ -231,7 +305,7 @@ describe("capsule sequencer", () => {
 
   it("journals needs_human pr_missing when the initial gate opens no PR", async () => {
     const f = fixture();
-    const h = deps();
+    const h = deps(f);
     h.deps.runGate = undefined;
     h.deps.gateProcess = gateProcess({ exitCode: 0, stdout: "outcome: checks-passed\n", stderr: "" });
     h.deps.findPrUrl = async () => undefined;
@@ -245,7 +319,7 @@ describe("capsule sequencer", () => {
 
   it("preserves autoclose failure ordering before stopping the capsule", async () => {
     const f = fixture();
-    const h = deps();
+    const h = deps(f);
     h.deps.runGate = undefined;
     h.deps.gateProcess = gateProcess({ exitCode: 0, stdout: "outcome: checks-passed\n", stderr: "" });
     h.deps.ensurePrAutoclose = async () => ({ exitCode: 7, stdout: "", stderr: "edit failed" });
@@ -265,7 +339,7 @@ describe("capsule sequencer", () => {
   ]) {
     it(`preserves the ${gateResult.status} terminal path`, async () => {
       const f = fixture();
-      const h = deps({ gateResult });
+      const h = deps(f, { gateResult });
       const attachGate = vi.fn();
       h.deps.attachGate = attachGate;
 
@@ -277,5 +351,196 @@ describe("capsule sequencer", () => {
       else expect(attachGate).not.toHaveBeenCalled();
     });
   }
+});
+
+describe("capsule local review round", () => {
+  it("runs the reviewer as an owned child with the verdict-file invocation", async () => {
+    const f = fixture();
+    const h = deps(f);
+
+    await runCapsule(f.runDir, h.deps);
+
+    expect(h.agentCommands).toHaveLength(2);
+    expect(h.agentCommands[1]).toContain("verdict-1.json");
+    expect(h.agentCommands[1]).toContain("Local pre-publish review");
+    expect(h.agentCommands[1]).not.toContain("gh pr review");
+  });
+
+  it("lights the LOCAL_REVIEW phase during the round and returns to GATING on code 0", async () => {
+    const f = fixture();
+    const h = deps(f);
+
+    await runCapsule(f.runDir, h.deps);
+
+    const journal = readEvents(f.runDir);
+    const requestedAt = journal.findIndex((event) => event.event === "local_review_requested");
+    const verdictAt = journal.findIndex((event) => event.event === "local_verdict");
+    expect(deriveStatus(journal.slice(0, requestedAt + 1)).phase).toBe("LOCAL_REVIEW");
+    expect(deriveStatus(journal.slice(0, verdictAt + 1)).phase).toBe("GATING");
+  });
+
+  it("renders the tier-2 dossier from the verdict artifact", async () => {
+    const f = fixture();
+    const h = deps(f);
+    h.setReviewer(async () => {
+      verdict(f.runDir, {
+        code: 0,
+        findings: [
+          {
+            id: "note-only",
+            severity: "note",
+            file: "src/x.ts",
+            title: "Nit worth recording",
+            body: "Cosmetic only.",
+          },
+        ],
+      });
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    await runCapsule(f.runDir, h.deps);
+
+    const dossier = readFileSync(join(f.runDir, "review-1-coded.md"), "utf8");
+    expect(dossier).toContain("Review round 1 @ coded");
+    expect(dossier).toContain("note-only");
+  });
+
+  it("stops with needs_human on code 1 carrying the findings (W5b takes the fix loop)", async () => {
+    const f = fixture();
+    const h = deps(f);
+    const runGate = vi.fn(h.deps.runGate!);
+    h.deps.runGate = runGate;
+    h.setReviewer(async () => {
+      verdict(f.runDir, {
+        code: 1,
+        findings: [
+          {
+            id: "hardcoded-timeout",
+            severity: "blocker",
+            file: "src/app/x.ts",
+            line: 12,
+            title: "New timeout constant without env path",
+            body: "Wire env/TOML.",
+            criticalSurface: "publishing",
+          },
+        ],
+      });
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "local_review_escalated",
+      exitCode: 0,
+    });
+    expect(runGate).not.toHaveBeenCalled();
+    const journal = events(f.runDir);
+    expect(journal.at(-1)).toMatchObject({
+      event: "needs_human",
+      reason: "local_verdict_code_1",
+      round: 1,
+      findings: [
+        {
+          id: "hardcoded-timeout",
+          severity: "blocker",
+          file: "src/app/x.ts",
+          line: 12,
+          title: "New timeout constant without env path",
+          fingerprints: ["id:hardcoded-timeout", "loc:src/app/x.ts#new-timeout-constant-without-env-path"],
+        },
+      ],
+    });
+    expect(deriveStatus(readEvents(f.runDir)).needsHuman).toBe(true);
+  });
+
+  for (const code of [2, 3] as const) {
+    it(`stops with needs_human on code ${code}`, async () => {
+      const f = fixture();
+      const h = deps(f);
+      h.setReviewer(async () => {
+        verdict(f.runDir, { code });
+        return { exitCode: 0, stdout: "", stderr: "" };
+      });
+
+      await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+        status: "local_review_escalated",
+        exitCode: 0,
+      });
+      expect(events(f.runDir).at(-1)).toMatchObject({
+        event: "needs_human",
+        reason: `local_verdict_code_${code}`,
+      });
+    });
+  }
+
+  it("harvests the machine-readable follow-ups block into the journal", async () => {
+    const f = fixture();
+    const h = deps(f);
+    h.setReviewer(async () => {
+      verdict(f.runDir, {
+        followUps: [{ title: "Consider fs.watch", findingId: "note-only" }],
+      });
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    await runCapsule(f.runDir, h.deps);
+
+    expect(events(f.runDir)).toContainEqual({
+      event: "follow_ups",
+      round: 1,
+      items: [{ title: "Consider fs.watch", findingId: "note-only" }],
+    });
+  });
+
+  it("escalates when the reviewer exits without producing a verdict", async () => {
+    const f = fixture();
+    const h = deps(f);
+    h.setReviewer(async () => ({ exitCode: 3, stdout: "", stderr: "" }));
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "local_review_escalated",
+      exitCode: 0,
+    });
+    expect(events(f.runDir).at(-1)).toMatchObject({
+      event: "needs_human",
+      reason: "local_verdict_missing",
+      round: 1,
+      reviewer_exit_code: 3,
+    });
+  });
+
+  it("escalates a verdict pinned to the wrong sha as malformed round attribution", async () => {
+    const f = fixture();
+    const h = deps(f);
+    h.setReviewer(async () => {
+      verdict(f.runDir, { reviewed: { sha: "someone-elses-changeset" } });
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "local_review_escalated",
+      exitCode: 0,
+    });
+    expect(events(f.runDir).at(-1)).toMatchObject({
+      event: "needs_human",
+      reason: "local_verdict_malformed",
+    });
+  });
+
+  it("escalates a verdict missing required checklist ids (issue #276 contract)", async () => {
+    const f = fixture();
+    const h = deps(f);
+    h.setReviewer(async () => {
+      verdict(f.runDir, { checklist: [{ id: "tdd-first", status: "pass" }] });
+      return { exitCode: 0, stdout: "", stderr: "" };
+    });
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "local_review_escalated",
+      exitCode: 0,
+    });
+    const escalation = events(f.runDir).at(-1);
+    expect(escalation).toMatchObject({ event: "needs_human", reason: "local_verdict_malformed" });
+    expect(String(escalation?.["detail"])).toContain("checklist");
+  });
 });
 // -/ 2/2

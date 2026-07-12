@@ -1,16 +1,20 @@
 /**
- * @overview v1 capsule sequencer: rebase, owned coder process, in-process gate, and PR tail.
+ * @overview v1 capsule sequencer: rebase, owned coder process, local
+ *   pre-publish review round, in-process gate, and PR tail.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at runCapsule             <- complete persisted-run sequence.
  *   2. Then runCoderPhase              <- commits-first completion and thread bridge.
- *   3. Read runAgentProcess            <- production child/PTY custody boundary.
- *   4. Everything else is artifact and git support.
+ *   3. Then runLocalReviewPhase        <- verdict-file round between coder and gate.
+ *   4. Read runAgentProcess            <- production child/PTY custody boundary.
+ *   5. Everything else is artifact and git support.
  *
  *   MAIN FLOW
  *   ---------
- *   runCapsule -> rebase -> runCoderPhase -> runInProcessGate -> PR/reviewer outcome
+ *   runCapsule -> rebase -> runCoderPhase -> runLocalReviewPhase
+ *     -> code 0: runInProcessGate -> PR/reviewer outcome
+ *     -> code 1/2/3 or defective verdict: needs_human (W5b adds the code-1 loop)
  *
  *   PUBLIC API
  *   ----------
@@ -23,24 +27,39 @@
  *   INTERNALS
  *   ---------
  *   readBaseRef, runRebasePhase, runCoderPhase, snapshotIterations,
- *   freshIterationJsonl, containsStopCondition, buildGateFacts
+ *   freshIterationJsonl, containsStopCondition, runLocalReviewPhase,
+ *   waitForVerdictFile, reviewerIdentity, findingsProjection, escalate,
+ *   buildGateFacts
  *
  * @exports AgentProcessRequest, CapsuleDeps, CapsuleResult, runAgentProcess, runCapsule
- * @deps node:{child_process,fs,path}, ../../core/{events,state}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,gatekeeper}, ../gate/in-process-gate, ../work-items/persisted-work-plan
+ * @deps node:{child_process,fs,path}, ../../core/{events,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../work-items/persisted-work-plan
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { appendEvent } from "../../core/events.js";
+import { renderReviewDossier, reviewDossierPath } from "../../core/review-dossier.js";
 import { readCombo, type ComboRecord } from "../../core/state.js";
+import {
+  VerdictError,
+  findingFingerprints,
+  missingChecklistIds,
+  readVerdictFile,
+  verdictFileName,
+  verdictFilePath,
+  type ProducingIdentity,
+  type VerdictFile,
+} from "../../core/verdict.js";
+import type { WorkPlan } from "../../core/work-plan.js";
 import { assertSafeCoderInvocation } from "../../infra/config.js";
-import { readConfigSnapshot } from "../../infra/config-snapshot.js";
+import { readConfigSnapshot, type ConfigSnapshot } from "../../infra/config-snapshot.js";
 import {
   buildCoderInvocation,
   defaultWorkPlanPrompt,
   persistCoderThreadArtifact,
 } from "../../roles/coder-invocation.js";
+import { buildLocalReviewerInvocation } from "../../roles/reviewer-invocation.js";
 import {
   buildGatekeeperInvocation,
   buildIssuePrIntent,
@@ -88,7 +107,8 @@ export type CapsuleResult = {
     | "failed"
     | "rebase_failed"
     | "rebase_conflict"
-    | "coder_failed";
+    | "coder_failed"
+    | "local_review_escalated";
   exitCode: number;
 };
 
@@ -298,9 +318,134 @@ async function runCoderPhase(
   });
   return { status: "coder_failed", exitCode: coder.exitCode || 1 };
 }
-// -/ 3/4
+// -/ 3/5
 
-// -- 4/4 CORE · runCapsule <- START HERE --
+// -- 4/5 CORE · local pre-publish review round (PRD s3) --
+function localVerdictWaitMs(env: Record<string, string | undefined>): number {
+  const parsed = Number(env["COMBO_CHEN_LOCAL_VERDICT_WAIT_MS"]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5_000;
+}
+
+async function waitForVerdictFile(runDir: string, round: number, timeoutMs: number): Promise<boolean> {
+  const path = verdictFilePath(runDir, round);
+  const deadline = Date.now() + timeoutMs;
+  while (!existsSync(path)) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return false;
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, Math.min(50, remainingMs)));
+  }
+  return true;
+}
+
+function reviewerIdentity(config: ConfigSnapshot): ProducingIdentity | undefined {
+  const reviewer = config.resolvedTeam?.reviewer;
+  if (reviewer === undefined) return undefined;
+  return { model: reviewer.model, runtime: reviewer.binary };
+}
+
+/** Compact journal projection of the findings; the verdict file stays the source of truth. */
+function findingsProjection(verdict: VerdictFile): Array<Record<string, unknown>> {
+  return verdict.findings.map((finding) => ({
+    id: finding.id,
+    severity: finding.severity,
+    file: finding.file,
+    ...(finding.line === undefined ? {} : { line: finding.line }),
+    title: finding.title,
+    fingerprints: findingFingerprints(finding),
+  }));
+}
+
+function escalate(runDir: string, reason: string, payload: Record<string, unknown>): CapsuleResult {
+  appendEvent(runDir, "needs_human", { reason, ...payload });
+  return { status: "local_review_escalated", exitCode: 0 };
+}
+
+async function runLocalReviewPhase(
+  deps: CapsuleDeps,
+  combo: ComboRecord,
+  runDir: string,
+  config: ConfigSnapshot,
+  baseRef: string,
+  workPlan: WorkPlan,
+): Promise<CapsuleResult | undefined> {
+  // W5a ships a single verdict round; W5b replaces the fixed round with the
+  // V-C-V loop and its no-progress guard.
+  const round = 1;
+  const sha = await gitHead(deps, combo);
+  appendEvent(runDir, "local_review_requested", { round, sha });
+  const identity = reviewerIdentity(config);
+  const command = buildLocalReviewerInvocation({
+    combo,
+    runDir,
+    round,
+    sha,
+    baseRef,
+    reviewerInstructions: config.reviewerPrompt,
+    reviewerCommand: config.reviewerCommand,
+    workPlan,
+    ...(identity === undefined ? {} : { identity }),
+  });
+  const reviewer = await deps.runAgent({ command, cwd: combo.worktree, env: deps.env });
+  const appeared = await waitForVerdictFile(runDir, round, localVerdictWaitMs(deps.env));
+  if (!appeared) {
+    return escalate(runDir, "local_verdict_missing", {
+      round,
+      sha,
+      reviewer_exit_code: reviewer.exitCode,
+    });
+  }
+  let verdict: VerdictFile;
+  try {
+    verdict = readVerdictFile(runDir, round);
+  } catch (error) {
+    const detail = error instanceof VerdictError ? error.message : String(error);
+    return escalate(runDir, "local_verdict_malformed", { round, sha, detail });
+  }
+  const missingIds = missingChecklistIds(verdict);
+  const attributionDefects = [
+    ...(verdict.round === round ? [] : [`round is ${verdict.round}, expected ${round}`]),
+    ...(verdict.reviewed.sha === sha ? [] : [`reviewed.sha is ${verdict.reviewed.sha}, expected ${sha}`]),
+    ...(missingIds.length === 0 ? [] : [`checklist missing ids: ${missingIds.join(", ")}`]),
+  ];
+  if (attributionDefects.length > 0) {
+    return escalate(runDir, "local_verdict_malformed", {
+      round,
+      sha,
+      detail: attributionDefects.join("; "),
+    });
+  }
+  const findings = findingsProjection(verdict);
+  appendEvent(runDir, "local_verdict", {
+    round,
+    code: verdict.code,
+    verdict_path: verdictFileName(round),
+    identity: verdict.identity,
+    sha,
+    findings,
+  });
+  try {
+    writeFileSync(reviewDossierPath(runDir, round, sha), renderReviewDossier(verdict));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    deps.out(`capsule: review dossier unavailable for ${combo.id}: ${detail}`);
+  }
+  if (verdict.followUps.length > 0) {
+    appendEvent(runDir, "follow_ups", { round, items: verdict.followUps });
+  }
+  if (verdict.code === 0) return undefined;
+  // TODO(W5b): code 1 iterates here (prompt coder with the findings, commit,
+  // re-review). Until the loop lands, code 1 escalates like 2/3 but keeps the
+  // findings machine-readable for the human.
+  return escalate(runDir, `local_verdict_code_${verdict.code}`, {
+    round,
+    sha,
+    verdict_path: verdictFileName(round),
+    findings,
+  });
+}
+// -/ 4/5
+
+// -- 5/5 CORE · runCapsule <- START HERE --
 function buildGateFacts(runDir: string, combo: ComboRecord, gatekeeperCommand: string) {
   const plan = readPersistedWorkPlan(runDir, combo);
   if (isGitHubIssueWorkItem(combo)) {
@@ -343,6 +488,9 @@ export async function runCapsule(runDir: string, deps: CapsuleDeps): Promise<Cap
   });
   const coder = await runCoderPhase(deps, combo, runDir, coderCommand);
   if (coder !== undefined) return coder;
+
+  const review = await runLocalReviewPhase(deps, combo, runDir, config, baseRef, gateFacts.plan);
+  if (review !== undefined) return review;
 
   const runGate = deps.runGate ?? runInProcessGate;
   const gate = await runGate({
