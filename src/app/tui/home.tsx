@@ -1,41 +1,48 @@
 /**
- * @overview Ink/React TUI home (fleet view) per PRD §8 surface 2. Renders
- *   capsules sorted needs-you-first, filter tabs, per-row detail lines, and
- *   first-class empty states. The component is a thin shell: navigation logic
- *   lives in navigation.ts (pure, tested), fleet data in fleet-fold.ts (pure,
- *   tested). Frozen design rules: no progress bars (count-up timer + spinner),
- *   numbers always labeled with a verb.
+ * @overview Ink/React TUI home per PRD §8 surface 2. Renders the fleet view,
+ *   the dive-in thread (the combo as a chronological conversation), and the
+ *   decision-card modal. A thin shell: navigation logic lives in navigation.ts
+ *   (pure, tested), fleet data in fleet-fold.ts, thread data in thread-fold.ts,
+ *   decision cards in decisions-fold.ts (all pure, tested). The component
+ *   fires side effects (tmux jump, decision write) via callbacks the entry
+ *   wires; it holds no state the run dir cannot provide. Frozen design rules:
+ *   no progress bars (count-up timer + spinner), numbers always verb-labeled,
+ *   Enter/→ dives in / jumps to the live actor, q/←/Esc backs out.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at Home               <- the top-level component wiring.
- *   2. Then FleetBody              <- rows + empty states rendering.
- *   3. Then DiveStub               <- placeholder panel for a selected combo.
+ *   1. Start at Home               <- top-level component: nav state + side effects.
+ *   2. Then FleetBody              <- fleet rows + empty states.
+ *   3. Then DiveThread             <- breadcrumb + entries + findings + live actor.
+ *   4. Then DecisionModal          <- question/context/verbs over any view.
  *
  *   MAIN FLOW
  *   ---------
- *   FleetRow[] -> deriveFleetView -> <FleetBody> -> rendered output
- *   keyboard -> useInput -> navigate(state, input) -> re-render
+ *   rows + dives + decisions -> <Home> -> FleetBody | DiveThread (+ DecisionModal)
+ *   keyboard -> useInput -> navigate(state, input, ctx) -> side effects -> re-render
  *
  *   PUBLIC API
  *   ----------
- *   Home        The fleet view Ink component.
+ *   Home        The TUI home component (fleet + dive + modal + jump).
  *
  *   INTERNALS
  *   ---------
- *   FleetBody, FleetRowView, DiveStub, OnboardingScreen, AllQuietScreen,
- *   phaseGlyph, phaseColor.
+ *   FleetBody, FleetRowView, DiveThread, ThreadEntryView, DecisionModal,
+ *   OnboardingScreen, AllQuietScreen, DiveUnavailable, phaseGlyph, phaseColor,
+ *   entryGlyph, entryColor, severityColor, stageGlyph.
  *
  * @exports Home
- * @deps ink, react, ./fleet-fold, ./navigation
+ * @deps ink, react, ./decisions-fold, ./fleet-fold, ./navigation, ./thread-fold
  */
 import { Box, Text, useApp, useInput } from "ink";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 
-import { deriveFleetView, type FleetRenderPhase, type FleetRow } from "./fleet-fold.js";
+import type { DecisionCard } from "./decisions-fold.js";
+import { deriveFleetView, type FleetRenderPhase, type FleetRow, type FleetView } from "./fleet-fold.js";
 import { initialNavState, navigate, type NavState } from "./navigation.js";
+import type { ThreadEntry, ThreadView } from "./thread-fold.js";
 
-// -- 1/4 HELPER · phase rendering facts --
+// -- 1/5 HELPER · phase + entry + severity rendering facts --
 const PHASE_GLYPH: Record<FleetRenderPhase, string> = {
   CODER: "\u25B6",
   REVIEW: "\u25B6",
@@ -57,21 +64,88 @@ const PHASE_COLOR: Record<FleetRenderPhase, string> = {
   PARKED: "gray",
   CLOSED: "gray",
 };
-// -/ 1/4
 
-// -- 2/4 CORE · Home <-
-export function Home({ rows }: { readonly rows: readonly FleetRow[] }): React.ReactElement {
+const ENTRY_GLYPH: Record<ThreadEntry["kind"], string> = {
+  launched: "\u25B8",
+  coder_done: "\u25CF",
+  coder_failed: "\u25CF",
+  review_requested: "\u25C6",
+  verdict: "\u25C6",
+  gate: "\u25B6",
+  pr: "\u25CF",
+  ready: "\u2713",
+  escalated: "\u2691",
+  decision: "\u25C8",
+  parked: "\u25A0",
+  closed: "\u2713",
+  note: "\u25CF",
+};
+
+const ENTRY_COLOR: Record<ThreadEntry["kind"], string> = {
+  launched: "gray",
+  coder_done: "green",
+  coder_failed: "red",
+  review_requested: "magenta",
+  verdict: "magenta",
+  gate: "yellow",
+  pr: "green",
+  ready: "green",
+  escalated: "red",
+  decision: "yellow",
+  parked: "gray",
+  closed: "gray",
+  note: "gray",
+};
+
+function severityColor(severity: string): string {
+  if (severity === "blocker" || severity === "major") return "red";
+  if (severity === "minor") return "yellow";
+  return "gray";
+}
+
+function stageGlyph(state: "done" | "live" | "pending"): string {
+  if (state === "done") return "\u2713";
+  if (state === "live") return "\u26A1";
+  return "\u00B7";
+}
+// -/ 1/5
+
+// -- 2/5 CORE · Home <- START HERE --
+export interface HomeProps {
+  readonly rows: readonly FleetRow[];
+  readonly dives?: Readonly<Record<string, ThreadView>>;
+  readonly decisions?: Readonly<Record<string, readonly DecisionCard[]>>;
+  readonly onJump?: (comboId: string) => void;
+  readonly onDecide?: (comboId: string, verb: string, ref?: string) => void;
+  /** Testing seam / external control: seed the initial navigation state. */
+  readonly initialNav?: NavState;
+}
+
+export function Home({
+  rows,
+  dives,
+  decisions,
+  onJump,
+  onDecide,
+  initialNav,
+}: HomeProps): React.ReactElement {
   const { exit } = useApp();
-  const [nav, setNav] = useState<NavState>(initialNavState);
-  const navRef = useRef(nav);
-  navRef.current = nav;
+  const [nav, setNav] = useState<NavState>(initialNav ?? initialNavState);
 
   const view = deriveFleetView({ rows, tab: nav.tab });
 
   useInput((input, key) => {
-    const currentRows = deriveFleetView({ rows, tab: navRef.current.tab }).rows;
+    const currentRows = deriveFleetView({ rows, tab: nav.tab }).rows;
+    const fleetSelectedId = currentRows[nav.selected]?.comboId;
+    const focusId = nav.diveComboId ?? fleetSelectedId ?? null;
+    const dive = focusId !== null ? dives?.[focusId] : undefined;
+    const pendingCount = focusId !== null ? (decisions?.[focusId]?.length ?? 0) : 0;
+    const ctx = {
+      decisionAvailable: pendingCount > 0,
+      liveActorAvailable: dive?.liveActor !== undefined,
+    };
     const next = navigate(
-      navRef.current,
+      nav,
       {
         input,
         ...(key.upArrow ? { upArrow: true } : {}),
@@ -82,32 +156,68 @@ export function Home({ rows }: { readonly rows: readonly FleetRow[] }): React.Re
         ...(key.escape ? { escape: true } : {}),
       },
       currentRows,
+      ctx,
     );
-    navRef.current = next;
     setNav(next);
   });
+
+  // Side-effect intents (jump / decide) fire once when set, then clear. Keyed
+  // on nav.action so this is deterministic under a seeded initial state too.
+  useEffect(() => {
+    if (nav.action === null) return;
+    const currentRows = deriveFleetView({ rows, tab: nav.tab }).rows;
+    const focusId = nav.diveComboId ?? currentRows[nav.selected]?.comboId ?? null;
+    if (focusId !== null) {
+      if (nav.action.kind === "jump") {
+        onJump?.(focusId);
+      } else if (nav.action.kind === "decide" && nav.action.verb !== undefined) {
+        const ref = decisions?.[focusId]?.[0]?.ref;
+        onDecide?.(focusId, nav.action.verb, ref);
+      }
+    }
+    setNav((current) => ({ ...current, action: null }));
+  }, [nav.action, rows, nav.tab, nav.selected, nav.diveComboId, decisions, onJump, onDecide]);
 
   useEffect(() => {
     if (nav.shouldExit) exit();
   }, [nav.shouldExit, exit]);
 
-  if (nav.diveComboId !== null) {
-    return <DiveStub comboId={nav.diveComboId} rows={rows} />;
-  }
-  return <FleetBody view={view} selected={nav.selected} />;
-}
-// -/ 2/4
+  const focusId = nav.diveComboId ?? view.rows[nav.selected]?.comboId ?? null;
+  const modalCard = nav.decisionOpen && focusId !== null ? (decisions?.[focusId]?.[0] ?? null) : null;
 
-// -- 3/4 CORE · FleetBody + rows + empty states <-
+  if (nav.diveComboId !== null) {
+    return <DiveThread dive={dives?.[nav.diveComboId]} comboId={nav.diveComboId} modal={modalCard} />;
+  }
+  return <FleetBody view={view} selected={nav.selected} modal={modalCard} />;
+}
+// -/ 2/5
+
+// -- 3/5 CORE · FleetBody + rows + empty states + modal <-
 function FleetBody({
   view,
   selected,
+  modal,
 }: {
-  readonly view: ReturnType<typeof deriveFleetView>;
+  readonly view: FleetView;
   readonly selected: number;
+  readonly modal: DecisionCard | null;
 }): React.ReactElement {
-  if (view.emptyState === "onboarding") return <OnboardingScreen />;
-  if (view.emptyState === "all-quiet") return <AllQuietScreen />;
+  if (view.emptyState === "onboarding") {
+    return (
+      <Box flexDirection="column">
+        <OnboardingScreen />
+        {modal !== null && <DecisionModal card={modal} />}
+      </Box>
+    );
+  }
+  if (view.emptyState === "all-quiet") {
+    return (
+      <Box flexDirection="column">
+        <AllQuietScreen />
+        {modal !== null && <DecisionModal card={modal} />}
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column">
@@ -135,8 +245,9 @@ function FleetBody({
         ))}
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>{"↑↓ select · Enter dive · 1-3 tabs · q quit"}</Text>
+        <Text dimColor>{"↑↓ select · Enter dive · v decision · 1-3 tabs · q quit"}</Text>
       </Box>
+      {modal !== null && <DecisionModal card={modal} />}
     </Box>
   );
 }
@@ -171,9 +282,128 @@ function FleetRowView({
     </Box>
   );
 }
-// -/ 3/4
+// -/ 3/5
 
-// -- 4/4 HELPER · empty states + dive stub --
+// -- 4/5 CORE · DiveThread (breadcrumb + entries + findings + live actor) <-
+function DiveThread({
+  dive,
+  comboId,
+  modal,
+}: {
+  readonly dive: ThreadView | undefined;
+  readonly comboId: string;
+  readonly modal: DecisionCard | null;
+}): React.ReactElement {
+  if (dive === undefined) {
+    return (
+      <Box flexDirection="column">
+        <DiveUnavailable comboId={comboId} />
+        {modal !== null && <DecisionModal card={modal} />}
+      </Box>
+    );
+  }
+  const crumb = dive.breadcrumb.stages.map((s) => `${s.stage} ${stageGlyph(s.state)}`).join(" ─ ");
+  const hasLiveActor = dive.liveActor !== undefined;
+  return (
+    <Box flexDirection="column">
+      <Box>
+        <Text color="magenta">{comboId}</Text>
+        <Text dimColor> · </Text>
+        <Text>{dive.workItemLabel}</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>{crumb}</Text>
+      </Box>
+      <Box flexDirection="column" marginTop={1}>
+        {dive.entries.map((entry, i) => (
+          <ThreadEntryView key={`${entry.at}-${i}`} entry={entry} />
+        ))}
+      </Box>
+      {dive.projection !== undefined && (
+        <Box marginTop={1}>
+          <Text dimColor>next: {dive.projection}</Text>
+        </Box>
+      )}
+      <Box marginTop={1}>
+        <Text dimColor>
+          {hasLiveActor
+            ? "Enter hands on live actor · v decision · q/←/Esc back"
+            : "v decision · q/←/Esc back"}
+        </Text>
+      </Box>
+      {modal !== null && <DecisionModal card={modal} />}
+    </Box>
+  );
+}
+
+function ThreadEntryView({ entry }: { readonly entry: ThreadEntry }): React.ReactElement {
+  const glyph = ENTRY_GLYPH[entry.kind];
+  const color = ENTRY_COLOR[entry.kind];
+  return (
+    <Box flexDirection="column">
+      <Box gap={1}>
+        <Text color={color}>{glyph}</Text>
+        <Text color={entry.live ? color : undefined}>{entry.headline}</Text>
+      </Box>
+      {entry.detail !== undefined && (
+        <Box marginLeft={4}>
+          <Text dimColor>{entry.detail}</Text>
+        </Box>
+      )}
+      {entry.findings?.map((finding, i) => (
+        <Box key={i} marginLeft={4}>
+          <Text>
+            <Text color={severityColor(finding.severity)}>{finding.severity}</Text>
+            <Text dimColor>
+              {"  "}
+              {finding.file}
+              {finding.line !== undefined ? `:${finding.line}` : ""}
+            </Text>
+            {"  "}
+            {finding.title}
+          </Text>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+// -/ 4/5
+
+// -- 5/5 HELPER · DecisionModal + empty states + dive unavailable --
+function DecisionModal({ card }: { readonly card: DecisionCard }): React.ReactElement {
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor="yellow" marginTop={1} paddingX={1}>
+      <Box>
+        <Text color="red">{"⚑ decision · "}</Text>
+        <Text color="yellow">{card.comboId}</Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text>{card.question}</Text>
+      </Box>
+      <Box>
+        <Text dimColor>{card.context}</Text>
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text>
+          <Text color="yellow">[r]</Text> retry · give the coder a hint
+        </Text>
+        <Text>
+          <Text color="yellow">[s]</Text> skip finding · file a follow-up
+        </Text>
+        <Text>
+          <Text color="yellow">[t]</Text> take over · attach to the coder window
+        </Text>
+        <Text>
+          <Text color="yellow">[i]</Text> ignore · stop routing
+        </Text>
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>{"Esc/q later · your choice is journaled as a decision event"}</Text>
+      </Box>
+    </Box>
+  );
+}
+
 function OnboardingScreen(): React.ReactElement {
   return (
     <Box flexDirection="column" paddingY={1}>
@@ -208,41 +438,17 @@ function AllQuietScreen(): React.ReactElement {
   );
 }
 
-function DiveStub({
-  comboId,
-  rows,
-}: {
-  readonly comboId: string;
-  readonly rows: readonly FleetRow[];
-}): React.ReactElement {
-  const row = rows.find((r) => r.comboId === comboId);
+function DiveUnavailable({ comboId }: { readonly comboId: string }): React.ReactElement {
   return (
     <Box flexDirection="column" paddingY={1}>
       <Box>
         <Text color="magenta">{comboId}</Text>
-        {row !== undefined && (
-          <>
-            <Text dimColor> · </Text>
-            <Text>{row.workItemLabel}</Text>
-          </>
-        )}
+        <Text dimColor> · dive data unavailable</Text>
       </Box>
-      {row !== undefined && (
-        <Box marginTop={1} flexDirection="column">
-          <Text>
-            <Text color={PHASE_COLOR[row.renderPhase]}>
-              {PHASE_GLYPH[row.renderPhase]} {row.renderPhase}
-            </Text>
-          </Text>
-          <Text dimColor>{row.detailLine}</Text>
-          {row.prUrl !== undefined && <Text dimColor>PR: {row.prUrl}</Text>}
-          <Text dimColor>round {row.round}</Text>
-        </Box>
-      )}
       <Box marginTop={1}>
-        <Text dimColor>dive-in threading is a later task · q/←/Esc back to fleet</Text>
+        <Text dimColor>{"q/←/Esc back to fleet"}</Text>
       </Box>
     </Box>
   );
 }
-// -/ 4/4
+// -/ 5/5

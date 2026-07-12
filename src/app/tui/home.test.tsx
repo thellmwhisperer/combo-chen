@@ -23,8 +23,11 @@
 import { render } from "ink-testing-library";
 import { describe, expect, it } from "vitest";
 
+import type { DecisionCard } from "./decisions-fold.js";
 import type { FleetRow } from "./fleet-fold.js";
 import { Home } from "./home.js";
+import { initialNavState } from "./navigation.js";
+import type { ThreadView } from "./thread-fold.js";
 
 // -- 1/3 HELPER · fixtures --
 function row(overrides: Partial<FleetRow> = {}): FleetRow {
@@ -40,6 +43,34 @@ function row(overrides: Partial<FleetRow> = {}): FleetRow {
     ageLabel: "4h",
     lastActivityLabel: "30m",
     sortPriority: 2,
+    ...overrides,
+  };
+}
+
+function thread(overrides: Partial<ThreadView> = {}): ThreadView {
+  return {
+    comboId: "o-r-7",
+    workItemLabel: "#7 Add login",
+    renderPhase: "CODER",
+    round: 0,
+    breadcrumb: { stages: [] },
+    entries: [
+      { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "▸ launched" },
+      { at: "2026-07-12T08:30:00.000Z", kind: "coder_done", headline: "● coder finished" },
+    ],
+    pendingDecisions: 0,
+    ...overrides,
+  };
+}
+
+function card(overrides: Partial<DecisionCard> = {}): DecisionCard {
+  return {
+    ref: "2026-07-12T09:00:00.000Z",
+    comboId: "o-r-7",
+    reason: "gate_failed",
+    question: "The gate failed and could not auto-recover.",
+    context: "o-r-7 · #7 Add login",
+    verbs: ["retry", "skip", "take_over", "ignore"],
     ...overrides,
   };
 }
@@ -177,3 +208,167 @@ describe("Home empty states", () => {
   });
 });
 // -/ 3/3
+
+// -- 4/6 CORE · dive-in thread rendering (PRD s8) <-
+describe("Home dive-in thread", () => {
+  const dived = { ...initialNavState, diveComboId: "o-r-7" };
+
+  it("renders the thread breadcrumb, entries, and work item on dive", () => {
+    const dive = thread({
+      breadcrumb: {
+        stages: [
+          { stage: "coder", state: "done" },
+          { stage: "review", state: "live" },
+          { stage: "gate", state: "pending" },
+          { stage: "pr", state: "pending" },
+          { stage: "merge", state: "pending" },
+        ],
+      },
+      entries: [
+        { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "▸ launched" },
+        {
+          at: "2026-07-12T09:00:00.000Z",
+          kind: "verdict",
+          headline: "◆ reviewer V1 · code 1 · 2 findings",
+          findings: [
+            { severity: "major", file: "auth.ts", line: 88, title: "DRY violation" },
+            { severity: "note", file: "enroll.ts", title: "naming" },
+          ],
+        },
+      ],
+    });
+    const { lastFrame } = render(<Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} />);
+    const frame = lastFrame()!;
+    expect(frame).toContain("coder");
+    expect(frame).toContain("review");
+    expect(frame).toContain("reviewer V1");
+    expect(frame).toContain("auth.ts");
+    expect(frame).toContain("DRY violation");
+  });
+
+  it("renders escalation and decision entries in the thread", () => {
+    const dive = thread({
+      entries: [
+        { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "▸ launched" },
+        { at: "2026-07-12T09:00:00.000Z", kind: "escalated", headline: "⚑ needs you · gate_failed" },
+        { at: "2026-07-12T09:30:00.000Z", kind: "decision", headline: "◈ you decided · retry" },
+      ],
+    });
+    const { lastFrame } = render(<Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} />);
+    const frame = lastFrame()!;
+    expect(frame).toContain("needs you");
+    expect(frame).toContain("decided · retry");
+  });
+
+  it("shows the live actor jump hint in the footer when a live actor is present", () => {
+    const dive = thread({
+      liveActor: { actor: "coder", sinceMs: 5000, note: "coder working" },
+      projection: "coder loop converges",
+    });
+    const { lastFrame } = render(<Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} />);
+    const frame = lastFrame()!.toLowerCase();
+    expect(frame).toContain("enter");
+    expect(frame).toContain("live actor");
+  });
+
+  it("omits the jump hint when no live actor is present", () => {
+    const { lastFrame } = render(<Home rows={[row()]} dives={{ "o-r-7": thread() }} initialNav={dived} />);
+    expect(lastFrame()!.toLowerCase()).not.toContain("live actor");
+  });
+});
+// -/ 4/6
+
+// -- 5/6 CORE · decision modal (PRD s7/s8) <-
+describe("Home decision modal", () => {
+  const modalOpen = { ...initialNavState, diveComboId: "o-r-7", decisionOpen: true };
+
+  it("renders the decision card question, context, and verbs when opened", () => {
+    const { lastFrame } = render(
+      <Home rows={[row()]} decisions={{ "o-r-7": [card()] }} initialNav={modalOpen} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain("decision");
+    expect(frame).toContain("The gate failed");
+    expect(frame).toContain("[r]");
+    expect(frame).toContain("[s]");
+    expect(frame).toContain("[t]");
+    expect(frame).toContain("[i]");
+  });
+
+  it("does not render the modal when there is no pending decision", () => {
+    const { lastFrame } = render(<Home rows={[row()]} decisions={{}} initialNav={modalOpen} />);
+    expect(lastFrame()).not.toContain("[r]");
+  });
+
+  it("invokes onDecide with the combo id, verb, and pending ref when a decide action is seeded", () => {
+    const decided: Array<{ comboId: string; verb: string; ref?: string }> = [];
+    render(
+      <Home
+        rows={[row()]}
+        decisions={{ "o-r-7": [card()] }}
+        initialNav={{
+          ...initialNavState,
+          diveComboId: "o-r-7",
+          action: { kind: "decide", verb: "retry" },
+        }}
+        onDecide={(comboId, verb, ref) => decided.push({ comboId, verb, ref })}
+      />,
+    );
+    expect(decided).toEqual([{ comboId: "o-r-7", verb: "retry", ref: "2026-07-12T09:00:00.000Z" }]);
+  });
+
+  it("does not duplicate the decision write (action clears after firing)", () => {
+    const decided: string[] = [];
+    const { lastFrame } = render(
+      <Home
+        rows={[row()]}
+        decisions={{ "o-r-7": [card()] }}
+        initialNav={{
+          ...initialNavState,
+          diveComboId: "o-r-7",
+          action: { kind: "decide", verb: "skip" },
+        }}
+        onDecide={(_id, verb) => decided.push(verb)}
+      />,
+    );
+    expect(decided).toEqual(["skip"]);
+    // re-render must not re-fire the cleared action
+    expect(lastFrame()).toBeDefined();
+    expect(decided).toEqual(["skip"]);
+  });
+});
+// -/ 5/6
+
+// -- 6/6 CORE · tmux jump (PRD s8 Enter on live actor) <-
+describe("Home tmux jump", () => {
+  it("invokes onJump when a jump action fires for the dived combo", () => {
+    const jumped: string[] = [];
+    render(
+      <Home
+        rows={[row()]}
+        dives={{ "o-r-7": thread() }}
+        initialNav={{
+          ...initialNavState,
+          diveComboId: "o-r-7",
+          action: { kind: "jump" },
+        }}
+        onJump={(comboId) => jumped.push(comboId)}
+      />,
+    );
+    expect(jumped).toEqual(["o-r-7"]);
+  });
+
+  it("does not invoke onJump without a jump action", () => {
+    const jumped: string[] = [];
+    render(
+      <Home
+        rows={[row()]}
+        dives={{ "o-r-7": thread() }}
+        initialNav={{ ...initialNavState, diveComboId: "o-r-7" }}
+        onJump={(c) => jumped.push(c)}
+      />,
+    );
+    expect(jumped).toEqual([]);
+  });
+});
+// -/ 6/6
