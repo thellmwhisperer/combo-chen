@@ -106,6 +106,7 @@ describe("command surface", () => {
         "overture",
         "park",
         "reconcile",
+        "recap",
         "resume",
         "run",
         "status",

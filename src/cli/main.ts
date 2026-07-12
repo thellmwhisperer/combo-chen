@@ -56,7 +56,12 @@ import {
   resumePersistedCombo,
   stopCombo,
 } from "../app/lifecycle/lifecycle-handlers.js";
-import { reportNeedsHuman, showForensics, showStatus } from "../app/reporting/reporting-handlers.js";
+import {
+  reportNeedsHuman,
+  showForensics,
+  showRecap,
+  showStatus,
+} from "../app/reporting/reporting-handlers.js";
 import { tmux as realTmux } from "../infra/tmux.js";
 import {
   checkForPassiveUpdate,
@@ -265,6 +270,15 @@ export function createProgram(deps: AppDeps): Command {
     .option("--all", "Include terminal historical combos", false)
     .action(async (options: { deep?: boolean; all?: boolean }) => {
       await showStatus(deps, options, cli);
+    });
+
+  program
+    .command("recap")
+    .description("Show a plain-text since-you-left digest for persisted combos")
+    .option("-n, --name <comboId>", "Combo id to include")
+    .option("--since <timestamp>", "Include events after this ISO-8601 timestamp")
+    .action((options: { name?: string; since?: string }) => {
+      showRecap(deps, options);
     });
 
   program
