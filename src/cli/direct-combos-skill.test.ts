@@ -91,6 +91,21 @@ describe("direct-combos skill", () => {
     }
   });
 
+  it("documents independent fleet ownership, gate leases, wave scaling, and fleet views", () => {
+    const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
+
+    expect(markdown).toContain("## 7. Scale a multi-combo fleet in waves");
+    for (const ownershipUnit of ["one branch", "one worktree", "one tmux session", "one runtime ledger"]) {
+      expect(markdown).toContain(ownershipUnit);
+    }
+    expect(markdown).toContain("Branch-scoped gate leases");
+    expect(markdown).toContain("2 live capsules");
+    expect(markdown).toContain("3 live capsules");
+    expect(markdown).toContain("4 to 6 live capsules");
+    expect(markdown).toContain("`combo-chen status --all`");
+    expect(markdown).toContain("Bare `combo-chen` on a TTY");
+  });
+
   it("mentions only registered combo-chen subcommands", () => {
     const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
     const mentionedCommands = Array.from(

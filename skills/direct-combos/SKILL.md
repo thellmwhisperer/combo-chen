@@ -206,3 +206,26 @@ An external director must never:
 - kill role processes or delete branches, worktrees, run directories, or tmux sessions outside the lifecycle commands.
 
 Route implementation and review findings back through the capsule's durable signals. The human owns merge and intent decisions; closure owns resource teardown.
+
+## 7. Scale a multi-combo fleet in waves
+
+Treat each capsule as an independent ownership unit: one branch, one worktree, one tmux session, and one runtime ledger. Never assign two capsules to the same branch or let one capsule reuse another capsule's worktree or state directory. Parallel coders and reviewers remain isolated because their capsules own distinct resources.
+
+Branch-scoped gate leases protect publication without serializing the whole fleet. Capsules on different branches may enter no-mistakes concurrently. Two publishers must not own the same branch: a conflicting owner produces a durable lease conflict that the director surfaces and resolves by checking the current owner, never by deleting or overwriting the lease record. Treat an active lease as evidence of gate ownership, not as evidence that the gate is stuck.
+
+Scale by observed waves:
+
+1. Start with 2 live capsules.
+2. Increase to 3 live capsules only after the first wave shows clean journal progression and no unrecovered branch, worktree, tmux, or gate-lease conflicts.
+3. Increase to 4 to 6 live capsules only after the three-capsule wave meets the same bar. Do not raise the limit merely because prior capsules are quiet; explain quiet from journal and status evidence first.
+
+Record each wave's combo ids, branches, PRs, gate-lease waits or conflicts, recovery actions, and final closure state. Use that evidence to keep, raise, or lower the next wave limit. A `needs_human` burst or unrecovered resource conflict is a reason to hold the wave and converge existing capsules, not to launch more work.
+
+The persisted machine-wide combo registry is the fleet inventory. Read it through supported projections rather than editing its files:
+
+- `combo-chen status` shows actionable capsules and active gate ownership for the routine scan.
+- `combo-chen status --all` includes terminal history when auditing a wave or closure coverage.
+- `combo-chen status --deep` probes downstream state for selected suspicious rows; avoid using it as the high-frequency fleet loop.
+- Bare `combo-chen` on a TTY opens the TUI fleet home, which prioritizes capsules needing attention and lets a human inspect one capsule's journal-derived thread.
+
+Keep dispatch and supervision at fleet altitude. The independent capsule continues to own coding, local review, gate publication, PR convergence, and closure for its work item.
