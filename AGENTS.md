@@ -225,10 +225,17 @@ Active features:
   single-file via tsdown `codeSplitting: false` + react-devtools-core alias
   stub; live-actor telemetry (gnhf iteration/tokens from `.gnhf` files, commit
   count/last subject from git rev-list, gate steps from no-mistakes axi status)
-  enriches fleet detail lines and dive-in live actor entries with dot-train
-  animation (200ms cadence, `COMBO_CHEN_TUI_ANIM_MS`); telemetry readers
-  (`src/app/tui/telemetry-readers.ts`) are entry-layer I/O, pure formatting in
-  `src/app/tui/live-telemetry.ts`; NEVER reads tmux panes
+  enriches fleet detail lines and dive-in live actor entries with animation
+  (fleet rows: dot train; dive-in live actor: braille loop spinner; 200ms
+  cadence, `COMBO_CHEN_TUI_ANIM_MS`); dive-in thread is viewport-bounded
+  (`viewportRows` prop, `boundEntriesForViewport` in `home.tsx`) so the title
+  bar and footer stay visible and Ink's log-update can erase prior frames;
+  telemetry readers (`src/app/tui/telemetry-readers.ts`) are entry-layer I/O,
+  pure formatting in `src/app/tui/live-telemetry.ts`; NEVER reads tmux panes;
+  bare `combo-chen` inside tmux delegates to the managed `combo-chen-home`
+  session and exits 0 BY DESIGN (`runTuiHome` → `homeSessionActions`) — a dead
+  pane with exit 0 in a scripted tmux test is normal launcher delegation, not a
+  crash; set `COMBO_CHEN_TUI_DIRECT=1` to run the renderer in-place
 - `recap` subcommand; v1 journal events + LOCAL_REVIEW phase + schema_version
 - Coder helper preflight (use `pnpm surface` when the target repo exposes it;
   otherwise search before adding helpers); reviewer anti-slop guardrails
