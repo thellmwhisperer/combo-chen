@@ -272,6 +272,77 @@ describe("deriveThread live actor", () => {
     expect(view.liveActor).toBeUndefined();
   });
 });
+
+describe("deriveThread live actor telemetry", () => {
+  it("enriches the live coder actor with telemetry in the headline", () => {
+    const events: JournalFact[] = [fact("combo_created", T0), fact("coder_started", T1)];
+    const view = deriveThread({
+      combo: combo() as never,
+      events,
+      liveness: { coder: true },
+      now: Date.parse(T1) + 25 * 60_000 + 25_000,
+      telemetry: {
+        coder: {
+          iteration: 3,
+          inputTokens: 6_200_000,
+          outputTokens: 40_000,
+          commitCount: 8,
+          lastCommitSubject: "docs(direct-combos): journal-first supervision",
+        },
+      },
+    });
+    const liveEntry = view.entries.at(-1)!;
+    expect(liveEntry.live).toBe(true);
+    expect(liveEntry.headline).toContain("coder working");
+    expect(liveEntry.headline).toContain("25:25");
+    expect(liveEntry.headline).toContain("iter 3");
+    expect(liveEntry.headline).toContain("6.2M in/40K out");
+    expect(liveEntry.headline).toContain("8 commits");
+    expect(liveEntry.headline).toContain("last: docs(direct-combos): journal-first supervision");
+  });
+
+  it("enriches the live gate actor with the gate step bar", () => {
+    const events: JournalFact[] = [
+      fact("combo_created", T0),
+      fact("coder_done", T1),
+      fact("local_review_requested", T2, { round: 1, sha: "a" }),
+      fact("local_verdict", T3, { round: 1, code: 0, verdict_path: "v1", identity: {} }),
+      fact("gate_started", T4),
+    ];
+    const view = deriveThread({
+      combo: combo() as never,
+      events,
+      liveness: { gate: true },
+      now: Date.parse(T4) + 5_000,
+      telemetry: {
+        gate: {
+          steps: [
+            { name: "review", state: "done" },
+            { name: "test", state: "live" },
+            { name: "lint", state: "pending" },
+          ],
+        },
+      },
+    });
+    const liveEntry = view.entries.at(-1)!;
+    expect(liveEntry.live).toBe(true);
+    expect(liveEntry.headline).toContain("no-mistakes validating");
+    expect(liveEntry.detail).toContain("review ✓");
+    expect(liveEntry.detail).toContain("step 2/3");
+  });
+
+  it("leaves the live actor headline unchanged when telemetry is absent", () => {
+    const events: JournalFact[] = [fact("combo_created", T0), fact("coder_started", T1)];
+    const view = deriveThread({
+      combo: combo() as never,
+      events,
+      liveness: { coder: true },
+      now: Date.parse(T1) + 5_000,
+    });
+    const liveEntry = view.entries.at(-1)!;
+    expect(liveEntry.headline).toBe("coder working · 00:05");
+  });
+});
 // -/ 4/5
 
 // -- 5/5 CORE · projection (next event) and empty state --

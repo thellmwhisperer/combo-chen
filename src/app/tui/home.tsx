@@ -6,8 +6,10 @@
  *   decision cards in decisions-fold.ts (all pure, tested). The component
  *   fires side effects (tmux jump, decision write) via callbacks the entry
  *   wires; it holds no state the run dir cannot provide. Frozen design rules:
- *   no progress bars (count-up timer + spinner), numbers always verb-labeled,
- *   Enter/→ dives in / jumps to the live actor, q/←/Esc backs out.
+ *   no progress bars for agent work (dot trains + count-up timer + spinner),
+ *   gate steps rendered as per-step checkmarks + step counter (enumerable
+ *   steps), numbers always verb-labeled, Enter/→ dives in / jumps to the live
+ *   actor, q/←/Esc backs out.
  *
  *   READING GUIDE
  *   -------------
@@ -32,13 +34,14 @@
  *   entryGlyph, entryColor, severityColor, stageGlyph.
  *
  * @exports Home
- * @deps ink, react, ./decisions-fold, ./fleet-fold, ./navigation, ./thread-fold
+ * @deps ink, react, ./decisions-fold, ./fleet-fold, ./live-telemetry, ./navigation, ./thread-fold
  */
 import { Box, Text, useApp, useInput } from "ink";
 import React, { useEffect, useState } from "react";
 
 import type { DecisionCard } from "./decisions-fold.js";
 import { deriveFleetView, type FleetRenderPhase, type FleetRow, type FleetView } from "./fleet-fold.js";
+import { dotTrain } from "./live-telemetry.js";
 import { initialNavState, navigate, type NavState } from "./navigation.js";
 import type { ThreadEntry, ThreadView } from "./thread-fold.js";
 
@@ -121,6 +124,8 @@ export interface HomeProps {
   readonly notice?: string;
   /** Testing seam / external control: seed the initial navigation state. */
   readonly initialNav?: NavState;
+  /** Testing seam: fixed time for deterministic dot-train/spinner animation. */
+  readonly now?: number;
 }
 
 export function Home({
@@ -131,9 +136,11 @@ export function Home({
   onDecide,
   notice,
   initialNav,
+  now,
 }: HomeProps): React.ReactElement {
   const { exit } = useApp();
   const [nav, setNav] = useState<NavState>(initialNav ?? initialNavState);
+  const renderNow = now ?? Date.now();
 
   const view = deriveFleetView({ rows, tab: nav.tab });
 
@@ -191,13 +198,13 @@ export function Home({
 
   if (nav.diveComboId !== null) {
     return (
-      <DiveThread dive={dives?.[nav.diveComboId]} comboId={nav.diveComboId} modal={modalCard}>
+      <DiveThread dive={dives?.[nav.diveComboId]} comboId={nav.diveComboId} modal={modalCard} now={renderNow}>
         {noticeBox}
       </DiveThread>
     );
   }
   return (
-    <FleetBody view={view} selected={nav.selected} modal={modalCard}>
+    <FleetBody view={view} selected={nav.selected} modal={modalCard} now={renderNow}>
       {noticeBox}
     </FleetBody>
   );
@@ -209,11 +216,13 @@ function FleetBody({
   view,
   selected,
   modal,
+  now,
   children,
 }: {
   readonly view: FleetView;
   readonly selected: number;
   readonly modal: DecisionCard | null;
+  readonly now: number;
   readonly children?: React.ReactNode;
 }): React.ReactElement {
   if (view.emptyState === "onboarding") {
@@ -257,7 +266,7 @@ function FleetBody({
       </Box>
       <Box flexDirection="column" marginTop={1}>
         {view.rows.map((row, i) => (
-          <FleetRowView key={row.comboId} row={row} selected={i === selected} />
+          <FleetRowView key={row.comboId} row={row} selected={i === selected} now={now} />
         ))}
       </Box>
       <Box marginTop={1}>
@@ -272,13 +281,17 @@ function FleetBody({
 function FleetRowView({
   row,
   selected,
+  now,
 }: {
   readonly row: FleetRow;
   readonly selected: boolean;
+  readonly now: number;
 }): React.ReactElement {
   const glyph = PHASE_GLYPH[row.renderPhase];
   const color = PHASE_COLOR[row.renderPhase];
   const marker = selected ? "❯" : " ";
+  const isLive = row.renderPhase === "CODER" || row.renderPhase === "REVIEW" || row.renderPhase === "GATE";
+  const train = isLive ? dotTrain(now, Date.parse(row.lastEventAt), 1400, 5) : null;
   return (
     <Box flexDirection="column">
       <Box gap={1}>
@@ -294,6 +307,7 @@ function FleetRowView({
         </Box>
       </Box>
       <Box marginLeft={4}>
+        {train !== null && <Text color={color}>{train} </Text>}
         <Text dimColor>{row.detailLine}</Text>
       </Box>
     </Box>
@@ -306,11 +320,13 @@ function DiveThread({
   dive,
   comboId,
   modal,
+  now,
   children,
 }: {
   readonly dive: ThreadView | undefined;
   readonly comboId: string;
   readonly modal: DecisionCard | null;
+  readonly now: number;
   readonly children?: React.ReactNode;
 }): React.ReactElement {
   if (dive === undefined) {
@@ -336,7 +352,7 @@ function DiveThread({
       </Box>
       <Box flexDirection="column" marginTop={1}>
         {dive.entries.map((entry, i) => (
-          <ThreadEntryView key={`${entry.at}-${i}`} entry={entry} />
+          <ThreadEntryView key={`${entry.at}-${i}`} entry={entry} now={now} />
         ))}
       </Box>
       {dive.projection !== undefined && (
@@ -357,14 +373,22 @@ function DiveThread({
   );
 }
 
-function ThreadEntryView({ entry }: { readonly entry: ThreadEntry }): React.ReactElement {
+function ThreadEntryView({
+  entry,
+  now,
+}: {
+  readonly entry: ThreadEntry;
+  readonly now: number;
+}): React.ReactElement {
   const glyph = ENTRY_GLYPH[entry.kind];
   const color = ENTRY_COLOR[entry.kind];
+  const train = entry.live ? dotTrain(now, now, 1400, 7) : null;
   return (
     <Box flexDirection="column">
       <Box gap={1}>
         <Text color={color}>{glyph}</Text>
         <Text color={entry.live ? color : undefined}>{entry.headline}</Text>
+        {train !== null && <Text color={color}>{train}</Text>}
       </Box>
       {entry.detail !== undefined && (
         <Box marginLeft={4}>

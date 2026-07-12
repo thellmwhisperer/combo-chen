@@ -9,11 +9,11 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at runTuiHome          <- session management or direct render.
- *   2. Then loadTuiData             <- rows + dives + decisions from run dirs.
+ *   2. Then loadTuiData             <- rows + dives + decisions + telemetry from run dirs.
  *   3. Then resolveJumpActions      <- pure: dive-in Enter -> tmux arg vectors.
  *   4. Then decideOptions           <- pure: decision verb -> decide handler opts.
  *   5. Then recordDecision           <- wraps the write so a stale card can't crash.
- *   6. Then renderTuiHome           <- data load + Ink render + refresh.
+ *   6. Then renderTuiHome           <- data load + Ink render + refresh + animation.
  *
  *   MAIN FLOW
  *   ---------
@@ -36,15 +36,16 @@
  *   decideOptions       Pure: decision verb -> decideComboEscalation options.
  *   recordDecision      Wraps the decide write; returns ok or a non-fatal message.
  *   refreshIntervalMs   Pure: COMBO_CHEN_TUI_REFRESH_MS -> interval (default 5s).
+ *   animationIntervalMs Pure: COMBO_CHEN_TUI_ANIM_MS -> interval (default 200ms).
  *   TuiData             Loaded fleet + dives + decisions + combo index.
  *   runTuiHome          Entry: session management or direct render.
  *
  *   INTERNALS
  *   ---------
- *   loadTuiData, renderTuiHome, DEFAULT_REFRESH_MS.
+ *   loadTuiData, readLiveTelemetryForCombo, renderTuiHome, DEFAULT_REFRESH_MS, DEFAULT_ANIM_MS.
  *
- * @exports HOME_SESSION_NAME, TUI_DIRECT_ENV, insideTmux, isTtyStdout, homeSessionCommand, homeSessionActions, loadVerdictsForCombo, resolveJumpActions, decideOptions, recordDecision, refreshIntervalMs, TuiData, runTuiHome
- * @deps ../../core/events, ../../core/loop-state, ../../core/state, ../../core/verdict, ../../infra/tmux, ../deps, ../lifecycle/lifecycle-handlers, ./decisions-fold, ./fleet-fold, ./thread-fold, ./tmux-jump
+ * @exports HOME_SESSION_NAME, TUI_DIRECT_ENV, insideTmux, isTtyStdout, homeSessionCommand, homeSessionActions, loadVerdictsForCombo, resolveJumpActions, decideOptions, recordDecision, refreshIntervalMs, animationIntervalMs, TuiData, runTuiHome
+ * @deps ../../core/events, ../../core/loop-state, ../../core/state, ../../core/verdict, ../../infra/tmux, ../deps, ../lifecycle/lifecycle-handlers, ./decisions-fold, ./fleet-fold, ./live-telemetry, ./telemetry-readers, ./thread-fold, ./tmux-jump
  */
 import { readEvents } from "../../core/events.js";
 import { readLoopState, type LoopState } from "../../core/loop-state.js";
@@ -55,6 +56,8 @@ import type { AppDeps } from "../deps.js";
 import { decideComboEscalation } from "../lifecycle/lifecycle-handlers.js";
 import { derivePendingDecisions, type DecisionCard } from "./decisions-fold.js";
 import { deriveActorLiveness, deriveFleetRow, type FleetRow } from "./fleet-fold.js";
+import type { LiveTelemetryFacts } from "./live-telemetry.js";
+import { readCoderTelemetry, readGateTelemetry, type TelemetryDeps } from "./telemetry-readers.js";
 import { jumpToActorActions } from "./tmux-jump.js";
 import { deriveThread, type ThreadView } from "./thread-fold.js";
 
@@ -175,11 +178,18 @@ export function decideOptions(
 
 // -- 6/6 HELPER · data loading + render loop <- START HERE
 const DEFAULT_REFRESH_MS = 5000;
+const DEFAULT_ANIM_MS = 200;
 
 export function refreshIntervalMs(env: Record<string, string | undefined>): number {
   const raw = env["COMBO_CHEN_TUI_REFRESH_MS"];
   const parsed = raw !== undefined ? Number(raw) : DEFAULT_REFRESH_MS;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REFRESH_MS;
+}
+
+export function animationIntervalMs(env: Record<string, string | undefined>): number {
+  const raw = env["COMBO_CHEN_TUI_ANIM_MS"];
+  const parsed = raw !== undefined ? Number(raw) : DEFAULT_ANIM_MS;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ANIM_MS;
 }
 
 export interface TuiData {
@@ -192,6 +202,7 @@ export interface TuiData {
 export function loadTuiData(deps: AppDeps): TuiData {
   const home = comboHome(deps.env);
   const combos = listCombos(home, () => {});
+  const telemetryDeps: TelemetryDeps = { git: deps.git, noMistakes: deps.noMistakes };
   const rows: FleetRow[] = [];
   const dives: Record<string, ThreadView> = {};
   const decisions: Record<string, readonly DecisionCard[]> = {};
@@ -208,10 +219,11 @@ export function loadTuiData(deps: AppDeps): TuiData {
     if (events.length === 0) continue;
     const sessionAlive = deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0;
     const liveness = deriveActorLiveness(events, sessionAlive);
-    const row = deriveFleetRow({ combo, events, liveness });
+    const telemetry = readLiveTelemetryForCombo(combo, runDir, liveness, telemetryDeps);
+    const row = deriveFleetRow({ combo, events, liveness, telemetry });
     rows.push(row);
     const verdicts = loadVerdictsForCombo(runDir);
-    dives[combo.id] = deriveThread({ combo, events, verdicts, liveness });
+    dives[combo.id] = deriveThread({ combo, events, verdicts, liveness, telemetry });
     const pending = derivePendingDecisions({
       comboId: combo.id,
       events,
@@ -220,6 +232,18 @@ export function loadTuiData(deps: AppDeps): TuiData {
     if (pending.length > 0) decisions[combo.id] = pending;
   }
   return { rows, dives, decisions, combosById };
+}
+
+function readLiveTelemetryForCombo(
+  combo: ComboRecord,
+  runDir: string,
+  liveness: { readonly coder?: boolean; readonly reviewer?: boolean; readonly gate?: boolean },
+  deps: TelemetryDeps,
+): LiveTelemetryFacts | undefined {
+  const coder = liveness.coder ? readCoderTelemetry(combo.worktree, runDir, deps) : undefined;
+  const gate = liveness.gate ? readGateTelemetry(combo, deps) : undefined;
+  if (coder === undefined && gate === undefined) return undefined;
+  return { ...(coder !== undefined ? { coder } : {}), ...(gate !== undefined ? { gate } : {}) };
 }
 
 /**
@@ -276,6 +300,7 @@ async function renderTuiHome(deps: AppDeps): Promise<void> {
     decisions: current.decisions,
     onJump,
     onDecide,
+    now: Date.now(),
     ...(notice !== undefined ? { notice } : {}),
   });
   const renderNow = (): void => {
@@ -283,7 +308,7 @@ async function renderTuiHome(deps: AppDeps): Promise<void> {
   };
 
   const instance = render(React.createElement(Home, homeProps()));
-  const interval = setInterval(() => {
+  const refreshTimer = setInterval(() => {
     try {
       current = loadTuiData(deps);
       notice = undefined; // a successful refresh clears any stale notice
@@ -292,10 +317,16 @@ async function renderTuiHome(deps: AppDeps): Promise<void> {
       // Data loading errors are non-fatal; keep the last known state.
     }
   }, refreshIntervalMs(deps.env));
+  // Animation-only re-render: advances dot trains and spinners without
+  // re-reading observables (telemetry reads stay on the refresh cadence).
+  const animTimer = setInterval(() => {
+    renderNow();
+  }, animationIntervalMs(deps.env));
   try {
     await instance.waitUntilExit();
   } finally {
-    clearInterval(interval);
+    clearInterval(refreshTimer);
+    clearInterval(animTimer);
   }
 }
 // -/ 6/6

@@ -21,24 +21,25 @@
  *   FleetRenderPhase  CODER|REVIEW|GATE|PR|READY|NEEDS_YOU|PARKED|CLOSED
  *   ActorLiveness     Injected process-liveness facts (coder/reviewer/gate active).
  *   deriveActorLiveness  Pure: journal phase + sessionAlive -> ActorLiveness.
- *   FleetRowInput     One combo's fold input.
- *   FleetRow          One combo's render-ready row.
+ *   FleetRowInput     One combo's fold input (events + liveness + telemetry).
+ *   FleetRow          One combo's render-ready row (detailLine + liveHint + telemetry).
  *   FleetTab          live|parked|closed.
  *   FleetView         Sorted, filtered, empty-state-aware fleet model.
- *   deriveFleetRow    Pure fold: combo + events + liveness -> FleetRow.
+ *   deriveFleetRow    Pure fold: combo + events + liveness + telemetry -> FleetRow.
  *   deriveFleetView   Pure fold: rows + tab -> FleetView.
  *
  *   INTERNALS
  *   ---------
- *   renderPhaseFrom, detailLineFrom, reviewRound, prUrlFrom, ageLabel,
- *   sortPriorityFor, emptyStateFor.
+ *   renderPhaseFrom, detailLineFrom, liveHintFrom, reviewRound, prUrlFrom,
+ *   ageLabel, sortPriorityFor, emptyStateFor.
  *
  * @exports FleetRenderPhase, ActorLiveness, deriveActorLiveness, FleetRowInput, FleetRow, FleetTab, FleetView, deriveFleetRow, deriveFleetView
- * @deps ../../core/combo, ../../core/state, ../reporting/status-fold
+ * @deps ../../core/combo, ../../core/state, ../reporting/status-fold, ./live-telemetry
  */
 import { deriveStatus } from "../../core/combo.js";
 import { describeWorkItem, type ComboRecord } from "../../core/state.js";
 import type { JournalFact } from "../reporting/status-fold.js";
+import { formatCoderHint, formatGateStepBar, type LiveTelemetryFacts } from "./live-telemetry.js";
 
 // -- 1/4 CORE · types <- START HERE --
 export type FleetRenderPhase =
@@ -54,6 +55,7 @@ export interface FleetRowInput {
   readonly combo: ComboRecord;
   readonly events: readonly JournalFact[];
   readonly liveness?: ActorLiveness;
+  readonly telemetry?: LiveTelemetryFacts;
   readonly now?: number;
 }
 
@@ -64,6 +66,7 @@ export interface FleetRow {
   readonly needsYou: boolean;
   readonly reason?: string;
   readonly detailLine: string;
+  readonly liveHint?: string;
   readonly round: number;
   readonly prUrl?: string;
   readonly createdAt: string;
@@ -71,6 +74,7 @@ export interface FleetRow {
   readonly ageLabel: string;
   readonly lastActivityLabel: string;
   readonly sortPriority: number;
+  readonly telemetry?: LiveTelemetryFacts;
 }
 
 export type FleetTab = "live" | "parked" | "closed";
@@ -96,7 +100,17 @@ export function deriveFleetRow(input: FleetRowInput): FleetRow {
   const needsYou =
     renderPhase === "NEEDS_YOU" ||
     (status.needsHuman && renderPhase !== "CLOSED" && status.reason !== "closure_pending");
-  const detailLine = detailLineFrom(renderPhase, round, prUrl, needsYou, status.reason, input.liveness);
+  const telemetry = input.telemetry;
+  const detailLine = detailLineFrom(
+    renderPhase,
+    round,
+    prUrl,
+    needsYou,
+    status.reason,
+    input.liveness,
+    telemetry,
+  );
+  const liveHint = liveHintFrom(renderPhase, round, input.liveness, telemetry);
   const createdAt = input.combo.createdAt;
   const lastEventAt = lastEvent?.t ?? createdAt;
   const row: FleetRow = {
@@ -111,7 +125,9 @@ export function deriveFleetRow(input: FleetRowInput): FleetRow {
     ageLabel: ageLabel(now - Date.parse(createdAt)),
     lastActivityLabel: ageLabel(now - Date.parse(lastEventAt)),
     sortPriority: sortPriorityFor(renderPhase),
+    ...(liveHint !== undefined ? { liveHint } : {}),
     ...(prUrl !== undefined ? { prUrl } : {}),
+    ...(telemetry !== undefined ? { telemetry } : {}),
     ...(status.reason !== undefined && needsYou ? { reason: status.reason } : {}),
   };
   return row;
@@ -181,18 +197,24 @@ function detailLineFrom(
   needsYou: boolean,
   reason: string | undefined,
   liveness: ActorLiveness | undefined,
+  telemetry: LiveTelemetryFacts | undefined,
 ): string {
   const roundSuffix = round > 0 ? ` · round ${round}` : "";
   switch (phase) {
-    case "CODER":
-      return liveness?.coder ? "coder working · live" : "coder working";
+    case "CODER": {
+      const base = liveness?.coder ? "coder working · live" : "coder working";
+      const hint = telemetry?.coder !== undefined ? formatCoderHint(telemetry.coder) : undefined;
+      return hint !== undefined ? `${base} · ${hint}` : base;
+    }
     case "REVIEW":
       if (liveness?.coder) return `coder fixing${roundSuffix}`;
       if (liveness?.reviewer) return `reviewer judging${roundSuffix}`;
       if (round > 0) return `review in progress${roundSuffix}`;
       return "awaiting review";
-    case "GATE":
-      return "no-mistakes validating";
+    case "GATE": {
+      const bar = telemetry?.gate !== undefined ? formatGateStepBar(telemetry.gate) : undefined;
+      return bar !== undefined ? `no-mistakes · ${bar}` : "no-mistakes validating";
+    }
     case "PR":
       return prUrl !== undefined ? "PR · checks settling" : "checks settling";
     case "READY":
@@ -205,6 +227,31 @@ function detailLineFrom(
       return "closed";
     default:
       return "";
+  }
+}
+
+function liveHintFrom(
+  phase: FleetRenderPhase,
+  round: number,
+  liveness: ActorLiveness | undefined,
+  telemetry: LiveTelemetryFacts | undefined,
+): string | undefined {
+  const roundSuffix = round > 0 ? ` · round ${round}` : "";
+  switch (phase) {
+    case "CODER": {
+      const hint = telemetry?.coder !== undefined ? formatCoderHint(telemetry.coder) : undefined;
+      return hint !== undefined ? `coder working · ${hint}` : undefined;
+    }
+    case "REVIEW":
+      if (liveness?.coder) return `coder fixing${roundSuffix}`;
+      if (liveness?.reviewer) return `reviewer judging${roundSuffix}`;
+      return undefined;
+    case "GATE": {
+      const bar = telemetry?.gate !== undefined ? formatGateStepBar(telemetry.gate) : undefined;
+      return bar !== undefined ? `gate · ${bar}` : undefined;
+    }
+    default:
+      return undefined;
   }
 }
 
