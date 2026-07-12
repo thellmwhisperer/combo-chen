@@ -835,10 +835,14 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((entry) => entry.event === "needs_human")).toBe(false);
   });
 
-  it("escalates a reviewer permission prompt instead of silently waiting for LGTM", async () => {
+  it("escalates a reviewer permission prompt when explicitly configured", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
+    writeFileSync(
+      join(record.repoDir, "combo-chen.toml"),
+      "[monitor]\npermission_prompt_policy = 'escalate'\n",
+    );
     const { deps, out } = fakeDeps({
       homeDir: h,
       record,
@@ -864,7 +868,7 @@ describe("tickDirector", () => {
     expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt"));
   });
 
-  it("auto-approves a reviewer permission prompt when configured", async () => {
+  it("treats legacy auto-approve policy as a learning escalation", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
@@ -882,139 +886,24 @@ describe("tickDirector", () => {
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
       if (args[0] === "capture-pane")
-        return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
+        return { status: 0, stdout: "This command requires approval: node review.js\n", stderr: "" };
       if (args[0] === "send-keys") return { status: 0, stdout: "", stderr: "" };
       return { status: 0, stdout: "", stderr: "" };
     };
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:reviewer", "y", "C-m"]);
-    expect(out).toContainEqual(expect.stringContaining("worker reviewer permission prompt auto-approved"));
-  });
-
-  it("escalates a persistent auto-approved reviewer prompt after the configured recovery budget", async () => {
-    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
-    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      [
-        "[monitor]",
-        "permission_prompt_policy = 'auto-approve-known-safe'",
-        "worker_recovery_attempts = 1",
-      ].join("\n"),
-    );
-    const { deps, calls } = fakeDeps({
-      homeDir: h,
-      record,
-      prHeadSha: headSha,
-    });
-    deps.tmux = (args) => {
-      calls.push(["tmux", ...args]);
-      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
-      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-      if (args[0] === "capture-pane")
-        return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
-      if (args[0] === "send-keys") return { status: 0, stdout: "", stderr: "" };
-      return { status: 0, stdout: "", stderr: "" };
-    };
-
-    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
-    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
-
-    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "send-keys")).toHaveLength(1);
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
-        event: "needs_human",
-        reason: "worker_permission_prompt",
+        event: "permission_prompt_detected",
         worker: "reviewer",
-        detail: "recovery attempts exhausted after 1; permission prompt",
+        tool: "node",
+        command: "node review.js",
       }),
     );
-  });
-
-  it("recreates a permission-prompted coder responding worker until the recovery budget is exhausted", async () => {
-    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
-    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const windows = new Set(["coder"]);
-    const record = combo();
-    const runDir = runDirFor(h, record.id);
-    writeCombo(runDir, record);
-    writeCoderThreadArtifact(runDir);
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      [
-        "[monitor]",
-        "permission_prompt_policy = 'recreate-non-interactive'",
-        "worker_recovery_attempts = 1",
-      ].join("\n"),
-    );
-    appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
-    appendEvent(runDir, "review_comment", {
-      author: "external-reviewer",
-      kind: "review_comment",
-      url: "https://github.com/o/r/pull/7#discussion_r1",
-    });
-    const { deps, calls, out } = fakeDeps({
-      homeDir: h,
-      record,
-      prHeadSha: headSha,
-      tmux: (args) => {
-        if (args[0] === "list-windows") {
-          return { status: 0, stdout: `${[...windows].join("\n")}\n`, stderr: "" };
-        }
-        if (args[0] === "list-panes") {
-          const target = String(args.at(2) ?? "");
-          const window = target.split(":").at(1) ?? "";
-          return windows.has(window)
-            ? { status: 0, stdout: "0\n", stderr: "" }
-            : { status: 1, stdout: "", stderr: "missing window" };
-        }
-        if (args[0] === "capture-pane") {
-          return { status: 0, stdout: "Do you want to proceed? [y/N]\n", stderr: "" };
-        }
-        if (args[0] === "kill-window") {
-          const target = String(args.at(2) ?? "");
-          const window = target.split(":").at(1) ?? "";
-          windows.delete(window);
-          return { status: 0, stdout: "", stderr: "" };
-        }
-        if (args[0] === "new-window") {
-          windows.add(String(args.at(4) ?? ""));
-          return { status: 0, stdout: "", stderr: "" };
-        }
-        return { status: 0, stdout: "", stderr: "" };
-      },
-    });
-
-    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
-
-    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(1);
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({
-        event: "worker_recovered",
-        reason: "worker_permission_prompt",
-        worker: "coder",
-        attempt: 1,
-        max_attempts: 1,
-      }),
-    );
-    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(out).toContain("director: recovered coder after worker_permission_prompt attempt 1/1");
-
-    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
-
-    expect(calls.filter((call) => call[0] === "tmux" && call[1] === "kill-window")).toHaveLength(1);
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({
-        event: "needs_human",
-        reason: "worker_permission_prompt",
-        worker: "coder",
-        detail: "recovery attempts exhausted after 1; permission prompt",
-      }),
-    );
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(true);
+    expect(calls.some((call) => call[1] === "send-keys")).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("add the tool to reviewer's allowed_tools"));
   });
 
   it("passes configured permission prompt patterns into worker pane inspection", async () => {
@@ -1023,7 +912,11 @@ describe("tickDirector", () => {
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      "[monitor]\npermission_prompt_patterns = ['^CUSTOM TOOL APPROVAL REQUIRED$']\n",
+      [
+        "[monitor]",
+        "permission_prompt_patterns = ['^CUSTOM TOOL APPROVAL REQUIRED$']",
+        "permission_prompt_policy = 'escalate'",
+      ].join("\n"),
     );
     const { deps } = fakeDeps({
       homeDir: h,
@@ -1055,7 +948,11 @@ describe("tickDirector", () => {
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      "[monitor]\npermission_prompt_patterns = ['^LAUNCH APPROVAL$']\n",
+      [
+        "[monitor]",
+        "permission_prompt_patterns = ['^LAUNCH APPROVAL$']",
+        "permission_prompt_policy = 'escalate'",
+      ].join("\n"),
     );
     writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
     writeFileSync(

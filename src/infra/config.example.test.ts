@@ -1,6 +1,6 @@
 /**
  * @overview Unit tests for the shipped example config and doc vocabulary.
- *   ~180 lines, testing that combo-chen.example.toml and public docs use
+ *   ~190 lines, testing that combo-chen.example.toml and public docs use
  *   only OSS-friendly role names, document the tracked no-mistakes and Codex
  *   resume policies, and keep the example config loadable by the config
  *   cascade.
@@ -58,7 +58,19 @@ describe("combo-chen.example.toml", () => {
   it("documents the recommended Codex resume policy", () => {
     const body = readFileSync(EXAMPLE_CONFIG, "utf8");
 
-    expect(body).toContain("codex --profile sitter --no-alt-screen resume {thread_id}");
+    expect(body).toContain(
+      "codex --ask-for-approval never --sandbox workspace-write --profile sitter --no-alt-screen resume {thread_id}",
+    );
+  });
+
+  it("documents allowlist convergence as the role permission envelope", () => {
+    const body = readFileSync(EXAMPLE_CONFIG, "utf8");
+    const spec = readFileSync(SPEC, "utf8");
+
+    expect(body).toContain("allowed_tools");
+    expect(body).toContain("Prompts are captured as learning signals");
+    expect(spec).toContain("permission_prompt_detected");
+    expect(spec).toContain("never left blocking a pane");
   });
 
   it("keeps shipped docs on the public OSS-friendly role vocabulary", () => {
@@ -125,12 +137,15 @@ describe("combo-chen.example.toml", () => {
     expect(config.externalCommentAgents).toEqual(["coderabbitai"]);
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
     expect(config.workerPermissionPromptPolicy).toBe("escalate");
-    expect(config.coderResumeCommand).toBe("codex resume {thread_id}");
+    expect(config.coderResumeCommand).toBe(
+      "codex --ask-for-approval never --sandbox workspace-write resume {thread_id}",
+    );
     expect(config.workerRecoveryAttempts).toBe(2);
     expect(config).not.toHaveProperty("threadSitterWindowName");
     expect(config).not.toHaveProperty("threadSitterWatchWindowName");
     expect(config.reviewerAgent).toBe("claude");
-    expect(config.directorCommand).toBe("claude {prompt}");
+    expect(config.directorCommand).toBe("claude --permission-mode auto {prompt}");
+    expect(config.roleToolAllowlists.director).toContain("tmux");
     expect(config.limits.coderTimeoutMinutes).toBe(180);
   });
 

@@ -202,9 +202,9 @@ Active features:
   panes) before worker recovery; capsule-owned pre-PR dead coder recovery
   (bounded capsule pane relaunches before `needs_human`); stalled
   coder-response recovery with bounded retries
-- Configurable worker permission-prompt recovery (auto-approve, recreate, or
-  escalate) with bounded retries; orchestrator evidence consulted before
-  worker stall escalation
+- Snapshot-frozen per-role tool allowlists; permission prompts journal typed
+  tool/command learning signals and escalate decision cards for grant → config
+  allowlist update → turn retry convergence (never silent approval)
 - Human-readable tmux topology (capsule engine in pane 0, plus journal,
   director, coder, gatekeeper, and reviewer windows; no director-watch window;
   the gatekeeper window entry is the static `no-mistakes attach` one-liner;

@@ -66,6 +66,7 @@ function config(): ComboConfig {
     workerRecoveryAttempts: 2,
     workerPermissionPromptPatterns: [],
     workerPermissionPromptPolicy: "escalate",
+    roleToolAllowlists: { coder: ["git"], reviewer: ["git"], gatekeeper: ["git"], director: ["git"] },
     coderGnhfProgressMaxAgeMs: 60000,
     gatekeeperStatusTimeoutMs: 5000,
     sourceBranch: "main",

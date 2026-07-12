@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for per-run config snapshot artifacts. ~100 lines,
+ * @overview Unit tests for per-run config snapshot artifacts. ~245 lines,
  *   testing JSON persistence and runtime snapshot preference.
  *
  *   READING GUIDE
@@ -153,6 +153,27 @@ describe("config snapshots", () => {
     expect(snapshot.reviewerTurnTimeoutMinutes).toBe(60);
     expect(snapshot.fixTurnTimeoutMinutes).toBe(120);
     expect(snapshot.reviewVerdictWaitMs).toBe(5000);
+  });
+
+  it("backfills the autonomous permission recovery policy in older frozen snapshots", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const {
+      workerPermissionPromptPolicy: _policy,
+      roleToolAllowlists: _allowlists,
+      ...preEnvelope
+    } = loadConfig({
+      repoDir,
+      userConfigPath: join(repoDir, "missing.toml"),
+      env: {},
+    });
+    writeFileSync(
+      join(runDir, CONFIG_SNAPSHOT_FILE),
+      `${JSON.stringify({ schemaVersion: 1, ...preEnvelope }, null, 2)}\n`,
+    );
+
+    expect(readConfigSnapshot(runDir).workerPermissionPromptPolicy).toBe("escalate");
+    expect(readConfigSnapshot(runDir).roleToolAllowlists.reviewer).toContain("git");
   });
 
   it("preserves the frozen snapshot schema_version when re-persisting", () => {

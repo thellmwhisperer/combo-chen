@@ -1,5 +1,5 @@
 /**
- * @overview Unit tests for the event journal subsystem. ~414 lines, testing
+ * @overview Unit tests for the event journal subsystem. ~500 lines, testing
  *   event schema validation, JSONL append/read, PR-open idempotence, append locking, legacy alias
  *   mapping, torn-line tolerance, and the async follow/followEvents stream.
  *
@@ -69,6 +69,7 @@ describe("event schema", () => {
         "pr_labels_updated",
         "pr_autoclose_failed",
         "needs_human",
+        "permission_prompt_detected",
         "worker_recovered",
         "worker_recovery_failed",
         "director_prompted",
@@ -99,6 +100,7 @@ describe("event schema", () => {
     expect(EVENT_TYPES.team.required).toEqual(["roles"]);
     expect(EVENT_TYPES.pr_opened.required).toEqual(["url"]);
     expect(EVENT_TYPES.needs_human.required).toEqual(["reason"]);
+    expect(EVENT_TYPES.permission_prompt_detected.required).toEqual(["worker", "tool", "command"]);
     expect(EVENT_TYPES.worker_recovered.required).toEqual(["worker", "reason", "attempt"]);
     expect(EVENT_TYPES.director_prompted.required).toEqual(["reason", "target"]);
     expect(EVENT_TYPES.coder_failed.required).toEqual(["exit_code", "has_new_commits"]);

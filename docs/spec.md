@@ -21,10 +21,24 @@ Validation at launch (hard failures):
   repo_exists, source_checkout_clean, base_ref_resolved, treehouse_available,
   combo_id_valid, run_dir_free, branch_free, worktree_free, tmux_session_free,
   config_parses, coder_command_safe, reviewer_command_safe, no_mistakes_available,
-  no_mistakes_run_free, team_identity.
+  no_mistakes_run_free, team_identity, role_command_autonomous.
 - The result is written as `overture.json` in the combo run directory.
 - `reviewer != coder` — no agent reviews its own changes.
 - All runtime behavior reads from the per-run `config.snapshot.json`, frozen at launch.
+
+### Role permission envelope
+
+Every role declares an explicit `allowed_tools` budget in config; the resolved
+budgets are frozen in `config.snapshot.json`. Overture fails a role with no
+allowlist. Harness bypass flags remain accepted only as a warning-level emergency
+escape hatch, never the recommendation.
+
+Permission prompts form a learning loop: the watchdog journals a typed
+`permission_prompt_detected` event with the worker, requested tool, and command,
+then immediately creates a `needs_human` decision card. The operator flow is
+grant → add the tool to that role's `allowed_tools` → retry the turn. Over repeated
+runs the per-role budgets converge. Prompts are captured as learning signals,
+never left blocking a pane and never silently approved.
 
 ## 2. Launch
 
@@ -235,9 +249,9 @@ post-publish observer:
   is recreated and re-prompted via `recoverStuckWorker` (bounded by the same
   recovery budget).
 - **Permission prompts** — pane content matches `permission_prompt_patterns`.
-  Policy (`permission_prompt_policy`): `escalate` (default) journals
-  `needs_human`; `auto-approve-known-safe` sends `y`+Enter; `recreate-non-interactive`
-  kills and recreates the worker window.
+  The watchdog records `permission_prompt_detected` and journals a `needs_human`
+  decision card; legacy recovery-policy values never silently approve or recreate
+  a prompted role.
 
 Worker recovery is bounded: after `workerRecoveryAttempts` attempts for the same
 worker/reason, the next finding escalates `needs_human`.

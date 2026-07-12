@@ -1,6 +1,6 @@
 /**
  * @overview Config cascade: defaults ← user config ← repo config.
- *   Repo wins on policy, user wins on local setup. ~880 lines, 15 exports.
+ *   Repo wins on policy, user wins on local setup. ~920 lines, 20 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -19,21 +19,22 @@
  *       buildDirectorInvocation
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────┐
- *   │ loadConfig                Cascade: defaults → user → repo → env   │
- *   │ renderCommand             Substitute {placeholders} with safe vals │
- *   │ hasGnhfCommand            Detect configured gnhf wrapper commands  │
- *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
- *   │ DEFAULT_WORKER_RECOVERY_ATTEMPTS Fallback recovery budget           │
+ *   │ loadConfig / renderCommand  Resolve config and command templates  │
+ *   │ hasGnhfCommand / unsafeCoderInvocationReasons / assertSafeCoderInvocation │
+ *   │ ComboConfigError; ComboRoles, ComboLimits, ComboTeam* types       │
+ *   │ WorkerPermissionPromptPolicy, RunEngine, ComboConfig              │
+ *   │ DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS     │
+ *   │ DEFAULT_WORKER_PERMISSION_PROMPT_POLICY, DEFAULT_ROLE_TOOL_ALLOWLISTS, │
+ *   │ DEFAULT_REVIEW_SETTINGS,                                          │
+ *   │ DEFAULT_WORKER_RECOVERY_ATTEMPTS                                  │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
  *   │ readTomlIfExists, asTable, mergeRoles, pickNumber,               │
  *   │ pickNumberAlias, pickNonNegativeInteger, pickPositiveInteger,   │
  *   │ pickNonEmptyString, pickStringArray, normalize*Aliases,         │
  *   │ DEFAULTS, PLACEHOLDER, defaultUserConfigPath, gnhf safety predicates │
- *   │ ComboConfigError, ComboRoles, ComboLimits, ComboTeam,          │
- *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, RunEngine, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_REVIEW_SETTINGS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, RunEngine, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_PERMISSION_PROMPT_POLICY, DEFAULT_ROLE_TOOL_ALLOWLISTS, DEFAULT_REVIEW_SETTINGS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/shell-quote
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -117,8 +118,10 @@ export interface ComboConfig {
   workerRecoveryAttempts: number;
   /** Regex sources used to detect interactive permission prompts in worker panes. */
   workerPermissionPromptPatterns: string[];
-  /** Recovery policy for known interactive permission prompts in worker panes. */
+  /** Legacy snapshot/config compatibility; prompts now always journal and escalate. */
   workerPermissionPromptPolicy: WorkerPermissionPromptPolicy;
+  /** Snapshot-frozen executable/tool budget for each autonomous role. */
+  roleToolAllowlists: Record<ComboTeamRole, string[]>;
   /** Max age of the gnhf.log mtime (ms) to consider the coder actively progressing. */
   coderGnhfProgressMaxAgeMs: number;
   /** Timeout for probing no-mistakes gatekeeper status evidence (ms). */
@@ -164,8 +167,9 @@ const DEFAULT_CODER_COMMAND = [
 ].join(" ");
 export const DEFAULT_GATEKEEPER_COMMAND =
   "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent} --skip=ci";
-const DEFAULT_DIRECTOR_COMMAND = "claude {prompt}";
+const DEFAULT_DIRECTOR_COMMAND = "claude --permission-mode auto {prompt}";
 export const DEFAULT_PERMISSION_PROMPT_PATTERNS = [
+  "^\\s*This command requires approval:\\s*.+$",
   "^\\s*Do you want to (?:proceed|continue)\\?\\s*(?:\\[[yn]/[yn]\\])?\\s*$",
   "^\\s*(?:Allow|Approve|Confirm)\\?\\s*\\[[yn]/[yn]\\]\\s*$",
   "^\\s*(?:Press|Type)\\s+(?:y|yes)\\s+to\\s+(?:continue|proceed|confirm)\\.?\\s*$",
@@ -175,6 +179,13 @@ const WORKER_PERMISSION_PROMPT_POLICIES: WorkerPermissionPromptPolicy[] = [
   "recreate-non-interactive",
   "escalate",
 ];
+export const DEFAULT_WORKER_PERMISSION_PROMPT_POLICY: WorkerPermissionPromptPolicy = "escalate";
+export const DEFAULT_ROLE_TOOL_ALLOWLISTS: Record<ComboTeamRole, string[]> = {
+  coder: ["node", "pnpm", "git", "rg"],
+  reviewer: ["node", "pnpm", "git", "rg"],
+  gatekeeper: ["node", "pnpm", "git", "no-mistakes", "gh-axi"],
+  director: ["git", "tmux", "combo-chen", "gh-axi"],
+};
 /**
  * Documented [review] loop bounds. Exported so config-snapshot can backfill
  * pre-W5b frozen snapshots: a missing field must read as these defaults, not
@@ -189,7 +200,7 @@ export const DEFAULT_REVIEW_SETTINGS = {
 
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
-    command: "claude {prompt}",
+    command: "claude --permission-mode auto {prompt}",
   },
 };
 
@@ -211,7 +222,7 @@ const DEFAULTS = {
   coder: {
     codex: {
       command: DEFAULT_CODER_COMMAND,
-      resume_command: "codex resume {thread_id}",
+      resume_command: "codex --ask-for-approval never --sandbox workspace-write resume {thread_id}",
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   gatekeeper: {
@@ -238,7 +249,7 @@ const DEFAULTS = {
     worker_stall_ticks: 3,
     worker_recovery_attempts: DEFAULT_WORKER_RECOVERY_ATTEMPTS,
     permission_prompt_patterns: DEFAULT_PERMISSION_PROMPT_PATTERNS,
-    permission_prompt_policy: "escalate",
+    permission_prompt_policy: DEFAULT_WORKER_PERMISSION_PROMPT_POLICY,
     coder_gnhf_progress_max_age_ms: 10 * 60 * 1000,
     gatekeeper_status_timeout_ms: 5000,
   },
@@ -867,6 +878,24 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       monitorTable["permission_prompt_policy"],
       "monitor.permission_prompt_policy",
     ),
+    roleToolAllowlists: {
+      coder: pickStringArray(
+        unifiedRoles.coder["allowed_tools"] ?? DEFAULT_ROLE_TOOL_ALLOWLISTS.coder,
+        "roles.coder.allowed_tools",
+      ),
+      reviewer: pickStringArray(
+        unifiedRoles.reviewer["allowed_tools"] ?? DEFAULT_ROLE_TOOL_ALLOWLISTS.reviewer,
+        "roles.reviewer.allowed_tools",
+      ),
+      gatekeeper: pickStringArray(
+        unifiedRoles.gate["allowed_tools"] ?? DEFAULT_ROLE_TOOL_ALLOWLISTS.gatekeeper,
+        "roles.gate.allowed_tools",
+      ),
+      director: pickStringArray(
+        directorTable["allowed_tools"] ?? DEFAULT_ROLE_TOOL_ALLOWLISTS.director,
+        "director.allowed_tools",
+      ),
+    },
     coderGnhfProgressMaxAgeMs: pickPositiveInteger(
       monitorTable,
       "coder_gnhf_progress_max_age_ms",
