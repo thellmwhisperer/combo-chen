@@ -1,0 +1,47 @@
+/**
+ * @overview Contract test for the external director skill and its documented CLI surface.
+ *
+ *   READING GUIDE
+ *   -------------
+ *   1. Start at the describe block  <- skill existence and command registration contract.
+ *
+ *   MAIN FLOW
+ *   ---------
+ *   read skill markdown -> extract combo-chen commands -> compare with createProgram
+ *
+ *   PUBLIC API
+ *   ----------
+ *   None (test file).
+ *
+ *   INTERNALS
+ *   ---------
+ *   DIRECT_COMBOS_SKILL locates the shipped skill from this test module.
+ *
+ * @exports none
+ * @deps ./main, ../testing/cli-harness, node:{path,url}
+ */
+
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { createProgram, describe, expect, fakeDeps, it, readFileSync } from "../testing/cli-harness.js";
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const DIRECT_COMBOS_SKILL = join(REPO_ROOT, "skills", "direct-combos", "SKILL.md");
+
+// -- 1/1 CORE · Director skill command contract <- START HERE --
+describe("direct-combos skill", () => {
+  it("mentions only registered combo-chen subcommands", () => {
+    const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
+    const mentionedCommands = Array.from(
+      markdown.matchAll(/(?:^|`)combo-chen\s+([a-z][a-z0-9-]*)\b/gm),
+      (match) => match[1]!,
+    );
+    const { deps } = fakeDeps();
+    const registeredCommands = new Set(createProgram(deps).commands.map((command) => command.name()));
+
+    expect(mentionedCommands.length).toBeGreaterThan(0);
+    expect([...new Set(mentionedCommands)].filter((name) => !registeredCommands.has(name))).toEqual([]);
+  });
+});
+// -/ 1/1
