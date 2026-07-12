@@ -13,16 +13,20 @@
  *   MAIN FLOW
  *   ---------
  *   runCapsule -> rebase -> runCoderPhase -> runLocalReviewPhase
- *     -> code 0: runInProcessGate -> PR/reviewer outcome
+ *     -> code 0: runInProcessGate (+ bounded retry) -> PR/reviewer outcome
  *     -> code 1/2/3 or defective verdict: needs_human (W5b adds the code-1 loop)
+ *   Resume: classifyCapsulePhase derives the entry point from the journal;
+ *   startAtGate skips rebase and coder for a run that already has coder_done.
  *
  *   PUBLIC API
  *   ----------
  *   CapsuleDeps          Injectable process, gate, and PR boundary.
  *   CapsuleResult        Terminal result returned to the CLI adapter.
+ *   CapsulePhase         Journal-derived resume position for a capsule run.
  *   AgentProcessRequest  Owned interactive agent invocation.
  *   runAgentProcess      Spawn an agent as a child on the capsule pane's PTY.
- *   runCapsule           Sequence one frozen run directory.
+ *   classifyCapsulePhase Sequence/gate/supervise/closed resume classification.
+ *   runCapsule           Sequence one frozen run directory (optionally from the gate).
  *
  *   INTERNALS
  *   ---------
@@ -31,14 +35,14 @@
  *   waitForVerdictFile, reviewerIdentity, findingsProjection, escalate,
  *   buildGateFacts
  *
- * @exports AgentProcessRequest, CapsuleDeps, CapsuleResult, runAgentProcess, runCapsule
+ * @exports AgentProcessRequest, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
  * @deps node:{child_process,fs,path}, ../../core/{events,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../work-items/persisted-work-plan
  */
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
-import { appendEvent } from "../../core/events.js";
+import { appendEvent, sleep, type ComboEvent } from "../../core/events.js";
 import { renderReviewDossier, reviewDossierPath } from "../../core/review-dossier.js";
 import { readCombo, type ComboRecord } from "../../core/state.js";
 import {
@@ -75,7 +79,7 @@ import {
 } from "../gate/in-process-gate.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/persisted-work-plan.js";
 
-// -- 1/4 HELPER · process and dependency contracts --
+// -- 1/5 HELPER · process and dependency contracts --
 export interface AgentProcessRequest {
   command: string;
   cwd: string;
@@ -95,6 +99,8 @@ export interface CapsuleDeps {
   activateReviewer: () => Promise<void> | void;
   attachGate?: (runId: string) => Promise<void> | void;
   leaseHome?: string;
+  /** Abortable delay used between initial-gate retries; defaults to core sleep. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export type CapsuleResult = {
@@ -128,9 +134,9 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<GateProce
     });
   });
 }
-// -/ 1/4
+// -/ 1/5
 
-// -- 2/4 HELPER · frozen base and rebase phase --
+// -- 2/5 HELPER · frozen base and rebase phase --
 function readBaseRef(runDir: string): string {
   const parsed: unknown = JSON.parse(readFileSync(join(runDir, "overture.json"), "utf8"));
   if (parsed === null || typeof parsed !== "object") throw new Error("overture.json is not an object");
@@ -188,9 +194,9 @@ async function runRebasePhase(
   }
   return undefined;
 }
-// -/ 2/4
+// -/ 2/5
 
-// -- 3/4 CORE · runCoderPhase and optional gnhf context bridge --
+// -- 3/5 CORE · runCoderPhase and optional gnhf context bridge --
 type IterationSnapshot = Map<string, number>;
 
 function iterationFiles(worktree: string): string[] {
@@ -446,6 +452,29 @@ async function runLocalReviewPhase(
 // -/ 4/5
 
 // -- 5/5 CORE · runCapsule <- START HERE --
+export type CapsulePhase = "sequence" | "gate" | "supervise" | "closed";
+
+/**
+ * Journal-derived resume position for a capsule run. A dead gnhf process
+ * after coder_done is healthy under the coder dual-contract: the initial
+ * turn is over and the thread waits for the next routed prompt.
+ */
+export function classifyCapsulePhase(events: ComboEvent[]): CapsulePhase {
+  let phase: CapsulePhase = "sequence";
+  for (const event of events) {
+    if (event.event === "combo_closed") {
+      phase = "closed";
+      continue;
+    }
+    if (phase === "closed") continue;
+    if (event.event === "pr_opened") phase = "supervise";
+    if (phase === "supervise") continue;
+    if (event.event === "coder_done") phase = "gate";
+    if (event.event === "coder_failed") phase = "sequence";
+  }
+  return phase;
+}
+
 function buildGateFacts(runDir: string, combo: ComboRecord, gatekeeperCommand: string) {
   const plan = readPersistedWorkPlan(runDir, combo);
   if (isGitHubIssueWorkItem(combo)) {
@@ -470,30 +499,38 @@ function buildGateFacts(runDir: string, combo: ComboRecord, gatekeeperCommand: s
   };
 }
 
-export async function runCapsule(runDir: string, deps: CapsuleDeps): Promise<CapsuleResult> {
+export async function runCapsule(
+  runDir: string,
+  deps: CapsuleDeps,
+  options: { startAtGate?: boolean } = {},
+): Promise<CapsuleResult> {
   const combo = readCombo(runDir);
   const config = readConfigSnapshot(runDir);
   assertSafeCoderInvocation(config.coderCommand, { requireGnhf: config.roles.coder === "codex" });
   const baseRef = readBaseRef(runDir);
-  const rebase = await runRebasePhase(deps, combo, runDir, baseRef);
-  if (rebase !== undefined) return rebase;
-
   const gateFacts = buildGateFacts(runDir, combo, config.gatekeeperCommand);
-  const coderCommand = buildCoderInvocation({
-    coderCommand: config.coderCommand,
-    combo,
-    ...(isGitHubIssueWorkItem(combo)
-      ? {}
-      : { prompt: defaultWorkPlanPrompt(gateFacts.plan, join(runDir, "work-plan.md")) }),
-  });
-  const coder = await runCoderPhase(deps, combo, runDir, coderCommand);
-  if (coder !== undefined) return coder;
+  // startAtGate resumes a run whose coder already finished: skip rebase and
+  // coder, but keep the pre-publish review so no PR is born unreviewed.
+  if (options.startAtGate !== true) {
+    const rebase = await runRebasePhase(deps, combo, runDir, baseRef);
+    if (rebase !== undefined) return rebase;
+
+    const coderCommand = buildCoderInvocation({
+      coderCommand: config.coderCommand,
+      combo,
+      ...(isGitHubIssueWorkItem(combo)
+        ? {}
+        : { prompt: defaultWorkPlanPrompt(gateFacts.plan, join(runDir, "work-plan.md")) }),
+    });
+    const coder = await runCoderPhase(deps, combo, runDir, coderCommand);
+    if (coder !== undefined) return coder;
+  }
 
   const review = await runLocalReviewPhase(deps, combo, runDir, config, baseRef, gateFacts.plan);
   if (review !== undefined) return review;
 
   const runGate = deps.runGate ?? runInProcessGate;
-  const gate = await runGate({
+  const gateInput: InProcessGateInput = {
     combo,
     runDir,
     kind: "initial",
@@ -509,10 +546,36 @@ export async function runCapsule(runDir: string, deps: CapsuleDeps): Promise<Cap
       : {}),
     activateReviewer: deps.activateReviewer,
     out: deps.out,
-  });
+  };
+  const delay = deps.sleep ?? sleep;
+  let gate = await runGate(gateInput);
+  // The capsule owns the initial-gate retry that director-watch performed for
+  // v0 runs: bounded relaunches with the snapshot-frozen backoff, then a
+  // needs_human gate_failed escalation.
+  for (
+    let attempt = 1;
+    gate.status === "failed" && attempt <= config.gatekeeperInitialGateRetryAttempts;
+    attempt += 1
+  ) {
+    deps.out(
+      `capsule: retrying initial gate for ${combo.id} after gate_failed ` +
+        `(attempt ${attempt}/${config.gatekeeperInitialGateRetryAttempts})`,
+    );
+    if (config.gatekeeperInitialGateRetryBackoffSeconds > 0) {
+      await delay(config.gatekeeperInitialGateRetryBackoffSeconds * 1000);
+    }
+    gate = await runGate(gateInput);
+  }
+  if (gate.status === "failed") {
+    appendEvent(runDir, "needs_human", { reason: "gate_failed" });
+    deps.out(
+      `capsule: initial gate retries exhausted for ${combo.id} ` +
+        `after ${config.gatekeeperInitialGateRetryAttempts}`,
+    );
+  }
   if (gate.status === "already_running" && gate.runId !== undefined) {
     await deps.attachGate?.(gate.runId);
   }
   return { status: gate.status, exitCode: gate.exitCode };
 }
-// -/ 4/4
+// -/ 5/5
