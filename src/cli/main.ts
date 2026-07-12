@@ -445,6 +445,18 @@ export function createProgram(deps: AppDeps): Command {
       nudgeComboReviewComments(deps, options.name);
     });
 
+  // Bare invocation: open the TUI home (fleet view) when stdout is a TTY;
+  // non-TTY bare invocation shows help so release-archive e2e stays green.
+  // The TUI module is imported lazily so ordinary commands never load React.
+  program.action(async () => {
+    if (process.stdout.isTTY === true) {
+      const { runTuiHome } = await import("../app/tui/entry.js");
+      await runTuiHome(deps, cli);
+      return;
+    }
+    program.outputHelp();
+  });
+
   return program;
 }
 // -/ 2/3

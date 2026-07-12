@@ -20,6 +20,7 @@
  *   ----------
  *   FleetRenderPhase  CODER|REVIEW|GATE|PR|READY|NEEDS_YOU|PARKED|CLOSED
  *   ActorLiveness     Injected process-liveness facts (coder/reviewer/gate active).
+ *   deriveActorLiveness  Pure: journal phase + sessionAlive -> ActorLiveness.
  *   FleetRowInput     One combo's fold input.
  *   FleetRow          One combo's render-ready row.
  *   FleetTab          live|parked|closed.
@@ -32,7 +33,7 @@
  *   renderPhaseFrom, detailLineFrom, reviewRound, prUrlFrom, ageLabel,
  *   sortPriorityFor, emptyStateFor.
  *
- * @exports FleetRenderPhase, ActorLiveness, FleetRowInput, FleetRow, FleetTab, FleetView, deriveFleetRow, deriveFleetView
+ * @exports FleetRenderPhase, ActorLiveness, deriveActorLiveness, FleetRowInput, FleetRow, FleetTab, FleetView, deriveFleetRow, deriveFleetView
  * @deps ../../core/combo, ../../core/state, ../reporting/status-fold
  */
 import { deriveStatus } from "../../core/combo.js";
@@ -156,7 +157,33 @@ function renderPhaseFrom(
 }
 // -/ 2/4
 
-// -- 3/4 HELPER · detail line, round, pr, age, sort --
+// -- 3/4 HELPER · detail line, round, pr, age, sort, actor liveness --
+export function deriveActorLiveness(
+  events: readonly JournalFact[],
+  sessionAlive: boolean,
+): ActorLiveness {
+  if (!sessionAlive) return {};
+  const status = deriveStatus(events as Parameters<typeof deriveStatus>[0]);
+  switch (status.phase) {
+    case "SETUP":
+    case "CODING":
+      return { coder: true };
+    case "LOCAL_REVIEW": {
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i]!;
+        if (event.event === "local_verdict") {
+          return event["code"] === 1 ? { coder: true } : { reviewer: true };
+        }
+      }
+      return { reviewer: true };
+    }
+    case "GATING":
+      return { gate: true };
+    default:
+      return {};
+  }
+}
+
 function detailLineFrom(
   phase: FleetRenderPhase,
   round: number,
