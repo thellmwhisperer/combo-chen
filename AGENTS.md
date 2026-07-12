@@ -179,6 +179,12 @@ it; otherwise search before adding helpers), reviewer anti-slop guardrails
 (duplicate helper check, config plausibility, surface budget awareness),
 anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
 `pnpm surface`), and `needs-human-report` operational metrics.
+v1 foundations: v1 journal events + LOCAL_REVIEW phase + schema_version (W1),
+pure status fold + `recap` subcommand (W7a), and the Ink/React TUI home (fleet
+view, W7c): bare `combo-chen` on a TTY opens the home; the TUI substrate is
+pure folds in `src/app/tui/` (fleet-fold, navigation) rendering from journal +
+combo + injected liveness; Ink 6.8.0 + React 19.2.7 bundled single-file via
+tsdown `codeSplitting: false` + react-devtools-core alias stub.
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
