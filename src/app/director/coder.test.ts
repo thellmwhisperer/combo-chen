@@ -5,9 +5,10 @@
  *   -------------
  *   1. Start at activateCoder tests        <- resumed coder worker.
  *   2. Then nudgeReviewComments tests      <- mirror sync and comment routing.
- *   3. Then recoverStuckWorker tests        <- stale worker recreation.
- *   4. Then recoverDeadCoder tests         <- capsule-owned capsule pane relaunch.
- *   5. Test harness helpers                <- combo and thread artifact setup.
+ *   3. Then nudgePrConflict tests           <- conflict prompt delivery.
+ *   4. Then recoverStuckWorker tests        <- stale worker recreation.
+ *   5. Then recoverDeadCoder tests          <- capsule-owned capsule pane relaunch.
+ *   6. Test harness helpers                 <- combo and thread artifact setup.
  *
  *   MAIN FLOW
  *   ---------
@@ -35,7 +36,13 @@ import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../../roles/coder-invocation.js";
 import { CODER_WINDOW } from "../runtime/sessions.js";
-import { activateCoder, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
+import {
+  activateCoder,
+  nudgePrConflict,
+  nudgeReviewComments,
+  recoverDeadCoder,
+  recoverStuckWorker,
+} from "./coder.js";
 
 // -- 1/3 HELPER · Test harness --
 const CODEX_THREAD_ID = "019eb3f5-c135-76d2-88c5-0aa8edfe4c84";
@@ -238,36 +245,20 @@ describe("nudgeReviewComments", () => {
       comboId: record.id,
     });
 
-    expect(calls.filter((call) => call[0] === "tmux")).toEqual([
-      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
-      [
-        "tmux",
-        "new-window",
-        "-t",
-        "combo-chen-owned-session",
-        "-n",
-        "coder",
-        `codex --ask-for-approval never --sandbox workspace-write exec resume '${CODEX_THREAD_ID}'`,
-      ],
-      [
-        "tmux",
-        "set-buffer",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#issuecomment-1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
-      ],
-      [
-        "tmux",
-        "paste-buffer",
-        "-d",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "-t",
-        "combo-chen-owned-session:coder",
-      ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
+    const tmuxCalls = calls.filter((call) => call[0] === "tmux");
+    expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls[0]).toEqual([
+      "tmux",
+      "list-windows",
+      "-t",
+      "combo-chen-owned-session",
+      "-F",
+      "#{window_name}",
     ]);
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
+    const reviewWindow = calls.find((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(reviewWindow?.at(-1)).toContain("New review comment for coder responding mode:");
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "set-buffer")).toBe(false);
   });
 
   it("routes fetched PR comments and reports routed nudges", () => {
@@ -337,35 +328,12 @@ describe("nudgeReviewComments", () => {
     expect(calls.filter((call) => call[0] === "git")).toEqual([
       ["git", `cwd=${record.worktree}`, "rev-parse", "HEAD"],
     ]);
-    expect(calls.filter((call) => call[0] === "tmux")).toEqual([
-      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
-      [
-        "tmux",
-        "new-window",
-        "-t",
-        "combo-chen-owned-session",
-        "-n",
-        CODER_WINDOW,
-        `codex --ask-for-approval never --sandbox workspace-write exec resume '${CODEX_THREAD_ID}'`,
-      ],
-      [
-        "tmux",
-        "set-buffer",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#issuecomment-1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
-      ],
-      [
-        "tmux",
-        "paste-buffer",
-        "-d",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "-t",
-        "combo-chen-owned-session:coder",
-      ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
-    ]);
+    const tmuxCalls = calls.filter((call) => call[0] === "tmux");
+    expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls[1]?.at(-1)).toContain(
+      `codex --ask-for-approval never --sandbox workspace-write exec resume '${CODEX_THREAD_ID}'`,
+    );
+    expect(tmuxCalls[1]?.at(-1)).toContain("New review comment for coder responding mode:");
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
 
@@ -496,35 +464,10 @@ describe("nudgeReviewComments", () => {
       comboId: record.id,
     });
 
-    expect(calls.filter((call) => call[0] === "tmux")).toEqual([
-      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
-      [
-        "tmux",
-        "new-window",
-        "-t",
-        "combo-chen-owned-session",
-        "-n",
-        CODER_WINDOW,
-        `codex --profile launch resume '${CODEX_THREAD_ID}'`,
-      ],
-      [
-        "tmux",
-        "set-buffer",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#issuecomment-1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
-      ],
-      [
-        "tmux",
-        "paste-buffer",
-        "-d",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "-t",
-        "combo-chen-owned-session:coder",
-      ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
-    ]);
+    const tmuxCalls = calls.filter((call) => call[0] === "tmux");
+    expect(tmuxCalls).toHaveLength(2);
+    expect(tmuxCalls[1]?.at(-1)).toContain(`codex --profile launch resume '${CODEX_THREAD_ID}'`);
+    expect(tmuxCalls[1]?.at(-1)).toContain("New review comment for coder responding mode:");
   });
 
   it("uses configured external comment agents when filtering review noise", () => {
@@ -601,6 +544,42 @@ describe("nudgeReviewComments", () => {
   });
 });
 
+describe("nudgePrConflict", () => {
+  it("starts non-interactive resume with the conflict prompt inline", () => {
+    const calls: string[][] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo({ tmuxSession: "combo-chen-owned-session" });
+    const runDir = runDirFor(home, record.id);
+    writeCombo(runDir, record);
+    writeThreadArtifact(runDir);
+
+    nudgePrConflict({
+      deps: {
+        env: { COMBO_CHEN_HOME: home },
+        out: () => undefined,
+        tmux: (args) => {
+          calls.push(["tmux", ...args]);
+          return args[0] === "list-windows"
+            ? { status: 0, stdout: "reviewer\n", stderr: "" }
+            : { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      home,
+      comboId: record.id,
+      conflict: {
+        prUrl: "https://github.com/o/r/pull/7",
+        headSha: "abc123",
+        mergeState: "DIRTY",
+      },
+    });
+
+    const conflictWindow = calls.find((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(conflictWindow?.at(-1)).toContain("PR conflict recovery for coder responding mode:");
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "set-buffer")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "paste-buffer")).toBe(false);
+  });
+});
+
 describe("recoverStuckWorker", () => {
   it("recreates coder responding and replays the latest routed review prompt", () => {
     const calls: string[][] = [];
@@ -642,35 +621,15 @@ describe("recoverStuckWorker", () => {
     });
 
     expect(recovered).toBe(true);
-    expect(calls).toEqual([
-      ["tmux", "kill-window", "-t", "combo-chen-owned-session:coder"],
-      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
-      [
-        "tmux",
-        "new-window",
-        "-t",
-        "combo-chen-owned-session",
-        "-n",
-        CODER_WINDOW,
-        `codex --ask-for-approval never --sandbox workspace-write exec resume '${CODEX_THREAD_ID}'`,
-      ],
-      [
-        "tmux",
-        "set-buffer",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#discussion_r1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
-      ],
-      [
-        "tmux",
-        "paste-buffer",
-        "-d",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-coder",
-        "-t",
-        "combo-chen-owned-session:coder",
-      ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toEqual(["tmux", "kill-window", "-t", "combo-chen-owned-session:coder"]);
+    expect(calls[1]).toEqual([
+      "tmux",
+      "list-windows",
+      "-t",
+      "combo-chen-owned-session",
+      "-F",
+      "#{window_name}",
     ]);
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
@@ -682,9 +641,12 @@ describe("recoverStuckWorker", () => {
       }),
     );
     expect(out).toEqual([`director: recovered stalled ${CODER_WINDOW} attempt 1/2`]);
+    const recoveryWindow = calls.find((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(recoveryWindow?.at(-1)).toContain("New review comment for coder responding mode:");
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "set-buffer")).toBe(false);
   });
 
-  it("replays hostile review prompt text as one tmux buffer argument", () => {
+  it("quotes hostile review prompt text inside the one window command argument", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo({ tmuxSession: "combo-chen-owned-session" });
@@ -727,13 +689,14 @@ describe("recoverStuckWorker", () => {
       },
     });
 
-    const setBufferCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "set-buffer");
-    expect(setBufferCalls).toHaveLength(1);
-    expect(setBufferCalls[0]).toHaveLength(5);
-    expect(setBufferCalls[0]?.[4]).toContain("-leading");
-    expect(setBufferCalls[0]?.[4]).toContain("`whoami`");
-    expect(setBufferCalls[0]?.[4]).toContain("$(touch nope)");
-    expect(setBufferCalls[0]?.[4]).toContain("second line");
+    const newWindowCalls = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindowCalls).toHaveLength(1);
+    expect(newWindowCalls[0]).toHaveLength(7);
+    expect(newWindowCalls[0]?.at(-1)).toContain("-leading");
+    expect(newWindowCalls[0]?.at(-1)).toContain("`whoami`");
+    expect(newWindowCalls[0]?.at(-1)).toContain("$(touch nope)");
+    expect(newWindowCalls[0]?.at(-1)).toContain("second line");
+    expect(calls.some((call) => call[1] === "set-buffer" || call[1] === "paste-buffer")).toBe(false);
   });
 
   it("does not touch tmux when asked to recover a different worker", () => {

@@ -747,7 +747,7 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   if (prView.state === "OPEN" && blockingMergeState !== undefined) {
     if (!hasPrConflict(events, headSha, prUrl, blockingMergeState)) {
       try {
-        nudgePrConflict({
+        const delivered = nudgePrConflict({
           deps,
           home: comboHome(deps.env),
           comboId,
@@ -759,6 +759,7 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
             ...(prView.baseRefName !== undefined ? { baseRef: prView.baseRefName } : {}),
           },
         });
+        if (!delivered) return;
         appendEvent(runDir, "pr_conflict", {
           sha: headSha,
           pr_url: prUrl,

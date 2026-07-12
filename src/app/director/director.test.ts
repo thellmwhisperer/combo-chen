@@ -841,6 +841,7 @@ describe("tickDirector", () => {
     const runDir = runDirFor(h, record.id);
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     writeCombo(runDir, record);
+    writeCoderThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     appendEvent(runDir, "gate_validated", { sha: headSha });
     const { deps, calls, out } = fakeDeps({
@@ -863,8 +864,8 @@ describe("tickDirector", () => {
       if (args[0] === "list-windows") {
         return { status: 0, stdout: "coder\nreviewer\ngatekeeper\ncoder-responding\n", stderr: "" };
       }
-      if (args[0] === "list-panes" && args.includes("#{pane_dead}")) {
-        return { status: 0, stdout: "0\n", stderr: "" };
+      if (args[0] === "list-panes" && args.includes("#{pane_dead}|#{pane_current_command}")) {
+        return { status: 0, stdout: "0|zsh\n", stderr: "" };
       }
       if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
       if (args[0] === "capture-pane") return { status: 0, stdout: "idle pane\n", stderr: "" };
@@ -883,13 +884,19 @@ describe("tickDirector", () => {
         head_sha: headSha,
       }),
     );
-    expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:coder", "C-m"]);
+    const reviewWindow = calls.find(
+      (call) =>
+        call[0] === "tmux" &&
+        call[1] === "new-window" &&
+        call.at(-1)?.includes("New review comment for coder responding mode"),
+    );
+    expect(reviewWindow?.at(-1)).toContain(`exec resume '${CODEX_THREAD_ID}'`);
     expect(
       calls.some(
         (call) =>
           call[1] === "list-panes" &&
           call.includes("combo-chen-o-r-7:coder") &&
-          !call.includes("#{pane_dead}"),
+          !call.some((arg) => arg.includes("#{pane_dead}")),
       ),
     ).toBe(false);
     expect(calls.some((call) => call.includes("combo-chen-o-r-7:gatekeeper"))).toBe(false);
@@ -1334,6 +1341,11 @@ describe("tickDirector", () => {
       mergeStateStatus: "DIRTY",
       mergeable: "CONFLICTING",
       externalReviewComments: [],
+      tmux: (args) => {
+        if (args[0] === "list-windows") return { status: 0, stdout: "coder\n", stderr: "" };
+        if (args[0] === "list-panes") return { status: 0, stdout: "0|zsh\n", stderr: "" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
     });
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
@@ -1354,7 +1366,7 @@ describe("tickDirector", () => {
     const conflictPrompts = calls.filter(
       (call) =>
         call[0] === "tmux" &&
-        call[1] === "set-buffer" &&
+        call[1] === "new-window" &&
         typeof call.at(-1) === "string" &&
         call.at(-1)?.includes("PR conflict recovery for coder responding mode"),
     );
@@ -1362,15 +1374,7 @@ describe("tickDirector", () => {
     expect(conflictPrompts[0]?.at(-1)).toContain(`head: ${headSha}`);
     expect(conflictPrompts[0]?.at(-1)).toContain("merge_state: DIRTY");
     expect(conflictPrompts[0]?.at(-1)).toContain("Rebase the combo worktree");
-    expect(calls).toContainEqual([
-      "tmux",
-      "paste-buffer",
-      "-d",
-      "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-coder",
-      "-t",
-      "combo-chen-o-r-7:coder",
-    ]);
+    expect(calls.some((call) => call[1] === "set-buffer" || call[1] === "paste-buffer")).toBe(false);
   });
 
   it("retries the pr_conflict nudge when coder response startup fails", async () => {

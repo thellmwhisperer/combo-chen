@@ -14,7 +14,7 @@
  *   │ buildReviewNudgePrompt          Prompt template rendering  │
  *   │ coder responding activation commands  Resume commands        │
  *   │ readCoderThreadArtifact         Legacy + canonical path    │
- *   │ routeReviewComments             Idempotent nudge + journal │
+ *   │ routeReviewComments             Idempotent route journal   │
  *   │ parsePullRequestUrl             URL parsing variants       │
  *   │ readGhArray                     gh api --paginate          │
  *   │ signalFromComment               Author/kind/url extraction │
@@ -174,52 +174,22 @@ describe("readCoderThreadArtifact", () => {
 });
 
 describe("routeReviewComments", () => {
-  it("sends exactly one nudge for a new comment and stays idempotent on re-read", () => {
+  it("journals one delivered comment and stays idempotent on re-read", () => {
     const dir = runDir();
-    const tmuxCalls: string[][] = [];
-    const reviewNudgePrompt = "Review {url}";
-    const tmux = (args: string[]) => {
-      tmuxCalls.push(args);
-      return { status: 0, stdout: "", stderr: "" };
-    };
 
     expect(
       routeReviewComments({
         runDir: dir,
-        tmuxSession: "combo-chen-o-r-7",
         comments: [comment],
-        reviewNudgePrompt,
-        tmux,
-        windowName: "coder-responding",
       }),
     ).toEqual([comment]);
     expect(
       routeReviewComments({
         runDir: dir,
-        tmuxSession: "combo-chen-o-r-7",
         comments: [comment],
-        reviewNudgePrompt,
-        tmux,
-        windowName: "coder-responding",
       }),
     ).toEqual([]);
 
-    expect(tmuxCalls).toHaveLength(3);
-    expect(tmuxCalls[0]).toEqual([
-      "set-buffer",
-      "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
-      buildReviewNudgePrompt(comment, reviewNudgePrompt),
-    ]);
-    expect(tmuxCalls[1]).toEqual([
-      "paste-buffer",
-      "-d",
-      "-b",
-      "combo-chen-nudge-combo-chen-o-r-7-coder-responding",
-      "-t",
-      "combo-chen-o-r-7:coder-responding",
-    ]);
-    expect(tmuxCalls[2]).toEqual(["send-keys", "-t", "combo-chen-o-r-7:coder-responding", "C-m"]);
     expect(readEvents(dir).map((event) => event.event)).toEqual(["review_comment"]);
     expect(readEvents(dir)[0]).toMatchObject(comment);
   });

@@ -12,7 +12,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   activateCoder -> tmux worker; nudgeReviewComments/nudgePrConflict -> coder responding prompt
+ *   activateCoder -> tmux worker; nudgeReviewComments/nudgePrConflict -> inline resumed-turn prompt
  *     -> recoverStuckWorker (responding window) / recoverDeadCoder (capsule pane relaunch)
  *
  *   PUBLIC API
@@ -28,7 +28,7 @@
  *
  *   INTERNALS
  *   ---------
- *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow, buildPrConflictNudgePrompt, latestRoutedCoderPrompt
+ *   worktreeHeadSha, unroutedReviewComments, respondingPaneState, ensureCoderRespondingWindow, buildPrConflictNudgePrompt, latestRoutedCoderPrompt
  *
  * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StuckWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, nudgePrConflict, recoverStuckWorker, recoverDeadCoder
  * @deps ../../core/events, ../../core/gh-api, ../../core/shell-quote, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-responding, ../gate/gate, ../runtime/sessions, node:fs, node:path
@@ -43,10 +43,10 @@ import {
   listPanesArgs,
   listWindowsArgs,
   newWindowArgs,
-  nudgeWindowArgs,
   type TmuxResult,
 } from "../../infra/tmux.js";
 import {
+  buildCoderFixTurnCommand,
   buildCoderRespondingResumeCommand,
   buildReviewNudgePrompt,
   fetchReviewCommentSignals,
@@ -121,17 +121,22 @@ function worktreeHeadSha(deps: NudgeReviewCommentsDeps, combo: { id: string; wor
   return result.stdout.trim();
 }
 
-function hasUnroutedReviewComments(runDir: string, comments: { url: string }[]): boolean {
+function unroutedReviewComments<T extends { url: string }>(runDir: string, comments: T[]): T[] {
   const routed = new Set(
     readEvents(runDir)
       .filter((event) => event.event === "review_comment" && typeof event["url"] === "string")
       .map((event) => event["url"] as string),
   );
-  return comments.some((comment) => !routed.has(comment.url));
+  return comments.filter((comment) => !routed.has(comment.url));
 }
 
-function hasLivePane(paneDeadOutput: string): boolean {
-  return paneDeadOutput.split(/\r?\n/).some((line) => line.trim() === "0");
+function respondingPaneState(output: string): "dead" | "idle_shell" | "busy" {
+  for (const line of output.split(/\r?\n/)) {
+    const [dead, command = ""] = line.trim().split("|", 2);
+    if (dead !== "0") continue;
+    return /^(?:ba|da|k|z|fi|tc)?sh$/.test(command) ? "idle_shell" : "busy";
+  }
+  return "dead";
 }
 
 function ensureCoderRespondingWindow(input: {
@@ -140,7 +145,8 @@ function ensureCoderRespondingWindow(input: {
   runDir: string;
   windowName: string;
   resumeCommand: string;
-}): void {
+  prompt?: string;
+}): boolean {
   const listed = input.deps.tmux(listWindowsArgs(input.combo.tmuxSession));
   if (listed.status !== 0) {
     throw new Error(
@@ -150,13 +156,17 @@ function ensureCoderRespondingWindow(input: {
   }
   const windows = windowSet(listed.stdout);
   if (windows.has(input.windowName)) {
-    const panes = input.deps.tmux(listPanesArgs(input.combo.tmuxSession, input.windowName, "#{pane_dead}"));
+    const panes = input.deps.tmux(
+      listPanesArgs(input.combo.tmuxSession, input.windowName, "#{pane_dead}|#{pane_current_command}"),
+    );
     if (panes.status !== 0) {
       throw new Error(
         `tmux failed to inspect ${input.windowName} panes: ` + `${panes.stderr.trim() || "unknown error"}`,
       );
     }
-    if (hasLivePane(panes.stdout)) return;
+    const paneState = respondingPaneState(panes.stdout);
+    if (paneState === "busy") return input.prompt === undefined;
+    if (paneState === "idle_shell" && input.prompt === undefined) return true;
 
     const killed = input.deps.tmux(killWindowArgs(input.combo.tmuxSession, input.windowName));
     if (killed.status !== 0) {
@@ -167,16 +177,15 @@ function ensureCoderRespondingWindow(input: {
   }
 
   const artifact = readCoderThreadArtifact(input.runDir);
-  const created = input.deps.tmux(
-    newWindowArgs(
-      input.combo.tmuxSession,
-      input.windowName,
-      buildCoderRespondingResumeCommand(artifact, input.resumeCommand),
-    ),
-  );
+  const command =
+    input.prompt === undefined
+      ? buildCoderRespondingResumeCommand(artifact, input.resumeCommand)
+      : buildCoderFixTurnCommand(artifact, input.resumeCommand, input.prompt);
+  const created = input.deps.tmux(newWindowArgs(input.combo.tmuxSession, input.windowName, command));
   if (created.status !== 0) {
     throw new Error(`tmux failed to start ${input.windowName}: ${created.stderr.trim() || "unknown error"}`);
   }
+  return true;
 }
 
 function reviewCommentHeadSha(
@@ -272,25 +281,27 @@ export function nudgeReviewComments(input: {
     const comments = fetchReviewCommentSignals(prUrl, deps.gh, ghApiCache, {
       externalCommentAgents: config.externalCommentAgents,
     });
-    const hasUnroutedComments = hasUnroutedReviewComments(runDir, comments);
-    if (hasUnroutedComments) {
-      ensureCoderRespondingWindow({
+    const pendingComments = unroutedReviewComments(runDir, comments);
+    if (pendingComments.length > 0) {
+      const prompt = pendingComments
+        .map((comment) => buildReviewNudgePrompt(comment, REVIEW_NUDGE_PROMPT))
+        .join("\n\n---\n\n");
+      const delivered = ensureCoderRespondingWindow({
         deps,
         combo,
         runDir,
         windowName: CODER_RESPONDING_WINDOW,
         resumeCommand: config.coderResumeCommand,
+        prompt,
       });
+      if (!delivered) return;
     }
-    const headSha = hasUnroutedComments ? reviewCommentHeadSha(deps, combo, readEvents(runDir)) : undefined;
+    const headSha =
+      pendingComments.length > 0 ? reviewCommentHeadSha(deps, combo, readEvents(runDir)) : undefined;
     const routed = routeReviewComments({
       runDir,
-      tmuxSession: combo.tmuxSession,
       comments,
       headSha,
-      reviewNudgePrompt: REVIEW_NUDGE_PROMPT,
-      windowName: CODER_RESPONDING_WINDOW,
-      tmux: deps.tmux,
     });
     for (const comment of routed) {
       deps.out(`nudged ${comment.url}`);
@@ -340,26 +351,26 @@ export function nudgePrConflict(input: {
   home: string;
   comboId: string;
   conflict: PrConflictNudge;
-}): void {
+}): boolean {
   const { deps, home, comboId, conflict } = input;
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  ensureCoderRespondingWindow({
+  const prompt = buildPrConflictNudgePrompt(conflict);
+  const delivered = ensureCoderRespondingWindow({
     deps,
     combo,
     runDir,
     windowName: CODER_RESPONDING_WINDOW,
     resumeCommand: config.coderResumeCommand,
+    prompt,
   });
-  const prompt = buildPrConflictNudgePrompt(conflict);
-  for (const args of nudgeWindowArgs(combo.tmuxSession, CODER_RESPONDING_WINDOW, prompt)) {
-    const result = deps.tmux(args);
-    if (result.status !== 0) {
-      throw new Error(`tmux pr_conflict nudge failed: ${result.stderr.trim() || "unknown error"}`);
-    }
+  if (!delivered) {
+    deps.out(`deferred pr_conflict ${conflict.prUrl}: coder turn already active`);
+    return false;
   }
   deps.out(`nudged pr_conflict ${conflict.prUrl}`);
+  return true;
 }
 
 export function recoverStuckWorker(input: {
@@ -392,15 +403,8 @@ export function recoverStuckWorker(input: {
     runDir,
     windowName: CODER_RESPONDING_WINDOW,
     resumeCommand: config.coderResumeCommand,
+    prompt,
   });
-  for (const args of nudgeWindowArgs(combo.tmuxSession, CODER_RESPONDING_WINDOW, prompt)) {
-    const result = deps.tmux(args);
-    if (result.status !== 0) {
-      throw new Error(
-        `tmux stalled-worker recovery nudge failed: ${result.stderr.trim() || "unknown error"}`,
-      );
-    }
-  }
   appendEvent(runDir, "worker_recovered", {
     worker: recovery.worker,
     reason: recovery.reason,
