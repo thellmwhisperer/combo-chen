@@ -31,6 +31,14 @@ const DIRECT_COMBOS_SKILL = join(REPO_ROOT, "skills", "direct-combos", "SKILL.md
 
 // -- 1/1 CORE · Director skill command contract <- START HERE --
 describe("direct-combos skill", () => {
+  it("documents launch identity from the overture output", () => {
+    const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
+
+    expect(markdown).toContain("## 3. Launch and identify the capsule");
+    expect(markdown).toContain("`overture <combo-id>`");
+    expect(markdown).toContain("`artifact <run-dir>/overture.json`");
+  });
+
   it("mentions only registered combo-chen subcommands", () => {
     const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
     const mentionedCommands = Array.from(
