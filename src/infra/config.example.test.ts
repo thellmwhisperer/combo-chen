@@ -145,12 +145,12 @@ describe("combo-chen.example.toml", () => {
     const body = readFileSync(LAUNCH_SKILL, "utf8");
 
     expect(body).toContain("combo-chen closure -n <comboId>");
-    expect(body).toContain("Owned combo PR is `MERGED`");
+    expect(body).toContain("PR `MERGED`");
     expect(body).toContain("no tmux session remains");
     expect(body).toContain("no combo worktree remains");
     expect(body).toContain("local branch is gone");
     expect(body).toContain("journal contains `merged` and `combo_closed`");
-    expect(body).toContain("Do not hand-emit `merged` or `combo_closed` as a substitute");
+    expect(body).toContain("NEVER write the journal by hand");
   });
 
   it("documents overture artifact persistence as conditional on the run dir", () => {

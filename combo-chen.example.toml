@@ -92,15 +92,12 @@ command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_in
 # Example with placeholders:
 # command = "no-mistakes axi run --yes --intent {issue_pr_intent}"
 command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}"
-# Generated gate scripts may start or verify the shared no-mistakes daemon
-# before publishing to the mirror, but they never stop it on exit. The daemon
-# is left running for both single-capsule and parallel wave runs.
-# The gatekeeper tmux window retries until no-mistakes has an active run to attach.
-# Environment overrides: COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS,
-# COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS.
-attach_timeout_seconds = 1800
-attach_retry_interval_seconds = 10
-# When the initial pre-PR gate fails, the director auto-relaunches it up to
+# The in-process gate may start or verify the shared no-mistakes daemon before
+# publishing to the mirror, but it never stops it on exit. The daemon is left
+# running for both single-capsule and parallel wave runs.
+# The gatekeeper tmux window's entry command is a static `no-mistakes attach`;
+# combo-chen recreates the window when a fresh attach is needed.
+# When the initial pre-PR gate fails, the capsule auto-relaunches it up to
 # this many times. After the limit is exhausted the combo journals
 # needs_human reason=gate_failed and stops relaunching.
 # Environment override: COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS.
@@ -109,24 +106,20 @@ initial_gate_retry_attempts = 2
 # Environment override: COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_BACKOFF_SECONDS.
 initial_gate_retry_backoff_seconds = 10
 
-# Every generated gate script acquires a shared no-mistakes gate lease before
-# running the gate and releases it on EXIT via a trap. This serializes
+# The in-process gate acquires a shared branch-scoped no-mistakes gate lease
+# before running and releases it when the gate settles. This serializes
 # publication across parallel capsules under the wave-based scaling model
-# (start 2, then 3, then 4-6). When another capsule holds the lease, the
-# script journals gate_status queued and exits 0. When the same branch is
-# already owned by a different capsule, it journals
-# needs_human reason=gate_lease_conflict and exits 76. Stale leases
-# (heartbeat older than 30 minutes) are automatically recovered. This is
-# always-on and not configurable; it prevents parallel capsules from colliding
-# on the single no-mistakes daemon.
+# (start 2, then 3, then 4-6). When another capsule holds the lease for the
+# same branch, the gate journals a human-facing lease conflict instead of
+# starting a second publisher. Stale leases (heartbeat older than 30 minutes)
+# are automatically recovered. This is always-on and not configurable; it
+# prevents parallel capsules from colliding on the single no-mistakes daemon.
 
 [director]
 # Promptable interactive director window, created at launch. It does not poll;
-# director-watch does deterministic polling and prompts this window only when
-# ambiguity, malformed signals, intent-touching choices, or uncoded recovery
-# need judgment. Also the persistent prompt target for reviewer verdict code 2;
-# this is distinct from director-watch, which is the deterministic polling loop
-# and is not promptable.
+# the in-process supervisor inside the capsule pane does deterministic
+# observation, and this window is prompted only when ambiguity, malformed
+# signals, intent-touching choices, or uncoded recovery need judgment.
 # Environment override: COMBO_CHEN_DIRECTOR_COMMAND.
 # {placeholders}: issue_url, worktree, repo, branch, prompt.
 command = "claude {prompt}"
@@ -192,9 +185,9 @@ permission_prompt_patterns = [
 source_branch = "main"
 
 [limits]
-babysit_poll_seconds = 120  # director-watch poll interval
-watch_failure_limit = 5     # consecutive director-watch tick failures before visible death
-watch_backoff_max_seconds = 3600 # cap for director-watch failure backoff
+babysit_poll_seconds = 120  # supervisor GitHub sampling interval
+watch_failure_limit = 5     # consecutive supervisor tick failures before watch_dead
+watch_backoff_max_seconds = 3600 # cap for supervisor tick-failure backoff
 coder_timeout_minutes = 180
 teardown_git_retries = 2          # retries for git worktree/branch teardown operations
 teardown_git_backoff_seconds = 2  # backoff between teardown retries

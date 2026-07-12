@@ -14,9 +14,9 @@
  *
  *   MAIN FLOW
  *   ─────────
- *   cli/main.ts → buildGatekeeperInvocation({gatekeeperCommand, combo, issueTitle, issueBody}) or buildGatekeeperInvocation({gatekeeperCommand, combo, workPlan})
+ *   app/capsule/capsule.ts → buildGatekeeperInvocation({gatekeeperCommand, combo, issueTitle, issueBody}) or buildGatekeeperInvocation({gatekeeperCommand, combo, workPlan})
  *     → buildIssuePrIntent → shellQuote placeholders
- *     → runner.sh executes the command
+ *     → the in-process gate executes the command (app/gate/in-process-gate.ts)
  *     → no-mistakes axi run → TOON outcome → parseAxiOutcome
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐

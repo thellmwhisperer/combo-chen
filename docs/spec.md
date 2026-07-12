@@ -34,12 +34,19 @@ Validation at launch (hard failures):
    with frozen resource references (including the base ref).
 2. **Treehouse worktree** — leased under `<repo>/.worktrees/combo-chen-<id>/`.
 3. **Combo branch** — created from `origin/main` (or `--base <ref>`) inside the worktree.
-4. **tmux session** — fixed tmux role topology: journal, director, coder, gatekeeper,
-   reviewer, and director-watch windows (gatekeeper and reviewer precreated at launch;
-   coder-response targets the persistent coder window).
-5. **Config snapshot** — `config.snapshot.json` frozen at launch. All runtime behavior
-   reads from this snapshot, not the mutable repo TOML. Prevents drift when repo
-   config changes during a long-running combo.
+4. **tmux session** — fixed capsule topology: pane 0 runs the capsule engine
+   (`combo-chen capsule <run-dir>`), plus journal, director, coder, gatekeeper, and
+   reviewer role windows. There is no director-watch window: supervision runs
+   in-process inside the capsule pane. The gatekeeper window's entry command is the
+   static `cd <worktree> && no-mistakes attach`; coder and reviewer windows idle
+   until prompted.
+5. **Config snapshot** — `config.snapshot.json` frozen at launch with
+   `runEngine: "capsule"`. All runtime behavior reads from this snapshot, not the
+   mutable repo TOML. Prevents drift when repo config changes during a long-running
+   combo. Frozen pre-v1 artifacts (missing or `v0` engine) are deterministically
+   migrated to capsule on read, and `resume` rewrites the artifact itself before any
+   topology change; an unknown frozen engine fails closed with an explicit
+   incompatibility error.
 
 Issue-backed combos derive the gatekeeper intent from the issue (with `Fixes #N`
 autoclose requirement). Plan-backed combos derive intent from the normalized work
@@ -203,8 +210,9 @@ post-publish observer:
   network volumes). A GitHub sampling timer fires every `babysitPollSeconds` since
   GitHub has no push channel.
 - **Tick:** `tickDirector` runs one deterministic observer pass: worker health,
-  reviewer hard signals, review comment nudging, PR conflict detection, READY
-  agreement, PR label sync, and auto-closure on merge detection.
+  reviewer hard signals, review comment nudging (external comments route to the
+  persistent coder window), PR conflict detection, READY agreement, PR label
+  sync, and auto-closure on merge detection.
 - **Resilience:** On tick failure, journals `watch_error` with exponential backoff
   (doubled each failure, capped by `watchBackoffMaxSeconds`). After
   `watchFailureLimit` consecutive failures, journals `watch_dead` and exits.
@@ -215,12 +223,17 @@ post-publish observer:
 
 `inspectWorkerPanes` runs on each tick, reading tmux pane content to detect:
 
-- **Dead workers** — pane no longer exists. Pre-PR: restart the coder via
-  `recoverDeadCoder` (bounded by `workerRecoveryAttempts`). Post-PR: escalate
+- **Dead workers** — pane no longer exists or shows a terminal orchestrator
+  failure. Pre-PR: `recoverDeadCoder` relaunches the capsule sequencer pane
+  (capsule-owned recovery: the relaunched capsule re-derives its phase from the
+  journal and re-runs the coder itself), bounded by `workerRecoveryAttempts`;
+  exhausted budgets escalate `needs_human reason=worker_dead`. Post-PR: escalate
   `needs_human reason=worker_dead`.
 - **Stalled workers** — pane unchanged across `workerStallTicks` consecutive
-  ticks. Same recovery/pre-PR constraint as dead workers; post-PR stalled coder
-  responding mode uses `recoverStuckWorker`.
+  ticks with no orchestrator evidence. Pre-PR stalls escalate
+  `needs_human reason=worker_stalled`; a post-PR stalled coder responding window
+  is recreated and re-prompted via `recoverStuckWorker` (bounded by the same
+  recovery budget).
 - **Permission prompts** — pane content matches `permission_prompt_patterns`.
   Policy (`permission_prompt_policy`): `escalate` (default) journals
   `needs_human`; `auto-approve-known-safe` sends `y`+Enter; `recreate-non-interactive`
@@ -231,13 +244,16 @@ worker/reason, the next finding escalates `needs_human`.
 
 ### Park / Resume / Closure / Reconcile
 
-- **Park** (`combo-chen park -n <id>`): writes `loop-state.json` if not present
-  (snapshotting the current loop position), journals `stopped`, kills the tmux
-  session. Worktree and branch are preserved.
-- **Resume** (`combo-chen resume -n <id>`): reads the persisted combo record and
-  config snapshot, starts a fresh tmux session, and relaunches the capsule in the
-  same run directory. The capsule resolves the loop entry point from journal +
-  loop-state.
+- **Park** (`combo-chen park -n <id>`): writes a `park-handoff.md` summary
+  (phase, branch, worktree, PR, downstream, last event, resume command),
+  journals `parked`, and kills the tmux session. Worktree and branch are
+  preserved; loop position already persists in `loop-state.json`.
+- **Resume** (`combo-chen resume -n <id>`): migrates a frozen legacy-engine
+  snapshot to capsule (or fails closed on an unknown engine), then converges the
+  capsule topology in the persisted tmux session (recreating the session with the
+  capsule as pane 0 when it is gone) and prunes stale v0 windows. The relaunched
+  capsule resolves its phase from the journal and the loop entry point from
+  journal + loop-state. A merged PR converges closure instead.
 - **Closure** (`combo-chen closure -n <id>`): canonical merged happy-path
   resource convergence. Verifies GitHub reports MERGED, records any missing
   `merged` event, refuses teardown while no-mistakes is active for the branch,
@@ -277,26 +293,22 @@ configurable interval (default 5s).
 ## 11. PR label projection
 
 While the PR is open, `syncComboPrLabels` keeps GitHub labels in sync with the
-live combo state. Labels are derived from journal events; they do not drive the
-state machine.
+live combo state. Labels are derived from journal events plus PR facts; they do
+not drive the state machine. The model is monotonic: exactly one lifecycle label
+at a time, advancing `combo:working` → `combo:ready` → `combo:merged`, with
+`combo:conflict` as the explicit non-monotonic exception.
 
-| Label                         | Condition                                                      |
-| ----------------------------- | -------------------------------------------------------------- |
-| `combo:working-coder`         | Coder responding mode is active or a review comment is pending |
-| `combo:working-reviewer`      | Reviewer window is active                                      |
-| `combo:working-gate`          | Gatekeeper window is active or `gate_started` is latest        |
-| `combo:lgtm`                  | Current-head SHA-pinned LGTM exists                            |
-| `combo:external-review-green` | A `green_check_names` check is SUCCESS for the current head    |
-| `combo:ready`                 | All four READY legs agree on the current head                  |
-| `combo:stale`                 | One or more current-head signals are pinned to an older SHA    |
-| `combo:conflict`              | GitHub reports merge state as DIRTY or CONFLICTING             |
+| Label            | Condition                                                |
+| ---------------- | -------------------------------------------------------- |
+| `combo:working`  | PR open, no current-head `ready_for_merge` yet           |
+| `combo:ready`    | `ready_for_merge` journaled (all four READY legs agreed) |
+| `combo:merged`   | GitHub reports MERGED or the journal records `merged`    |
+| `combo:conflict` | GitHub reports merge state as DIRTY or CONFLICTING       |
 
-Labels are auto-provisioned on the target repo when missing. Only
-`director-watch` or `director-tick` writes labels to GitHub; read-only inspection
-commands such as `status`, `status --deep`, and `status --deep --all` do not
-mutate labels or journal `pr_labels_updated` events. Label mutations
-journal `pr_labels_updated`. One work-in-progress label applies with precedence:
-`working-gate > working-coder > working-reviewer`.
+Labels are auto-provisioned on the target repo when missing. Only the supervisor
+tick (`director-tick`) writes labels to GitHub; read-only inspection commands
+such as `status`, `status --deep`, and `status --deep --all` do not mutate
+labels. Label mutations journal `pr_labels_updated`.
 
 ## 12. CLI surface
 
@@ -318,8 +330,8 @@ combo-chen reconcile [-n <id>] [--apply]  Compare journals with GitHub, repair
 combo-chen update [--beta] [-y]        Self-update from GitHub Releases
 combo-chen overture                    Run launch runway checks only
 combo-chen needs-human-report          Report needs_human counts by reason
-combo-chen gate-restart -n <id>        Restart the no-mistakes gate
-combo-chen intent -n <id>              Print the canonical PR intent
+combo-chen intent -n <id>              Print the canonical PR intent (inspection/forensics)
+combo-chen director-prompt -n <id>     Prompt the interactive director window
 combo-chen activate-reviewer -n <id>   Start the reviewer window
 ```
 
@@ -328,31 +340,31 @@ combo-chen activate-reviewer -n <id>   Start the reviewer window
 The journal is an append-only JSONL file (`journal.jsonl`) with a per-run
 directory lock. Key v1 events:
 
-| Event                    | Emitted by       | Purpose                                                   |
-| ------------------------ | ---------------- | --------------------------------------------------------- |
-| `combo_created`          | launch           | Combo worktree + branch + tmux are up                     |
-| `rebase_failed/conflict` | capsule          | Rebase failure or merge conflict                          |
-| `coder_started`          | capsule          | Coder process started (mode: `inital` or `review_fix`)    |
-| `coder_done`             | capsule          | New commits landed after coder exit                       |
-| `coder_failed`           | capsule          | Coder exited non-zero with no new commits                 |
-| `local_review_requested` | capsule          | Review round started (round, sha)                         |
-| `local_verdict`          | capsule          | Verdict artifact ingested (round, code, findings)         |
-| `follow_ups`             | capsule          | Deferred findings from a verdict                          |
-| `lgtm`                   | capsule/ready    | SHA-pinned LGTM (sha, patch_id?, round, source)           |
-| `lgtm_stale`             | ready            | Prior LGTM invalidated (old_sha, new_sha, reason)         |
-| `gate_started`           | in-process-gate  | Gate process started                                      |
-| `gate_status`            | in-process-gate  | fix_inflight                                              | idle | failed | awaiting_approval |
-| `gate_failed`            | in-process-gate  | Gate exited non-zero (exit_code, reason)                  |
-| `gate_validated`         | in-process-gate  | Post-address gate validated the published head            |
-| `pr_opened`              | in-process-gate  | Initial PR created (url)                                  |
-| `needs_human`            | multiple         | Escalation (reason, round?, sha?)                         |
-| `decision`               | CLI (decide)     | Human resolution of a needs_human (verb, needs_human_ref) |
-| `ready_for_merge`        | director         | All four READY legs agree (sha, pr_url)                   |
-| `pr_conflict`            | director         | PR merge state is DIRTY/CONFLICTING (sha, action)         |
-| `merged`                 | director/closure | PR merged (sha, by, mergedAt)                             |
-| `combo_closed`           | closure          | Terminal resource convergence                             |
-| `pr_labels_updated`      | director         | Label mutation (old_labels, new_labels, reason)           |
-| `watch_error/dead`       | supervisor       | Tick failure tracking                                     |
+| Event                    | Emitted by       | Purpose                                                           |
+| ------------------------ | ---------------- | ----------------------------------------------------------------- |
+| `combo_created`          | launch           | Combo worktree + branch + tmux are up                             |
+| `rebase_failed/conflict` | capsule          | Rebase failure or merge conflict                                  |
+| `coder_started`          | capsule          | Coder process started (review-fix turns carry `mode: review_fix`) |
+| `coder_done`             | capsule          | New commits landed after coder exit                               |
+| `coder_failed`           | capsule          | Coder exited non-zero with no new commits                         |
+| `local_review_requested` | capsule          | Review round started (round, sha)                                 |
+| `local_verdict`          | capsule          | Verdict artifact ingested (round, code, findings)                 |
+| `follow_ups`             | capsule          | Deferred findings from a verdict                                  |
+| `lgtm`                   | capsule/ready    | SHA-pinned LGTM (sha, patch_id?, round, source)                   |
+| `lgtm_stale`             | ready            | Prior LGTM invalidated (old_sha, new_sha, reason)                 |
+| `gate_started`           | in-process-gate  | Gate process started                                              |
+| `gate_status`            | in-process-gate  | State: `fix_inflight`, `idle`, `failed`, `awaiting_approval`      |
+| `gate_failed`            | in-process-gate  | Gate exited non-zero (exit_code, reason)                          |
+| `gate_validated`         | in-process-gate  | Post-address gate validated the published head                    |
+| `pr_opened`              | in-process-gate  | Initial PR created (url)                                          |
+| `needs_human`            | multiple         | Escalation (reason, round?, sha?)                                 |
+| `decision`               | CLI (decide)     | Human resolution of a needs_human (verb, needs_human_ref)         |
+| `ready_for_merge`        | director         | All four READY legs agree (sha, pr_url)                           |
+| `pr_conflict`            | director         | PR merge state is DIRTY/CONFLICTING (sha, action)                 |
+| `merged`                 | director/closure | PR merged (sha, by, mergedAt)                                     |
+| `combo_closed`           | closure          | Terminal resource convergence                                     |
+| `pr_labels_updated`      | director         | Label mutation (old_labels, new_labels, reason)                   |
+| `watch_error/dead`       | supervisor       | Tick failure tracking                                             |
 
 ## 14. Deferred and retired
 
@@ -368,13 +380,21 @@ directory lock. Key v1 events:
 ### Retired (W6d sweep)
 
 - **Shell templates** — 22 `.sh` files under `src/shell/templates/` deleted. All
-  generated gate/runner/director-watch scripts are gone.
+  generated gate/runner/director-watch scripts are gone. The only shell that
+  reaches tmux is a static one-liner window entry command (the gatekeeper's
+  `cd <worktree> && no-mistakes attach`); every retry, conditional, and status
+  decision lives in TypeScript.
 - **runner.sh generation** — The capsule sequencer replaces it. Launch-handlers
-  no longer write a `runner.sh`; the coder window starts the capsule process directly.
+  no longer write a `runner.sh`; tmux pane 0 runs `combo-chen capsule <run-dir>` directly.
 - **director-watch-loop.sh** — Replaced by the in-process `superviseCapsuleCombo`
   that uses `fs.watch` + GitHub sampling timer.
-- **emit/gate-lease CLI** — Gate lease acquisition moved into `in-process-gate.ts`.
-  No hidden CLI commands for lease management.
+- **emit/gate-lease/gate-restart CLI** — The engine writes every journal event
+  itself, gate lease acquisition moved into `in-process-gate.ts`, and gate
+  relaunch happens through `resume` (the capsule re-runs the gate path). No
+  script-facing CLI endpoints remain.
+- **Gatekeeper attach retry knobs** — `attach_timeout_seconds` and
+  `attach_retry_interval_seconds` configured the retired shell polling wrapper;
+  they are ignored if present in old config.
 - **CodeRabbit request-comment path** — `external_review_requested` journal event
   exists but is not emitted.
 - **GitHub-login LGTM parsing** — v0 reviewer required a GitHub login listed in

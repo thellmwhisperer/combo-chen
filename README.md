@@ -34,30 +34,35 @@ combo-chen makes the process explicit.
 
 1. You point combo-chen at a GitHub issue or a local work-plan file.
 2. It leases an isolated Treehouse worktree and creates the combo branch inside it.
-3. A coder agent implements the work item and leaves local commits.
-4. A gatekeeper validates and publishes the branch to GitHub. Before each gate run,
-   the generated script acquires a branch-scoped gate lease so independent
-   branches can publish in parallel while same-branch ownership stays exclusive.
-   If the initial gate fails before a PR opens, the director auto-retries it up to
-   a configurable limit. When no-mistakes exits non-zero after publishing but the
-   gate log shows `outcome: checks-passed` with a later `context canceled`, the
-   generated scripts treat that as recovered success instead of `gate_failed`,
-   unless the repo `.no-mistakes.yaml` copy into the daemon worktree failed.
-5. A reviewer comments with a machine-readable verdict block (codes: 0=OK/LGTM,
-   1=mechanical fix→coder, 2=ambiguous→director, 3=needs human) and/or a
-   SHA-pinned LGTM verdict.
-6. Review comments are routed back to the coder in responding mode.
-7. New addressing commits go back through the gatekeeper before publication.
-8. The run becomes ready only when the current PR head has gate validation,
-   reviewer LGTM, configured required READY checks, and passing remaining checks.
-   If a sibling merge advances the base and the READY PR becomes dirty or
-   conflicting, the director invalidates READY and routes the coder to rebase.
-9. While the PR is open, GitHub labels reflect the live combo state
-   (`combo:working-coder`, `combo:working-reviewer`, `combo:working-gate`,
-   `combo:lgtm`, `combo:external-review-green`, `combo:ready`, `combo:stale`,
-   `combo:conflict`), leaving a visible path through the workflow timeline.
-10. After the human merges the PR, the director-watch loop detects the merge
-    and auto-triggers `closure` to converge local resources deterministically.
+3. The capsule engine (`combo-chen capsule <run-dir>`, tmux pane 0) owns the whole
+   pipeline: rebase, coder, local review loop, in-process gate, and supervision.
+4. A coder agent implements the work item as an owned child of the capsule and
+   leaves local commits.
+5. A local reviewer writes `verdict-<round>.json` with a machine-readable code
+   (0=OK/LGTM, 1=mechanical fix→coder, 2=ambiguous, 3=needs human). Code 1 turns
+   resume the same coder thread; code 0 pins `lgtm {sha, patch_id}` and advances
+   to the gate. The reviewer never writes to GitHub.
+6. The in-process gate validates and publishes through no-mistakes. It acquires a
+   branch-scoped gate lease so independent branches can publish in parallel while
+   same-branch ownership stays exclusive. If the initial gate fails before a PR
+   opens, the capsule auto-retries it up to a configurable limit. When no-mistakes
+   exits non-zero after publishing but the gate output shows
+   `outcome: checks-passed` with a later `context canceled`, the gate treats that
+   as recovered success instead of `gate_failed`, unless the repo
+   `.no-mistakes.yaml` copy into the daemon worktree failed.
+7. After the PR opens, the in-process supervisor observes: external review
+   comments route to the persistent coder window, and new addressing commits go
+   back through the gate before publication.
+8. The run becomes ready only when the current PR head has gate validation, a
+   live local LGTM (carried across pure rebases by patch-id), configured required
+   READY checks, and passing remaining checks. If a sibling merge advances the
+   base and the READY PR becomes dirty or conflicting, the supervisor invalidates
+   READY and routes the coder to rebase.
+9. While the PR is open, monotonic GitHub labels reflect the combo state:
+   `combo:working` → `combo:ready` → `combo:merged`, with `combo:conflict` as the
+   explicit exception.
+10. After the human merges the PR, the supervisor detects the merge and
+    auto-triggers `closure` to converge local resources deterministically.
     The manual `combo-chen closure -n <combo-id>` remains available as a
     fallback.
 
@@ -73,25 +78,25 @@ combo-chen run (--issue <url> | --plan <file>)
     |
     +--> Treehouse lease + isolated worktree + branch
     |
-    +--> coder agent writes local commits
+    +--> capsule engine (tmux pane 0)
     |
-    +--> gatekeeper validates and publishes
+    +--> coder writes local commits (owned child)
     |
-    +--> PR opens
+    +--> local review loop: verdict-<round>.json codes 0-3, lgtm pinned by patch-id
     |
-    +--> reviewer comments with machine-readable verdict codes (0-3) or "lgtm @ <head-sha>"
+    +--> in-process gate validates and publishes
     |
-    +--> coder responding mode addresses review comments
+    +--> PR opens; in-process supervisor observes
     |
-    +--> post-address gate republishes
+    +--> review comments routed to the persistent coder window; gate republishes
     |
-    +--> live combo PR labels kept in sync on GitHub
+    +--> monotonic combo PR labels kept in sync on GitHub
     |
     v
 ready_for_merge
     |
     v
-human merge -> director-watch auto-closure -> combo_closed
+human merge -> supervisor auto-closure -> combo_closed
 ```
 
 ## What Makes It Different
@@ -99,17 +104,16 @@ human merge -> director-watch auto-closure -> combo_closed
 - **A journal, not vibes.** Every run has `journal.jsonl`. Status is derived
   from events, not from terminal scrollback or agent memory.
 - **Fixed role boundaries.** Coder, gatekeeper, reviewer, director, and human
-  are separate roles. The reviewer cannot be the coder. The fixed tmux role
-  topology is the stable six-window order journal, director, coder,
-  gatekeeper, reviewer, and director-watch. Gatekeeper and reviewer windows are
-  precreated at launch, and the coder-response target defaults to the
-  persistent coder window.
+  are separate roles. The reviewer cannot be the coder. The capsule engine runs
+  in tmux pane 0, alongside the journal, director, coder, gatekeeper, and
+  reviewer role windows; there is no director-watch window, and the
+  coder-response target defaults to the persistent coder window.
 - **Publish boundary.** Coders leave local commits. The gatekeeper is the normal
   publisher.
-- **Visible PR state.** GitHub labels track the live combo workflow
-  (`combo:working-coder` → `combo:working-gate` → `combo:working-reviewer`
-  → `combo:lgtm` → `combo:ready`), so an operator can read the timeline
-  without inspecting tmux scrollback or journal files.
+- **Visible PR state.** Monotonic GitHub labels track the combo workflow
+  (`combo:working` → `combo:ready` → `combo:merged`, with `combo:conflict` as
+  the exception), so an operator can read the timeline without inspecting tmux
+  scrollback or journal files.
 - **Recoverability.** `status --deep`, `resume`, `park`, `reconcile`, and
   `forensics` exist because long autonomous runs fail in boring ways.
 - **Configurable agents.** The default shape uses Codex/gnhf, no-mistakes, and a
@@ -206,20 +210,12 @@ reviewer = ["claude"]
 merge = "human"
 
 [reviewer]
-# Optional free-form reviewer instructions.
+# Optional free-form reviewer instructions injected into the local review loop.
 # prompt = "Apply my local review process."
-# GitHub authors allowed to satisfy "lgtm @ <sha>" and verdict block routing.
-logins = ["claude"]
 
 [ready]
 # Dogfood default: CodeRabbit must be present with SUCCESS before READY.
 required_checks = ["CodeRabbit"]
-
-[external_review]
-commands = ["@coderabbitai review"]
-
-[pr_labels]
-green_check_names = ["CodeRabbit"]
 
 [external_comments]
 # External comment/noise filters only; not approval and not READY checks.
@@ -229,7 +225,8 @@ agents = ["coderabbitai"]
 command = "claude {prompt}"
 
 [director]
-# Promptable interactive director window; director-watch owns polling.
+# Promptable interactive director window; the in-process supervisor owns
+# deterministic observation.
 command = "claude {prompt}"
 
 # [team] declares the expected effective identity per role. Overture resolves each
@@ -241,24 +238,14 @@ command = "claude {prompt}"
 # model = "gpt-5.5"
 ```
 
-Reviewer commands must submit reviews with a single inline
-`gh pr review --comment --body "..."` command. They must not use heredocs, temp
-files, pipes, redirects, semicolons, or cleanup commands to publish a review.
-Only comments or reviews authored by `[reviewer].logins` can satisfy the
-SHA-pinned reviewer LGTM gate and have their machine-readable verdict blocks
-accepted for routing; by default this is the active reviewer agent name.
-Verdict code 0 also requires a `lgtm @ <sha>` pin in the review body.
+The reviewer runs locally inside the capsule's review loop and writes a
+schema-versioned `verdict-<round>.json` artifact in the run directory; it never
+posts to GitHub. Verdict code 0 pins the local LGTM to the reviewed changeset's
+SHA and patch-id.
 `[ready].required_checks` names GitHub status contexts/check runs that must be
 present with exact `SUCCESS`; the runtime default is empty, and the example
-dogfood config below opts into `CodeRabbit`. A skipped CodeRabbit review is not
+dogfood config above opts into `CodeRabbit`. A skipped CodeRabbit review is not
 a READY success. These external checks are not reviewer approval.
-Keep the four external-review settings in sync when replacing CodeRabbit with
-another bot.
-`[external_review].commands` names PR-comment commands the director posts once
-per current head after the active reviewer emits LGTM, typically to trigger
-external review bots whose checks are listed under `[ready]`.
-`[pr_labels].green_check_names` names the check contexts/runs that satisfy the
-`combo:external-review-green` status label.
 `[external_comments].agents` names GitHub App or bot logins whose comments are
 filtered for bookkeeping/noise and otherwise routed to coder responding mode.
 Comments from these agents that indicate a skipped or rate-limited review
@@ -277,9 +264,7 @@ through the persistent `coder` tmux window.
 The recommended `codex --profile sitter --no-alt-screen resume {thread_id}`
 keeps tmux scrollback visible and the session resumable/auditable without
 changing the underlying default. Custom `resume_command` templates remain
-supported for local wrappers or other agents, and
-`[coder_responding].window_name` remains as a compatibility bridge for older
-capsules that still need a separate response window.
+supported for local wrappers or other agents.
 
 If combo-chen later adds a direct noninteractive Codex runner, it must keep
 `-C {worktree}` explicit, use an autonomous isolated sandbox such as
@@ -325,9 +310,9 @@ directly:
 - Each archive expands under `combo-chen-vX.Y.Z/` and installs the executable
   CLI at `bin/combo-chen`, built from `dist/cli.mjs`, plus package metadata,
   README, LICENSE, and `combo-chen.example.toml`.
-- The installed CLI is self-contained: runtime dependencies and every shell
-  template are bundled into `dist/cli.mjs`, so extracted archives run without
-  `node_modules` or sibling `dist` chunks.
+- The installed CLI is self-contained: runtime dependencies are bundled into
+  `dist/cli.mjs`, so extracted archives run without `node_modules` or sibling
+  `dist` chunks.
 - `checksums.txt` is sha256sum-compatible, sorted by filename, and covers every
   uploaded `.tar.gz` asset.
 - `pnpm release:assets` builds the CLI and writes reproducible archives plus
@@ -376,9 +361,9 @@ or runner refresh was needed. If live combos are detected, it runs
 `no-mistakes daemon start` to refresh the managed no-mistakes daemon service
 without restarting live combo tmux windows. The daemon refresh attempt is
 bounded by `COMBO_CHEN_POST_UPDATE_DAEMON_REFRESH_TIMEOUT_MS` (default 30000).
-Existing combo runners, director-watch loops, gatekeepers, and reviewers remain
-under human control; when an operator intentionally wants a live runner to pick
-up the new install, park and resume that combo:
+Existing capsule engines, gatekeepers, and reviewers remain under human
+control; when an operator intentionally wants a live capsule to pick up the
+new install, park and resume that combo:
 
 ```bash
 combo-chen park -n <combo-id>
@@ -485,6 +470,9 @@ combo-chen resume -n <combo-id>
 combo-chen forensics --issues <numbers> [--format json]
 combo-chen forensics --issues <numbers> [--record-outcome]
 combo-chen reconcile [-n <combo-id>] [--apply]
+combo-chen decide -n <combo-id> <retry|skip|take_over|ignore> [--note <text>]
+combo-chen closure -n <combo-id>
+combo-chen recap
 combo-chen stop -n <combo-id>
 combo-chen director-prompt -n <combo-id> --reason <reason> <message...>
 ```
@@ -515,15 +503,14 @@ another human request. Corrupt combo records are skipped with a
   lease owners when no-mistakes is reserved by combos. Before rendering, `status`
   quietly closes closed-PR salvage cases. For merged PRs it records the merge
   fact, leaves resources untouched, and keeps the row visible as
-  `closure_pending` until the director-watch loop (or a manual
+  `closure_pending` until the supervisor (or a manual
   `combo-chen closure -n <combo-id>`) records `combo_closed`. If a non-terminal
   combo no longer has its tmux session, status journals `tmux_missing` so it is
   shown as needing human attention instead of looking supervised.
 - `combo-chen closure -n <combo-id>` is the canonical merged happy-path cleanup
-  command. The director-watch loop auto-triggers closure on merge detection;
-  the manual command remains as a fallback. Reviewer/director-watch and status
-  can record or report the merge fact, but the closure logic owns resource
-  convergence.
+  command. The supervisor auto-triggers closure on merge detection; the manual
+  command remains as a fallback. Status can record or report the merge fact,
+  but the closure logic owns resource convergence.
 - `park` writes a local handoff and stops tmux without making the combo
   terminal.
 - `resume` reconstructs the right next action from the journal and downstream
@@ -561,11 +548,12 @@ Recovery playbook:
 - Pre-PR coder dead/stalled: the monitor first checks for a journaled
   `coder_done` or `coder_failed` event before classifying a dead pane.
   A prior `coder_done` means clean completion — no recovery runs.
-  When no terminal outcome is journaled, the director auto-restarts dead
-  pre-PR coder workers and stalled coder-response surfaces (the default
-  `coder` window or a configured compatibility window) up to the configured
-  recovery budget. After the budget is exhausted a `needs_human` event is
-  journaled.
+  When no terminal outcome is journaled, a dead pre-PR coder triggers
+  capsule-owned recovery: the capsule sequencer pane is relaunched and
+  re-derives its phase from the journal, up to the configured recovery
+  budget. Stalled post-PR coder-response surfaces are recreated and
+  re-prompted under the same budget. After the budget is exhausted a
+  `needs_human` event is journaled.
 - Worker permission prompts: the `[monitor].permission_prompt_policy` knob
   (env `COMBO_CHEN_WORKER_PERMISSION_PROMPT_POLICY`) controls whether known
   interactive prompts are auto-approved, trigger coder-response recreation, or
@@ -576,9 +564,9 @@ Recovery playbook:
   branch.
 - Gate lease contention: for same-branch conflicts, inspect the lease owner in
   `status`, then resolve stale/conflicting ownership before retrying the gate.
-- Post-merge closure: director-watch auto-triggers `closure`
+- Post-merge closure: the supervisor auto-triggers `closure`
   after GitHub reports `MERGED`; the manual `combo-chen closure -n <combo-id>`
-  remains as a fallback. Status/reviewer may record the merge fact, but the
+  remains as a fallback. Status may record the merge fact, but the
   closure logic owns resource convergence.
 
 Future parallel runs should leave postmortem metadata: wave size, combo ids,
@@ -604,10 +592,11 @@ Important files:
   every PR label mutation with metadata (PR URL, head SHA, old/new labels,
   reason) for auditability.
 - `runtime-ledger.json`: machine-readable combo capsule resource ledger; written at launch, updated when PR/reviewer/director resources appear.
-- `config.snapshot.json`: frozen launch-time config; prevents runtime drift when repo TOML changes.
-- `runner.sh`: generated initial runner.
-- `gatekeeper.log`: initial gatekeeper output.
-- `gatekeeper-post-<sha>.sh`: generated post-address gate.
+- `config.snapshot.json`: frozen launch-time config (`runEngine: "capsule"`); prevents runtime drift when repo TOML changes. Frozen pre-v1 artifacts migrate to capsule deterministically on read/resume.
+- `loop-state.json`: persisted review-loop position (rounds, fingerprint survival, guard state).
+- `verdict-<round>.json`: schema-versioned local reviewer verdict artifacts.
+- `review-<round>-<sha12>.md`: deterministic review dossiers projected from the verdicts.
+- `exit-summary.md`: permanent run summary emitted at closure.
 - `work-plan.md`: normalized work-plan artifact; the canonical source of work-item intent for reviewer, gatekeeper, and forensics.
 - `park-handoff.md`: local summary created by `park`.
 
@@ -620,8 +609,9 @@ Shared cross-combo state lives under:
   cache; written by normal public CLI commands and reused for 24 hours.
   Set `COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS=1` to skip it entirely.
 
-Do not hand-edit `journal.jsonl`. Use `combo-chen emit` only when a real-world
-fact happened and the journal missed it.
+Do not hand-edit `journal.jsonl`. The capsule, gate, and supervisor write every
+event through the binary; when the journal missed a real-world fact, repair it
+with `combo-chen reconcile [--apply]` or `combo-chen resume -n <combo-id>`.
 
 ## Why This Matters
 
@@ -639,7 +629,6 @@ without collapsing the roles that make the result trustworthy.
 pnpm test
 pnpm typecheck
 pnpm lint
-pnpm lint:sh
 pnpm format:check
 pnpm slop:check
 pnpm build
@@ -664,11 +653,9 @@ autonomous runs:
   pinned just above the current baseline so new duplication fails: a PR that
   trips it must remove duplication or raise the threshold explicitly in the
   same PR with justification, and the threshold only moves down, in the PR
-  that removes clones.
-- `pnpm lint:sh` — shellcheck over `src/shell/templates/*.sh`, the home of
-  every generated shell script (templates rendered with `__PLACEHOLDER__`
-  substitution; no shell lives in TS string literals). Run by CI and
-  no-mistakes lint.
+  that removes clones. The `no-shell-in-ts` rule enforces the v1 contract that
+  no shell loops, traps, or parsers live in TS strings or template literals;
+  the only shell reaching tmux is a static one-liner window entry command.
 - `pnpm slop:report` — verbose jscpd clone listing for non-test source plus
   the same `sg scan`, for reading warning output in full while a cleanup is
   in flight.
@@ -679,45 +666,33 @@ autonomous runs:
 
 Active development.
 
-v0 implements the work-item-to-PR loop under the parallelize-first operating
-contract: deterministic overture launch runway,
-coder/gnhf, no-mistakes initial and
-post-address gates with automatic initial-gate retry, reviewer with
-machine-readable verdict codes (0-3) and deterministic routing, reviewer re-review,
-lazy coder-response routing through the persistent coder window by default
-(legacy `coder-responding` compatibility window only when configured), single `director-watch`
-observation with compact per-tick operator status lines, frozen journal
-`reconcile` repair for closed PRs (preserving all worktrees on close),
-merged-PR `reconcile` with merge-fact recording only (resource convergence
-deferred to `closure`), deterministic `closure` for post-merge local resource
-convergence with director-watch auto-trigger on merge detection, director prompt
-delivery for code-2 verdicts, no-mistakes config propagation,
-read-only forensics reports with copy-ready Outcome blocks and markdown-only
-`--record-outcome` for posting dogfood outcomes to GitHub issues, coder safety
-validation (pinned gnhf with `--max-iterations`, `--stop-when`, stdin closed),
-`park`/`resume` for reboot-safe capsule handoff, the parallel capsule dashboard
-(`status`; actionable by default, `--all` for history, `--deep` for downstream
-probes, auto-reconcile + tmux liveness), launch-time config snapshots for
-deterministic runtime behavior, a machine-readable runtime ledger for each combo
-capsule, branch-scoped gate leases for parallel capsules with stale recovery and
-heartbeat, promptable director window inside each combo capsule (non-polling
-contract, prompted by director-watch only for ambiguity or uncoded recovery),
-wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with postmortem
-justification), explicit coder terminal outcomes (`coder_done` trust over dead-looking panes) before worker recovery, pre-PR dead coder recovery with bounded restarts before `needs_human` escalation,
-stalled coder-response recovery with bounded retries, configurable worker permission-prompt recovery (auto-approve, recreate, or escalate) with bounded retries, orchestrator evidence consulted before worker stall escalation (gnhf run active, gate run active, external review active, reviewer artifact recent), current-head READY agreement with base-advance conflict
-detection, live GitHub PR label projection with mutation journaling,
-human-readable tmux topology (fixed tmux role topology: journal, director,
-coder, gatekeeper, reviewer, and director-watch in that stable order;
-gatekeeper and reviewer are precreated at launch; coder-response target
-defaults to the persistent coder window; raw event output never replaces the
-coder role), opt-in runner
-progress status lines
-(`COMBO_CHEN_RUNNER_PROGRESS=1`), coder helper preflight (use `pnpm surface`
-when the target repo exposes it; otherwise search before adding helpers), reviewer
-anti-slop guardrails (duplicate helper check, config plausibility, surface
-budget awareness), and `needs-human-report` operational metrics.
+v1 implements the work-item-to-PR loop with the capsule as the only engine. The
+v0 shell substrate (generated `runner.sh`, `director-watch-loop.sh`, and all 22
+shell gate templates) is retired: the gate runs in-process, the event-driven
+supervisor observes from inside the capsule pane, and the only shell that
+reaches tmux is a static one-liner window entry command.
 
-Deferred: issue preflight scoring, counterfactual automerge logs, and ACP role driving.
+Highlights: deterministic overture launch runway with declared team identity
+checks; coder/gnhf with safety validation (pinned gnhf with `--max-iterations`,
+`--stop-when`, stdin closed); local reviewer verdict files with machine-readable
+codes (0-3) and the bounded V-C-V review loop (fingerprint survival and no-op
+fix turn guards); in-process initial gate with automatic retry and no-mistakes
+config propagation; patch-id LGTM carry-over with the four-leg deterministic
+READY fold; monotonic GitHub PR label projection (`combo:working` →
+`combo:ready` → `combo:merged`, `combo:conflict` as the exception) with
+mutation journaling; capsule pane topology (pane 0 engine plus journal,
+director, coder, gatekeeper, and reviewer windows; no director-watch window;
+coder-response targets the persistent coder window); capsule-owned pre-PR dead
+coder recovery with bounded relaunches; stalled coder-response recovery and
+configurable permission-prompt recovery; `decide` for answering pending
+`needs_human` escalations; `park`/`resume` with deterministic v0-snapshot
+engine migration; the parallel capsule dashboard (`status`), `recap`,
+`forensics` with `--record-outcome`, and `needs-human-report`; branch-scoped
+gate leases for parallel capsules; the Ink/React TUI fleet home; and anti-slop
+surface probes (`pnpm slop:check`, `pnpm slop:report`, `pnpm surface`).
+
+Deferred: glance pane, forge connectors, automerge, issue preflight scoring,
+counterfactual automerge logs, and ACP role driving.
 
 ## License
 

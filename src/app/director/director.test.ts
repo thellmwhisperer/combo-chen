@@ -500,9 +500,9 @@ describe("tickDirector", () => {
       }),
     );
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("capsule"))).toBe(
-      true,
-    );
+    expect(
+      calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("capsule")),
+    ).toBe(true);
     expect(out).toContain("director: coder dead (worker_dead); relaunched capsule sequencer attempt 1/2");
   });
 

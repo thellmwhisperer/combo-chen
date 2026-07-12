@@ -172,7 +172,7 @@ describe("resume", () => {
     mkdirSync(worktree, { recursive: true });
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      "[gatekeeper]\nattach_timeout_seconds = 42\nattach_retry_interval_seconds = 6\n",
+      "[gatekeeper]\ninitial_gate_retry_attempts = 4\ninitial_gate_retry_backoff_seconds = 6\n",
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -187,7 +187,7 @@ describe("resume", () => {
     writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      "[gatekeeper]\nattach_timeout_seconds = 3\nattach_retry_interval_seconds = 1\n",
+      "[gatekeeper]\ninitial_gate_retry_attempts = 1\ninitial_gate_retry_backoff_seconds = 1\n",
     );
     appendEvent(dir, "gate_started", {});
     appendEvent(dir, "gate_failed", { exit_code: 1 });

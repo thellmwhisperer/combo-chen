@@ -28,7 +28,7 @@ export function defaultDirectorPrompt(input: DirectorPromptInput): string {
     `Branch: ${input.combo.branch}.`,
     `Worktree: ${input.combo.worktree}.`,
     "Stay in this tmux window as the promptable director.",
-    "The separate director-watch window owns deterministic polling; do not run the watch loop here.",
+    "The in-process supervisor in the capsule pane owns deterministic observation; do not run a watch loop here.",
     "When routed prompts arrive, reply with the next concrete action.",
     "If the decision touches user intent, answer needs_human with the exact decision needed.",
     "Do not edit code, push commits, merge, approve, or deploy.",

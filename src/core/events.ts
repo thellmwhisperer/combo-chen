@@ -12,7 +12,7 @@
  *
  *   MAIN FLOW
  *   ─────────
- *   runner.sh → emit command → appendEvent() → journal lock → journal.jsonl
+ *   capsule/gate/supervisor → appendEvent() → journal lock → journal.jsonl
  *   reader → readEvents()/followEvents() → deriveStatus() in combo.ts
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐

@@ -12,11 +12,11 @@
  *
  *   MAIN FLOW
  *   ─────────
- *   cli/main.ts → buildCoderInvocation({coderCommand, combo, prompt?})
+ *   app/capsule/capsule.ts → buildCoderInvocation({coderCommand, combo, prompt?})
  *     → repoHasSurfaceScript chooses pnpm surface or generic helper search
  *     → renderCommand(template, {issue_url, worktree, repo, branch, prompt})
- *     → runner.sh executes the command
- *     → emit "coder_done" → persistCoderThreadArtifact extracts thread_id
+ *     → the capsule runs the command as an owned child (runAgentProcess)
+ *     → capsule journals "coder_done" → persistCoderThreadArtifact extracts thread_id
  *
  *   ┌─ PUBLIC API ──────────────────────────────────────────────────────────┐
  *   │ buildCoderInvocation       Render command and append helper preflight │

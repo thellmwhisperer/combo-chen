@@ -51,8 +51,6 @@ function config(): ComboConfig {
     coderResumeCommand: "codex resume {thread_id}",
     gatekeeperCommand: "no-mistakes axi run --intent {issue_pr_intent}",
     directorCommand: "claude {prompt}",
-    gatekeeperAttachTimeoutSeconds: 1800,
-    gatekeeperAttachRetryIntervalSeconds: 10,
     gatekeeperInitialGateRetryAttempts: 2,
     gatekeeperInitialGateRetryBackoffSeconds: 10,
     reviewerAgent: "claude",

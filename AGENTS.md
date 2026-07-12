@@ -40,7 +40,7 @@ Hard rule: `reviewer != coder`.
    advance to gate. Owned turns are wall-clock bounded; same-finding survival
    and no-op fix turns escalate `needs_human`; the loop is capped by
    `[review].max_rounds` (default 3).
-6. The in-process gate (`src/app/capsule/in-process-gate.ts`) validates through
+6. The in-process gate (`src/app/gate/in-process-gate.ts`) validates through
    no-mistakes without shell templates. An initial-gate failure auto-retries
    up to `initial_gate_retry_attempts` with `initial_gate_retry_backoff_seconds`
    delay; after exhausting retries it journals `needs_human reason=gate_failed`.
@@ -99,14 +99,14 @@ automatically. In both cases, combo-chen propagates the config in two phases:
    content and mode and never overwrites an existing worktree config.
 
 2. **Worktree → daemon worktree copy.** Before running the gate command, the
-   generated gate script copies `.no-mistakes.yaml` from the combo worktree
-   into the no-mistakes daemon's active run worktree so the gate runner has it.
-   It polls `no-mistakes status` to discover the daemon's worktree path and
-   retries up to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default
-   120, 1 s delay). The gate runs in parallel with the config copy watcher,
-   but a successful gate that finishes before the config copy completes is
-   rejected so validation stays deterministic. A config-copy failure remains
-   a gate failure even when no-mistakes output would otherwise match the
+   in-process gate copies `.no-mistakes.yaml` from the combo worktree into the
+   no-mistakes daemon's active run worktree so the gate runner has it. It polls
+   `no-mistakes status` to discover the daemon's worktree path and retries up
+   to `COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS` times (default 120, 1 s
+   delay). The gate runs in parallel with the config copy watcher, but a
+   successful gate that finishes before the config copy completes is rejected
+   so validation stays deterministic. A config-copy failure remains a gate
+   failure even when no-mistakes output would otherwise match the
    checks-passed plus context-canceled recovery path.
 
 Do not remove the tracked repo-level `.no-mistakes.yaml`; update it only when
@@ -140,9 +140,12 @@ Source files carry Sherpa-style navigable headers:
 v1 implements the work-item-to-PR loop with the capsule as the only engine.
 v0 and its shell substrate are retired: the `runner.sh` shell script,
 `director-watch-loop.sh`, and all 22 shell gate templates are deleted.
-The gate is in-process (`src/app/capsule/in-process-gate.ts`); the
+The gate is in-process (`src/app/gate/in-process-gate.ts`); the
 in-process event-driven supervisor (`src/app/director/supervisor.ts`)
-replaces the shell-based director-watch loop.
+replaces the shell-based director-watch loop. Frozen pre-v1 config snapshots
+(missing or `v0` engine) migrate deterministically to capsule on read, and
+`resume` rewrites the artifact before topology changes; unknown engines fail
+closed.
 
 Active features:
 
@@ -156,7 +159,7 @@ Active features:
   with bounded rounds (cap `[review].max_rounds`, default 3), fingerprint
   survival detection, and no-op fix turn escalation
 - In-process initial gate with automatic retry
-  (`src/app/capsule/in-process-gate.ts`)
+  (`src/app/gate/in-process-gate.ts`)
 - no-mistakes config propagation (repo → worktree → daemon worktree copy)
 - Patch-id LGTM carry-over (`src/core/patch-id.ts`): code-0 verdict pins
   `lgtm {sha, patch_id}`; carry-over (`src/app/capsule/ready.ts`) re-pins
@@ -196,13 +199,15 @@ Active features:
 - Wave-based parallel scaling (start 2 capsules, then 3, then 4-6 with
   postmortem justification)
 - Explicit coder terminal outcomes (`coder_done` trust over dead-looking
-  panes) before worker recovery; pre-PR dead coder recovery with bounded
-  restarts; stalled coder-response recovery with bounded retries
+  panes) before worker recovery; capsule-owned pre-PR dead coder recovery
+  (bounded capsule pane relaunches before `needs_human`); stalled
+  coder-response recovery with bounded retries
 - Configurable worker permission-prompt recovery (auto-approve, recreate, or
   escalate) with bounded retries; orchestrator evidence consulted before
   worker stall escalation
-- Human-readable tmux topology (fixed tmux role topology: journal, director, coder,
-  gatekeeper, reviewer, and director-watch; gatekeeper and reviewer precreated at launch;
+- Human-readable tmux topology (capsule engine in pane 0, plus journal,
+  director, coder, gatekeeper, and reviewer windows; no director-watch window;
+  the gatekeeper window entry is the static `no-mistakes attach` one-liner;
   reviewer performs no post-publish GitHub writes; coder-response targets the
   persistent coder window; raw event output never replaces the coder role)
 - Ink/React TUI home (fleet view): bare `combo-chen` on a TTY opens the

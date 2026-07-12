@@ -22,7 +22,6 @@
  *   │ loadConfig                Cascade: defaults → user → repo → env   │
  *   │ renderCommand             Substitute {placeholders} with safe vals │
  *   │ hasGnhfCommand            Detect configured gnhf wrapper commands  │
- *   │ isCapsuleEngine           v1 capsule engine opt-in (legacy = v0)   │
  *   │ DEFAULT_GATEKEEPER_COMMAND Fallback gatekeeper command template    │
  *   │ DEFAULT_WORKER_RECOVERY_ATTEMPTS Fallback recovery budget           │
  *   ├─ INTERNALS ───────────────────────────────────────────────────────┤
@@ -34,7 +33,7 @@
  *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, RunEngine, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_REVIEW_SETTINGS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, isCapsuleEngine, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, RunEngine, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_REVIEW_SETTINGS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/shell-quote
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -90,10 +89,6 @@ export interface ComboConfig {
   gatekeeperCommand: string;
   /** Command template for the promptable interactive director role, with {placeholders}. */
   directorCommand: string;
-  /** How long the gatekeeper tmux window waits for no-mistakes' active run. */
-  gatekeeperAttachTimeoutSeconds: number;
-  /** How often the gatekeeper tmux window polls for no-mistakes' active run. */
-  gatekeeperAttachRetryIntervalSeconds: number;
   /** Number of automatic relaunches allowed after an initial pre-PR gate failure. */
   gatekeeperInitialGateRetryAttempts: number;
   /** Seconds to wait before relaunching a failed initial pre-PR gate. */
@@ -221,8 +216,6 @@ const DEFAULTS = {
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   gatekeeper: {
     command: DEFAULT_GATEKEEPER_COMMAND,
-    attach_timeout_seconds: 1800,
-    attach_retry_interval_seconds: 10,
     initial_gate_retry_attempts: 2,
     initial_gate_retry_backoff_seconds: 10,
   },
@@ -269,11 +262,6 @@ function pickRunEngine(value: unknown, description: string): RunEngine {
     throw new ComboConfigError(`${description} must be one of ${RUN_ENGINES.join(", ")}`);
   }
   return engine as RunEngine;
-}
-
-/** Legacy pre-v1 snapshots carry no run engine; they resolve as the capsule engine. */
-export function isCapsuleEngine(config: Partial<Pick<ComboConfig, "runEngine">>): boolean {
-  return config.runEngine === undefined || config.runEngine === "capsule";
 }
 
 // -/ 1/4
@@ -663,17 +651,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   }
 
   const env = options.env ?? {};
-  const gatekeeperAttachTimeout =
-    env["COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS"] ?? env["COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS"];
-  if (gatekeeperAttachTimeout !== undefined) {
-    gatekeeperTable["attach_timeout_seconds"] = gatekeeperAttachTimeout;
-  }
-  const gatekeeperAttachRetryInterval =
-    env["COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS"] ??
-    env["COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS"];
-  if (gatekeeperAttachRetryInterval !== undefined) {
-    gatekeeperTable["attach_retry_interval_seconds"] = gatekeeperAttachRetryInterval;
-  }
   if (env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS"] !== undefined) {
     gatekeeperTable["initial_gate_retry_attempts"] = env["COMBO_CHEN_GATEKEEPER_INITIAL_GATE_RETRY_ATTEMPTS"];
   }
@@ -836,18 +813,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "command template for [roles.gate]",
     ),
     directorCommand: pickNonEmptyString(directorTable["command"], "command template for [director]"),
-    gatekeeperAttachTimeoutSeconds: pickNumber(
-      gatekeeperTable,
-      "attach_timeout_seconds",
-      DEFAULTS.gatekeeper.attach_timeout_seconds,
-      "[gatekeeper]",
-    ),
-    gatekeeperAttachRetryIntervalSeconds: pickNumber(
-      gatekeeperTable,
-      "attach_retry_interval_seconds",
-      DEFAULTS.gatekeeper.attach_retry_interval_seconds,
-      "[gatekeeper]",
-    ),
     gatekeeperInitialGateRetryAttempts: pickNonNegativeInteger(
       gatekeeperTable,
       "initial_gate_retry_attempts",

@@ -9,7 +9,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   activateReviewer -> director-watch; tickReviewer -> gh pr view -> terminal lifecycle events
+ *   activateReviewer -> ledger + director window; tickReviewer -> gh pr view -> terminal lifecycle events
  *
  *   PUBLIC API
  *   ----------
@@ -23,12 +23,11 @@
  *   journal-derived lifecycle and local-LGTM predicates
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent, closurePendingReviewerEvent
- * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../github/github, ../runtime/sessions, ./watchers
+ * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../github/github, ../runtime/sessions
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import { updateRuntimeLedger } from "../../core/runtime-ledger.js";
 import { runDirFor, readCombo } from "../../core/state.js";
-import { isCapsuleEngine } from "../../infra/config.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import type { TmuxResult } from "../../infra/tmux.js";
 import { buildDirectorInvocation } from "../../roles/director-invocation.js";
@@ -36,7 +35,6 @@ import { parsePrView, type PrView } from "../github/github.js";
 import {
   REVIEWER_WATCH_WINDOW,
   DIRECTOR_WINDOW,
-  DIRECTOR_WATCH_WINDOW,
   ensureWindowPresent,
   killComboSession,
   killWindowIfPresent,
@@ -89,7 +87,6 @@ export function activateReviewer(input: {
     prUrl,
     roleWindows: {
       director: DIRECTOR_WINDOW,
-      ...(isCapsuleEngine(config) ? {} : { directorWatch: DIRECTOR_WATCH_WINDOW }),
     },
   });
   deps.out(`reviewer: local review complete; observing ${prUrl}`);
