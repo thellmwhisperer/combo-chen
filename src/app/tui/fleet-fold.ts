@@ -42,14 +42,7 @@ import type { JournalFact } from "../reporting/status-fold.js";
 
 // -- 1/4 CORE · types <- START HERE --
 export type FleetRenderPhase =
-  | "CODER"
-  | "REVIEW"
-  | "GATE"
-  | "PR"
-  | "READY"
-  | "NEEDS_YOU"
-  | "PARKED"
-  | "CLOSED";
+  "CODER" | "REVIEW" | "GATE" | "PR" | "READY" | "NEEDS_YOU" | "PARKED" | "CLOSED";
 
 export interface ActorLiveness {
   readonly coder?: boolean;
@@ -158,10 +151,7 @@ function renderPhaseFrom(
 // -/ 2/4
 
 // -- 3/4 HELPER · detail line, round, pr, age, sort, actor liveness --
-export function deriveActorLiveness(
-  events: readonly JournalFact[],
-  sessionAlive: boolean,
-): ActorLiveness {
+export function deriveActorLiveness(events: readonly JournalFact[], sessionAlive: boolean): ActorLiveness {
   if (!sessionAlive) return {};
   const status = deriveStatus(events as Parameters<typeof deriveStatus>[0]);
   switch (status.phase) {
@@ -264,10 +254,7 @@ function sortPriorityFor(phase: FleetRenderPhase): number {
 // -/ 3/4
 
 // -- 4/4 CORE · deriveFleetView <-
-export function deriveFleetView(input: {
-  rows: readonly FleetRow[];
-  tab: FleetTab;
-}): FleetView {
+export function deriveFleetView(input: { rows: readonly FleetRow[]; tab: FleetTab }): FleetView {
   const filtered = input.rows.filter((row) => tabForPhase(row.renderPhase) === input.tab);
   const sorted = [...filtered].sort((a, b) => {
     const priorityDiff = a.sortPriority - b.sortPriority;

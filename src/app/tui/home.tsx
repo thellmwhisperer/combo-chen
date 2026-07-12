@@ -32,11 +32,7 @@
 import { Box, Text, useApp, useInput } from "ink";
 import React, { useEffect, useRef, useState } from "react";
 
-import {
-  deriveFleetView,
-  type FleetRenderPhase,
-  type FleetRow,
-} from "./fleet-fold.js";
+import { deriveFleetView, type FleetRenderPhase, type FleetRow } from "./fleet-fold.js";
 import { initialNavState, navigate, type NavState } from "./navigation.js";
 
 // -- 1/4 HELPER · phase rendering facts --
@@ -129,8 +125,8 @@ function FleetBody({
       </Box>
       <Box marginTop={1}>
         <Text dimColor>
-          [1] live{view.tab === "live" ? " ●" : ""}  [2] parked{view.tab === "parked" ? " ●" : ""}{" "}
-          [3] closed{view.tab === "closed" ? " ●" : ""}
+          [1] live{view.tab === "live" ? " ●" : ""} [2] parked{view.tab === "parked" ? " ●" : ""} [3] closed
+          {view.tab === "closed" ? " ●" : ""}
         </Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
