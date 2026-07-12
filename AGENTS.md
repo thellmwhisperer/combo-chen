@@ -237,6 +237,7 @@ Active features:
   pane with exit 0 in a scripted tmux test is normal launcher delegation, not a
   crash; set `COMBO_CHEN_TUI_DIRECT=1` to run the renderer in-place
 - `recap` subcommand; v1 journal events + LOCAL_REVIEW phase + schema_version
+- Operator recovery: `combo-chen emit -n <id> pr_opened --url <pr-url>` records the guarded external publish fact
 - Coder helper preflight (use `pnpm surface` when the target repo exposes it;
   otherwise search before adding helpers); reviewer anti-slop guardrails
   (duplicate helper check, config plausibility, surface budget awareness);

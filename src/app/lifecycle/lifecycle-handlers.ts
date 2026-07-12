@@ -5,7 +5,7 @@
  *   -------------
  *   1. Start at decideComboEscalation <- answer a pending needs_human.
  *   2. Then resumePersistedCombo      <- recovery entry point.
- *   3. Read attach/stop/events        <- operator lifecycle endpoints.
+ *   3. Read emit/attach/stop/events   <- operator lifecycle endpoints.
  *
  *   MAIN FLOW
  *   ---------
@@ -13,14 +13,14 @@
  *
  *   PUBLIC API
  *   ----------
- *   DECISION_VERBS, attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo,
- *   stopCombo, printComboEvents, decideComboEscalation
+ *   DECISION_VERBS, recordObservedComboEvent, attachCombo, closeCombo, reconcileComboState,
+ *   resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, decideComboEscalation
  *
  *   INTERNALS
  *   ---------
  *   none.
  *
- * @exports DECISION_VERBS, attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, decideComboEscalation
+ * @exports DECISION_VERBS, recordObservedComboEvent, attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, decideComboEscalation
  * @deps ../../core/events, ../../core/state, ../../infra/tmux, ../deps, ../runtime/sessions, ./closure, ./park, ./reconcile, ./resume
  */
 import { appendEvent, followEvents, readEvents } from "../../core/events.js";
@@ -116,6 +116,62 @@ export function parkPersistedCombo(deps: AppDeps, options: { name: string; by: s
     cli,
     by: options.by,
   });
+}
+
+export function recordObservedComboEvent(
+  deps: Pick<AppDeps, "env" | "gh" | "out">,
+  options: { name: string; event: string; url: string },
+): void {
+  if (options.event !== "pr_opened") {
+    throw new Error(
+      `emit only supports pr_opened: this operator verb is fact-recording only; ` +
+        `decision/phase events would corrupt the journal fold (received "${options.event}")`,
+    );
+  }
+
+  const runDir = runDirFor(comboHome(deps.env), options.name);
+  const combo = readCombo(runDir);
+  if (combo.id !== options.name) {
+    throw new Error(`combo record at ${runDir} has mismatched id "${combo.id}"`);
+  }
+  const existing = readEvents(runDir).find((event) => event.event === "pr_opened");
+  if (existing !== undefined) {
+    const existingUrl = typeof existing["url"] === "string" ? existing["url"] : options.url;
+    deps.out(`emit: pr_opened already recorded for ${combo.id} (${existingUrl})`);
+    return;
+  }
+
+  const viewed = deps.gh(["pr", "view", options.url, "--json", "url,state,headRefName"]);
+  if (viewed.status !== 0) {
+    throw new Error(
+      `cannot verify PR ${options.url} (gh status ${viewed.status}): ${viewed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(viewed.stdout);
+  } catch {
+    throw new Error(`cannot verify PR ${options.url}: gh returned invalid JSON`);
+  }
+  if (value === null || typeof value !== "object") {
+    throw new Error(`cannot verify PR ${options.url}: gh returned invalid PR data`);
+  }
+  const pr = value as Record<string, unknown>;
+  if (pr["url"] !== options.url) {
+    throw new Error(`cannot verify PR ${options.url}: GitHub returned URL ${String(pr["url"])}`);
+  }
+  if (pr["state"] !== "OPEN" && pr["state"] !== "MERGED") {
+    throw new Error(`cannot emit pr_opened for ${options.url}: GitHub PR state is ${String(pr["state"])}`);
+  }
+  if (pr["headRefName"] !== combo.branch) {
+    throw new Error(
+      `cannot emit pr_opened for ${options.url}: PR head branch is ${String(pr["headRefName"])}; ` +
+        `expected ${combo.branch}`,
+    );
+  }
+
+  appendEvent(runDir, "pr_opened", { url: options.url });
+  deps.out(`emit: recorded pr_opened for ${combo.id} (${options.url})`);
 }
 // -/ 1/2
 

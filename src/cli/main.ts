@@ -52,6 +52,7 @@ import {
   decideComboEscalation,
   parkPersistedCombo,
   printComboEvents,
+  recordObservedComboEvent,
   reconcileComboState,
   resumePersistedCombo,
   stopCombo,
@@ -410,6 +411,16 @@ export function createProgram(deps: AppDeps): Command {
     .option("--by <who>", "Who is stopping it", "human")
     .action((options: { name: string; by: string }) => {
       stopCombo(deps, options);
+    });
+
+  program
+    .command("emit")
+    .description("Operator-grade: records an externally observed fact into the journal")
+    .argument("<event>", "Event name (currently only pr_opened)")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .requiredOption("--url <pr-url>", "Externally observed GitHub pull request URL")
+    .action((event: string, options: { name: string; url: string }) => {
+      recordObservedComboEvent(deps, { name: options.name, event, url: options.url });
     });
 
   program

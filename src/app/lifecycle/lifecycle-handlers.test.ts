@@ -152,6 +152,100 @@ describe("reconcile", () => {
   });
 });
 
+describe("emit", () => {
+  function seedCombo(h: string): string {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = runDirFor(h, "o-r-7");
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
+    return runDir;
+  }
+
+  it("records an externally observed pr_opened fact once and is idempotent", async () => {
+    const h = home();
+    const runDir = seedCombo(h);
+    const prUrl = "https://github.com/o/r/pull/7";
+    const { deps, calls, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: (args) => {
+        calls.push(["gh", ...args]);
+        return {
+          status: 0,
+          stdout: JSON.stringify({ url: prUrl, state: "OPEN", headRefName: "combo/issue-7" }),
+          stderr: "",
+        };
+      },
+    });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "pr_opened", "--url", prUrl]);
+    await exec(deps, ["emit", "-n", "o-r-7", "pr_opened", "--url", prUrl]);
+
+    expect(readEvents(runDir)).toMatchObject([{ event: "pr_opened", url: prUrl }]);
+    expect(calls.filter((call) => call[0] === "gh")).toEqual([
+      ["gh", "pr", "view", prUrl, "--json", "url,state,headRefName"],
+    ]);
+    expect(out).toEqual([
+      `emit: recorded pr_opened for o-r-7 (${prUrl})`,
+      `emit: pr_opened already recorded for o-r-7 (${prUrl})`,
+    ]);
+  });
+
+  it("rejects event names that are not externally observed facts", async () => {
+    const h = home();
+    seedCombo(h);
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(
+      exec(deps, ["emit", "-n", "o-r-7", "ready_for_merge", "--url", "https://github.com/o/r/pull/7"]),
+    ).rejects.toThrow(/only supports pr_opened.*fact-recording.*decision\/phase events would corrupt/i);
+  });
+
+  it("rejects a PR whose head branch does not match the combo branch", async () => {
+    const h = home();
+    const runDir = seedCombo(h);
+    const prUrl = "https://github.com/o/r/pull/7";
+    const { deps } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: () => ({
+        status: 0,
+        stdout: JSON.stringify({ url: prUrl, state: "OPEN", headRefName: "someone-elses-branch" }),
+        stderr: "",
+      }),
+    });
+
+    await expect(exec(deps, ["emit", "-n", "o-r-7", "pr_opened", "--url", prUrl])).rejects.toThrow(
+      /head branch.*someone-elses-branch.*expected combo\/issue-7/i,
+    );
+    expect(readEvents(runDir)).toEqual([]);
+  });
+
+  it("unlocks reviewer activation after recording the missing publish fact", async () => {
+    const h = home();
+    seedCombo(h);
+    const prUrl = "https://github.com/o/r/pull/7";
+    const { deps, out } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      gh: () => ({
+        status: 0,
+        stdout: JSON.stringify({ url: prUrl, state: "MERGED", headRefName: "combo/issue-7" }),
+        stderr: "",
+      }),
+    });
+
+    await exec(deps, ["emit", "-n", "o-r-7", "pr_opened", "--url", prUrl]);
+    await expect(exec(deps, ["activate-reviewer", "-n", "o-r-7"])).resolves.toBeUndefined();
+    expect(out.join("\n")).toContain(`reviewer: local review complete; observing ${prUrl}`);
+  });
+});
+
 describe("stop", () => {
   it("kills the tmux session and journals who stopped it", async () => {
     const h = home();
