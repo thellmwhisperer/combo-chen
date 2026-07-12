@@ -57,6 +57,18 @@ describe("direct-combos skill", () => {
     expect(markdown).toContain("prints nothing");
   });
 
+  it("documents durable routing for every needs_human decision verb", () => {
+    const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
+
+    expect(markdown).toContain("## 5. Route decisions durably");
+    expect(markdown).toContain("`combo-chen decide -n <combo-id> <verb>`");
+    for (const verb of ["retry", "skip", "take_over", "ignore"]) {
+      expect(markdown).toContain(`\`${verb}\``);
+    }
+    expect(markdown).toContain("`decision`");
+    expect(markdown).toContain("`needs_human_ref`");
+  });
+
   it("mentions only registered combo-chen subcommands", () => {
     const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
     const mentionedCommands = Array.from(
