@@ -112,7 +112,7 @@ describe("release docs", () => {
       expect(doc).toContain("gatekeeper and reviewer");
       expect(doc).toContain("precreated at launch");
       expect(doc).toContain("director-watch");
-      expect(doc).toContain("coder-response target defaults to the persistent coder window");
+      expect(doc).toContain("persistent coder window");
       expect(doc).not.toContain("gate-runner");
     }
   });

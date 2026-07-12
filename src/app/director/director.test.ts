@@ -590,7 +590,6 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
-    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder"\n');
     writeCombo(runDir, record);
     writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
@@ -779,7 +778,6 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
-    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder"\n');
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     const { deps, calls } = fakeDeps({
@@ -843,7 +841,6 @@ describe("tickDirector", () => {
     const runDir = runDirFor(h, record.id);
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const windows = new Set(["coder"]);
-    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder"\n');
     writeCombo(runDir, record);
     writeCoderThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -991,7 +988,6 @@ describe("tickDirector", () => {
       record,
       prHeadSha: headSha,
       env: {
-        COMBO_CHEN_REVIEWER_LOGINS: "external-reviewer",
         COMBO_CHEN_WORKER_STALL_TICKS: "2",
       },
       externalReviewComments: [
@@ -1168,9 +1164,6 @@ describe("tickDirector", () => {
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
       [
-        "[coder_responding]",
-        'window_name = "coder"',
-        "",
         "[monitor]",
         "permission_prompt_policy = 'recreate-non-interactive'",
         "worker_recovery_attempts = 1",
@@ -1310,38 +1303,6 @@ describe("tickDirector", () => {
     );
   });
 
-  it("deduplicates configured worker window names before inspecting panes", async () => {
-    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
-    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const { record } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      ["[coder_responding]", 'window_name = "reviewer"'].join("\n"),
-    );
-    const { deps } = fakeDeps({
-      homeDir: h,
-      record,
-      prHeadSha: headSha,
-    });
-    let previousTmuxCommand = "";
-    let reviewerWorkerCaptures = 0;
-    deps.tmux = (args) => {
-      const previous = previousTmuxCommand;
-      previousTmuxCommand = args[0] ?? "";
-      if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
-      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
-      if (args[0] === "capture-pane") {
-        if (previous === "list-panes") reviewerWorkerCaptures += 1;
-        return { status: 0, stdout: "reviewer is working\n", stderr: "" };
-      }
-      return { status: 0, stdout: "", stderr: "" };
-    };
-
-    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
-
-    expect(reviewerWorkerCaptures).toBe(1);
-  });
-
   it("does not escalate an unchanged reviewer pane when a reviewer artifact was just journaled", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -1390,7 +1351,6 @@ describe("tickDirector", () => {
       ],
       externalReviewComments: [],
       prLabels: [{ name: "documentation" }],
-      env: { COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES: "ExternalReview Pro" },
     });
     deps.tmux = (args) => {
       if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
@@ -1639,21 +1599,15 @@ describe("tickDirector", () => {
     expect(secondTickDeps.out).toContain(`director: pr_conflict ${headSha} DIRTY; action rebase_required`);
   });
 
-  it("triggers configured external review after reviewer LGTM and waits for its required check", async () => {
+  it("never requests external review while waiting for its required check", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const { record, runDir } = seedReadyCandidate({ homeDir: h, headSha, lgtmSha: undefined });
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
       [
-        "[reviewer]",
-        'logins = ["teseo"]',
-        "",
         "[ready]",
         'required_checks = ["CodeRabbit"]',
-        "",
-        "[external_review]",
-        'commands = ["@coderabbitai review"]',
         "",
         "[external_comments]",
         'agents = ["coderabbitai"]',
@@ -1710,9 +1664,6 @@ describe("tickDirector", () => {
       [
         "[ready]",
         'required_checks = ["CodeRabbit"]',
-        "",
-        "[external_review]",
-        'commands = ["@coderabbitai review"]',
         "",
         "[external_comments]",
         'agents = ["coderabbitai"]',
