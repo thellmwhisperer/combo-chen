@@ -35,6 +35,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readEvents,
+  readFileSync,
   runDirFor,
   shellQuote,
   tmpdir,
@@ -215,6 +216,47 @@ describe("resume", () => {
     const command = gatekeeperWindow?.at(-1) ?? "";
     expect(command).toContain("no-mistakes attach");
     expect(out.join("\n")).toContain("resume: capsule engine (sequence)");
+  });
+
+  it("migrates a frozen v0 engine snapshot to capsule before converging topology", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    // An old frozen artifact from a v0 launch: runEngine survives on disk as "v0".
+    writeFileSync(
+      join(dir, "config.snapshot.json"),
+      `${JSON.stringify(
+        { ...loadConfig({ repoDir, env: {} }), schemaVersion: 1, runEngine: "v0" },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const raw = JSON.parse(readFileSync(join(dir, "config.snapshot.json"), "utf8")) as {
+      runEngine?: string;
+    };
+    expect(raw.runEngine).toBe("capsule");
+    const text = out.join("\n");
+    expect(text).toContain("resume: migrated frozen v0 engine snapshot to capsule for o-r-7");
+    expect(text).toContain("resume: capsule engine (sequence)");
+    expect(
+      calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("director-watch")),
+    ).toBe(false);
   });
 
   it("starts reviewer and director monitoring for an existing reviewer-ready PR without a fresh run", async () => {
