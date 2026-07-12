@@ -21,6 +21,9 @@
  *   WorkerPaneFinding       Actionable worker finding returned to director.
  *   WorkerPaneInspection    Summary and findings returned to director.
  *   WorkerPaneMonitorInput  Inputs for one worker-monitor tick.
+ *   WorkerEvidenceSource    Injectable per-role orchestrator liveness evidence.
+ *   WorkerEvidenceSources   Evidence sources keyed by worker window name.
+ *   defaultWorkerEvidenceSources  gnhf/no-mistakes/journal default evidence.
  *   appendWorkerEscalation  Deduplicated needs_human writer for worker findings.
  *   resetWorkerSnapshot     Clear a worker's unchanged-pane counter after recovery.
  *   inspectWorkerPanes      Inspect active worker windows once.
@@ -29,11 +32,11 @@
  *   ---------
  *   readSnapshot, writeSnapshot, paneFingerprint, compilePermissionPromptPatterns,
  *   hasPermissionPrompt, hasGnhfTerminalFailure, newestGnhfLogPath, coderGnhfProgressAge,
- *   gnhfRunEndRecorded, autoApprovePermissionPrompt, workerRecoveryAttempts, gatekeeperRunActive,
- *   reviewerOrchestratorEvidence,
+ *   gnhfRunEndRecorded, gnhfCoderEvidenceSource, autoApprovePermissionPrompt,
+ *   workerRecoveryAttempts, gatekeeperRunActive, reviewerOrchestratorEvidence,
  *   latestInitialCoderTerminalOutcome, terminalOutcomeSummary, hasEscalation
  *
- * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
+ * @exports WorkerMonitorDeps, WorkerPaneReason, WorkerPaneFinding, WorkerPaneInspection, WorkerPaneMonitorInput, WorkerEvidenceSource, WorkerEvidenceSources, defaultWorkerEvidenceSources, appendWorkerEscalation, resetWorkerSnapshot, workerRecoveryAttempts, inspectWorkerPanes
  * @deps ../../core/events, ../../core/state, ../../infra/config, ../../infra/tmux, ../reporting/status, ../runtime/sessions, node:crypto, node:fs, node:path
  */
 import { createHash } from "node:crypto";
@@ -65,6 +68,24 @@ export interface WorkerMonitorDeps {
 }
 
 export type WorkerPaneReason = "worker_permission_prompt" | "worker_dead" | "worker_stalled";
+
+/**
+ * Orchestrator-side liveness evidence for one worker window. The stall and
+ * terminal-failure machinery is role-agnostic; only the evidence is
+ * role-specific, so injecting a source lets the same monitor supervise any
+ * role binary (gnhf, no-mistakes, or a future coder/reviewer harness).
+ */
+export interface WorkerEvidenceSource {
+  /** Summary when the role's orchestrator shows live progress; suppresses a stall escalation. */
+  aliveEvidence: () => string | undefined;
+  /** Classify a pane snapshot against the role's terminal-failure fingerprint. */
+  paneTerminalFailure?: (
+    pane: string,
+  ) => { kind: "run_active"; summary: string } | { kind: "dead"; detail: string } | undefined;
+}
+
+/** Evidence sources keyed by worker window name. */
+export type WorkerEvidenceSources = Record<string, WorkerEvidenceSource>;
 
 export interface WorkerPaneFinding {
   worker: string;
@@ -274,6 +295,58 @@ function reviewerOrchestratorEvidence(events: ComboEvent[]): string | undefined 
   return undefined;
 }
 
+function gnhfCoderEvidenceSource(
+  worktree: string | undefined,
+  progressMaxAgeMs: number,
+): WorkerEvidenceSource {
+  // Before treating an unchanged coder pane as stalled, check whether gnhf is
+  // alive and progressing: the gnhf spinner while codex reasons keeps the
+  // pane static, but gnhf.log written by the orchestrator shows real activity.
+  const runStillActive = (): boolean =>
+    worktree !== undefined &&
+    worktree !== "" &&
+    gnhfRunEndRecorded(worktree) === false &&
+    (coderGnhfProgressAge(worktree) ?? Infinity) < progressMaxAgeMs;
+  return {
+    aliveEvidence: () =>
+      runStillActive() ? "gnhf run active; gnhf is actively progressing, not stalled" : undefined,
+    // The pane fingerprint alone is not terminal evidence: gnhf's footer
+    // shows "gnhf again to resume" while healthy, and codex streams interim
+    // contract JSON with "success": false throughout an iteration. Only the
+    // orchestrator log can confirm the run actually ended.
+    paneTerminalFailure: (pane) => {
+      if (!hasGnhfTerminalFailure(pane)) return undefined;
+      return runStillActive()
+        ? {
+            kind: "run_active",
+            summary: "pane matched gnhf terminal fingerprint but the gnhf run is still active, not dead",
+          }
+        : { kind: "dead", detail: "gnhf stopped without success" };
+    },
+  };
+}
+
+export function defaultWorkerEvidenceSources(input: {
+  deps: WorkerMonitorDeps;
+  combo: ComboRecord;
+  events: ComboEvent[];
+  coderGnhfProgressMaxAgeMs?: number;
+  gatekeeperStatusTimeoutMs?: number;
+}): WorkerEvidenceSources {
+  return {
+    coder: gnhfCoderEvidenceSource(input.combo.worktree, input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000),
+    gatekeeper: {
+      aliveEvidence: () =>
+        gatekeeperRunActive(input.deps, input.combo, input.gatekeeperStatusTimeoutMs)
+          ? "gate run active"
+          : undefined,
+    },
+    reviewer: {
+      aliveEvidence: () => reviewerOrchestratorEvidence(input.events),
+    },
+  };
+}
+
 export function appendWorkerEscalation(
   runDir: string,
   deps: WorkerMonitorDeps,
@@ -327,6 +400,8 @@ export interface WorkerPaneMonitorInput {
   autoApprovePermissionPromptMaxAttempts?: number;
   permissionPromptPatterns?: string[];
   permissionPromptPolicy?: WorkerPermissionPromptPolicy;
+  /** Per-role orchestrator evidence; defaults to the gnhf/no-mistakes/journal sources. */
+  evidenceSources?: WorkerEvidenceSources;
 }
 
 export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneInspection {
@@ -378,6 +453,19 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
   const active = windowSet(listed.stdout);
   const snapshot = readSnapshot(runDir);
   const stallTicks = input.stallTicks ?? DEFAULT_STALL_TICKS;
+  const evidenceSources =
+    input.evidenceSources ??
+    defaultWorkerEvidenceSources({
+      deps,
+      combo,
+      events,
+      ...(input.coderGnhfProgressMaxAgeMs === undefined
+        ? {}
+        : { coderGnhfProgressMaxAgeMs: input.coderGnhfProgressMaxAgeMs }),
+      ...(input.gatekeeperStatusTimeoutMs === undefined
+        ? {}
+        : { gatekeeperStatusTimeoutMs: input.gatekeeperStatusTimeoutMs }),
+    });
   const recoverableStalledWorkers = new Set(input.recoverableStalledWorkers ?? []);
   const recoverablePermissionPromptWorkers = new Set(input.recoverablePermissionPromptWorkers ?? []);
   const autoApprovePermissionPromptMaxAttempts =
@@ -501,20 +589,10 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       continue;
     }
 
-    if (worker === "coder" && hasGnhfTerminalFailure(pane)) {
-      // The pane fingerprint alone is not terminal evidence: gnhf's footer
-      // shows "gnhf again to resume" while healthy, and codex streams interim
-      // contract JSON with "success": false throughout an iteration. Only the
-      // orchestrator log can confirm the run actually ended.
-      const endRecorded = combo.worktree ? gnhfRunEndRecorded(combo.worktree) : undefined;
-      const progressAge = combo.worktree ? coderGnhfProgressAge(combo.worktree) : undefined;
-      const progressMaxAgeMs = input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000;
-      const runStillActive =
-        endRecorded === false && progressAge !== undefined && progressAge < progressMaxAgeMs;
-      if (runStillActive) {
-        summaries.push(
-          `worker ${worker}: pane matched gnhf terminal fingerprint but the gnhf run is still active, not dead`,
-        );
+    const paneVerdict = evidenceSources[worker]?.paneTerminalFailure?.(pane);
+    if (paneVerdict !== undefined) {
+      if (paneVerdict.kind === "run_active") {
+        summaries.push(`worker ${worker}: ${paneVerdict.summary}`);
         continue;
       }
       findings.push(
@@ -523,7 +601,7 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
           deps,
           worker,
           reason: "worker_dead",
-          detail: "gnhf stopped without success",
+          detail: paneVerdict.detail,
           deferNeedsHuman: recoverableDeadWorkers.has(worker),
         }),
       );
@@ -540,33 +618,10 @@ export function inspectWorkerPanes(input: WorkerPaneMonitorInput): WorkerPaneIns
       continue;
     }
 
-    // Before flagging a coder as stalled, check if gnhf is alive and
-    // progressing. The gnhf spinner while codex reasons makes the pane
-    // appear unchanged, but gnhf.log written by the orchestrator shows
-    // real activity.
-    const isCoder = worker === "coder";
-    const gnhfAlive =
-      isCoder && combo.worktree
-        ? gnhfRunEndRecorded(combo.worktree) === false &&
-          (coderGnhfProgressAge(combo.worktree) ?? Infinity) <
-            (input.coderGnhfProgressMaxAgeMs ?? 10 * 60 * 1000)
-        : false;
-    if (isCoder && gnhfAlive) {
-      summaries.push(
-        `worker ${worker}: unchanged_ticks=${unchangedTicks}; gnhf run active; gnhf is actively progressing, not stalled`,
-      );
+    const aliveEvidence = evidenceSources[worker]?.aliveEvidence();
+    if (aliveEvidence !== undefined) {
+      summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; ${aliveEvidence}`);
       continue;
-    }
-    if (worker === "gatekeeper" && gatekeeperRunActive(deps, combo, input.gatekeeperStatusTimeoutMs)) {
-      summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; gate run active`);
-      continue;
-    }
-    if (worker === "reviewer") {
-      const evidence = reviewerOrchestratorEvidence(events);
-      if (evidence !== undefined) {
-        summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; ${evidence}`);
-        continue;
-      }
     }
     summaries.push(`worker ${worker}: unchanged_ticks=${unchangedTicks}; no orchestrator evidence`);
     findings.push(
