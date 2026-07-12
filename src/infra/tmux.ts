@@ -22,6 +22,7 @@
  *   │ splitWindowArgs         Legacy; split-window (journal pane) arg builder       │
  *   │ attachSessionArgs       Build args for attach                     │
  *   │ hasSessionArgs          Build args for has-session                │
+ *   │ switchClientArgs        Build args for switch-client (inside tmux)│
  *   │ killSessionArgs         Build args for kill-session               │
  *   │ killWindowArgs          Build args for kill-window                │
  *   │ listWindowsArgs         Build args for list-windows               │
@@ -35,7 +36,7 @@
  *   │ JOURNAL_PANE_HEIGHT     Legacy; journals live in a dedicated window │
  *   └────────────────────────────────────────────────────────────────────┘
  *
- * @exports JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux
+ * @exports JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, switchClientArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux
  * @deps node:child_process
  */
 import { spawnSync } from "node:child_process";
@@ -72,6 +73,10 @@ export function splitWindowArgs(session: string, windowName: string, command: st
 
 export function hasSessionArgs(session: string): string[] {
   return ["has-session", "-t", session];
+}
+
+export function switchClientArgs(session: string): string[] {
+  return ["switch-client", "-t", session];
 }
 
 export function killSessionArgs(session: string): string[] {
