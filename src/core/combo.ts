@@ -31,7 +31,7 @@
  *   │ shellQuote           POSIX-safe single-quoting                 │
  *   ├─ PHASE DERIVATION ────────────────────────────────────────────┤
  *   │ deriveStatus         Maps event journal -> ComboStatus         │
- *   │ Phase                "SETUP"|"CODING"|"GATING"|"REVIEWING"...  │
+ *   │ Phase                "SETUP"|"CODING"|"LOCAL_REVIEW"|...       │
  *   │ ComboStatus          {phase, needsHuman, reason?, pr?}         │
  *   │ RunnerInput          Input shape for buildRunnerScript         │
  *   └────────────────────────────────────────────────────────────────┘
@@ -45,7 +45,15 @@ import type { ComboRecord } from "./state.js";
 
 export { guardNoMistakesDaemonStart } from "../shell/templates.js";
 
-export type Phase = "SETUP" | "CODING" | "GATING" | "REVIEWING" | "READY" | "STOPPED" | "STALLED";
+export type Phase =
+  | "SETUP"
+  | "CODING"
+  | "LOCAL_REVIEW"
+  | "GATING"
+  | "REVIEWING"
+  | "READY"
+  | "STOPPED"
+  | "STALLED";
 
 export interface ComboStatus {
   phase: Phase;
@@ -95,6 +103,27 @@ export function deriveStatus(events: ComboEvent[]): ComboStatus {
         phase = "REVIEWING";
         needsHuman = false;
         pr = typeof event["url"] === "string" ? (event["url"] as string) : pr;
+        break;
+      // v1 pre-publish review loop: LOCAL_REVIEW sits between coder_done and
+      // the gate; journals without these events derive exactly as before.
+      case "local_review_requested":
+        phase = "LOCAL_REVIEW";
+        needsHuman = false;
+        break;
+      case "local_verdict":
+        if (phase !== "LOCAL_REVIEW") break;
+        if (event["code"] === 0) {
+          phase = "GATING";
+          needsHuman = false;
+        } else if (event["code"] === 1) {
+          needsHuman = false;
+        } else if (event["code"] === 2 || event["code"] === 3) {
+          needsHuman = true;
+          reason = `local_verdict_code_${event["code"]}`;
+        }
+        break;
+      case "decision":
+        needsHuman = false;
         break;
       case "address_done":
       case "address_noop":
