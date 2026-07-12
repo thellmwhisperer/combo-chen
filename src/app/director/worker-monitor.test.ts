@@ -389,6 +389,80 @@ describe("inspectWorkerPanes", () => {
     expect(out).toContainEqual(expect.stringContaining("reviewer artifact recent"));
   });
 
+  it("treats an open local review round as a capsule-owned reviewer turn, never a stall", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "local_review_requested", { round: 1, sha: "coded" });
+    const { deps } = fakeDeps({
+      reviewer: "reviewer reasoning...\n",
+    });
+
+    const inspect = () =>
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 });
+
+    expect(inspect().escalated).toBe(false);
+    const result = inspect();
+
+    expect(result.escalated).toBe(false);
+    expect(result.summaries).toContain(
+      "worker reviewer: unchanged_ticks=2; capsule-owned reviewer turn active",
+    );
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
+  it("drops the capsule-owned turn evidence once the round's verdict lands", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "local_review_requested", { round: 1, sha: "coded" });
+    appendEvent(runDir, "local_verdict", {
+      round: 1,
+      code: 1,
+      verdict_path: "verdict-1.json",
+      identity: { model: "claude-fable-5", runtime: "claude" },
+      sha: "coded",
+    });
+    const { deps } = fakeDeps({
+      reviewer: "reviewer output from the finished round\n",
+    });
+
+    const inspect = () =>
+      inspectWorkerPanes({ deps, combo: record, runDir, workerWindows: ["reviewer"], stallTicks: 2 });
+
+    expect(inspect().escalated).toBe(false);
+    const result = inspect();
+
+    expect(result.escalated).toBe(true);
+    expect(result.summaries).toContain("worker reviewer: unchanged_ticks=2; no orchestrator evidence");
+  });
+
+  it("escalates a permission prompt in a seated reviewer pane with the idle banner in scrollback", () => {
+    const { record, runDir } = combo();
+    appendEvent(runDir, "local_review_requested", { round: 1, sha: "coded" });
+    // The seated child renders below the idle banner: the pane is no longer
+    // the decorative idle window, so prompt detection must fire.
+    const { deps } = fakeDeps({
+      reviewer:
+        "[combo-chen] reviewer window idle; waiting for combo-chen to prompt it.\n" +
+        "Do you want to proceed? [y/N]\n",
+    });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["reviewer"],
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+      }),
+    );
+  });
+
   it("does not use stale reviewer artifacts as active reviewer evidence", () => {
     const { record, runDir } = combo();
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });

@@ -398,6 +398,11 @@ function workerWindowsForEvents(events: ComboEvent[], coderWindowName: string): 
   switch (status.phase) {
     case "CODING":
       return [CODER_WINDOW];
+    // D1 seats: the verdict round runs as a capsule-owned child seated in the
+    // reviewer window, so the watchdog watches that seat, not the capsule pane.
+    // A review-fix coder turn derives CODING and is watched as the coder seat.
+    case "LOCAL_REVIEW":
+      return [REVIEWER_WINDOW];
     case "GATING":
       return [GATEKEEPER_WINDOW];
     case "STALLED":

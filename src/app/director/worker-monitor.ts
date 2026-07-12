@@ -280,6 +280,12 @@ function gatekeeperRunActive(
 function reviewerOrchestratorEvidence(events: ComboEvent[]): string | undefined {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]!;
+    // An open local review round is a capsule-owned child bounded by the
+    // reviewer turn timeout: a static seat pane while the reviewer reasons is
+    // custody, not a stall. The verdict artifact closes the round and with it
+    // this evidence.
+    if (event.event === "local_review_requested") return "capsule-owned reviewer turn active";
+    if (event.event === "local_verdict") return undefined;
     if (event.event === "ready_for_merge" || event.event === "lgtm_stale" || event.event === "pr_opened") {
       return undefined;
     }
