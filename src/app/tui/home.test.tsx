@@ -364,6 +364,31 @@ describe("Home live telemetry rendering", () => {
     // READY rows have no dot-train: the detail line has no leading ·● sequence
     expect(frame).not.toMatch(/···●|··●·|·●··|●···/);
   });
+
+  it("animates the dive-in dot train as time advances (stable startMs)", () => {
+    const dive = thread({
+      entries: [
+        {
+          at: "now",
+          kind: "note" as const,
+          live: true,
+          headline: "coder working · 00:00",
+          startMs: 1_000_000,
+        },
+      ],
+    });
+    const { lastFrame: frameAtStart } = render(
+      <Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} now={1_000_000} />,
+    );
+    const { lastFrame: frameLater } = render(
+      <Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} now={1_000_700} />,
+    );
+    const trainAtStart = frameAtStart()!.match(/[·●]{7}/)?.[0];
+    const trainLater = frameLater()!.match(/[·●]{7}/)?.[0];
+    expect(trainAtStart).toBeDefined();
+    expect(trainLater).toBeDefined();
+    expect(trainAtStart).not.toBe(trainLater);
+  });
 });
 // -/ 4/6
 
