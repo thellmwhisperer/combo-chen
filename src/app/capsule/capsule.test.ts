@@ -1583,16 +1583,9 @@ describe("capsule seat conformance (D1)", () => {
       expect(request.seatTty).toBeDefined();
       expect(request.seatTty).not.toBe(seats.ttys["capsule"]);
     }
-    // Occupancy asserted at runtime, not by window names: each seat is a live
-    // pane of its role window, resolved through executed tmux commands.
-    for (const [window, request] of [
-      [CODER_WINDOW, h.agentRequests[0]!],
-      [REVIEWER_WINDOW, h.agentRequests[1]!],
-    ] as const) {
-      expect(seatOccupancy({ tmux: seats.tmux }, f.combo, window, request.seatTty!)).toMatchObject({
-        occupied: true,
-      });
-    }
+    // Active-child occupancy is owned by the geometry test, where real
+    // children flip the verdict; here the executed tmux commands pin that the
+    // seats were resolved from the role windows' panes.
     expect(seats.calls).toContainEqual([
       "list-panes",
       "-t",
@@ -1823,6 +1816,28 @@ describe("runAgentProcess seating (D1)", () => {
     expect(Date.now() - started).toBeLessThan(5000);
   });
 
+  it("reports the spawned child's pid through onSpawn for occupancy evidence", async () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-seat-"));
+    const seat = join(root, "seat-tty");
+    writeFileSync(seat, "");
+    const marker = "sleep 39.211";
+    let spawned: number | undefined;
+
+    const turn = runAgentProcess({
+      command: marker,
+      cwd: root,
+      seatTty: seat,
+      onSpawn: (facts) => {
+        spawned = facts.pid;
+      },
+    });
+    const child = await waitForSeatedChild(marker, process.pid);
+
+    expect(spawned).toBe(child.pid);
+    process.kill(child.pid, "SIGTERM");
+    await turn;
+  });
+
   it("keeps the seated child in the capsule's process group so session teardown reaps it", async () => {
     const root = mkdtempSync(join(tmpdir(), "combo-chen-seat-"));
     const seat = join(root, "seat-tty");
@@ -1924,6 +1939,9 @@ describe("capsule seat geometry (D1 end to end)", () => {
       `printf '[reviewer] round 1 review\\nDo you want to proceed? [y/N]\\n'; while [ ! -e '${flag}' ]; do sleep 0.05; done`,
     ];
     const heads = ["base", "coded"];
+    // Spawn facts from the REAL children, in launch order (coder, reviewer):
+    // occupancy below is derived from these live pids, not from fixtures.
+    const spawnedPids: number[] = [];
     const capsuleDeps: CapsuleDeps = {
       env: {},
       out: () => undefined,
@@ -1933,7 +1951,12 @@ describe("capsule seat geometry (D1 end to end)", () => {
         if (request.args[0] === "rev-list") return { exitCode: 0, stdout: "1\n", stderr: "" };
         return { exitCode: 0, stdout: "", stderr: "" };
       },
-      runAgent: (request) => runAgentProcess({ ...request, command: commands.shift() ?? "true" }),
+      runAgent: (request) =>
+        runAgentProcess({
+          ...request,
+          command: commands.shift() ?? "true",
+          onSpawn: (facts) => spawnedPids.push(facts.pid),
+        }),
       runGate: async () => ({ status: "validated", exitCode: 0, headSha: "published" }),
       findPrUrl: async () => "https://github.com/o/r/pull/7",
       resolvePrHead: async () => "published",
@@ -1955,10 +1978,27 @@ describe("capsule seat geometry (D1 end to end)", () => {
       // hosts only the sequencer: no role child output landed there.
       expect(readFileSync(room.ttys["coder"]!, "utf8")).toContain("coder: implementing the work item");
       expect(readFileSync(room.ttys["capsule"]!, "utf8")).toBe("");
-      // Runtime occupancy: the reviewer seat is that window's live pane.
+      // Occupancy transition, derived from the REAL children's liveness: the
+      // reviewer child (mid-turn) actively occupies its seat; the coder child
+      // already exited, so its window is back to placeholder-only even though
+      // the pane and tty are unchanged.
+      expect(spawnedPids).toHaveLength(2);
+      const [coderPid, reviewerPid] = spawnedPids as [number, number];
       expect(
-        seatOccupancy({ tmux: room.tmux }, combo, REVIEWER_WINDOW, room.ttys["reviewer"]!),
-      ).toMatchObject({ occupied: true });
+        seatOccupancy({ tmux: room.tmux }, combo, REVIEWER_WINDOW, {
+          seatTty: room.ttys["reviewer"]!,
+          childPid: reviewerPid,
+        }),
+      ).toMatchObject({
+        occupied: true,
+        detail: expect.stringContaining(`active role child ${reviewerPid}`),
+      });
+      expect(
+        seatOccupancy({ tmux: room.tmux }, combo, CODER_WINDOW, {
+          seatTty: room.ttys["coder"]!,
+          childPid: coderPid,
+        }),
+      ).toMatchObject({ occupied: false, detail: expect.stringContaining("placeholder") });
       expect(deriveStatus(readEvents(runDir)).phase).toBe("LOCAL_REVIEW");
 
       // The REAL watchdog (tickDirector -> workerWindowsForEvents ->
@@ -1991,6 +2031,17 @@ describe("capsule seat geometry (D1 end to end)", () => {
 
     await expect(run).resolves.toEqual({ status: "validated", exitCode: 0 });
     expect(readFileSync(room.ttys["capsule"]!, "utf8")).toBe("");
+    // Exit leg of the occupancy transition: the same seat, pane, and tty now
+    // report unoccupied because the real reviewer child is gone.
+    expect(
+      seatOccupancy({ tmux: room.tmux }, combo, REVIEWER_WINDOW, {
+        seatTty: room.ttys["reviewer"]!,
+        childPid: spawnedPids[1]!,
+      }),
+    ).toMatchObject({
+      occupied: false,
+      detail: expect.stringContaining(`role child ${spawnedPids[1]} is not running`),
+    });
   });
 });
 // -/ 2/2

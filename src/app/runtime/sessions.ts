@@ -17,14 +17,14 @@
  *   PUBLIC API
  *   ----------
  *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps
- *   KillComboSessionResult, windowSet, SeatOccupancy
+ *   KillComboSessionResult, windowSet, SeatOccupancy, RoleSeat
  *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, resolveRoleSeatTty, seatOccupancy, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
- *   tmuxFailureText, isMissingSession, livePaneTtys, SEAT_PANE_FORMAT
+ *   tmuxFailureText, isMissingSession, livePaneTtys, roleChildAlive, SEAT_PANE_FORMAT
  *
- * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, SeatOccupancy, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, resolveRoleSeatTty, seatOccupancy, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, SeatOccupancy, RoleSeat, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, resolveRoleSeatTty, seatOccupancy, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
  * @deps ../../core/guards, ../../core/shell-quote, ../../core/state, ../../infra/tmux
  */
 import { errorMessage } from "../../core/guards.js";
@@ -184,12 +184,36 @@ export interface SeatOccupancy {
   detail: string;
 }
 
-/** Runtime occupancy assertion: the window's live pane genuinely hosts the seat tty. */
+/** A capsule-owned role child claimed to be seated on a window's pane tty. */
+export interface RoleSeat {
+  seatTty: string;
+  /** Pid of the owned role child (from the capsule's spawn facts). */
+  childPid: number;
+}
+
+/** Real process-table liveness: signal 0 probes without touching the child. */
+function roleChildAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Runtime occupancy assertion: the window's live pane hosts the seat tty AND
+ * the capsule-owned role child on that seat is actually running. With fd
+ * seating the pane's own process stays the idle placeholder, so pane liveness
+ * alone can never prove a seated agent; the child-pid probe is the evidence
+ * that flips when the role child starts and exits, and a placeholder-only
+ * pane is explicitly NOT occupied.
+ */
 export function seatOccupancy(
   deps: SessionDeps,
   combo: ComboRecord,
   windowName: string,
-  seatTty: string,
+  seat: RoleSeat,
 ): SeatOccupancy {
   const listed = deps.tmux(listPanesArgs(combo.tmuxSession, windowName, SEAT_PANE_FORMAT));
   if (listed.status !== 0) {
@@ -199,15 +223,26 @@ export function seatOccupancy(
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (panes.includes(`0 ${seatTty}`)) {
-    return { occupied: true, detail: `${windowName} live pane hosts seat ${seatTty}` };
+  if (panes.includes(`1 ${seat.seatTty}`)) {
+    return { occupied: false, detail: `${windowName} pane for seat ${seat.seatTty} is dead` };
   }
-  if (panes.includes(`1 ${seatTty}`)) {
-    return { occupied: false, detail: `${windowName} pane for seat ${seatTty} is dead` };
+  if (!panes.includes(`0 ${seat.seatTty}`)) {
+    return {
+      occupied: false,
+      detail: `${windowName} hosts no pane on seat ${seat.seatTty} (panes: ${panes.join(", ") || "none"})`,
+    };
+  }
+  if (!roleChildAlive(seat.childPid)) {
+    return {
+      occupied: false,
+      detail:
+        `role child ${seat.childPid} is not running; ` +
+        `${windowName} holds only the placeholder on seat ${seat.seatTty}`,
+    };
   }
   return {
-    occupied: false,
-    detail: `${windowName} hosts no pane on seat ${seatTty} (panes: ${panes.join(", ") || "none"})`,
+    occupied: true,
+    detail: `${windowName} live pane hosts seat ${seat.seatTty} with active role child ${seat.childPid}`,
   };
 }
 

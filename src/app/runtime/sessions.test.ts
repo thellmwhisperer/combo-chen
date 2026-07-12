@@ -22,6 +22,7 @@
  * @exports none
  * @deps ../../core/state, ./sessions, node:fs, node:os, node:path, vitest
  */
+import { spawnSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -331,29 +332,62 @@ describe("seatOccupancy", () => {
     };
   }
 
-  it("confirms occupancy when the window's live pane hosts the seat tty", () => {
-    const result = seatOccupancy(seatDeps("0 /dev/ttys011\n"), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+  /** A real pid whose process has already exited (spawnSync reaps it). */
+  function deadPid(): number {
+    const finished = spawnSync("true");
+    if (finished.pid === undefined || finished.pid === 0) throw new Error("no pid for finished process");
+    return finished.pid;
+  }
+
+  it("confirms occupancy when the live pane's seat tty hosts an active role child", () => {
+    const result = seatOccupancy(seatDeps("0 /dev/ttys011\n"), combo(), REVIEWER_WINDOW, {
+      seatTty: "/dev/ttys011",
+      childPid: process.pid,
+    });
 
     expect(result.occupied).toBe(true);
     expect(result.detail).toContain("/dev/ttys011");
+    expect(result.detail).toContain(`active role child ${process.pid}`);
+  });
+
+  it("rejects a placeholder-only seat: live pane and matching tty but no running role child", () => {
+    const exited = deadPid();
+
+    const result = seatOccupancy(seatDeps("0 /dev/ttys011\n"), combo(), REVIEWER_WINDOW, {
+      seatTty: "/dev/ttys011",
+      childPid: exited,
+    });
+
+    expect(result.occupied).toBe(false);
+    expect(result.detail).toContain(`role child ${exited} is not running`);
+    expect(result.detail).toContain("placeholder");
   });
 
   it("rejects occupancy when the pane hosting the seat tty is dead", () => {
-    const result = seatOccupancy(seatDeps("1 /dev/ttys011\n"), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+    const result = seatOccupancy(seatDeps("1 /dev/ttys011\n"), combo(), REVIEWER_WINDOW, {
+      seatTty: "/dev/ttys011",
+      childPid: process.pid,
+    });
 
     expect(result.occupied).toBe(false);
     expect(result.detail).toContain("dead");
   });
 
   it("rejects occupancy when the window's panes host a different tty", () => {
-    const result = seatOccupancy(seatDeps("0 /dev/ttys044\n"), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+    const result = seatOccupancy(seatDeps("0 /dev/ttys044\n"), combo(), REVIEWER_WINDOW, {
+      seatTty: "/dev/ttys011",
+      childPid: process.pid,
+    });
 
     expect(result.occupied).toBe(false);
     expect(result.detail).toContain("/dev/ttys044");
   });
 
   it("rejects occupancy when the window has no panes to host the seat", () => {
-    const result = seatOccupancy(seatDeps("", 1), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+    const result = seatOccupancy(seatDeps("", 1), combo(), REVIEWER_WINDOW, {
+      seatTty: "/dev/ttys011",
+      childPid: process.pid,
+    });
 
     expect(result.occupied).toBe(false);
     expect(result.detail).toContain("no such window");

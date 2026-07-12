@@ -127,6 +127,12 @@ export interface AgentProcessRequest {
    * the capsule keeps the parent/child exit-code contract.
    */
   seatTty?: string;
+  /**
+   * Observer for the owned child's launch facts. The pid is the active-child
+   * leg of seat occupancy (sessions.seatOccupancy): evidence that flips when
+   * the role child starts and exits.
+   */
+  onSpawn?: (facts: { pid: number }) => void;
 }
 
 /** GateProcessResult plus custody's timeout marker for a terminated child. */
@@ -222,6 +228,7 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
       stdio: seatFd === undefined ? "inherit" : [seatFd, seatFd, seatFd],
     });
     if (seatFd !== undefined) closeSync(seatFd);
+    if (child.pid !== undefined) request.onSpawn?.({ pid: child.pid });
     let timedOut = false;
     let termTimer: NodeJS.Timeout | undefined;
     let killTimer: NodeJS.Timeout | undefined;
