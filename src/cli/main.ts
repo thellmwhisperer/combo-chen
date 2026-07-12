@@ -26,7 +26,7 @@
  *   cliInvocation and the process entrypoint.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
- * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting}, ../core/state, ../infra/{config-snapshot,team-identity,tmux}, ../update/index
+ * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting}, ../core/{events,state}, ../infra/{config-snapshot,team-identity,tmux}, ../update/index
  */
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
@@ -34,7 +34,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 
 import type { AppDeps } from "../app/deps.js";
-import { runAgentProcess, runCapsule } from "../app/capsule/capsule.js";
+import { classifyCapsulePhase, runAgentProcess, runCapsule } from "../app/capsule/capsule.js";
+import { superviseCapsuleCombo } from "../app/director/supervisor.js";
 import {
   activateComboCoder,
   activateComboReviewer,
@@ -72,6 +73,7 @@ import {
   runSelfUpdate,
 } from "../update/index.js";
 import { resolveConfiguredTeamIdentity } from "../infra/team-identity.js";
+import { readEvents } from "../core/events.js";
 import { comboHome, readCombo } from "../core/state.js";
 import { readConfigSnapshot } from "../infra/config-snapshot.js";
 export { buildDirectorWatchCommand, resolvePollMs } from "../app/director/watchers.js";
@@ -154,47 +156,73 @@ export function createProgram(deps: AppDeps): Command {
     .action(async (runDir: string) => {
       const combo = readCombo(runDir);
       const config = readConfigSnapshot(runDir);
-      const result = await runCapsule(runDir, {
-        env: deps.env,
-        out: deps.out,
-        git: async (request) => {
-          if (request.command !== "git")
-            throw new Error(`unsupported capsule git command: ${request.command}`);
-          const executed = deps.git(request.args, request.cwd);
-          return { exitCode: executed.status, stdout: executed.stdout, stderr: executed.stderr };
-        },
-        runAgent: deps.runAgent,
-        findPrUrl: async () => {
-          const found = deps.gh(["pr", "list", "--head", combo.branch, "--json", "url", "--jq", ".[0].url"]);
-          return found.status === 0 ? found.stdout.trim() || undefined : undefined;
-        },
-        resolvePrHead: async (prUrl) => {
-          const viewed = deps.gh(["pr", "view", prUrl, "--json", "headRefOid", "--jq", ".headRefOid"]);
-          return viewed.status === 0 ? viewed.stdout.trim() || undefined : undefined;
-        },
-        ensurePrAutoclose: async (prUrl) => {
-          try {
-            ensurePrAutoclose(deps, { name: combo.id, prUrl });
-            return { exitCode: 0, stdout: "", stderr: "" };
-          } catch (error) {
-            return {
-              exitCode: 1,
-              stdout: "",
-              stderr: error instanceof Error ? error.message : String(error),
-            };
-          }
-        },
-        activateReviewer: () => activateComboReviewer(deps, combo.id, cli),
-        attachGate: () => {
-          refreshGatekeeperWindow(deps, combo, {
-            timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-            retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-          });
-          deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
-        },
-        leaseHome: comboHome(deps.env),
-      });
-      if (result.exitCode !== 0) process.exitCode = result.exitCode;
+      const home = comboHome(deps.env);
+      const phase = classifyCapsulePhase(readEvents(runDir));
+      if (phase === "closed") {
+        deps.out(`capsule: ${combo.id} is already combo_closed; nothing to do`);
+        return;
+      }
+      if (phase !== "supervise") {
+        const result = await runCapsule(
+          runDir,
+          {
+            env: deps.env,
+            out: deps.out,
+            git: async (request) => {
+              if (request.command !== "git")
+                throw new Error(`unsupported capsule git command: ${request.command}`);
+              const executed = deps.git(request.args, request.cwd);
+              return { exitCode: executed.status, stdout: executed.stdout, stderr: executed.stderr };
+            },
+            runAgent: deps.runAgent,
+            findPrUrl: async () => {
+              const found = deps.gh([
+                "pr",
+                "list",
+                "--head",
+                combo.branch,
+                "--json",
+                "url",
+                "--jq",
+                ".[0].url",
+              ]);
+              return found.status === 0 ? found.stdout.trim() || undefined : undefined;
+            },
+            resolvePrHead: async (prUrl) => {
+              const viewed = deps.gh(["pr", "view", prUrl, "--json", "headRefOid", "--jq", ".headRefOid"]);
+              return viewed.status === 0 ? viewed.stdout.trim() || undefined : undefined;
+            },
+            ensurePrAutoclose: async (prUrl) => {
+              try {
+                ensurePrAutoclose(deps, { name: combo.id, prUrl });
+                return { exitCode: 0, stdout: "", stderr: "" };
+              } catch (error) {
+                return {
+                  exitCode: 1,
+                  stdout: "",
+                  stderr: error instanceof Error ? error.message : String(error),
+                };
+              }
+            },
+            activateReviewer: () => activateComboReviewer(deps, combo.id, cli),
+            attachGate: () => {
+              refreshGatekeeperWindow(deps, combo, {
+                timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+                retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+              });
+              deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
+            },
+            leaseHome: home,
+          },
+          { startAtGate: phase === "gate" },
+        );
+        if (result.status !== "validated") {
+          if (result.exitCode !== 0) process.exitCode = result.exitCode;
+          return;
+        }
+      }
+      const supervised = await superviseCapsuleCombo({ deps, home, comboId: combo.id, cli });
+      if (supervised !== 0) process.exitCode = supervised;
     });
 
   program
