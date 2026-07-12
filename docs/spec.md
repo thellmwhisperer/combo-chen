@@ -104,7 +104,8 @@ advances to gate; codes 2/3 escalate to `needs_human`.
 Verdict collection is artifact-driven: a complete current-round/current-SHA
 artifact closes the turn; child exit is cleanup or fallback, never the trigger.
 The shared `runAgentProcess` custody interface owns this artifact-vs-exit
-first-of; only roles with artifact completion declare it.
+first-of for both file-backed reviewer verdicts and state-backed coder fix
+commits.
 The `TOMBSTONE` tests in `src/app/capsule/capsule.test.ts` enforce this invariant.
 The mandatory `artifact-driven-waits` verdict checklist item makes the same rule
 machine-validated for every future inter-agent wait point.
@@ -125,7 +126,10 @@ children that conveniently exit.
 
 Code 1 resumes the implementing coder thread as an owned child of the capsule
 (never a fresh gnhf loop). The turn is bounded by `fixTurnTimeoutMinutes`
-(SIGTERM/SIGKILL custody). Judged by observables only: exit code + new commit count.
+(SIGTERM/SIGKILL custody). Its completion artifact is a new HEAD relative to
+turn start with a clean worktree; custody collects that state, reaps the child,
+and advances to re-review. Child exit remains cleanup/fallback, and the
+wall-clock timeout remains the backstop.
 
 ### Guard rails
 

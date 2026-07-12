@@ -222,7 +222,7 @@ const DEFAULTS = {
   coder: {
     codex: {
       command: DEFAULT_CODER_COMMAND,
-      resume_command: "codex --ask-for-approval never --sandbox workspace-write resume {thread_id}",
+      resume_command: "codex --ask-for-approval never --sandbox workspace-write exec resume {thread_id}",
     },
   } as Record<string, { command?: unknown; resume_command?: unknown }>,
   gatekeeper: {

@@ -16,7 +16,7 @@
  *     verdict round -> artifact lands -> journal -> reap reviewer child
  *       -> code 0: pinLocalLgtm -> runInProcessGate (+ bounded retry)
  *                -> validated: applyLgtmCarryOver (D3 patch-id carry or re-review round)
- *       -> code 1: coder fix turn (resumed thread, owned child) -> re-review
+ *       -> code 1: coder fix commit artifact -> reap resumed child -> re-review
  *          guards: fingerprint surviving 2 rounds | no-op fix turn | round cap
  *       -> code 2/3, guard fire, or defective verdict: needs_human
  *     invariant: the loop opens and closes with a verdict, never a coder turn
@@ -35,7 +35,7 @@
  *   AgentCompletionArtifact Optional artifact-first completion contract for an owned child.
  *   AgentProcessRequest  Owned interactive agent invocation (bounded by timeoutMs, seated by seatTty).
  *   AgentTurnResult      Exit facts plus timeout/artifact custody markers.
- *   runAgentProcess      Own child until declared artifact or exit, seated on its role pty.
+ *   runAgentProcess      Own child until declared file/state artifact or exit, seated on its role pty.
  *   classifyCapsulePhase Sequence/gate/supervise/closed resume classification.
  *   runCapsule           Sequence one frozen run directory (optionally from the gate).
  *
@@ -44,7 +44,7 @@
  *   readBaseRef, runRebasePhase, runCoderPhase, snapshotIterations,
  *   freshIterationJsonl, containsStopCondition, runLocalReviewPhase,
  *   resolveLoopEntry, routeFixTurn, escalateWithGuard, runBoundedAgentTurn,
- *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn, resolveAgentSeat,
+ *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn, hasCleanFixCommit, resolveAgentSeat,
  *   escalateSeatUnavailable, SeatOpenError, openSeatFd, waitForVerdictFile,
  *   verdictAttributionDefects, hasCompleteCurrentVerdict, reviewerIdentity,
  *   findingsProjection, escalate, LOOP_ESCALATION_REASONS,
@@ -119,12 +119,12 @@ import { applyLgtmCarryOver, nextLocalReviewRound, pinLocalLgtm } from "./ready.
 
 // -- 1/5 HELPER · process and dependency contracts --
 export interface AgentCompletionArtifact {
-  /** Final atomically-renamed artifact path; temporary paths never trigger completion. */
-  path: string;
+  /** Final atomically-renamed file path, when the artifact is file-backed. */
+  path?: string;
   /** Bounded polling cadence while the owned child remains alive. */
   pollMs: number;
-  /** Validate and synchronously collect the artifact before custody reaps the child. */
-  validateAndCollect: () => boolean;
+  /** Validate and collect the file/state artifact before custody reaps the child. */
+  validateAndCollect: () => boolean | Promise<boolean>;
 }
 
 export interface AgentProcessRequest {
@@ -306,25 +306,26 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
         ...(completedByArtifact ? { completedBy: "artifact" } : {}),
       });
     });
-    const pollCompletionArtifact = (): void => {
+    const pollCompletionArtifact = async (): Promise<void> => {
       const artifact = request.completionArtifact;
       if (artifact === undefined || settled || terminationStarted) return;
       let complete = false;
-      if (existsSync(artifact.path)) {
+      if (artifact.path === undefined || existsSync(artifact.path)) {
         try {
-          complete = artifact.validateAndCollect();
+          complete = await artifact.validateAndCollect();
         } catch {
           complete = false;
         }
       }
+      if (settled || terminationStarted) return;
       if (complete) {
         completedByArtifact = true;
         terminate(false);
         return;
       }
-      artifactTimer = setTimeout(pollCompletionArtifact, artifact.pollMs);
+      artifactTimer = setTimeout(() => void pollCompletionArtifact(), artifact.pollMs);
     };
-    pollCompletionArtifact();
+    void pollCompletionArtifact();
   });
 }
 
@@ -833,12 +834,31 @@ type FixTurnOutcome =
   | { kind: "timeout"; timeoutMinutes: number }
   | { kind: "seat_unavailable"; detail: string }
   | { kind: "spawn_error"; detail: string }
+  | { kind: "reap_failed" }
   | { kind: "count_failed"; detail: string };
+
+/** Commit-backed completion artifact: new HEAD plus a completely clean worktree. */
+async function hasCleanFixCommit(
+  deps: CapsuleDeps,
+  combo: ComboRecord,
+  baseSha: string,
+): Promise<string | undefined> {
+  const headSha = await gitHead(deps, combo);
+  if (headSha === baseSha) return undefined;
+  const status = await deps.git({
+    command: "git",
+    args: ["status", "--porcelain"],
+    cwd: combo.worktree,
+    env: deps.env,
+  });
+  return status.exitCode === 0 && status.stdout.trim() === "" ? headSha : undefined;
+}
 
 /**
  * One code-1 fix turn: resume the implementing thread as an owned child of
  * the capsule (never a fresh gnhf loop) and judge the turn by observables
- * only, per D1 custody: the child exits, then new commits are counted.
+ * only, per D1 custody: a new clean commit is collected while the child is
+ * alive, then custody reaps it. Child exit remains the cleanup/fallback path.
  */
 async function runCoderFixTurn(
   deps: CapsuleDeps,
@@ -864,18 +884,27 @@ async function runCoderFixTurn(
   const seat = await resolveAgentSeat(deps, CODER_WINDOW);
   if ("failure" in seat) return { kind: "seat_unavailable", detail: seat.failure };
   const baseSha = await gitHead(deps, combo);
+  let artifactHeadSha: string | undefined;
   appendEvent(runDir, "coder_started", { round, mode: "review_fix" });
   const turn = await runBoundedAgentTurn(deps, {
     command,
     cwd: combo.worktree,
     env: deps.env,
     timeoutMs: config.fixTurnTimeoutMinutes * 60_000,
+    completionArtifact: {
+      pollMs: Math.min(50, config.reviewVerdictWaitMs),
+      validateAndCollect: async () => {
+        artifactHeadSha = await hasCleanFixCommit(deps, combo, baseSha);
+        return artifactHeadSha !== undefined;
+      },
+    },
     ...seat,
   });
   if (turn.kind === "seat_error") return { kind: "seat_unavailable", detail: turn.detail };
   if (turn.kind === "timeout") return { kind: "timeout", timeoutMinutes: config.fixTurnTimeoutMinutes };
   if (turn.kind === "spawn_error") return { kind: "spawn_error", detail: turn.detail };
-  const headSha = await gitHead(deps, combo);
+  if (turn.result.reapFailed === true) return { kind: "reap_failed" };
+  const headSha = artifactHeadSha ?? (await gitHead(deps, combo));
   const counted = await deps.git({
     command: "git",
     args: ["rev-list", "--count", `${baseSha}..${headSha}`],
@@ -911,6 +940,7 @@ const LOOP_ESCALATION_REASONS = new Set([
   "review_fix_noop",
   "review_fix_timeout",
   "review_fix_spawn_failed",
+  "review_fix_reap_failed",
   "review_fix_commit_count_failed",
   "seat_unavailable",
   "loop_state_malformed",
@@ -969,6 +999,11 @@ async function routeFixTurn(
       return escalateWithGuard(runDir, state, round, "review_fix_spawn_failed", {
         ...roundFacts,
         detail: fix.detail,
+        findings,
+      });
+    case "reap_failed":
+      return escalateWithGuard(runDir, state, round, "review_fix_reap_failed", {
+        ...roundFacts,
         findings,
       });
     case "count_failed":

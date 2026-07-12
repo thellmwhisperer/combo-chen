@@ -19,11 +19,12 @@
  *   INTERNALS
  *   ---------
  *   fixture, events, deps, verdictArtifact, verdict, neverExitingReviewer,
- *   gateProcess, seatHarness
+ *   neverExitingCoderFix, gitOutput, gateProcess, seatHarness
  *
  * @exports none
- * @deps node:{fs,os,path}, vitest, ../../core/{combo,events,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../runtime/sessions, ./capsule
+ * @deps node:{child_process,fs,os,path}, vitest, ../../core/{combo,events,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../runtime/sessions, ./capsule
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -153,6 +154,23 @@ function neverExitingReviewer(
       command: `printf '{' > '${tempPath}'; sleep 0.15; cp '${source}' '${tempPath}'; mv '${tempPath}' '${finalPath}'; exec sleep 30`,
       onSpawn: ({ pid }) => onSpawn(pid),
     });
+}
+
+function gitOutput(cwd: string, args: string[]): string {
+  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+}
+
+/** Fake documented-shape fix turn: commit cleanly, then idle forever. */
+function neverExitingCoderFix(
+  request: AgentProcessRequest,
+  onSpawn: (pid: number) => void,
+): Promise<GateProcessResult> {
+  return runAgentProcess({
+    ...request,
+    command:
+      "printf 'fixed\\n' >> fix.txt; git add fix.txt; git commit -m 'fix: address review'; exec sleep 30",
+    onSpawn: ({ pid }) => onSpawn(pid),
+  });
 }
 
 function deps(
@@ -584,6 +602,99 @@ describe("capsule local review round", () => {
     ]);
   });
 
+  it("TOMBSTONE: coder-side twin collects a clean fix commit before the resumed child exits", async () => {
+    const f = fixture();
+    writeCoderThreadArtifact(f.runDir);
+    execFileSync("git", ["init", "-b", "main"], { cwd: f.combo.worktree });
+    execFileSync("git", ["config", "user.email", "combo-chen@example.invalid"], { cwd: f.combo.worktree });
+    execFileSync("git", ["config", "user.name", "combo-chen tombstone"], { cwd: f.combo.worktree });
+    writeFileSync(join(f.combo.worktree, "fix.txt"), "base\n");
+    execFileSync("git", ["add", "fix.txt"], { cwd: f.combo.worktree });
+    execFileSync("git", ["commit", "-m", "test: base"], { cwd: f.combo.worktree });
+    const baseSha = gitOutput(f.combo.worktree, ["rev-parse", "HEAD"]);
+    writeFileSync(join(f.combo.worktree, "fix.txt"), "coded\n");
+    execFileSync("git", ["commit", "-am", "feat: coded"], { cwd: f.combo.worktree });
+    const codedSha = gitOutput(f.combo.worktree, ["rev-parse", "HEAD"]);
+    let fixPid: number | undefined;
+    let revParseCalls = 0;
+    const h = deps(f, {
+      agents: [
+        async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        async () => {
+          verdict(f.runDir, {
+            code: 1,
+            reviewed: { sha: codedSha },
+            findings: [
+              {
+                id: "coder-exit",
+                severity: "blocker",
+                file: "fix.txt",
+                title: "Fix turn must converge",
+                body: "Commit the fix and return custody without a human in tmux.",
+              },
+            ],
+          });
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+        (request) => neverExitingCoderFix(request, (pid) => (fixPid = pid)),
+        async () => {
+          verdict(f.runDir, {
+            round: 2,
+            reviewed: { sha: gitOutput(f.combo.worktree, ["rev-parse", "HEAD"]) },
+          });
+          return { exitCode: 0, stdout: "", stderr: "" };
+        },
+      ],
+    });
+    h.deps.env["COMBO_CHEN_AGENT_KILL_GRACE_MS"] = "50";
+    h.deps.git = async (request) => {
+      if (request.args[0] === "fetch" || request.args[0] === "rebase") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (request.args[0] === "rev-parse" && revParseCalls++ === 0) {
+        return { exitCode: 0, stdout: `${baseSha}\n`, stderr: "" };
+      }
+      try {
+        return { exitCode: 0, stdout: `${gitOutput(f.combo.worktree, request.args)}\n`, stderr: "" };
+      } catch (error) {
+        return { exitCode: 1, stdout: "", stderr: error instanceof Error ? error.message : String(error) };
+      }
+    };
+
+    const run = runCapsule(f.runDir, h.deps);
+    try {
+      const result = await Promise.race([
+        run,
+        new Promise<"fix-child-still-seated">((resolveTimeout) =>
+          setTimeout(() => resolveTimeout("fix-child-still-seated"), 5_000),
+        ),
+      ]);
+      expect(result).toEqual({ status: "validated", exitCode: 0 });
+      expect(h.agentRequests[2]?.completionArtifact).toBeDefined();
+      expect(h.agentRequests[2]?.completionArtifact?.path).toBeUndefined();
+      expect(fixPid).toBeDefined();
+      expect(() => process.kill(fixPid!, 0)).toThrow();
+      expect(events(f.runDir)).toContainEqual({
+        event: "coder_done",
+        round: 1,
+        mode: "review_fix",
+        new_commit_count: 1,
+      });
+      expect(events(f.runDir)).toContainEqual(
+        expect.objectContaining({ event: "local_review_requested", round: 2 }),
+      );
+    } finally {
+      if (fixPid !== undefined) {
+        try {
+          process.kill(fixPid, "SIGTERM");
+        } catch {
+          // The fixed capsule has already reaped the never-exiting coder.
+        }
+      }
+      await run;
+    }
+  }, 10_000);
+
   it("runs the reviewer as an owned child with the verdict-file invocation", async () => {
     const f = fixture();
     const h = deps(f);
@@ -892,7 +1003,7 @@ describe("capsule review loop (W5b)", () => {
       expect.objectContaining({ event: "local_verdict", round: 2, code: 0, sha: "fixed" }),
     ]);
     const fixCommand = h.agentCommands[2]!;
-    expect(fixCommand).toContain("--sandbox workspace-write resume");
+    expect(fixCommand).toContain("--sandbox workspace-write exec resume");
     expect(fixCommand).toContain("hardcoded-timeout");
     expect(fixCommand).toContain("review-1-coded.md");
     expect(fixCommand).not.toContain("gnhf");
@@ -1135,7 +1246,7 @@ describe("capsule review loop resume (W5b fix round 1)", () => {
       status: "validated",
       exitCode: 0,
     });
-    expect(h.agentCommands[0]).toContain("--sandbox workspace-write resume");
+    expect(h.agentCommands[0]).toContain("--sandbox workspace-write exec resume");
     const journal = events(f.runDir);
     expect(
       journal.filter((event) => event.event === "local_review_requested" && event.round === 1),
@@ -1206,7 +1317,7 @@ describe("capsule review loop resume (W5b fix round 1)", () => {
       status: "validated",
       exitCode: 0,
     });
-    expect(h.agentCommands[0]).toContain("--sandbox workspace-write resume");
+    expect(h.agentCommands[0]).toContain("--sandbox workspace-write exec resume");
     expect(
       events(f.runDir).filter((event) => event.event === "coder_started" && event["mode"] === "review_fix"),
     ).toHaveLength(2);

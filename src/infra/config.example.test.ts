@@ -59,7 +59,7 @@ describe("combo-chen.example.toml", () => {
     const body = readFileSync(EXAMPLE_CONFIG, "utf8");
 
     expect(body).toContain(
-      "codex --ask-for-approval never --sandbox workspace-write --profile sitter --no-alt-screen resume {thread_id}",
+      "codex --ask-for-approval never --sandbox workspace-write exec resume {thread_id}",
     );
   });
 
@@ -138,7 +138,7 @@ describe("combo-chen.example.toml", () => {
     expect(config.readyRequiredChecks).toEqual(["CodeRabbit"]);
     expect(config.workerPermissionPromptPolicy).toBe("escalate");
     expect(config.coderResumeCommand).toBe(
-      "codex --ask-for-approval never --sandbox workspace-write resume {thread_id}",
+      "codex --ask-for-approval never --sandbox workspace-write exec resume {thread_id}",
     );
     expect(config.workerRecoveryAttempts).toBe(2);
     expect(config).not.toHaveProperty("threadSitterWindowName");

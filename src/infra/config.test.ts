@@ -75,7 +75,7 @@ describe("loadConfig", () => {
     expect(config.coderCommand).toContain("--meteor-frequency 0");
     expect(config.coderCommand).toContain("--current-branch {prompt}");
     expect(config.coderResumeCommand).toBe(
-      "codex --ask-for-approval never --sandbox workspace-write resume {thread_id}",
+      "codex --ask-for-approval never --sandbox workspace-write exec resume {thread_id}",
     );
     expect(config.gatekeeperCommand).toContain("no-mistakes daemon start");
     expect(config.gatekeeperCommand).toContain("no-mistakes axi run --intent {issue_pr_intent}");
