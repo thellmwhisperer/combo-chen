@@ -20,9 +20,9 @@
  *   home, writeTestCombo, fakeDeps, ledgerOnlyClosureCases
  *
  * @exports none
- * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ./closure, node:fs, node:os, node:path, vitest
+ * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../testing/cli-harness, ../capsule/capsule, ./closure, node:fs, node:os, node:path, vitest
  */
-import { mkdirSync, mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -31,6 +31,8 @@ import { appendEvent, readEvents } from "../../core/events.js";
 import { exitSummaryPath } from "../../core/exit-summary.js";
 import { buildRuntimeLedger, writeRuntimeLedger } from "../../core/runtime-ledger.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
+import { findSeatedChild, processGroupOf, waitForSeatedChild } from "../../testing/cli-harness.js";
+import { runAgentProcess } from "../capsule/capsule.js";
 import { closeMergedCombo, type ClosureDeps } from "./closure.js";
 
 // -- 1/2 HELPER · Test harness --
@@ -172,6 +174,38 @@ describe("closeMergedCombo", () => {
       expect(out[2]).toBe(`closure: ${combo.id} closed merged PR merge777 by maintainer; teardown complete`);
     },
   );
+
+  it("reaps a live seated child when closure kills the combo session", async () => {
+    const h = home();
+    const { combo, runDir } = writeTestCombo(h);
+    const seat = join(runDir, "seat-tty");
+    writeFileSync(seat, "");
+    const marker = "sleep 43.171";
+
+    // A real capsule-owned child still holding its role seat at merge time.
+    const turn = runAgentProcess({ command: marker, cwd: runDir, seatTty: seat });
+    const child = await waitForSeatedChild(marker, process.pid);
+    // Reaping precondition: the seated child lives in the capsule pane's
+    // process group, exactly what tmux kill-session HUPs.
+    expect(child.pgid).toBe(processGroupOf(process.pid));
+
+    const { deps } = fakeDeps({
+      tmux: (args) => {
+        if (args[0] === "kill-session") {
+          // Emulate tmux at the fake boundary: kill-session HUPs the pane's
+          // process group, which contains the seated child.
+          process.kill(child.pid, "SIGHUP");
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await closeMergedCombo({ deps, home: h, comboId: combo.id });
+
+    expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "combo_closed" }));
+    await expect(turn).resolves.toMatchObject({ exitCode: 128 });
+    expect(findSeatedChild(marker, process.pid)).toBeUndefined();
+  });
 
   it("closes a merged combo and reports already-converged events on a second run", async () => {
     const h = home();
