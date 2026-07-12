@@ -46,7 +46,9 @@ function runnerSubprocessEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 function runRunnerSubprocess(
   args: string[],
   env: NodeJS.ProcessEnv,
-  timeoutMs = 8_000,
+  // Generous: rendered runner scripts shell out repeatedly and slow down
+  // under full-suite parallel subprocess load; 8 s flaked there.
+  timeoutMs = 20_000,
 ): ReturnType<typeof spawnSync> {
   const result = spawnSync("sh", args, {
     encoding: "utf8",

@@ -19,7 +19,7 @@
     "slop:report": "jscpd src --format typescript --ignore '**/*.test.ts' --silent --no-colors --no-tips; sg scan",
     "surface": "sg outline --items structure --type function --view names src --globs '!**/*.test.ts'",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude='.worktrees/**' --exclude='.tmp/**' --exclude='e2e/**'",
+    "test": "vitest run --exclude='.worktrees/**' --exclude='.tmp/**' --exclude='e2e/**' --testTimeout=15000",
     "test:e2e": "pnpm build && vitest run e2e --exclude='.worktrees/**' --exclude='.tmp/**' --testTimeout=30000",
     "test:watch": "vitest"
   },

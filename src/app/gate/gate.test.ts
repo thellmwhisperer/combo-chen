@@ -194,7 +194,9 @@ describe("gatekeeper attach window helpers", () => {
     return { status: result.status, stderr: result.stderr };
   }
 
-  it("attaches within one retry interval when axi status flips to a matching quoted-field run", () => {
+  // The rendered script gets a 20 s budget and one real retry-interval sleep;
+  // the vitest default of 5 s flakes under parallel-suite subprocess load.
+  it("attaches within one retry interval when axi status flips to a matching quoted-field run", { timeout: 30_000 }, () => {
     const harness = attachHarness();
     const result = runAttach({ harness, branch: "combo/issue-7", timeoutSeconds: 20 });
 
