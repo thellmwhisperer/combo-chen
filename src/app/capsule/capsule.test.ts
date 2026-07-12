@@ -619,9 +619,9 @@ describe("classifyCapsulePhase", () => {
   });
 
   it("classifies a failed coder as the full sequence again", () => {
-    expect(classifyCapsulePhase(journal("coder_started", "coder_done", "coder_started", "coder_failed"))).toBe(
-      "sequence",
-    );
+    expect(
+      classifyCapsulePhase(journal("coder_started", "coder_done", "coder_started", "coder_failed")),
+    ).toBe("sequence");
   });
 
   it("classifies a completed coder without a PR as the gate phase", () => {
