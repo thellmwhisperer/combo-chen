@@ -81,7 +81,7 @@ describe("activate-coder", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      '[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n\n[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
+      '[limits]\nbabysit_poll_seconds = 7\n\n[roles.coder]\nrespond_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -118,7 +118,7 @@ describe("activate-coder", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
+      '[roles.coder]\nrespond_command = "codex resume {thread_id}"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -359,7 +359,7 @@ describe("nudge-review-comments", () => {
     const worktree = join(repoDir, ".worktrees", "issue-7");
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+      '[roles.coder]\nrespond_command = "codex resume {thread_id}"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -451,7 +451,7 @@ describe("nudge-review-comments", () => {
     const worktree = join(repoDir, ".worktrees", "issue-7");
     writeFileSync(
       join(repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nreview_nudge_prompt = "Please address {url}"\nwindow_name = "sitter"\n',
+      '[roles.coder]\nrespond_command = "codex resume {thread_id}"\n',
     );
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {

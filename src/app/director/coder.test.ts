@@ -34,6 +34,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
 import { CODER_THREAD_ARTIFACT } from "../../roles/coder-invocation.js";
+import { CODER_WINDOW } from "../runtime/sessions.js";
 import { activateCoder, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
 
 // -- 1/3 HELPER · Test harness --
@@ -67,7 +68,7 @@ function writeThreadArtifact(runDir: string): void {
 
 // -- 2/3 CORE · activateCoder tests <- START HERE --
 describe("activateCoder", () => {
-  it.skip("starts resumed coder worker from config", () => {
+  it("starts resumed coder worker from the unified role config", () => {
     const calls: string[][] = [];
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
@@ -76,7 +77,7 @@ describe("activateCoder", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      '[limits]\nbabysit_poll_seconds = 7\n\n[rower.codex]\nresume_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n\n[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
+      '[limits]\nbabysit_poll_seconds = 7\n\n[roles.coder]\nrespond_command = "codex --profile sitter --no-alt-screen resume {thread_id}"\n',
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -102,13 +103,13 @@ describe("activateCoder", () => {
       "-t",
       "combo-chen-o-r-7",
       "-n",
-      "sitter",
+      CODER_WINDOW,
       `codex --profile sitter --no-alt-screen resume '${CODEX_THREAD_ID}'`,
     ]);
     expect(out).toEqual(["coder responding active for o-r-7"]);
   });
 
-  it.skip("uses the launch config snapshot after repo TOML changes", () => {
+  it("uses the launch config snapshot after repo TOML changes", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
@@ -116,13 +117,13 @@ describe("activateCoder", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      '[coder.codex]\nresume_command = "codex --profile launch resume {thread_id}"\n\n[coder_responding]\nwindow_name = "launch-sitter"\n',
+      '[roles.coder]\nrespond_command = "codex --profile launch resume {thread_id}"\n',
     );
     writeCombo(runDir, record);
     writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      '[coder.codex]\nresume_command = "codex --profile drifted resume {thread_id}"\n\n[coder_responding]\nwindow_name = "drifted-sitter"\n',
+      '[roles.coder]\nrespond_command = "codex --profile drifted resume {thread_id}"\n',
     );
     writeThreadArtifact(runDir);
 
@@ -146,21 +147,17 @@ describe("activateCoder", () => {
       "-t",
       "combo-chen-o-r-7",
       "-n",
-      "launch-sitter",
+      CODER_WINDOW,
       `codex --profile launch resume '${CODEX_THREAD_ID}'`,
     ]);
   });
 
-  it.skip("reports resumed coder startup failures", () => {
+  it("reports resumed coder startup failures", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(home, record.id);
 
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      '[thread_sitter]\nwindow_name = "sitter"\nwatch_window_name = "sitter-watch"\n',
-    );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
 
@@ -171,7 +168,7 @@ describe("activateCoder", () => {
           out: () => undefined,
           tmux: (args) => {
             calls.push(args);
-            if (args[0] === "new-window" && args.includes("sitter")) {
+            if (args[0] === "new-window" && args.includes(CODER_WINDOW)) {
               return { status: 1, stdout: "", stderr: "duplicate window" };
             }
             return { status: 0, stdout: "", stderr: "" };
@@ -181,9 +178,9 @@ describe("activateCoder", () => {
         comboId: record.id,
         cli: "node /repo/dist/cli.mjs",
       }),
-    ).toThrow("tmux failed to start sitter: duplicate window");
+    ).toThrow(`tmux failed to start ${CODER_WINDOW}: duplicate window`);
 
-    expect(calls).not.toContainEqual(["kill-window", "-t", "combo-chen-o-r-7:sitter"]);
+    expect(calls).not.toContainEqual(["kill-window", "-t", `combo-chen-o-r-7:${CODER_WINDOW}`]);
   });
 });
 // -/ 2/3
@@ -273,7 +270,7 @@ describe("nudgeReviewComments", () => {
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
 
-  it.skip("syncs the mirror, routes fetched PR comments, and reports routed nudges", () => {
+  it("syncs the mirror, routes fetched PR comments, and reports routed nudges", () => {
     const calls: string[][] = [];
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
@@ -282,15 +279,7 @@ describe("nudgeReviewComments", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      [
-        "[thread_sitter]",
-        'review_nudge_prompt = "Please address {url}"',
-        'window_name = "sitter"',
-        "",
-        "[external_comments]",
-        'agents = ["external-reviewer"]',
-        "",
-      ].join("\n"),
+      ["[external_comments]", 'agents = ["external-reviewer"]', ""].join("\n"),
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -357,26 +346,26 @@ describe("nudgeReviewComments", () => {
         "-t",
         "combo-chen-owned-session",
         "-n",
-        "sitter",
+        CODER_WINDOW,
         `codex resume '${CODEX_THREAD_ID}'`,
       ],
       [
         "tmux",
         "set-buffer",
         "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
-        "Please address 'https://github.com/o/r/pull/7#issuecomment-1'",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
+        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#issuecomment-1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
       ],
       [
         "tmux",
         "paste-buffer",
         "-d",
         "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
         "-t",
-        "combo-chen-owned-session:sitter",
+        "combo-chen-owned-session:coder",
       ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
     ]);
     expect(out).toEqual(["nudged https://github.com/o/r/pull/7#issuecomment-1"]);
   });
@@ -391,15 +380,7 @@ describe("nudgeReviewComments", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      [
-        "[thread_sitter]",
-        'review_nudge_prompt = "Please address {url}"',
-        'window_name = "sitter"',
-        "",
-        "[external_comments]",
-        'agents = ["external-reviewer"]',
-        "",
-      ].join("\n"),
+      ["[external_comments]", 'agents = ["external-reviewer"]', ""].join("\n"),
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -457,7 +438,7 @@ describe("nudgeReviewComments", () => {
     expect(calls).not.toContainEqual(["git", `cwd=${record.worktree}`, "rev-parse", "HEAD"]);
   });
 
-  it.skip("uses the launch config snapshot for routed review nudges after repo TOML changes", () => {
+  it("uses the launch config snapshot for routed review nudges after repo TOML changes", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo({ tmuxSession: "combo-chen-owned-session" });
@@ -465,13 +446,13 @@ describe("nudgeReviewComments", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      '[coder_responding]\nreview_nudge_prompt = "Launch prompt {url}"\nwindow_name = "launch-sitter"\n',
+      '[roles.coder]\nrespond_command = "codex --profile launch resume {thread_id}"\n',
     );
     writeCombo(runDir, record);
     writeConfigSnapshot(runDir, loadConfig({ repoDir: record.repoDir, env: {} }));
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      '[coder_responding]\nreview_nudge_prompt = "Drifted prompt {url}"\nwindow_name = "drifted-sitter"\n',
+      '[roles.coder]\nrespond_command = "codex --profile drifted resume {thread_id}"\n',
     );
     writeThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -524,26 +505,26 @@ describe("nudgeReviewComments", () => {
         "-t",
         "combo-chen-owned-session",
         "-n",
-        "launch-sitter",
-        `codex resume '${CODEX_THREAD_ID}'`,
+        CODER_WINDOW,
+        `codex --profile launch resume '${CODEX_THREAD_ID}'`,
       ],
       [
         "tmux",
         "set-buffer",
         "-b",
-        "combo-chen-nudge-combo-chen-owned-session-launch-sitter",
-        "Launch prompt 'https://github.com/o/r/pull/7#issuecomment-1'",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
+        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#issuecomment-1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
       ],
       [
         "tmux",
         "paste-buffer",
         "-d",
         "-b",
-        "combo-chen-nudge-combo-chen-owned-session-launch-sitter",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
         "-t",
-        "combo-chen-owned-session:launch-sitter",
+        "combo-chen-owned-session:coder",
       ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:launch-sitter", "C-m"],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
     ]);
   });
 
@@ -556,14 +537,7 @@ describe("nudgeReviewComments", () => {
 
     writeFileSync(
       join(record.repoDir, "combo-chen.toml"),
-      [
-        "[external_comments]",
-        'agents = ["external-reviewer"]',
-        "",
-        "[coder_responding]",
-        'review_nudge_prompt = "Please address {author} {url}"',
-        'window_name = "sitter"',
-      ].join("\n"),
+      ["[external_comments]", 'agents = ["external-reviewer"]', ""].join("\n"),
     );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
@@ -629,22 +603,13 @@ describe("nudgeReviewComments", () => {
 });
 
 describe("recoverStuckWorker", () => {
-  it.skip("recreates coder responding and replays the latest routed review prompt", () => {
+  it("recreates coder responding and replays the latest routed review prompt", () => {
     const calls: string[][] = [];
     const out: string[] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo({ tmuxSession: "combo-chen-owned-session" });
     const runDir = runDirFor(home, record.id);
 
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      [
-        "[coder_responding]",
-        'review_nudge_prompt = "Please address {url}"',
-        'window_name = "sitter"',
-        "",
-      ].join("\n"),
-    );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -669,7 +634,7 @@ describe("recoverStuckWorker", () => {
       home,
       comboId: record.id,
       recovery: {
-        worker: "sitter",
+        worker: CODER_WINDOW,
         reason: "worker_stalled",
         detail: "unchanged pane for 2 ticks",
         attempt: 1,
@@ -679,7 +644,7 @@ describe("recoverStuckWorker", () => {
 
     expect(recovered).toBe(true);
     expect(calls).toEqual([
-      ["tmux", "kill-window", "-t", "combo-chen-owned-session:sitter"],
+      ["tmux", "kill-window", "-t", "combo-chen-owned-session:coder"],
       ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
       [
         "tmux",
@@ -687,55 +652,46 @@ describe("recoverStuckWorker", () => {
         "-t",
         "combo-chen-owned-session",
         "-n",
-        "sitter",
+        CODER_WINDOW,
         `codex resume '${CODEX_THREAD_ID}'`,
       ],
       [
         "tmux",
         "set-buffer",
         "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
-        "Please address 'https://github.com/o/r/pull/7#discussion_r1'",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
+        "New review comment for coder responding mode:\n'https://github.com/o/r/pull/7#discussion_r1'\n\nUse the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.\nDo not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
       ],
       [
         "tmux",
         "paste-buffer",
         "-d",
         "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
+        "combo-chen-nudge-combo-chen-owned-session-coder",
         "-t",
-        "combo-chen-owned-session:sitter",
+        "combo-chen-owned-session:coder",
       ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
+      ["tmux", "send-keys", "-t", "combo-chen-owned-session:coder", "C-m"],
     ]);
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
         event: "worker_recovered",
-        worker: "sitter",
+        worker: CODER_WINDOW,
         reason: "worker_stalled",
         attempt: 1,
         max_attempts: 2,
       }),
     );
-    expect(out).toEqual(["director: recovered stalled sitter attempt 1/2"]);
+    expect(out).toEqual([`director: recovered stalled ${CODER_WINDOW} attempt 1/2`]);
   });
 
-  it.skip("replays hostile review prompt text as one tmux buffer argument", () => {
+  it("replays hostile review prompt text as one tmux buffer argument", () => {
     const calls: string[][] = [];
     const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo({ tmuxSession: "combo-chen-owned-session" });
     const runDir = runDirFor(home, record.id);
     const hostileUrl = "-leading'`whoami`$(touch nope)\nsecond line";
 
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      [
-        "[coder_responding]",
-        'review_nudge_prompt = "Please address {url}"',
-        'window_name = "sitter"',
-        "",
-      ].join("\n"),
-    );
     writeCombo(runDir, record);
     writeThreadArtifact(runDir);
     appendEvent(runDir, "review_comment", {
@@ -764,7 +720,7 @@ describe("recoverStuckWorker", () => {
       home,
       comboId: record.id,
       recovery: {
-        worker: "sitter",
+        worker: CODER_WINDOW,
         reason: "worker_stalled",
         detail: "unchanged pane for 2 ticks",
         attempt: 1,

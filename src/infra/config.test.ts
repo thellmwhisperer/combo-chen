@@ -109,7 +109,7 @@ describe("loadConfig", () => {
     const userConfig = writeToml(
       userDir,
       "config.toml",
-      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n\n[thread_sitter]\nreview_nudge_prompt = "Please inspect {url}"\nwindow_name = "sitter"\n',
+      '[roles]\nrower = "hermes:deepseek"\n\n[rower."hermes:deepseek"]\ncommand = "hermes -z \\"{prompt}\\""\nresume_command = "hermes --resume {thread_id}"\n',
     );
 
     const config = loadConfig({ repoDir: tempDir(), userConfigPath: userConfig });
@@ -844,10 +844,6 @@ describe("loadConfig", () => {
         "",
         '[reviewer."hermes:gemini"]',
         'command = "hermes review {pr_url} {prompt}"',
-        "",
-        "[coder_responding]",
-        'review_nudge_prompt = "Please review {url}"',
-        'window_name = "coder-reply"',
         "",
       ].join("\n"),
     );
