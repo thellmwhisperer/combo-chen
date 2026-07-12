@@ -251,23 +251,29 @@ const DEFAULTS = {
   },
   run: {
     source_branch: "main",
-    engine: "v0",
+    engine: "capsule",
   },
 };
 
-const RUN_ENGINES: RunEngine[] = ["v0", "capsule"];
+const RUN_ENGINES: RunEngine[] = ["capsule"];
+const LEGACY_RUN_ENGINES: string[] = ["v0"];
 
 function pickRunEngine(value: unknown, description: string): RunEngine {
   const engine = pickNonEmptyString(value, description);
+  if (LEGACY_RUN_ENGINES.includes(engine)) {
+    throw new ComboConfigError(
+      `${description}: run engine "${engine}" was retired in v1. Use "capsule". Remove [run] from your config to accept the default, or set engine = "capsule".`,
+    );
+  }
   if (!RUN_ENGINES.includes(engine as RunEngine)) {
     throw new ComboConfigError(`${description} must be one of ${RUN_ENGINES.join(", ")}`);
   }
   return engine as RunEngine;
 }
 
-/** Legacy pre-v1 snapshots carry no run engine and read as the v0 engine. */
+/** Legacy pre-v1 snapshots carry no run engine; they resolve as the capsule engine. */
 export function isCapsuleEngine(config: Partial<Pick<ComboConfig, "runEngine">>): boolean {
-  return config.runEngine === "capsule";
+  return config.runEngine === undefined || config.runEngine === "capsule";
 }
 
 // -/ 1/4

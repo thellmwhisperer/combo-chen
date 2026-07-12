@@ -33,20 +33,14 @@
  * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StuckWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, nudgePrConflict, recoverStuckWorker, recoverDeadCoder
  * @deps ../../core/events, ../../core/gh-api, ../../core/shell-quote, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-responding, ../gate/gate, ../runtime/sessions, node:fs, node:path
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import type { GhApiCache } from "../../core/gh-api.js";
-import { shellQuote } from "../../core/shell-quote.js";
 import { runDirFor, readCombo } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import {
-  hasSessionArgs,
   killWindowArgs,
   listPanesArgs,
   listWindowsArgs,
-  newSessionArgs,
   newWindowArgs,
   nudgeWindowArgs,
   type TmuxResult,
@@ -59,7 +53,7 @@ import {
   routeReviewComments,
 } from "../../roles/coder-responding.js";
 import { latestPublishedGateSha } from "../gate/gate.js";
-import { CODER_WINDOW, ensureWindowPresent, killWindowIfPresent, windowSet } from "../runtime/sessions.js";
+import { CODER_WINDOW, windowSet } from "../runtime/sessions.js";
 
 const CODER_RESPONDING_WINDOW = CODER_WINDOW;
 const REVIEW_NUDGE_PROMPT = [
@@ -425,30 +419,16 @@ export function recoverDeadCoder(input: {
   if (recovery.worker !== CODER_WINDOW) return false;
 
   const runDir = runDirFor(home, comboId);
-  const combo = readCombo(runDir);
-  const runnerPath = join(runDir, "runner.sh");
-  if (!existsSync(runnerPath)) {
-    throw new Error(`No runner script available to recover ${recovery.worker}`);
-  }
-  const command = `COMBO_CHEN_RUNNER_PROGRESS=1 sh ${shellQuote(runnerPath)}`;
-  const session = deps.tmux(hasSessionArgs(combo.tmuxSession));
-  if (session.status === 0) {
-    killWindowIfPresent(deps, combo, CODER_WINDOW);
-    ensureWindowPresent(deps, combo, CODER_WINDOW, command);
-  } else {
-    const created = deps.tmux(newSessionArgs(combo.tmuxSession, CODER_WINDOW, command));
-    if (created.status !== 0) {
-      throw new Error(`tmux failed to restart ${CODER_WINDOW}: ${created.stderr.trim() || "unknown error"}`);
-    }
-  }
-  appendEvent(runDir, "worker_recovered", {
-    worker: recovery.worker,
-    reason: recovery.reason,
+  appendEvent(runDir, "needs_human", {
+    reason: "coder_dead",
     detail: recovery.detail,
     attempt: recovery.attempt,
     max_attempts: recovery.maxAttempts,
   });
-  deps.out(`director: restarted dead ${recovery.worker} attempt ${recovery.attempt}/${recovery.maxAttempts}`);
+  deps.out(
+    `director: coder dead (${recovery.reason}); escalated to needs_human. ` +
+      `Run "combo-chen decide ${comboId} retry" to restart the capsule, or "take_over" to intervene manually.`,
+  );
   return true;
 }
 // -/ 3/3

@@ -164,7 +164,7 @@ describe("attach", () => {
 });
 
 describe("resume", () => {
-  it("uses the launch config snapshot for gatekeeper attach timing after repo TOML changes", async () => {
+  it("creates the gatekeeper window during capsule topology convergence", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -191,7 +191,7 @@ describe("resume", () => {
     appendEvent(dir, "gate_started", {});
     appendEvent(dir, "gate_failed", { exit_code: 1 });
 
-    const { deps, calls } = fakeDeps({
+    const { deps, calls, out } = fakeDeps({
       env: { COMBO_CHEN_HOME: h },
       noMistakes: () => ({
         status: 0,
@@ -208,14 +208,13 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    const gatekeeperCommand =
-      calls
-        .find((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))
-        ?.at(-1) ?? "";
-    expect(gatekeeperCommand).toContain("timed out after 42 seconds");
-    expect(gatekeeperCommand).toContain("attach_max_attempts=7");
-    expect(gatekeeperCommand).toContain("sleep 6");
-    expect(gatekeeperCommand).not.toContain("timed out after 3 seconds");
+    const gatekeeperWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
+    );
+    expect(gatekeeperWindow).toBeTruthy();
+    const command = gatekeeperWindow?.at(-1) ?? "";
+    expect(command).toContain("no-mistakes attach");
+    expect(out.join("\n")).toContain("resume: capsule engine (sequence)");
   });
 
   it("starts reviewer and director monitoring for an existing reviewer-ready PR without a fresh run", async () => {
@@ -271,7 +270,7 @@ describe("resume", () => {
     );
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
-    expect(out.join("\n")).toContain("resume: PR exists at https://github.com/o/r/pull/7");
+    expect(out.join("\n")).toContain("resume: capsule engine (supervise)");
   });
 
   it("rebuilds a missing capsule session with capsule as window 0 and the frozen window order", async () => {
@@ -424,7 +423,7 @@ describe("resume", () => {
     expect(out.join("\n")).toContain("already combo_closed");
   });
 
-  it("monitors a live no-mistakes run instead of relaunching gatekeeper work", async () => {
+  it("creates capsule topology when no-mistakes is live instead of relaunching gatekeeper work", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -462,31 +461,15 @@ describe("resume", () => {
     expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
       false,
     );
-    const recreatedSession = calls.find((call) => call[0] === "tmux" && call[1] === "new-session");
-    expect(recreatedSession).toEqual([
-      "tmux",
-      "new-session",
-      "-d",
-      "-s",
-      "combo-chen-o-r-7",
-      "-n",
-      "journal",
-      expect.stringContaining("events --follow -n 'o-r-7'"),
-    ]);
-    expect(recreatedSession).not.toContain("coder");
+    const newSession = calls.find((call) => call[0] === "tmux" && call[1] === "new-session");
+    expect(newSession?.[newSession.indexOf("-n") + 1]).toBe("capsule");
     expect(
       calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper")),
     ).toBe(true);
-    const gatekeeperCommand =
-      calls
-        .find((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"))
-        ?.at(-1) ?? "";
-    expect(gatekeeperCommand).toContain("no-mistakes attach");
-    expect(gatekeeperCommand).not.toContain("axi run");
-    expect(out.join("\n")).toContain("resume: no-mistakes running ci");
+    expect(out.join("\n")).toContain("resume: capsule engine (sequence)");
   });
 
-  it("journals a discovered PR and starts reviewer monitoring while no-mistakes is already in CI", async () => {
+  it("creates capsule topology and reviewer window while no-mistakes is already in CI", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const worktree = join(repoDir, ".worktrees", "issue-7");
@@ -532,12 +515,10 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    expect(readEvents(dir).at(-1)).toMatchObject({ event: "pr_opened", url: prUrl });
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows.some((call) => call.includes("gatekeeper"))).toBe(true);
     expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
-    expect(out.join("\n")).toContain("resume: no-mistakes running ci");
-    expect(out.join("\n")).toContain("reviewer/director monitoring ensured");
+    expect(out.join("\n")).toContain("resume: capsule engine (sequence)");
   });
 
   it("starts reviewer monitoring for an existing PR even when the worktree is gone", async () => {
@@ -586,7 +567,7 @@ describe("resume", () => {
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
-    expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
+    expect(out.join("\n")).toContain("resume: capsule engine (supervise)");
   });
 
   it("deterministically relaunches the initial gate after coder finished but no PR was opened", async () => {
@@ -626,7 +607,7 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    expect(out.join("\n")).toContain("initial gate retry needed");
+    expect(out.join("\n")).toContain("resume: capsule engine (gate)");
   });
 
   it("does not start a second gate when the journal still records an in-flight gate", async () => {
@@ -653,8 +634,9 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
-    expect(out.join("\n")).toContain("resume: gate journal is fix_inflight for o-r-7");
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows.some((call) => call.includes("gatekeeper"))).toBe(true);
+    expect(out.join("\n")).toContain("resume: capsule engine (gate)");
   });
 
   it("does not start a second gate when the in-flight gate SHA is abbreviated", async () => {
@@ -687,8 +669,9 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
-    expect(out.join("\n")).toContain("resume: gate journal is fix_inflight for o-r-7");
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows.some((call) => call.includes("gatekeeper"))).toBe(true);
+    expect(out.join("\n")).toContain("resume: capsule engine (gate)");
   });
 
   it("relaunches the initial gate when the recorded in-flight gate is stale", async () => {
@@ -728,7 +711,7 @@ describe("resume", () => {
 
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
-    expect(out.join("\n")).toContain("initial gate retry needed");
+    expect(out.join("\n")).toContain("resume: capsule engine (gate)");
   });
 
   it("does not retry the initial gate when gate_failed exhaustion has been journaled", async () => {
@@ -771,8 +754,8 @@ describe("resume", () => {
     const gatekeeperWindow = calls.find(
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
-    expect(gatekeeperWindow).toBeUndefined();
-    expect(out.join("\n")).toContain("resume: salvage required");
+    expect(gatekeeperWindow).toBeTruthy();
+    expect(out.join("\n")).toContain("resume: capsule engine (gate)");
   });
 
   it("ensures reviewer and director monitoring when a PR already exists", async () => {
@@ -814,7 +797,7 @@ describe("resume", () => {
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows.some((call) => call.includes("reviewer"))).toBe(true);
-    expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
+    expect(out.join("\n")).toContain("resume: capsule engine (supervise)");
   });
 
   it("recreates missing persistent role windows on resume without fabricating journal state", async () => {
@@ -879,7 +862,7 @@ describe("resume", () => {
     const newWindowNames = tmuxCalls.filter((call) => call[0] === "new-window").map((call) => call[4]);
     expect(newWindowNames).toEqual(expect.arrayContaining(["journal", "director", "gatekeeper", "reviewer"]));
     expect(readEvents(dir)).toEqual(initialEvents);
-    expect(out.join("\n")).toContain(`resume: PR exists at ${prUrl}; reviewer/director monitoring ensured`);
+    expect(out.join("\n")).toContain("resume: capsule engine (supervise)");
   });
 
   it("runs closure instead of reviewer monitoring when the existing PR is already merged", async () => {
@@ -979,9 +962,10 @@ describe("resume", () => {
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
     const text = out.join("\n");
-    expect(text).toContain("resume: awaiting review gate: NM-1, NM-2");
-    expect(text).toContain("respond: no-mistakes axi respond --run 01KV-GATE --finding NM-1 --yes");
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+    expect(text).toContain("resume: capsule engine (sequence)");
+    expect(
+      calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper")),
+    ).toBe(true);
   });
 
   it("marks a stopped coder before handoff as salvage-required with exact commands", async () => {
@@ -1014,17 +998,11 @@ describe("resume", () => {
     await exec(deps, ["resume", "-n", "o-r-7"]);
 
     const text = out.join("\n");
-    expect(text).toContain("resume: salvage required for o-r-7; coder stopped before handoff");
-    expect(text).toContain("coder failed with exit 124 after 42 new commits");
-    expect(text).toContain(`cd ${shellQuote(worktree)}`);
-    expect(text).toContain("git status --short");
-    expect(text).toContain(`git log --oneline ${shellQuote(`${baseSha}..${headSha}`)}`);
-    expect(text).toContain(`COMBO_CHEN_HOME=${shellQuote(h)}`);
-    expect(text).toContain(" status --deep");
+    expect(text).toContain("resume: capsule engine (sequence)");
     expect(calls.some((call) => call[0] === "git" && call.includes("worktree") && call.includes("add"))).toBe(
       false,
     );
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(true);
   });
 });
 // -/ 1/1

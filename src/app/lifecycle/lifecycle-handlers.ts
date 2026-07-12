@@ -21,7 +21,7 @@
  *   none.
  *
  * @exports DECISION_VERBS, attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent, decideComboEscalation
- * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
+ * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../deps, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
  */
 import {
   appendEvent,
@@ -32,7 +32,6 @@ import {
 } from "../../core/events.js";
 import { updateRuntimeLedger } from "../../core/runtime-ledger.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
-import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import { persistCoderThreadArtifact } from "../../roles/coder-invocation.js";
 import { parseEventFields } from "./event-fields.js";
 import { closeMergedCombo } from "./closure.js";
@@ -94,12 +93,8 @@ export function emitComboEvent(
   if (canonicalEvent === "gate_started" && !options.skipGateWindowRecovery) {
     try {
       const combo = readCombo(runDir);
-      const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
       ensureComboSession({ deps, combo, home, cli });
-      refreshGatekeeperWindow(deps, combo, {
-        timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-        retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-      });
+      refreshGatekeeperWindow(deps, combo);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       process.stderr.write(

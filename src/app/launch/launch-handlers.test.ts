@@ -25,7 +25,6 @@ import {
   CONFIG_SNAPSHOT_FILE,
   ISSUE,
   appendEvent,
-  chmodSync,
   describe,
   exec,
   existsSync,
@@ -41,7 +40,6 @@ import {
   readFileSync,
   runDirFor,
   shellQuote,
-  spawnSync,
   writeFileSync,
 } from "../../testing/cli-harness.js";
 
@@ -533,13 +531,9 @@ describe("run", () => {
     expect(artifact).not.toContain(externalDir);
   });
 
-  it("uses configured gatekeeper attach retry settings in the gatekeeper tmux window", async () => {
+  it("creates a gatekeeper window with a no-mistakes attach idle loop", async () => {
     const h = home();
     const repoDir = launchFixtureDir("combo-chen-repo-");
-    writeFileSync(
-      join(repoDir, "combo-chen.toml"),
-      "[hodor]\nattach_timeout_seconds = 45\nattach_retry_interval_seconds = 15\n",
-    );
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
@@ -547,18 +541,13 @@ describe("run", () => {
     const gatekeeperWindow = calls.find(
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
+    expect(gatekeeperWindow).toBeTruthy();
     const command = gatekeeperWindow?.at(-1) ?? "";
-    expect(command).toContain("expected_branch='combo/issue-7'");
-    expect(command).toContain("expected_head=$(git rev-parse --short=7 HEAD 2>/dev/null || true)");
-    expect(command).toContain("attach_max_attempts=3");
-    expect(command).toContain('echo "gatekeeper-attach: timed out after 45 seconds" >&2');
-    expect(command).toContain(
-      'echo "gatekeeper-attach: waiting for gatekeeper on $expected_branch@$expected_head (attempt $attempt/$attach_max_attempts)..." >&2',
-    );
-    expect(command).toContain("sleep 15");
+    expect(command).toContain("no-mistakes attach");
+    expect(command).toContain("combo_chen_idle=1");
   });
 
-  it("waits for an active no-mistakes run before attaching when attach would exit cleanly", async () => {
+  it("runs the gatekeeper window command which loops no-mistakes attach", async () => {
     const h = home();
     const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
@@ -568,78 +557,11 @@ describe("run", () => {
     const gatekeeperWindow = calls.find(
       (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("gatekeeper"),
     );
+    expect(gatekeeperWindow).toBeTruthy();
     const command = gatekeeperWindow?.at(-1) ?? "";
-    const head = "abc1234";
-    const bin = launchFixtureDir("combo-chen-bin-");
-    const noMistakesCalls = join(bin, "no-mistakes-calls");
-    const statusAttempts = join(bin, "status-attempts");
-    writeFileSync(
-      join(bin, "git"),
-      `#!/bin/sh
-  if [ "$1" = "rev-parse" ]; then
-    printf '${head}\\n'
-    exit 0
-  fi
-  exit 64
-  `,
-    );
-    writeFileSync(
-      join(bin, "no-mistakes"),
-      `#!/bin/sh
-  printf '%s\\n' "$*" >> "$NO_MISTAKES_CALLS"
-  if [ "$1" = "axi" ] && [ "$2" = "status" ]; then
-    count=0
-    if [ -f "$NO_MISTAKES_STATUS_ATTEMPTS" ]; then
-      count=$(cat "$NO_MISTAKES_STATUS_ATTEMPTS")
-    fi
-    count=$((count + 1))
-    printf '%s\\n' "$count" > "$NO_MISTAKES_STATUS_ATTEMPTS"
-    if [ "$count" -lt 2 ]; then
-      printf 'No active run.\\n'
-    else
-      printf 'run:\\n  id: 01ATTACH\\n  branch: combo/issue-7\\n  head: ${head}\\n  status: running\\n'
-    fi
-    exit 0
-  fi
-  if [ "$1" = "attach" ]; then
-    printf 'attached\\n'
-    exit 0
-  fi
-  exit 64
-  `,
-    );
-    writeFileSync(
-      join(bin, "sleep"),
-      `#!/bin/sh
-  printf 'sleep %s\\n' "$*" >> "$NO_MISTAKES_CALLS"
-  exit 0
-  `,
-    );
-    chmodSync(join(bin, "git"), 0o755);
-    chmodSync(join(bin, "no-mistakes"), 0o755);
-    chmodSync(join(bin, "sleep"), 0o755);
-
-    const result = spawnSync("sh", ["-c", command], {
-      encoding: "utf8",
-      timeout: 10000,
-      killSignal: "SIGKILL",
-      env: {
-        ...process.env,
-        COMBO_CHEN_GATEKEEPER_WINDOW_HOLD: "0",
-        NO_MISTAKES_CALLS: noMistakesCalls,
-        NO_MISTAKES_STATUS_ATTEMPTS: statusAttempts,
-        PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      },
-    });
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("attached");
-    expect(readFileSync(noMistakesCalls, "utf8").trim().split(/\r?\n/)).toEqual([
-      "axi status",
-      "sleep 10",
-      "axi status",
-      "attach --run 01ATTACH",
-    ]);
+    expect(command).toContain("no-mistakes attach");
+    expect(command).toContain("trap 'combo_chen_idle=0' INT");
+    expect(command).toContain('exec "${SHELL:-/bin/sh}"');
   });
 
   it("cleans run state and treehouse lease even when tmux rollback kill fails", async () => {
