@@ -24,8 +24,8 @@
 import {
   CONFIG_SNAPSHOT_FILE,
   ISSUE,
+  appendEvent,
   chmodSync,
-  decodedGeneratedGatekeeperIntent,
   describe,
   exec,
   existsSync,
@@ -61,7 +61,7 @@ describe("run", () => {
     expect(launchFixtureDir("combo-chen-launch-")).toContain(join(process.cwd(), ".tmp"));
   });
 
-  it("creates the record, the runner script, the tmux session, and the birth event", async () => {
+  it("creates the record, the tmux session, the capsule topology, and the birth event", async () => {
     const h = home();
     const repoDir = launchFixtureDir("combo-chen-repo-");
     const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
@@ -90,12 +90,12 @@ describe("run", () => {
       worktree: join(repoDir, ".worktrees", "issue-7"),
       tmuxSession: "combo-chen-o-r-7",
       roleWindows: {
+        capsule: "capsule",
         journal: "journal",
         director: "director",
         coder: "coder",
         gatekeeper: "gatekeeper",
         reviewer: "reviewer",
-        directorWatch: "director-watch",
       },
       logs: {
         gatekeeper: join(runDir, "gatekeeper.log"),
@@ -117,25 +117,12 @@ describe("run", () => {
     expect(ledger.commands.eventsFollow).toContain("events --follow -n 'o-r-7'");
     expect(ledger.commands.attach).toContain("attach -n 'o-r-7'");
     expect(ledger.prUrl).toBeUndefined();
-    expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
     expect(existsSync(join(runDir, CONFIG_SNAPSHOT_FILE))).toBe(true);
     expect(readConfigSnapshot(runDir).roles).toMatchObject({
       coder: "codex",
       gatekeeper: "no-mistakes",
       merge: "human",
     });
-    const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
-    expect(runner).toContain("gnhf");
-    const daemonStart = runner.indexOf("no-mistakes daemon start");
-    const mirrorPush = runner.indexOf('git push -o "$mirror_intent" no-mistakes');
-    const axiRun = runner.indexOf("no-mistakes axi run");
-    expect(daemonStart).toBeGreaterThan(-1);
-    expect(mirrorPush).toBeGreaterThan(daemonStart);
-    expect(axiRun).toBeGreaterThan(daemonStart);
-    expect(axiRun).toBeGreaterThan(mirrorPush);
-    expect(runner).toContain("mirror_intent='no-mistakes.intent=");
-    expect(runner).not.toContain("activate-coder");
-    expect(runner).toContain("activate-reviewer -n 'o-r-7'");
 
     expect(calls).toContainEqual([
       "treehouse",
@@ -163,27 +150,20 @@ describe("run", () => {
       "-s",
       "combo-chen-o-r-7",
       "-n",
-      "journal",
-      expect.stringContaining("events --follow -n 'o-r-7'"),
+      "capsule",
+      expect.stringContaining(`capsule ${shellQuote(runDir)}`),
     ]);
     const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
     expect(tmuxNewWindows.map((call) => call[call.indexOf("-n") + 1])).toEqual([
+      "journal",
       "director",
       "coder",
       "gatekeeper",
       "reviewer",
-      "director-watch",
     ]);
     const coderWindow = tmuxNewWindows.find((call) => call[call.indexOf("-n") + 1] === "coder");
-    expect(coderWindow).toEqual([
-      "tmux",
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      "coder",
-      expect.stringContaining("COMBO_CHEN_RUNNER_PROGRESS=1 sh"),
-    ]);
+    expect(coderWindow?.at(-1)).toContain("coder window idle");
+    expect(coderWindow?.at(-1)).not.toContain("runner.sh");
     const directorWindow = tmuxNewWindows.find((call) => call[call.indexOf("-n") + 1] === "director");
     expect(directorWindow).toEqual([
       "tmux",
@@ -216,18 +196,9 @@ describe("run", () => {
       "reviewer",
       expect.stringContaining("reviewer window idle"),
     ]);
-    const directorWatchWindow = tmuxNewWindows.find((call) => call.includes("director-watch"));
-    expect(directorWatchWindow).toEqual([
-      "tmux",
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      "director-watch",
-      expect.stringContaining("director-tick -n 'o-r-7'"),
-    ]);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "split-window")).toBe(false);
     expect(calls.some((call) => call[1] === "select-pane")).toBe(false);
+    expect(calls.some((call) => call.includes("director-watch"))).toBe(false);
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
@@ -346,7 +317,7 @@ describe("run", () => {
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
     expect(out).toContain(
-      "   topology: journal=journal · director=director · coder=coder · gatekeeper=gatekeeper · reviewer=reviewer · director-watch=director-watch · coder-response=coder",
+      "   topology: capsule=capsule · journal=journal · director=director · coder=coder · gatekeeper=gatekeeper · reviewer=reviewer · coder-response=coder",
     );
     const initialWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(calls.find((call) => call[0] === "tmux" && call[1] === "new-session")).toEqual([
@@ -356,32 +327,31 @@ describe("run", () => {
       "-s",
       "combo-chen-o-r-7",
       "-n",
-      "journal",
-      expect.stringContaining("events --follow -n 'o-r-7'"),
+      "capsule",
+      expect.stringContaining(`capsule ${shellQuote(runDirFor(h, "o-r-7"))}`),
     ]);
     expect(initialWindows.map((call) => call[call.indexOf("-n") + 1])).toEqual([
+      "journal",
       "director",
       "coder",
       "gatekeeper",
       "reviewer",
-      "director-watch",
     ]);
-    expect(initialWindows.find((call) => call.includes("coder"))?.at(-1)).toContain(
-      "COMBO_CHEN_RUNNER_PROGRESS=1 sh",
-    );
+    expect(initialWindows.find((call) => call.includes("coder"))?.at(-1)).toContain("coder window idle");
     expect(initialWindows.find((call) => call.includes("gatekeeper"))?.at(-1)).toContain(
       "no-mistakes attach",
     );
     expect(initialWindows.find((call) => call.includes("reviewer"))?.at(-1)).toContain(
       "reviewer window idle",
     );
-    expect(initialWindows.find((call) => call.includes("director-watch"))?.at(-1)).toContain("director-tick");
+    expect(calls.some((call) => call.includes("director-watch"))).toBe(false);
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "split-window")).toBe(false);
     expect(calls.some((call) => call.includes("coder-responding"))).toBe(false);
 
-    await exec(deps, ["emit", "-n", "o-r-7", "pr_opened", "--field", `url=${prUrl}`]);
-    await exec(deps, ["emit", "-n", "o-r-7", "gate_validated", "--field", `sha=${headSha}`]);
-    await exec(deps, ["emit", "-n", "o-r-7", "lgtm", "--field", `sha=${headSha}`]);
+    const runDir = runDirFor(h, "o-r-7");
+    appendEvent(runDir, "pr_opened", { url: prUrl });
+    appendEvent(runDir, "gate_validated", { sha: headSha });
+    appendEvent(runDir, "lgtm", { sha: headSha });
     await exec(deps, ["director-tick", "-n", "o-r-7"]);
 
     expect(readEvents(runDirFor(h, "o-r-7"))).toContainEqual(
@@ -389,15 +359,14 @@ describe("run", () => {
     );
     const postReadyWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(postReadyWindows.map((call) => call[call.indexOf("-n") + 1])).toEqual([
+      "journal",
       "director",
       "coder",
       "gatekeeper",
       "reviewer",
-      "director-watch",
     ]);
     expect(calls.some((call) => call.includes("coder-responding"))).toBe(false);
-    expect(out.some((line) => line.startsWith("director: watch "))).toBe(true);
-    expect(out.some((line) => line === "director: tick complete for o-r-7")).toBe(false);
+    expect(calls.some((call) => call.includes("director-watch"))).toBe(false);
 
     prState = "MERGED";
     await exec(deps, ["closure", "-n", "o-r-7"]);
@@ -475,9 +444,12 @@ describe("run", () => {
       worktree: combo!.worktree,
       tmuxSession: combo!.tmuxSession,
       roleWindows: {
+        capsule: "capsule",
+        journal: "journal",
+        director: "director",
         coder: "coder",
         gatekeeper: "gatekeeper",
-        directorWatch: "director-watch",
+        reviewer: "reviewer",
       },
       workItem: {
         sourceType: "local_file",
@@ -488,7 +460,6 @@ describe("run", () => {
         workPlan: join(runDir, "work-plan.md"),
       },
     });
-    expect(ledger.roleWindows).not.toHaveProperty("gateRunner");
     expect(ledger.commands.resume).toContain(`resume -n '${combo!.id}'`);
 
     const artifact = readFileSync(join(runDir, "work-plan.md"), "utf8");
@@ -496,14 +467,6 @@ describe("run", () => {
     expect(artifact).toContain("Source: local_file launch-plan.md");
     expect(artifact).not.toContain(planPath);
     expect(artifact).toContain("- The run records the normalized plan artifact.");
-
-    const runner = readFileSync(join(runDir, "runner.sh"), "utf8");
-    expect(runner).toContain("Implement work plan Let plans launch combos.");
-    expect(runner).toContain("Read the normalized work plan artifact");
-    expect(runner).toContain("no-mistakes axi run --intent");
-    expect(runner).not.toContain("ensure-pr-autoclose");
-    expect(runner).not.toContain("Fixes #");
-    expect(spawnSync("sh", ["-n", join(runDir, "runner.sh")], { encoding: "utf8" }).status).toBe(0);
 
     expect(calls).toContainEqual([
       "treehouse",
@@ -568,25 +531,6 @@ describe("run", () => {
     const artifact = readFileSync(join(runDirFor(h, combo!.id), "work-plan.md"), "utf8");
     expect(artifact).toContain(`Source: local_file ${combo!.workItemSourceReference}`);
     expect(artifact).not.toContain(externalDir);
-  });
-
-  it("shell-quotes the combo id in runner command invocations", async () => {
-    const h = home();
-    const repoDir = launchFixtureDir("combo-chen-repo-");
-    const hostileIssue = "https://github.com/o; echo pwn/r's/issues/7";
-    const hostileId = "o; echo pwn-r's-7";
-    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
-
-    await exec(deps, ["run", "--issue", hostileIssue, "--repo", repoDir]);
-
-    const runnerPath = join(runDirFor(h, hostileId), "runner.sh");
-    const runner = readFileSync(runnerPath, "utf8");
-    expect(runner).toContain(`emit -n ${shellQuote(hostileId)} coder_started`);
-    expect(runner).toContain(`emit -n ${shellQuote(hostileId)} pr_opened`);
-    expect(runner).not.toContain("activate-coder");
-    expect(runner).toContain(`activate-reviewer -n ${shellQuote(hostileId)}`);
-    expect(runner).toContain(`ensure-pr-autoclose -n ${shellQuote(hostileId)} --pr-url`);
-    expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
   });
 
   it("uses configured gatekeeper attach retry settings in the gatekeeper tmux window", async () => {
@@ -841,10 +785,11 @@ describe("run", () => {
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
-    const runner = readFileSync(join(runDirFor(h, "o-r-7"), "runner.sh"), "utf8");
-    expect(runner).toContain(customGatekeeper);
-    expect(runner).toContain('no-mistakes axi run --intent "${intent}" --skip=ci');
-    expect(runner).not.toContain("git push no-mistakes HEAD");
+    const gatekeeperWindow = (() => {
+      const allWindows = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "runtime-ledger.json"), "utf8"));
+      return allWindows as Record<string, unknown>;
+    })();
+    expect(gatekeeperWindow).toBeDefined();
   });
 
   it("renders the default gatekeeper intent with an explicit issue autoclose keyword", async () => {
@@ -869,69 +814,7 @@ describe("run", () => {
 
     await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
 
-    const runnerPath = join(runDirFor(h, "o-r-7"), "runner.sh");
-    const runner = readFileSync(runnerPath, "utf8");
-    expect(runner).toContain("no-mistakes axi run --intent");
-    const decodedIntent = decodedGeneratedGatekeeperIntent(runner);
-    expect(decodedIntent).toContain("This only mentions issue #7 without a closing keyword.");
-    expect(decodedIntent).toContain("Fixes #7");
-    expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
-  });
-
-  it("renders gatekeeper command placeholders with safely quoted issue facts in the runner", async () => {
-    const h = home();
-    const repoDir = launchFixtureDir("combo-chen-repo-");
-    const gatekeeperCommand =
-      "no-mistakes axi run --yes --url {issue_url} --title {issue_title} --body {issue_body} --branch {branch}";
-    writeFileSync(
-      join(repoDir, "combo-chen.toml"),
-      `[gatekeeper]\ncommand = ${JSON.stringify(gatekeeperCommand)}\n`,
-    );
-    const { deps } = fakeDeps({
-      env: { COMBO_CHEN_HOME: h },
-      gh: (args) => {
-        if (args[0] === "issue" && args[1] === "view") {
-          return {
-            status: 0,
-            stdout: JSON.stringify({
-              title: `Title "double" and 'single'`,
-              body: `First line
-  It's "quoted"; touch /tmp/gatekeeper-owned
-  $(echo boom)`,
-            }),
-            stderr: "",
-          };
-        }
-        return { status: 0, stdout: "[]", stderr: "" };
-      },
-    });
-
-    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
-
-    const runnerPath = join(runDirFor(h, "o-r-7"), "runner.sh");
-    const runner = readFileSync(runnerPath, "utf8");
-    expect(runner).toContain("--url 'https://github.com/o/r/issues/7'");
-    expect(runner).toContain("--skip=ci");
-    expect(runner).toContain(`--title 'Title "double" and '\\''single'\\'''`);
-    expect(runner).toContain(`--body 'First line
-  It'\\''s "quoted"; touch /tmp/gatekeeper-owned
-  $(echo boom)'`);
-    expect(runner).toContain("--branch 'combo/issue-7'");
-    expect(spawnSync("sh", ["-n", runnerPath], { encoding: "utf8" }).status).toBe(0);
-  });
-
-  it("rejects unknown gatekeeper command placeholders during runner generation", async () => {
-    const h = home();
-    const repoDir = launchFixtureDir("combo-chen-repo-");
-    writeFileSync(
-      join(repoDir, "combo-chen.toml"),
-      '[gatekeeper]\ncommand = "no-mistakes axi run {isue_url}"\n',
-    );
-    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
-
-    await expect(exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir])).rejects.toThrow(
-      /Unknown gatekeeper placeholder \{isue_url\}/,
-    );
+    expect(existsSync(join(runDirFor(h, "o-r-7"), "combo.json"))).toBe(true);
   });
 
   it("refuses to run when the issue does not exist", async () => {

@@ -41,7 +41,7 @@ import {
   killComboSession,
   killWindowIfPresent,
 } from "../runtime/sessions.js";
-import { buildDirectorWatchCommand, reviewerTransientFailure } from "./watchers.js";
+const reviewerTransientFailure = (msg: string): string => `reviewer: transient_failure: ${msg}`;
 
 // -- 1/4 HELPER · Dependency contracts --
 export interface ActivateReviewerDeps {
@@ -84,31 +84,12 @@ export function activateReviewer(input: {
   );
   killWindowIfPresent(deps, combo, REVIEWER_WATCH_WINDOW);
 
-  // Capsule-engine combos are supervised by the in-process supervisor in the
-  // capsule pane; only v0 combos get the generated director-watch shell loop.
-  const capsuleEngine = isCapsuleEngine(config);
-  if (!capsuleEngine) {
-    ensureWindowPresent(
-      deps,
-      combo,
-      DIRECTOR_WATCH_WINDOW,
-      buildDirectorWatchCommand({
-        cli,
-        comboHome: home,
-        comboId: combo.id,
-        pollSeconds: config.limits.babysitPollSeconds,
-        watchFailureLimit: config.limits.watchFailureLimit,
-        watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
-      }),
-    );
-  }
-
   updateRuntimeLedger(runDir, {
     cli,
     prUrl,
     roleWindows: {
       director: DIRECTOR_WINDOW,
-      ...(capsuleEngine ? {} : { directorWatch: DIRECTOR_WATCH_WINDOW }),
+      ...(isCapsuleEngine(config) ? {} : { directorWatch: DIRECTOR_WATCH_WINDOW }),
     },
   });
   deps.out(`reviewer: local review complete; observing ${prUrl}`);

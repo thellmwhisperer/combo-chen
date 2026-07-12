@@ -31,13 +31,7 @@
  * @deps ../../core/combo, ../../core/events, ../../core/gh-api, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../gate/gate, ../github/checks, ../github/github, ../lifecycle/closure, ../runtime/sessions, ./coder, ./pr-labels, ./reviewer, ./watch-status, ./worker-monitor
  */
 import { deriveStatus } from "../../core/combo.js";
-import {
-  appendEvent,
-  appendEvents,
-  latestPrUrlFromEvents,
-  readEvents,
-  type ComboEvent,
-} from "../../core/events.js";
+import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import { createGhApiCache } from "../../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
@@ -50,13 +44,7 @@ import {
 } from "../github/checks.js";
 import { closeMergedCombo } from "../lifecycle/closure.js";
 import { buildDirectorWatchStatusLine, type DirectorWatchPrSnapshot } from "./watch-status.js";
-import {
-  latestGateStatus,
-  latestPublishedGateSha,
-  runPostAddressGateIfNeeded,
-  GATEKEEPER_WINDOW,
-  startInitialGateRetry,
-} from "../gate/gate.js";
+import { latestGateStatus, latestPublishedGateSha, GATEKEEPER_WINDOW } from "../gate/gate.js";
 import { blockingReadyMergeState, parsePrView } from "../github/github.js";
 import { syncComboPrLabels } from "./pr-labels.js";
 import {
@@ -261,52 +249,6 @@ export async function tickDirector(input: {
   nudgeReviewComments({ deps, home, comboId, ghApiCache });
 
   const prUrl = latestPrUrlFromEvents(readEvents(runDir)) ?? openedPrUrl;
-  let actionOverride: string | undefined;
-  if (prUrl !== undefined) {
-    try {
-      const gateCheck = runPostAddressGateIfNeeded({ deps, combo, runDir, prUrl, cli });
-      if (gateCheck.status === "started") {
-        actionOverride = `launching post-address gate for ${gateCheck.headSha}`;
-      }
-      if (
-        gateCheck.status === "blocked" &&
-        gateCheck.reason === "coder_worktree_out_of_sync" &&
-        !hasLocalWorktreeOutOfSync(readEvents(runDir), gateCheck.publishedSha, gateCheck.headSha, prUrl)
-      ) {
-        nudgePrConflict({
-          deps,
-          home,
-          comboId,
-          conflict: {
-            prUrl,
-            headSha: gateCheck.headSha,
-            mergeState: "LOCAL_OUT_OF_SYNC",
-            publishedSha: gateCheck.publishedSha,
-            localSha: gateCheck.headSha,
-          },
-        });
-        appendEvent(runDir, "pr_conflict", {
-          sha: gateCheck.headSha,
-          published_sha: gateCheck.publishedSha,
-          local_sha: gateCheck.headSha,
-          pr_url: prUrl,
-          merge_state: "LOCAL_OUT_OF_SYNC",
-          action: "rebase_required",
-          source: "local_worktree",
-        });
-        deps.out(
-          `director: local worktree ${gateCheck.headSha} does not include published gate ` +
-            `${gateCheck.publishedSha}; action rebase_required`,
-        );
-      }
-    } catch (err) {
-      deps.out(
-        `director: post-address gate check failed for ${comboId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-  }
 
   runReadyForMergeIfNeeded(deps, comboId);
   const finalEvents = readEvents(runDir);
@@ -327,7 +269,6 @@ export async function tickDirector(input: {
     ambientCheckNames: config.externalCommentAgents,
     events: finalEvents,
     workerSummaries,
-    actionOverride,
   });
 }
 
@@ -665,41 +606,12 @@ async function runInitialGateRetryIfNeeded(input: {
   if (input.backoffSeconds > 0) {
     await input.deps.sleep(input.backoffSeconds * 1000);
   }
-  let result: ReturnType<typeof startInitialGateRetry>;
-  try {
-    result = startInitialGateRetry({
-      deps: input.deps,
-      combo: input.combo,
-      runDir: input.runDir,
-      cli: input.cli,
-    });
-  } catch (error) {
-    appendFailedInitialGateRetry(input.runDir);
-    input.deps.out(
-      `director: initial gate retry failed to start for ${input.combo.id}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-    return true;
-  }
-  if (!result.started && result.reason !== "uncommitted_changes") {
-    appendFailedInitialGateRetry(input.runDir);
-  }
-  if (result.started) {
-    appendEvent(input.runDir, "gate_started", {
-      source: "director_retry",
-      attempt: state.retryNumber,
-      max_attempts: state.retryAttempts,
-    });
-  }
+  appendEvent(input.runDir, "needs_human", { reason: "gate_failed" });
+  input.deps.out(
+    `director: initial gate retry unavailable for ${input.combo.id} ` +
+      `after ${state.retryNumber} attempt(s); needs_human`,
+  );
   return true;
-}
-
-function appendFailedInitialGateRetry(runDir: string): void {
-  appendEvents(runDir, [
-    { event: "gate_started", payload: { source: "director_retry" } },
-    { event: "gate_failed", payload: { exit_code: 1, reason: "retry_start_failed" } },
-  ]);
 }
 
 function hasReadyForMerge(events: ComboEvent[], headSha: string): boolean {
@@ -713,23 +625,6 @@ function hasPrConflict(events: ComboEvent[], headSha: string, prUrl: string, mer
       event["sha"] === headSha &&
       event["pr_url"] === prUrl &&
       event["merge_state"] === mergeState &&
-      event["action"] === "rebase_required",
-  );
-}
-
-function hasLocalWorktreeOutOfSync(
-  events: ComboEvent[],
-  publishedSha: string,
-  localSha: string,
-  prUrl: string,
-): boolean {
-  return events.some(
-    (event) =>
-      event.event === "pr_conflict" &&
-      event["published_sha"] === publishedSha &&
-      event["local_sha"] === localSha &&
-      event["pr_url"] === prUrl &&
-      event["merge_state"] === "LOCAL_OUT_OF_SYNC" &&
       event["action"] === "rebase_required",
   );
 }

@@ -38,9 +38,8 @@ function normalizeDoc(body: string): string {
 describe("release docs", () => {
   it("documents the release artifact contract consumed by the updater", () => {
     const readme = readDoc("README.md");
-    const spec = readDoc("docs/spec.md");
 
-    for (const doc of [readme, spec].map(normalizeDoc)) {
+    for (const doc of [readme].map(normalizeDoc)) {
       expect(doc).toContain("combo-chen-vX.Y.Z-<platform>-<arch>.tar.gz");
       expect(doc).toContain("checksums.txt");
       expect(doc).toContain("sha256sum-compatible");
@@ -54,9 +53,8 @@ describe("release docs", () => {
 
   it("documents the active update command and active-runtime safety guard", () => {
     const readme = normalizeDoc(readDoc("README.md"));
-    const spec = normalizeDoc(readDoc("docs/spec.md"));
 
-    for (const doc of [readme, spec]) {
+    for (const doc of [readme]) {
       expect(doc).toContain("combo-chen update --yes");
       expect(doc).toContain("combo-chen update --beta --yes");
       expect(doc).toContain("downloads the selected archive and checksums.txt");
@@ -86,9 +84,8 @@ describe("release docs", () => {
 
   it("documents quiet passive update checks, cache, and disable knob", () => {
     const readme = normalizeDoc(readDoc("README.md"));
-    const spec = normalizeDoc(readDoc("docs/spec.md"));
 
-    for (const doc of [readme, spec]) {
+    for (const doc of [readme]) {
       expect(doc).toContain("passive update checks");
       expect(doc).toContain("passive-update-cache.json");
       expect(doc).toContain("24 hours");

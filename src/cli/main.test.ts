@@ -48,15 +48,6 @@ import {
 } from "../testing/cli-harness.js";
 
 // -- 1/1 CORE · command contracts <- START HERE --
-describe("resolvePollMs", () => {
-  it("reads COMBO_CHEN_POLL_MS and falls back to undefined (core default applies)", async () => {
-    const { resolvePollMs } = await import("./main.js");
-    expect(resolvePollMs({ COMBO_CHEN_POLL_MS: "250" })).toBe(250);
-    expect(resolvePollMs({ COMBO_CHEN_POLL_MS: "nonsense" })).toBeUndefined();
-    expect(resolvePollMs({})).toBeUndefined();
-  });
-});
-
 describe("command surface", () => {
   it("wires the production team identity resolver into default deps", () => {
     expect(defaultDeps().resolveTeamIdentity).toEqual(expect.any(Function));
@@ -101,12 +92,9 @@ describe("command surface", () => {
         "decide",
         "director-prompt",
         "director-tick",
-        "director-watch",
-        "emit",
         "ensure-pr-autoclose",
         "events",
         "forensics",
-        "gate-lease",
         "gate-restart",
         "intent",
         "needs-human-report",

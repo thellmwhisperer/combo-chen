@@ -10,7 +10,6 @@
  *   MAIN FLOW
  *   ---------
  *   package/git/env metadata -> releaseDefines -> tsdown define -> dist bundles
- *   src/shell/templates/*.sh -> shellTemplatesDefine -> inlined into dist/cli.mjs
  *
  *   PUBLIC API
  *   ----------
@@ -18,13 +17,13 @@
  *
  *   INTERNALS
  *   ---------
- *   packageVersion, gitCommit, buildDate, sourceDateEpochIso, shellTemplates.
+ *   packageVersion, gitCommit, buildDate, sourceDateEpochIso.
  *
  * @exports default
  * @deps tsdown, node:{child_process,fs}
  */
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsdown";
 
 // -- 1/2 HELPER · release metadata define values --
@@ -64,20 +63,7 @@ const releaseDefines = {
   __COMBO_CHEN_BUILD_DATE__: JSON.stringify(buildDate()),
 };
 
-function shellTemplates(): Record<string, string> {
-  const dir = new URL("./src/shell/templates/", import.meta.url);
-  const map: Record<string, string> = {};
-  for (const entry of readdirSync(dir)) {
-    if (!entry.endsWith(".sh")) continue;
-    map[entry.slice(0, -".sh".length)] = readFileSync(new URL(entry, dir), "utf8");
-  }
-  return map;
-}
-
-const shellTemplatesDefine = {
-  __COMBO_CHEN_SHELL_TEMPLATES__: JSON.stringify(shellTemplates()),
-};
-// -/ 1/2
+// -/ 1/1
 
 // -- 2/2 CORE · tsdown config <- START HERE --
 // Separate builds keep each dist entry single-file: a shared multi-entry build
@@ -89,7 +75,7 @@ export default defineConfig([
     outDir: "dist",
     clean: true,
     dts: false,
-    define: { ...releaseDefines, ...shellTemplatesDefine },
+    define: releaseDefines,
     alias: {
       "react-devtools-core": new URL("./src/cli/react-devtools-stub.ts", import.meta.url).pathname,
     },

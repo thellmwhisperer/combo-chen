@@ -51,13 +51,7 @@ import { CONFIG_SNAPSHOT_FILE, readConfigSnapshot, writeConfigSnapshot } from ".
 import { CODER_THREAD_ARTIFACT } from "../roles/coder-invocation.js";
 import { buildIssuePrIntent, buildWorkPlanPrIntent } from "../roles/gatekeeper.js";
 import { GATEKEEPER_WINDOW } from "../app/gate/gate.js";
-import {
-  buildDirectorWatchCommand,
-  createProgram,
-  defaultDeps,
-  isDirectRun,
-  type Deps,
-} from "../cli/main.js";
+import { createProgram, defaultDeps, isDirectRun, type Deps } from "../cli/main.js";
 import {
   PASSIVE_UPDATE_CACHE_FILE,
   PASSIVE_UPDATE_DISABLE_ENV,
@@ -74,7 +68,6 @@ export {
   PASSIVE_UPDATE_DISABLE_ENV,
   acquireGateLease,
   appendEvent,
-  buildDirectorWatchCommand,
   buildIssuePrIntent,
   buildRuntimeLedger,
   buildWorkPlanPrIntent,

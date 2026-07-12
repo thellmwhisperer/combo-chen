@@ -51,7 +51,6 @@ import {
   resolveAttachCombo,
 } from "../runtime/sessions.js";
 import { attachSessionArgs, killSessionArgs } from "../../infra/tmux.js";
-import { resolvePollMs } from "../director/watchers.js";
 import type { AppDeps } from "../deps.js";
 
 // -- 1/3 CORE · emitComboEvent <- START HERE --
@@ -238,7 +237,9 @@ export async function printComboEvents(
     for (const event of readEvents(runDir)) deps.out(JSON.stringify(event));
     return;
   }
-  const pollMs = resolvePollMs(deps.env);
+  const rawMs = deps.env["COMBO_CHEN_POLL_MS"];
+  const pollMs =
+    rawMs !== undefined && Number.isFinite(Number(rawMs)) && Number(rawMs) > 0 ? Number(rawMs) : undefined;
   for await (const event of followEvents(runDir, pollMs === undefined ? {} : { pollMs })) {
     deps.out(JSON.stringify(event));
   }
