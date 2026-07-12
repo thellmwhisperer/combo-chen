@@ -85,3 +85,24 @@ Validate the persisted engine before changing tmux topology. Continue migrating 
 ```
 
 Save a local plan before launch. The execution command is `combo-chen run --plan <file>`; issue-backed work may instead use a GitHub issue once it carries the same contract.
+
+## 3. Launch and identify the capsule
+
+Launch from the target repository or pass it explicitly:
+
+```bash
+combo-chen run --plan <file> --repo <target-repo>
+combo-chen run --issue <url> --repo <target-repo>
+```
+
+Supply exactly one of `--plan` and `--issue`. `run` performs overture before it leases a worktree, starts tmux, or spends agent tokens. Read every overture line: `OK` passed, `WARN` is advisory, and `X` blocks launch.
+
+Fix inputs and director-owned stale resources when the evidence is clear: select the correct repository or base ref, make the source checkout clean, provide a reachable work item, or remove a stale branch, worktree, run directory, or tmux session that this director owns. Never delete an occupied or foreign resource merely to make overture pass. Route configuration, unsafe role-command, team-identity, missing Treehouse, and no-mistakes runway failures to the repository or fleet owner unless you already own that configuration. Re-run the same launch command after the blocking condition is resolved; do not bypass overture.
+
+Capture identity from the launch output, not by guessing from the title:
+
+- `overture <combo-id>` gives the durable combo id used by later `-n` commands.
+- `artifact <run-dir>/overture.json` gives the persisted overture artifact; its parent is the run directory.
+- The final `🥢 combo-chen-<combo-id>` line confirms that the tmux capsule was created. A zero exit means setup succeeded, not that the work finished.
+
+Keep the combo id and run directory in the fleet record, then move immediately to journal-first supervision.
