@@ -365,7 +365,7 @@ describe("Home live telemetry rendering", () => {
     expect(frame).not.toMatch(/···●|··●·|·●··|●···/);
   });
 
-  it("animates the dive-in dot train as time advances (stable startMs)", () => {
+  it("animates the dive-in braille spinner as time advances (loop cycle)", () => {
     const dive = thread({
       entries: [
         {
@@ -383,11 +383,13 @@ describe("Home live telemetry rendering", () => {
     const { lastFrame: frameLater } = render(
       <Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} now={1_000_700} />,
     );
-    const trainAtStart = frameAtStart()!.match(/[·●]{7}/)?.[0];
-    const trainLater = frameLater()!.match(/[·●]{7}/)?.[0];
-    expect(trainAtStart).toBeDefined();
-    expect(trainLater).toBeDefined();
-    expect(trainAtStart).not.toBe(trainLater);
+    // The braille spinner is a single character from ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+    const SPIN = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/;
+    const spinAtStart = frameAtStart()!.match(SPIN)?.[0];
+    const spinLater = frameLater()!.match(SPIN)?.[0];
+    expect(spinAtStart).toBeDefined();
+    expect(spinLater).toBeDefined();
+    expect(spinAtStart).not.toBe(spinLater);
   });
 });
 // -/ 4/6

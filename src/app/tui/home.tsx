@@ -6,10 +6,11 @@
  *   decision cards in decisions-fold.ts (all pure, tested). The component
  *   fires side effects (tmux jump, decision write) via callbacks the entry
  *   wires; it holds no state the run dir cannot provide. Frozen design rules:
- *   no progress bars for agent work (dot trains + count-up timer + spinner),
- *   gate steps rendered as per-step checkmarks + step counter (enumerable
- *   steps), numbers always verb-labeled, Enter/→ dives in / jumps to the live
- *   actor, q/←/Esc backs out.
+ *   no progress bars for agent work (fleet rows: dot train; dive-in live actor:
+ *   braille loop spinner; both + count-up timer), gate steps rendered as
+ *   per-step checkmarks + step counter (enumerable steps), numbers always
+ *   verb-labeled, Enter/→ dives in / jumps to the live actor, q/←/Esc backs
+ *   out.
  *
  *   READING GUIDE
  *   -------------
@@ -41,7 +42,7 @@ import React, { useEffect, useState } from "react";
 
 import type { DecisionCard } from "./decisions-fold.js";
 import { deriveFleetView, type FleetRenderPhase, type FleetRow, type FleetView } from "./fleet-fold.js";
-import { dotTrain } from "./live-telemetry.js";
+import { dotTrain, spinFrame } from "./live-telemetry.js";
 import { initialNavState, navigate, type NavState } from "./navigation.js";
 import type { ThreadEntry, ThreadView } from "./thread-fold.js";
 
@@ -382,13 +383,13 @@ function ThreadEntryView({
 }): React.ReactElement {
   const glyph = ENTRY_GLYPH[entry.kind];
   const color = ENTRY_COLOR[entry.kind];
-  const train = entry.live ? dotTrain(now, entry.startMs ?? now, 1400, 7) : null;
+  const spinner = entry.live ? spinFrame(now) : null;
   return (
     <Box flexDirection="column">
       <Box gap={1}>
         <Text color={color}>{glyph}</Text>
         <Text color={entry.live ? color : undefined}>{entry.headline}</Text>
-        {train !== null && <Text color={color}>{train}</Text>}
+        {spinner !== null && <Text color={color}>{spinner}</Text>}
       </Box>
       {entry.detail !== undefined && (
         <Box marginLeft={4}>
