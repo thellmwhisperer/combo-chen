@@ -22,21 +22,28 @@
  */
 
 import {
+  appendEvent,
   createProgram,
   defaultDeps,
   describe,
+  exec,
   expect,
   fakeDeps,
   formatReleaseMetadata,
   isDirectRun,
   it,
   join,
+  loadConfig,
+  mkdirSync,
   mkdtempSync,
   pathToFileURL,
   releaseMetadata,
   rmSync,
+  runDirFor,
   symlinkSync,
   tmpdir,
+  writeCombo,
+  writeConfigSnapshot,
   writeFileSync,
 } from "../testing/cli-harness.js";
 
@@ -115,6 +122,30 @@ describe("command surface", () => {
         "update",
       ].sort(),
     );
+  });
+
+  it("declines to re-run a capsule whose journal is already combo_closed", async () => {
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-cli-"));
+    const runDir = runDirFor(home, "o-r-7");
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    mkdirSync(join(repoDir, ".worktrees", "issue-7"), { recursive: true });
+    writeCombo(runDir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date(0).toISOString(),
+    });
+    writeConfigSnapshot(runDir, loadConfig({ repoDir, env: {} }));
+    appendEvent(runDir, "combo_closed", {});
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: home } });
+
+    await exec(deps, ["capsule", runDir]);
+
+    expect(out.join("\n")).toContain("already combo_closed");
+    expect(calls.some((call) => call[0] === "git")).toBe(false);
   });
 
   it("describes status as the parallel capsule dashboard", () => {
