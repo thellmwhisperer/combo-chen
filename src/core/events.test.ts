@@ -87,6 +87,10 @@ describe("event schema", () => {
         "team",
         "watch_dead",
         "watch_error",
+        "local_review_requested",
+        "local_verdict",
+        "decision",
+        "follow_ups",
       ].sort(),
     );
   });
@@ -128,6 +132,10 @@ describe("event schema", () => {
     expect(EVENT_TYPES.rebase_conflict.required).toEqual(["base"]);
     expect(EVENT_TYPES.watch_error.required).toEqual(["exit_code", "stderr"]);
     expect(EVENT_TYPES.watch_dead.required).toEqual(["exit_code", "stderr"]);
+    expect(EVENT_TYPES.local_review_requested.required).toEqual(["round", "sha"]);
+    expect(EVENT_TYPES.local_verdict.required).toEqual(["round", "code", "verdict_path", "identity"]);
+    expect(EVENT_TYPES.decision.required).toEqual(["needs_human_ref", "verb"]);
+    expect(EVENT_TYPES.follow_ups.required).toEqual(["round", "items"]);
   });
 
   it("rejects unknown event names", () => {
@@ -291,6 +299,60 @@ describe("journal", () => {
       "combo_closed",
       "coder_retry",
     ]);
+  });
+
+  it("appends the local review-loop event vocabulary with its documented fields", () => {
+    const dir = runDir();
+    appendEvent(dir, "local_review_requested", { round: 1, sha: "abc123" });
+    appendEvent(dir, "local_verdict", {
+      round: 1,
+      code: 1,
+      verdict_path: "/runs/o-r-7/verdict-1.json",
+      identity: { model: "claude-opus-4-8", runtime: "claude" },
+    });
+    appendEvent(dir, "follow_ups", {
+      round: 1,
+      items: [{ title: "tighten retry backoff", file: "src/core/gh-api.ts", line: 60 }],
+    });
+    appendEvent(dir, "decision", { needs_human_ref: "2026-07-12T00:00:03.000Z", verb: "retry" });
+
+    const events = readEvents(dir);
+    expect(events.map((event) => event.event)).toEqual([
+      "local_review_requested",
+      "local_verdict",
+      "follow_ups",
+      "decision",
+    ]);
+    expect(events[1]).toMatchObject({
+      round: 1,
+      code: 1,
+      verdict_path: "/runs/o-r-7/verdict-1.json",
+      identity: { model: "claude-opus-4-8", runtime: "claude" },
+    });
+    expect(events[3]).toMatchObject({ needs_human_ref: "2026-07-12T00:00:03.000Z", verb: "retry" });
+  });
+
+  it("rejects local review-loop events missing their documented fields", () => {
+    const dir = runDir();
+    expect(() => appendEvent(dir, "local_review_requested", { round: 1 })).toThrow(/sha/);
+    expect(() => appendEvent(dir, "local_verdict", { round: 1, code: 0, verdict_path: "x" })).toThrow(
+      /identity/,
+    );
+    expect(() => appendEvent(dir, "decision", { verb: "retry" })).toThrow(/needs_human_ref/);
+    expect(() => appendEvent(dir, "follow_ups", { round: 1 })).toThrow(/items/);
+  });
+
+  it("passes unknown future event names through on read without normalizing them", () => {
+    const dir = runDir();
+    appendEvent(dir, "combo_created", { issue_url: "x" });
+    appendFileSync(
+      join(dir, "journal.jsonl"),
+      `${JSON.stringify({ t: "2026-07-12T00:00:01.000Z", event: "from_the_future", detail: 7 })}\n`,
+    );
+
+    const events = readEvents(dir);
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ event: "from_the_future", detail: 7 });
   });
 
   it("reads legacy role event names as canonical aliases", () => {

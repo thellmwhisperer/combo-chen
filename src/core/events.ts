@@ -71,6 +71,14 @@ export const EVENT_TYPES = {
   worker_recovery_failed: { required: ["worker", "reason", "attempt"] },
   director_prompted: { required: ["reason", "target"] },
   external_review_requested: { required: ["sha", "command", "pr_url"] },
+  // v1 pre-publish local review loop (PRD s3/s11). identity carries the
+  // producing {model, runtime}; code is the 0-3 verdict routing code.
+  local_review_requested: { required: ["round", "sha"] },
+  local_verdict: { required: ["round", "code", "verdict_path", "identity"] },
+  // decision answers a needs_human escalation; needs_human_ref points at the
+  // journal timestamp of the needs_human event it resolves.
+  decision: { required: ["needs_human_ref", "verb"] },
+  follow_ups: { required: ["round", "items"] },
   review_comment: { required: ["author", "kind", "url"] },
   lgtm: { required: ["sha"] },
   lgtm_stale: { required: ["old_sha", "new_sha"] },
