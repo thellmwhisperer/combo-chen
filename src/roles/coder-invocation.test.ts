@@ -28,6 +28,7 @@ import { describe, expect, it } from "vitest";
 import {
   CODER_THREAD_ARTIFACT,
   buildCoderInvocation,
+  buildReviewFixPrompt,
   defaultPrompt,
   extractCodexThreadIdFromJsonl,
   persistCoderThreadArtifact,
@@ -79,6 +80,60 @@ describe("defaultPrompt", () => {
     expect(prompt).toContain(combo.issueUrl);
     expect(prompt).toContain("gh issue view");
     expect(prompt.toLowerCase()).toContain("test");
+  });
+});
+
+describe("buildReviewFixPrompt", () => {
+  const findings = [
+    {
+      id: "hardcoded-timeout",
+      severity: "blocker" as const,
+      file: "src/app/x.ts",
+      line: 12,
+      title: "New timeout constant without env path",
+      body: "Wire env/TOML.",
+    },
+    {
+      id: "missing-test",
+      severity: "major" as const,
+      file: "src/app/y.ts",
+      title: "Behavior change without failing-first test",
+      body: "Add the red test.",
+    },
+  ];
+
+  it("carries every finding with id, severity, and location plus the dossier ref", () => {
+    const prompt = buildReviewFixPrompt({
+      round: 2,
+      sha: "coded",
+      findings,
+      dossierPath: "/runs/o-r-7/review-2-coded.md",
+    });
+
+    expect(prompt).toContain("round 2");
+    expect(prompt).toContain("coded");
+    expect(prompt).toContain(
+      "[hardcoded-timeout] blocker src/app/x.ts:12: New timeout constant without env path - Wire env/TOML.",
+    );
+    expect(prompt).toContain(
+      "[missing-test] major src/app/y.ts: Behavior change without failing-first test - Add the red test.",
+    );
+    expect(prompt).toContain("/runs/o-r-7/review-2-coded.md");
+  });
+
+  it("pins the fix-turn contract: commit locally, never publish, no-op escalates", () => {
+    const prompt = buildReviewFixPrompt({
+      round: 1,
+      sha: "coded",
+      findings: findings.slice(0, 1),
+      dossierPath: "/runs/o-r-7/review-1-coded.md",
+    });
+
+    expect(prompt.toLowerCase()).toContain("test");
+    expect(prompt).toContain("Commit your fixes locally");
+    expect(prompt).toContain("Do not push");
+    expect(prompt).toContain("re-review");
+    expect(prompt).toContain("make no commit");
   });
 });
 

@@ -24,6 +24,8 @@
  *   │ extractCodexThreadIdFromJsonl Parse gnhf JSONL → thread_id           │
  *   │ defaultPrompt              Standard issue objective prompt            │
  *   │ defaultWorkPlanPrompt      Standard plan objective prompt             │
+ *   │ buildReviewFixPrompt       v1 review-loop code-1 fix-turn prompt      │
+ *   │ ReviewFixPromptInput       Findings + dossier facts for the fix turn  │
  *   │ CoderThreadArtifact        {agent, thread_id, source} shape           │
  *   │ CoderInput                 Template vars for the coder command         │
  *   │ CODER_THREAD_ARTIFACT      Coder thread artifact filename              │
@@ -33,14 +35,15 @@
  *   │ validatedGnhfJsonlPath     Constrain the selected JSONL to the run dir│
  *   └────────────────────────────────────────────────────────────────────────┘
  *
- * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, defaultWorkPlanPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
- * @deps node:fs, node:path, ../infra/config, ../core/state, ../core/work-plan
+ * @exports CODER_THREAD_ARTIFACT, LEGACY_ROWER_THREAD_ARTIFACT, CoderThreadArtifact, defaultPrompt, defaultWorkPlanPrompt, ReviewFixPromptInput, buildReviewFixPrompt, CoderInput, buildCoderInvocation, extractCodexThreadIdFromJsonl, persistCoderThreadArtifact
+ * @deps node:fs, node:path, ../infra/config, ../core/state, ../core/verdict, ../core/work-plan
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { renderCommand } from "../infra/config.js";
 import type { ComboRecord } from "../core/state.js";
+import type { VerdictFinding } from "../core/verdict.js";
 import type { WorkPlan } from "../core/work-plan.js";
 
 // -- 1/3 HELPER · Types + constants + defaultPrompt --
@@ -76,6 +79,36 @@ export function defaultWorkPlanPrompt(plan: WorkPlan, artifactPath: string): str
     `Work test-first: red test, minimal code to green, refactor. ` +
     `Stay strictly within the work plan's scope and acceptance criteria.`
   );
+}
+
+export interface ReviewFixPromptInput {
+  round: number;
+  sha: string;
+  findings: Array<Pick<VerdictFinding, "id" | "severity" | "file" | "line" | "title" | "body">>;
+  dossierPath: string;
+}
+
+/**
+ * v1 review-loop fix turn (PRD s3): the capsule resumes the implementing
+ * thread with this prompt after a code-1 verdict. The no-commit clause is a
+ * contract, not advice: the capsule counts commits after the turn's process
+ * exits and escalates needs_human on a no-op turn.
+ */
+export function buildReviewFixPrompt(input: ReviewFixPromptInput): string {
+  const findingLines = input.findings.map(
+    (finding) =>
+      `[${finding.id}] ${finding.severity} ${finding.file}` +
+      `${finding.line === undefined ? "" : `:${finding.line}`}: ${finding.title} - ${finding.body}`,
+  );
+  return [
+    `Local review round ${input.round} on your changeset at sha ${input.sha} returned verdict code 1: mechanical fixes required before the gate.`,
+    `Findings to fix: ${findingLines.join(" ")}`,
+    `Full review dossier: ${input.dossierPath}.`,
+    "Work test-first: red test, minimal code to green, refactor.",
+    "Address every finding; the harness will re-review after your turn, and the same finding surviving into the next round escalates to a human.",
+    "Commit your fixes locally with a short conventional message. Do not push, do not open a PR, and do not amend commits you did not create in this turn.",
+    "If every finding is intent-touching or wrong, make no commit and end your turn; a no-commit turn escalates to a human instead of looping.",
+  ].join(" ");
 }
 
 export interface CoderInput {
