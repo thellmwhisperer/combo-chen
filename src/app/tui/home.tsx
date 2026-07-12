@@ -112,6 +112,53 @@ function stageGlyph(state: "done" | "live" | "pending"): string {
   if (state === "live") return "\u26A1";
   return "\u00B7";
 }
+
+/** Format epoch ms as HH:MM (UTC) for deterministic clock/timestamp display. */
+function clockLabel(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+/** Format an entry's `at` ISO timestamp (or "now") as a short time label. */
+function entryTimeLabel(at: string): string {
+  if (at === "now") return "now";
+  const ms = Date.parse(at);
+  return Number.isNaN(ms) ? "--:--" : clockLabel(ms);
+}
+
+/** Count rendered lines an entry will occupy (headline + detail + findings). */
+function entryLineCount(entry: ThreadEntry): number {
+  let lines = 1;
+  if (entry.detail !== undefined) lines += 1;
+  if (entry.findings !== undefined) lines += entry.findings.length;
+  return lines;
+}
+
+/**
+ * Trim entries to fit within `availableLines`, keeping the most recent (the live
+ * actor entry is always last). Returns the entries to show and how many were
+ * hidden from the top.
+ */
+function boundEntriesForViewport(
+  entries: readonly ThreadEntry[],
+  availableLines: number,
+): { readonly shown: readonly ThreadEntry[]; readonly hidden: number } {
+  if (entries.length === 0) return { shown: [], hidden: 0 };
+  const totalLines = entries.reduce((sum, e) => sum + entryLineCount(e), 0);
+  if (totalLines <= availableLines) return { shown: entries, hidden: 0 };
+  let remaining = availableLines;
+  let cutIndex = entries.length;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const h = entryLineCount(entries[i]!);
+    if (remaining < h && cutIndex < entries.length) break;
+    if (remaining < h) break;
+    remaining -= h;
+    cutIndex = i;
+  }
+  // Always keep at least the last entry (live actor).
+  if (cutIndex >= entries.length) cutIndex = entries.length - 1;
+  return { shown: entries.slice(cutIndex), hidden: cutIndex };
+}
 // -/ 1/5
 
 // -- 2/5 CORE · Home <- START HERE --
@@ -127,6 +174,8 @@ export interface HomeProps {
   readonly initialNav?: NavState;
   /** Testing seam: fixed time for deterministic dot-train/spinner animation. */
   readonly now?: number;
+  /** Testing seam: terminal row count for viewport-bounded rendering. */
+  readonly viewportRows?: number;
 }
 
 export function Home({
@@ -138,10 +187,13 @@ export function Home({
   notice,
   initialNav,
   now,
+  viewportRows,
 }: HomeProps): React.ReactElement {
   const { exit } = useApp();
   const [nav, setNav] = useState<NavState>(initialNav ?? initialNavState);
   const renderNow = now ?? Date.now();
+  const terminalRows =
+    viewportRows ?? (process.stdout.rows && process.stdout.rows > 0 ? process.stdout.rows : 999);
 
   const view = deriveFleetView({ rows, tab: nav.tab });
 
@@ -199,13 +251,25 @@ export function Home({
 
   if (nav.diveComboId !== null) {
     return (
-      <DiveThread dive={dives?.[nav.diveComboId]} comboId={nav.diveComboId} modal={modalCard} now={renderNow}>
+      <DiveThread
+        dive={dives?.[nav.diveComboId]}
+        comboId={nav.diveComboId}
+        modal={modalCard}
+        now={renderNow}
+        viewportRows={terminalRows}
+      >
         {noticeBox}
       </DiveThread>
     );
   }
   return (
-    <FleetBody view={view} selected={nav.selected} modal={modalCard} now={renderNow}>
+    <FleetBody
+      view={view}
+      selected={nav.selected}
+      modal={modalCard}
+      now={renderNow}
+      viewportRows={terminalRows}
+    >
       {noticeBox}
     </FleetBody>
   );
@@ -218,12 +282,14 @@ function FleetBody({
   selected,
   modal,
   now,
+  viewportRows,
   children,
 }: {
   readonly view: FleetView;
   readonly selected: number;
   readonly modal: DecisionCard | null;
   readonly now: number;
+  readonly viewportRows: number;
   readonly children?: React.ReactNode;
 }): React.ReactElement {
   if (view.emptyState === "onboarding") {
@@ -245,19 +311,28 @@ function FleetBody({
     );
   }
 
+  // Fixed lines: header(1) + margin(1) + tabs(1) + margin(1) + footer_margin(1) + footer(1) = 6
+  const FIXED_FLEET_LINES = 6;
+  const rowBudget = Math.max(1, Math.floor((viewportRows - FIXED_FLEET_LINES) / 2));
+  const visibleRows = view.rows.slice(0, rowBudget);
+  const hiddenRowCount = view.rows.length - visibleRows.length;
+
   return (
     <Box flexDirection="column">
-      <Box>
-        <Text color="magenta">combo-chen</Text>
-        <Text dimColor> · fleet </Text>
-        {view.needsCount > 0 ? (
-          <Text color="red">
-            {"● "}
-            {view.needsCount} need{view.needsCount === 1 ? "" : "s"} you
-          </Text>
-        ) : (
-          <Text color="green">● all quiet</Text>
-        )}
+      <Box justifyContent="space-between">
+        <Box>
+          <Text color="magenta">combo-chen</Text>
+          <Text dimColor> · fleet </Text>
+          {view.needsCount > 0 ? (
+            <Text color="red">
+              {"● "}
+              {view.needsCount} need{view.needsCount === 1 ? "" : "s"} you
+            </Text>
+          ) : (
+            <Text color="green">● all quiet</Text>
+          )}
+        </Box>
+        <Text dimColor>{clockLabel(now)}</Text>
       </Box>
       <Box marginTop={1}>
         <Text dimColor>
@@ -266,9 +341,10 @@ function FleetBody({
         </Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
-        {view.rows.map((row, i) => (
+        {visibleRows.map((row, i) => (
           <FleetRowView key={row.comboId} row={row} selected={i === selected} now={now} />
         ))}
+        {hiddenRowCount > 0 && <Text dimColor>{"↑ " + hiddenRowCount + " more"}</Text>}
       </Box>
       <Box marginTop={1}>
         <Text dimColor>{"↑↓ select · Enter dive · v decision · 1-3 tabs · q quit"}</Text>
@@ -295,17 +371,19 @@ function FleetRowView({
   const train = isLive ? dotTrain(now, Date.parse(row.lastEventAt), 1400, 5) : null;
   return (
     <Box flexDirection="column">
-      <Box gap={1}>
-        <Text color={selected ? color : undefined}>{marker} </Text>
-        <Text>
-          <Text color={color}>
-            {glyph} {row.renderPhase}
-          </Text>{" "}
-          {row.workItemLabel}
-        </Text>
-        <Box marginLeft={2}>
-          <Text dimColor>{row.lastActivityLabel} ago</Text>
+      <Box justifyContent="space-between">
+        <Box>
+          <Text color={selected ? color : undefined}>{marker} </Text>
+          <Text>
+            <Text color={color}>
+              {glyph} {row.renderPhase}
+            </Text>{" "}
+            {row.workItemLabel}
+          </Text>
         </Box>
+        <Text dimColor>
+          {row.lastActivityLabel} ago · {row.ageLabel}
+        </Text>
       </Box>
       <Box marginLeft={4}>
         {train !== null && <Text color={color}>{train} </Text>}
@@ -322,12 +400,14 @@ function DiveThread({
   comboId,
   modal,
   now,
+  viewportRows,
   children,
 }: {
   readonly dive: ThreadView | undefined;
   readonly comboId: string;
   readonly modal: DecisionCard | null;
   readonly now: number;
+  readonly viewportRows: number;
   readonly children?: React.ReactNode;
 }): React.ReactElement {
   if (dive === undefined) {
@@ -341,18 +421,37 @@ function DiveThread({
   }
   const crumb = dive.breadcrumb.stages.map((s) => `${s.stage} ${stageGlyph(s.state)}`).join(" ─ ");
   const hasLiveActor = dive.liveActor !== undefined;
+  const phaseColor = PHASE_COLOR[dive.renderPhase] ?? "gray";
+
+  // Fixed lines: title(1) + margin(1) + crumb(1) + margin(1) + entries_margin(1)
+  //   + projection_margin(1)+projection(1) [if present]
+  //   + footer_margin(1)+footer(1) = 8 or 10
+  const FIXED_LINES = 6 + (dive.projection !== undefined ? 2 : 0);
+  const rawBudget = Math.max(1, viewportRows - FIXED_LINES);
+  // Reserve 1 line for the "↑ N earlier" indicator if entries are trimmed.
+  const firstPass = boundEntriesForViewport(dive.entries, rawBudget);
+  const entryBudget = firstPass.hidden > 0 ? Math.max(1, rawBudget - 1) : rawBudget;
+  const { shown, hidden } = boundEntriesForViewport(dive.entries, entryBudget);
+
   return (
     <Box flexDirection="column">
-      <Box>
-        <Text color="magenta">{comboId}</Text>
-        <Text dimColor> · </Text>
-        <Text>{dive.workItemLabel}</Text>
+      <Box justifyContent="space-between">
+        <Box>
+          <Text color="magenta">{comboId}</Text>
+          <Text dimColor> · </Text>
+          <Text>{dive.workItemLabel}</Text>
+        </Box>
+        <Text color={phaseColor}>
+          {dive.renderPhase}
+          {dive.round > 0 ? " r" + dive.round : ""}
+        </Text>
       </Box>
       <Box marginTop={1}>
         <Text dimColor>{crumb}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
-        {dive.entries.map((entry, i) => (
+        {hidden > 0 && <Text dimColor>{"↑ " + hidden + " earlier"}</Text>}
+        {shown.map((entry, i) => (
           <ThreadEntryView key={`${entry.at}-${i}`} entry={entry} now={now} />
         ))}
       </Box>
@@ -361,12 +460,13 @@ function DiveThread({
           <Text dimColor>next: {dive.projection}</Text>
         </Box>
       )}
-      <Box marginTop={1}>
+      <Box marginTop={1} justifyContent="space-between">
         <Text dimColor>
           {hasLiveActor
             ? "Enter hands on live actor · v decision · q/←/Esc back"
             : "v decision · q/←/Esc back"}
         </Text>
+        <Text dimColor>{comboId}</Text>
       </Box>
       {children}
       {modal !== null && <DecisionModal card={modal} />}
@@ -384,20 +484,22 @@ function ThreadEntryView({
   const glyph = ENTRY_GLYPH[entry.kind];
   const color = ENTRY_COLOR[entry.kind];
   const spinner = entry.live ? spinFrame(now) : null;
+  const ts = entryTimeLabel(entry.at);
   return (
     <Box flexDirection="column">
       <Box gap={1}>
+        <Text dimColor>{ts}</Text>
         <Text color={color}>{glyph}</Text>
         <Text color={entry.live ? color : undefined}>{entry.headline}</Text>
         {spinner !== null && <Text color={color}>{spinner}</Text>}
       </Box>
       {entry.detail !== undefined && (
-        <Box marginLeft={4}>
+        <Box marginLeft={11}>
           <Text dimColor>{entry.detail}</Text>
         </Box>
       )}
       {entry.findings?.map((finding, i) => (
-        <Box key={i} marginLeft={4}>
+        <Box key={i} marginLeft={11}>
           <Text>
             <Text color={severityColor(finding.severity)}>{finding.severity}</Text>
             <Text dimColor>
