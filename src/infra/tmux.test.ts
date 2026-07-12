@@ -30,6 +30,7 @@ import {
   nudgeWindowArgs,
   renameWindowArgs,
   splitWindowArgs,
+  switchClientArgs,
 } from "./tmux.js";
 
 // -- 1/1 CORE · tmux argument builders: argv contracts ← START HERE --
@@ -92,6 +93,14 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
       "-t",
       "s:rower",
       "rower:RUNNING",
+    ]);
+  });
+
+  it("switches the current client to a session (inside-tmux navigation)", () => {
+    expect(switchClientArgs("combo-chen-home")).toEqual([
+      "switch-client",
+      "-t",
+      "combo-chen-home",
     ]);
   });
 
