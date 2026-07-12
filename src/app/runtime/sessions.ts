@@ -232,8 +232,8 @@ function livePaneTtys(deps: SessionDeps, windowTarget: string): string[] | TmuxR
  * D1 seat resolution: the pty of a role window's live pane. The capsule
  * spawns the owned agent child on this tty so the process renders and reads
  * in its named window while the capsule keeps the parent/child exit-code
- * contract. Failures return undefined: panes are forensic access, never an
- * operational necessity, so a broken seat must not block the pipeline.
+ * contract. Failures return undefined so the capsule can apply its bounded
+ * seat-resolution policy and escalate instead of running the child unseated.
  */
 export function resolveRoleSeatTty(
   deps: SessionDeps,

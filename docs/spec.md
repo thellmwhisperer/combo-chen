@@ -54,7 +54,10 @@ captured as learning signals, never left blocking a pane and never silently appr
    reviewer role windows. There is no director-watch window: supervision runs
    in-process inside the capsule pane. The gatekeeper window's entry command is the
    static `cd <worktree> && no-mistakes attach`; coder and reviewer windows idle
-   until prompted.
+   until the capsule seats an owned role child on that window's pane tty. Pane 0
+   retains child exit-code and timeout custody. Seat resolution/open failures are
+   bounded and escalate `needs_human reason=seat_unavailable`; an agent never
+   falls back to running unseated in pane 0.
 5. **Config snapshot** — `config.snapshot.json` frozen at launch with
    `runEngine: "capsule"`. All runtime behavior reads from this snapshot, not the
    mutable repo TOML. Prevents drift when repo config changes during a long-running
@@ -319,6 +322,15 @@ never initialize React/Yoga.
 liveness (tmux session alive). Rows are sorted by priority: `NEEDS_YOU` first,
 then live rows by phase, then parked, then closed. The fleet refreshes on a
 configurable interval (default 5s).
+
+The fleet view shows pending decision cards, journal-derived dive-in threads,
+and live coder/reviewer/gate telemetry without reading tmux pane content. Enter
+on a live actor moves the tmux client to that role window; decisions use the
+same journal write path as `combo-chen decide`. `COMBO_CHEN_TUI_REFRESH_MS`
+controls data refresh (default 5000 ms), and `COMBO_CHEN_TUI_ANIM_MS` controls
+animation cadence (default 200 ms). When invoked from inside tmux, the launcher
+switches to the managed `combo-chen-home` session and exits successfully; set
+`COMBO_CHEN_TUI_DIRECT=1` only for the managed in-session renderer.
 
 ## 11. PR label projection
 

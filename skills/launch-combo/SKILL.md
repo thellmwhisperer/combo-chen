@@ -60,7 +60,7 @@ PITFALL: `combo-chen run` exits after SETUP, not after completion. The actual wo
 Then immediately:
 
 - `combo-chen status` to confirm the combo is alive.
-- `combo-chen events --name <comboId> --follow` (or poll it) as your primary feed.
+- `combo-chen events -n <comboId> --follow` (or poll it) as your primary feed.
 
 ## The capsule pipeline (what you are watching)
 
@@ -89,7 +89,7 @@ Poll on a cadence (journal, GitHub, tmux, configured coordination inbox). React 
 | `needs_human` reason `gate_waiting`                                                 | The gate is awaiting approval inside no-mistakes. Respond through the gatekeeper window or escalate if it touches intent.                                                                                                                                                                                          |
 | `pr_opened`                                                                         | The supervisor takes over observation automatically. Nothing to start by hand.                                                                                                                                                                                                                                     |
 | `needs_human` reason `worker_dead`                                                  | The director already relaunched the capsule up to the recovery budget. If it escalated, inspect the capsule pane, then `combo-chen resume -n <id>`.                                                                                                                                                                |
-| Worker permission prompt                                                            | Governed by `[monitor].permission_prompt_policy` (auto-approve, recreate, or escalate). On escalation, check the worker pane and approve or fix manually.                                                                                                                                                          |
+| Worker permission prompt                                                            | The supervisor journals `permission_prompt_detected` and a `needs_human` decision card. Grant only a known-safe request, add the requested tool to that role's snapshot-frozen `allowed_tools`, then record `decide ... retry`; prompts are never silently approved.                                               |
 | `pr_conflict`                                                                       | The supervisor already routed a rebase prompt to the coder window. Verify the rebase lands and the gate republishes.                                                                                                                                                                                               |
 | `ready_for_merge`                                                                   | Endpoint reached. Announce and go to vigil.                                                                                                                                                                                                                                                                        |
 | PR `MERGED`                                                                         | The supervisor auto-triggers closure. Verify the journal shows `merged` and `combo_closed`. Manual fallback: `combo-chen closure -n <id>`.                                                                                                                                                                         |
@@ -98,7 +98,7 @@ Loop hygiene: check the configured coordination inbox every cycle. Coders do not
 
 ### Monitoring coder progress (gnhf)
 
-The coder runs as an owned child of the capsule, so its live output appears in the capsule pane (pane 0). Raw event/journal output lives in the dedicated `journal` window (`combo-chen events --follow`). Also check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log` in the combo worktree. A growing `iteration-N.jsonl` means the coder is active. No growth plus no terminal event is a stall to investigate, not a success.
+The coder runs as an owned child of the capsule, but its stdio is seated in the dedicated `coder` window while pane 0 retains process and timeout custody. Reviewer turns are similarly seated in `reviewer`; if a required role seat cannot be resolved or opened after bounded retries, the capsule journals `needs_human reason=seat_unavailable` instead of running the child unseated. Raw event/journal output lives in the dedicated `journal` window (`combo-chen events --follow -n <comboId>`). Also check `.gnhf/runs/<run-id>/notes.md` and `gnhf.log` in the combo worktree. A growing `iteration-N.jsonl` means the coder is active. No growth plus no terminal event is a stall to investigate, not a success.
 
 ## Answering escalations: `decide`
 
