@@ -29,6 +29,8 @@
  *   │                        onCorrupt(err) sinks corruption errors    │
  *   │ describeWorkItem     Derive stable source/title display facts   │
  *   │ ComboRecord          Identity + filesystem shape of a combo     │
+ *   │ COMBO_RECORD_SCHEMA_VERSION  combo.json schema version; legacy  │
+ *   │                        records without it read as v0            │
  *   │ WorkItemDescriptor   Display-safe work item source/title shape  │
  *   │ cleanOptional        Trim optional strings to undefined          │
  *   │ IssueRef             Parsed GitHub issue owner/repo/number       │
@@ -38,7 +40,7 @@
  *   │ ISSUE_URL, slugForComboId, shortSourceHash, parseComboRecord     │
  *   └──────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboStateError, IssueRef, ComboRecord, WorkItemDescriptor, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos, describeWorkItem, cleanOptional
+ * @exports ComboStateError, IssueRef, ComboRecord, COMBO_RECORD_SCHEMA_VERSION, WorkItemDescriptor, parseIssueUrl, comboIdFromIssueUrl, comboIdFromWorkPlanSource, comboHome, runDirFor, writeCombo, readCombo, listCombos, describeWorkItem, cleanOptional
  * @deps node:crypto, node:fs, node:os, node:path, ./work-plan
  */
 import { createHash } from "node:crypto";
@@ -57,8 +59,13 @@ export interface IssueRef {
   number: number;
 }
 
+/** Contract artifact schema version; absent on legacy records, which read as v0. */
+export const COMBO_RECORD_SCHEMA_VERSION = 1;
+
 export interface ComboRecord {
   id: string;
+  /** Missing on pre-v1 records; readCombo defaults it to v0 semantics. */
+  schemaVersion?: number;
   issueUrl: string;
   workItemSourceType?: WorkPlanSourceType;
   workItemSourceReference?: string;
@@ -128,7 +135,9 @@ function shortSourceHash(source: WorkPlanSource): string {
 
 export function writeCombo(runDir: string, combo: ComboRecord): void {
   mkdirSync(runDir, { recursive: true });
-  writeFileSync(join(runDir, RECORD), `${JSON.stringify(combo, null, 2)}\n`);
+  const { schemaVersion, ...rest } = combo;
+  const record: ComboRecord = { schemaVersion: schemaVersion ?? COMBO_RECORD_SCHEMA_VERSION, ...rest };
+  writeFileSync(join(runDir, RECORD), `${JSON.stringify(record, null, 2)}\n`);
 }
 
 export function readCombo(runDir: string): ComboRecord {
@@ -192,7 +201,18 @@ function parseComboRecord(path: string): ComboRecord {
       `combo record at ${path} is missing id, issueUrl, repoDir, worktree, branch, tmuxSession, or createdAt`,
     );
   }
-  return value as ComboRecord;
+  if (
+    "schemaVersion" in value &&
+    value.schemaVersion !== undefined &&
+    typeof value.schemaVersion !== "number"
+  ) {
+    throw new ComboStateError(`combo record at ${path} has a non-numeric schemaVersion`);
+  }
+  const record = value as ComboRecord;
+  // Legacy pre-v1 records carry no schemaVersion; they read as v0 semantics.
+  return record.schemaVersion === undefined
+    ? { ...record, schemaVersion: COMBO_RECORD_SCHEMA_VERSION }
+    : record;
 }
 
 export function describeWorkItem(

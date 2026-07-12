@@ -24,7 +24,7 @@
  *
  *   INTERNALS
  *   ---------
- *   OVERTURE_ARTIFACT, OvertureBlockedError, readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
+ *   OVERTURE_ARTIFACT, OVERTURE_SCHEMA_VERSION, OvertureBlockedError, readLocalMarkdownWorkPlan, localPlanSourceReference, checkSourceCheckout,
  *   checkBaseRef, checkTreehouseAvailable, checkBranchFree,
  *   checkNoMistakesRunway, checkTeamIdentity, runDirReusable, writeOvertureArtifact
  *
@@ -64,6 +64,8 @@ import { parseNoMistakesAxiStatus } from "../reporting/status.js";
 
 // -- 1/3 HELPER · Types and local work-plan reading --
 const OVERTURE_ARTIFACT = "overture.json";
+/** Contract artifact schema version; absent on legacy artifacts, which read as v0. */
+const OVERTURE_SCHEMA_VERSION = 1;
 
 type CommandResult = { status: number; stdout: string; stderr: string };
 
@@ -592,6 +594,7 @@ function writeOvertureArtifact(runDir: string, result: OvertureResult): void {
   const artifactPath = join(runDir, OVERTURE_ARTIFACT);
   result.artifactPath = artifactPath;
   const artifact = {
+    schemaVersion: OVERTURE_SCHEMA_VERSION,
     ok: result.ok,
     createdAt: result.createdAt,
     resources: result.resources,
