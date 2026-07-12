@@ -21,8 +21,7 @@
  * @exports AppDeps
  * @deps ../infra/tmux, ../update/index, ./capsule/capsule, ./launch/overture, ./reporting/status
  */
-import type { AgentProcessRequest } from "./capsule/capsule.js";
-import type { GateProcessResult } from "./gate/in-process-gate.js";
+import type { AgentProcessRequest, AgentTurnResult } from "./capsule/capsule.js";
 import type { TeamIdentityResolver } from "./launch/overture.js";
 import type { PassiveUpdateCliDeps, UpdateCommandDeps } from "../update/index.js";
 import type { CommandResult } from "./reporting/status.js";
@@ -37,7 +36,7 @@ export interface AppDeps {
   treehouse: (args: string[], cwd: string) => { status: number; stdout: string; stderr: string };
   gh: UpdateCommandDeps["gh"];
   noMistakes: (args: string[], cwd: string, options?: { timeoutMs?: number }) => CommandResult;
-  runAgent: (request: AgentProcessRequest) => Promise<GateProcessResult>;
+  runAgent: (request: AgentProcessRequest) => Promise<AgentTurnResult>;
   resolveTeamIdentity?: TeamIdentityResolver;
   sleep: (ms: number) => Promise<void>;
   issueExists: (issueUrl: string) => boolean;
