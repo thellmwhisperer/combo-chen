@@ -1,10 +1,12 @@
 /**
- * @overview Application handlers for GitHub intent inspection and PR autoclose repair.
+ * @overview Application handlers for GitHub intent inspection, PR autoclose
+ *   repair, and review dossier body projection.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at printIntent          <- renders the canonical gate intent.
- *   2. Then ensurePrAutoclose        <- repairs and verifies a PR body.
+ *   1. Start at printIntent              <- renders the canonical gate intent.
+ *   2. Then ensurePrAutoclose            <- repairs and verifies a PR body.
+ *   3. Then updatePrBodyDossier          <- projects local review rounds into the PR body.
  *
  *   MAIN FLOW
  *   ---------
@@ -12,19 +14,21 @@
  *
  *   PUBLIC API
  *   ----------
- *   printIntent          Print the canonical issue or work-plan gate intent.
- *   ensurePrAutoclose    Ensure a PR body visibly closes its source issue.
+ *   printIntent            Print the canonical issue or work-plan gate intent.
+ *   ensurePrAutoclose      Ensure a PR body visibly closes its source issue.
+ *   updatePrBodyDossier    Update the PR body with review round dossier blocks.
  *
  *   INTERNALS
  *   ---------
  *   None.
  *
- * @exports printIntent, ensurePrAutoclose
- * @deps ../../core/state, ../../roles/gatekeeper, ../deps, ../work-items/persisted-work-plan, ./github, node:fs, node:path
+ * @exports printIntent, ensurePrAutoclose, updatePrBodyDossier
+ * @deps ../../core/pr-body-dossier, ../../core/state, ../../roles/gatekeeper, ../deps, ../work-items/persisted-work-plan, ./github, node:fs, node:path
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { projectDossierPrBody, type DossierRound } from "../../core/pr-body-dossier.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
 import {
   buildIssuePrIntent,
@@ -104,3 +108,38 @@ export function ensurePrAutoclose(
   deps.out("pr autoclose ensured for " + combo.id);
 }
 // -/ 2/2
+
+// -- 3/3 CORE · updatePrBodyDossier --
+export function updatePrBodyDossier(
+  deps: Pick<AppDeps, "env" | "gh" | "out">,
+  options: { name: string; prUrl: string; rounds: DossierRound[] },
+): void {
+  const runDir = runDirFor(comboHome(deps.env), options.name);
+  const combo = readCombo(runDir);
+  const viewed = deps.gh(["pr", "view", options.prUrl, "--json", "body", "--jq", ".body"]);
+  if (viewed.status !== 0) {
+    throw new Error(
+      "gh pr view failed for " + options.prUrl + ": " + (viewed.stderr.trim() || "unknown error"),
+    );
+  }
+
+  const nextBody = projectDossierPrBody({
+    rounds: options.rounds,
+    existingBody: viewed.stdout,
+  });
+  if (nextBody === viewed.stdout) {
+    deps.out("pr dossier already current for " + combo.id);
+    return;
+  }
+
+  const bodyPath = join(runDir, "pr-body.dossier.md");
+  writeFileSync(bodyPath, nextBody);
+  const edited = deps.gh(["pr", "edit", options.prUrl, "--body-file", bodyPath]);
+  if (edited.status !== 0) {
+    throw new Error(
+      "gh pr edit failed for " + options.prUrl + ": " + (edited.stderr.trim() || "unknown error"),
+    );
+  }
+  deps.out("pr dossier updated for " + combo.id);
+}
+// -/ 3/3

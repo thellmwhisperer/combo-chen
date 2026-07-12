@@ -22,12 +22,13 @@
  * @exports none
  * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ./closure, node:fs, node:os, node:path, vitest
  */
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { appendEvent, readEvents } from "../../core/events.js";
+import { exitSummaryPath } from "../../core/exit-summary.js";
 import { buildRuntimeLedger, writeRuntimeLedger } from "../../core/runtime-ledger.js";
 import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import { closeMergedCombo, type ClosureDeps } from "./closure.js";
@@ -165,9 +166,10 @@ describe("closeMergedCombo", () => {
         "--json",
         "headRefOid,state,mergedAt,mergedBy,baseRefName,mergeCommit",
       ]);
-      expect(out).toEqual([
-        `closure: ${combo.id} closed merged PR merge777 by maintainer; teardown complete`,
-      ]);
+      expect(out).toHaveLength(3);
+      expect(out[0]).toContain(`# Combo closed: ${combo.id}`);
+      expect(existsSync(exitSummaryPath(runDir))).toBe(true);
+      expect(out[2]).toBe(`closure: ${combo.id} closed merged PR merge777 by maintainer; teardown complete`);
     },
   );
 
@@ -201,7 +203,10 @@ describe("closeMergedCombo", () => {
     expect(calls).toContainEqual(["treehouse", `cwd=${repoDir}`, "return", "--force", worktree]);
     expect(calls).toContainEqual(["git", `cwd=${repoDir}`, "branch", "-D", "combo/issue-7"]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
-    expect(out).toEqual(["closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete"]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain("# Combo closed: o-r-7");
+    expect(existsSync(exitSummaryPath(runDir))).toBe(true);
+    expect(out[2]).toBe("closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete");
 
     calls.length = 0;
     out.length = 0;
@@ -257,7 +262,10 @@ describe("closeMergedCombo", () => {
     expect(calls.some((call) => call.includes(sibling.worktree))).toBe(false);
     expect(calls.some((call) => call.includes(sibling.combo.branch))).toBe(false);
     expect(calls.some((call) => call.includes(sibling.combo.tmuxSession))).toBe(false);
-    expect(out).toEqual(["closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete"]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain("# Combo closed: o-r-7");
+    expect(existsSync(exitSummaryPath(target.runDir))).toBe(true);
+    expect(out[2]).toBe("closure: o-r-7 closed merged PR merge777 by maintainer; teardown complete");
   });
 
   it("closes a merged combo when local resources are already gone", async () => {
@@ -291,9 +299,12 @@ describe("closeMergedCombo", () => {
     expect(calls).toContainEqual(["treehouse", expect.any(String), "return", "--force", worktree]);
     expect(calls).toContainEqual(["git", expect.any(String), "branch", "-D", "combo/issue-7"]);
     expect(calls).toContainEqual(["tmux", "kill-session", "-t", "combo-chen-o-r-7"]);
-    expect(out).toEqual([
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain("# Combo closed: o-r-7");
+    expect(existsSync(exitSummaryPath(runDir))).toBe(true);
+    expect(out[2]).toBe(
       "closure: o-r-7 closed merged PR merge777 by maintainer; already converged: worktree already removed, branch already deleted, tmux session already gone",
-    ]);
+    );
   });
 
   it("refuses teardown when GitHub does not report MERGED", async () => {

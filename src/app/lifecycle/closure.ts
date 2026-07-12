@@ -1,15 +1,17 @@
 /**
- * @overview Deterministic post-merge closure for one combo. ~215 lines,
- *   GitHub-confirmed merged teardown and terminal journaling.
+ * @overview Deterministic post-merge closure for one combo. ~260 lines,
+ *   GitHub-confirmed merged teardown, terminal journaling, and permanent
+ *   exit summary (PRD s5).
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at closeMergedCombo       <- public command helper.
  *   2. Then readPrViewForClosure       <- GitHub PR fact guardrails.
+ *   3. Then exitSummaryClosure         <- permanent exit summary file + stdout.
  *
  *   MAIN FLOW
  *   ---------
- *   combo id -> runtime ledger PR URL -> gh pr view MERGED -> merged event -> no-mistakes idle -> teardown -> combo_closed -> tmux kill
+ *   combo id -> runtime ledger PR URL -> gh pr view MERGED -> merged event -> no-mistakes idle -> teardown -> combo_closed -> exit summary -> tmux kill
  *
  *   PUBLIC API
  *   ----------
@@ -18,12 +20,15 @@
  *
  *   INTERNALS
  *   ---------
- *   readPrViewForClosure, activeNoMistakesConflict, closureCompletion, report
+ *   readPrViewForClosure, activeNoMistakesConflict, closureCompletion, report, exitSummaryClosure
  *
  * @exports ClosureDeps, closeMergedCombo
- * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../director/reviewer, ../github/github, ../reporting/status, ../runtime/sessions, ./teardown
+ * @deps ../../core/events, ../../core/exit-summary, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../director/reviewer, ../github/github, ../reporting/status, ../runtime/sessions, ./teardown, node:fs
  */
+import { writeFileSync } from "node:fs";
+
 import { appendEvent, readEvents } from "../../core/events.js";
+import { exitSummaryPath, renderExitSummary } from "../../core/exit-summary.js";
 import { readRuntimeLedger } from "../../core/runtime-ledger.js";
 import { readCombo, runDirFor, type ComboRecord } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
@@ -128,6 +133,8 @@ export async function closeMergedCombo(input: {
 
   appendEvent(runDir, "combo_closed", { source: "closure" });
 
+  const summary = exitSummaryClosure(runDir, combo, prUrl, mergeSha, by, prView.mergedAt, events);
+
   let session: KillComboSessionResult;
   try {
     session = killComboSession(input.deps, combo);
@@ -139,6 +146,8 @@ export async function closeMergedCombo(input: {
     return;
   }
 
+  input.deps.out(summary);
+  input.deps.out("");
   input.deps.out(
     `closure: ${combo.id} closed merged PR ${mergeSha} by ${by}; ` +
       `${closureCompletion(teardown, session)}`,
@@ -202,6 +211,34 @@ function closureCompletion(teardown: TeardownMergedComboResult, session: KillCom
 
   if (alreadyConverged.length === 0) return "teardown complete";
   return `already converged: ${alreadyConverged.join(", ")}`;
+}
+
+function exitSummaryClosure(
+  runDir: string,
+  combo: ComboRecord,
+  prUrl: string,
+  mergeSha: string,
+  mergedBy: string,
+  mergedAt: string | undefined,
+  events: ReturnType<typeof readEvents>,
+): string {
+  const summary = renderExitSummary({
+    comboId: combo.id,
+    issueUrl: combo.issueUrl || undefined,
+    prUrl,
+    mergedSha: mergeSha,
+    mergedBy,
+    mergedAt,
+    createdAt: combo.createdAt,
+    runDir,
+    events,
+  });
+  try {
+    writeFileSync(exitSummaryPath(runDir), summary);
+  } catch {
+    // Best effort: summary on stdout is the primary artifact.
+  }
+  return summary;
 }
 
 function report(deps: Pick<ClosureDeps, "out">, line: string): void {
