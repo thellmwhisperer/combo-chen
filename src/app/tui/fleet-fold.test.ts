@@ -23,7 +23,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ComboRecord } from "../../core/state.js";
-import { deriveFleetRow, deriveFleetView, type FleetTab } from "./fleet-fold.js";
+import { deriveFleetRow, deriveFleetView, type FleetRenderPhase, type FleetTab } from "./fleet-fold.js";
 
 // -- 1/3 HELPER · fixtures --
 const NOW = Date.parse("2026-07-12T12:00:00.000Z");
@@ -295,7 +295,7 @@ describe("deriveFleetRow liveness on CODER phase", () => {
 // -- 3/3 CORE · deriveFleetView sorting, tabs, empty states --
 describe("deriveFleetView", () => {
   function rowFor(
-    phase: string,
+    phase: FleetRenderPhase,
     overrides: Record<string, unknown> = {},
   ): Parameters<typeof deriveFleetView>[0]["rows"][number] {
     return {
