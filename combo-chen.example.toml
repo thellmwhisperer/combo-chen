@@ -69,7 +69,7 @@ command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_in
 # Omit command/resume_command to use combo-chen's safe built-in codex/gnhf defaults:
 # coder command: pinned gnhf runs `--agent codex` with max-iteration,
 # stop-condition, sleep-prevention, and low-noise telemetry flags.
-# resume command: codex --ask-for-approval never --sandbox workspace-write resume {thread_id}
+# resume command: codex --ask-for-approval never --sandbox workspace-write exec resume {thread_id}
 # gnhf 0.1.41 does not expose a Codex flag pass-through for the coder path;
 # the snapshot-frozen roles.coder.allowed_tools budget remains the canonical
 # learning contract for the wrapper and its resumed Codex child.
@@ -77,7 +77,7 @@ command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_in
 # command = 'repo-coder --current-branch {prompt}'
 # {placeholders}: thread_id. Used by coder responding mode to resume the same
 # implementation context after PR review comments land.
-# resume_command = 'codex --ask-for-approval never --sandbox workspace-write --profile sitter --no-alt-screen resume {thread_id}'
+# resume_command = 'codex --ask-for-approval never --sandbox workspace-write exec resume {thread_id}'
 # combo-chen always appends a surface preflight to every coder prompt:
 # the coder is instructed to run `pnpm surface` before writing any new
 # helper and reuse existing exports instead of duplicating them.

@@ -260,15 +260,13 @@ The default Codex coder path is gnhf-managed: combo-chen runs pinned `gnhf` with
 generic Codex CLI profile/flag pass-through, so Codex terminal flags are not
 part of the normal coder command. Coder responding mode resumes the captured
 thread with the configured resume command (default
-`codex --ask-for-approval never --sandbox workspace-write resume {thread_id}`)
+`codex --ask-for-approval never --sandbox workspace-write exec resume {thread_id}`)
 through the persistent `coder` tmux window.
-The recommended
-`codex --ask-for-approval never --sandbox workspace-write --profile sitter --no-alt-screen resume {thread_id}`
-keeps tmux scrollback visible and the session resumable/auditable without
-changing the underlying default. Custom `resume_command` templates remain
-supported for local wrappers or other agents.
+The non-interactive `exec resume` form exits when its turn ends while its output
+remains visible in the persistent coder seat. Custom `resume_command` templates
+remain supported for local wrappers or other agents.
 
-If combo-chen later adds a direct noninteractive Codex runner, it must keep
+The direct noninteractive Codex runner must keep
 `-C {worktree}` explicit, use the role's explicit tool budget, emit
 parseable events with `--json`, and capture the final answer with
 `-o {run_dir}/final.md`.

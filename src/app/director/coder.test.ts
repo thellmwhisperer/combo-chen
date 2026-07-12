@@ -247,7 +247,7 @@ describe("nudgeReviewComments", () => {
         "combo-chen-owned-session",
         "-n",
         "coder",
-        `codex --ask-for-approval never --sandbox workspace-write resume '${CODEX_THREAD_ID}'`,
+        `codex --ask-for-approval never --sandbox workspace-write exec resume '${CODEX_THREAD_ID}'`,
       ],
       [
         "tmux",
@@ -346,7 +346,7 @@ describe("nudgeReviewComments", () => {
         "combo-chen-owned-session",
         "-n",
         CODER_WINDOW,
-        `codex --ask-for-approval never --sandbox workspace-write resume '${CODEX_THREAD_ID}'`,
+        `codex --ask-for-approval never --sandbox workspace-write exec resume '${CODEX_THREAD_ID}'`,
       ],
       [
         "tmux",
@@ -652,7 +652,7 @@ describe("recoverStuckWorker", () => {
         "combo-chen-owned-session",
         "-n",
         CODER_WINDOW,
-        `codex --ask-for-approval never --sandbox workspace-write resume '${CODEX_THREAD_ID}'`,
+        `codex --ask-for-approval never --sandbox workspace-write exec resume '${CODEX_THREAD_ID}'`,
       ],
       [
         "tmux",
