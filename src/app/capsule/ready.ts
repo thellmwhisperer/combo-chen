@@ -47,10 +47,7 @@ import {
 } from "../../core/patch-id.js";
 import { latestGateStatus, latestPublishedGateSha, shaMatchesHead } from "../gate/gate.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "../github/checks.js";
-import {
-  externalReviewEvidenceClean,
-  type ExternalReviewEvidence,
-} from "../github/review-evidence.js";
+import { externalReviewEvidenceClean, type ExternalReviewEvidence } from "../github/review-evidence.js";
 
 // -- 1/4 CORE · patch-id-aware lgtm pin fold <- START HERE --
 export interface LocalLgtmPin {
@@ -203,9 +200,10 @@ export async function applyLgtmCarryOver(input: {
     };
   }
 
-  const reason = published === undefined || reviewed === undefined
-    ? ("patch_id_unavailable" as const)
-    : ("patch_id_mismatch" as const);
+  const reason =
+    published === undefined || reviewed === undefined
+      ? ("patch_id_unavailable" as const)
+      : ("patch_id_mismatch" as const);
   const round = nextLocalReviewRound(events);
   appendEvents(input.runDir, [
     {
@@ -229,13 +227,21 @@ export interface CapsuleReadyDecision {
 
 function gateLegHolds(events: ComboEvent[], headSha: string): boolean {
   const status = latestGateStatus(events);
-  if (status?.state === "fix_inflight" || status?.state === "failed" || status?.state === "awaiting_approval") {
+  if (
+    status?.state === "fix_inflight" ||
+    status?.state === "failed" ||
+    status?.state === "awaiting_approval"
+  ) {
     return false;
   }
   return shaMatchesHead(latestPublishedGateSha(events), headSha);
 }
 
-function lgtmLegHolds(pin: LocalLgtmPin | undefined, headSha: string, headPatchId: string | undefined): boolean {
+function lgtmLegHolds(
+  pin: LocalLgtmPin | undefined,
+  headSha: string,
+  headPatchId: string | undefined,
+): boolean {
   if (pin === undefined) return false;
   if (pin.sha === headSha) return true;
   return (

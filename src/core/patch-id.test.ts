@@ -43,9 +43,10 @@ function failed(stderr: string): PatchIdProcessResult {
   return { exitCode: 128, stdout: "", stderr };
 }
 
-function fakeRunner(
-  responses: Array<(request: PatchIdProcessRequest) => PatchIdProcessResult>,
-): { run: (request: PatchIdProcessRequest) => Promise<PatchIdProcessResult>; seen: PatchIdProcessRequest[] } {
+function fakeRunner(responses: Array<(request: PatchIdProcessRequest) => PatchIdProcessResult>): {
+  run: (request: PatchIdProcessRequest) => Promise<PatchIdProcessResult>;
+  seen: PatchIdProcessRequest[];
+} {
   const seen: PatchIdProcessRequest[] = [];
   return {
     seen,

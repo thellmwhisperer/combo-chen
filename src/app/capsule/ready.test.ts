@@ -130,122 +130,159 @@ describe("nextLocalReviewRound", () => {
 
 // -- 2/4 CORE · pinLocalLgtm --
 describe("pinLocalLgtm", () => {
-  it("journals lgtm pinned to the reviewed sha and its whole-range patch-id", { timeout: 30_000 }, async () => {
-    const repo = reviewedRepo();
-    const dir = runDir();
-    const sha = git(repo, "rev-parse", "HEAD");
+  it(
+    "journals lgtm pinned to the reviewed sha and its whole-range patch-id",
+    { timeout: 30_000 },
+    async () => {
+      const repo = reviewedRepo();
+      const dir = runDir();
+      const sha = git(repo, "rev-parse", "HEAD");
 
-    const pin = await pinLocalLgtm({
-      git: gitRunner(),
-      cwd: repo,
-      runDir: dir,
-      baseRef: "main",
-      sha,
-      round: 1,
-    });
+      const pin = await pinLocalLgtm({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        sha,
+        round: 1,
+      });
 
-    expect(pin.sha).toBe(sha);
-    expect(pin.patchId).toMatch(/^[0-9a-f]{40}$/);
-    const journaled = readEvents(dir);
-    expect(journaled).toHaveLength(1);
-    expect(journaled[0]).toMatchObject({
-      event: "lgtm",
-      sha,
-      patch_id: pin.patchId,
-      round: 1,
-      source: "local_verdict",
-    });
-    expect(livePinnedLocalLgtm(journaled)).toEqual({ sha, patchId: pin.patchId });
-  });
+      expect(pin.sha).toBe(sha);
+      expect(pin.patchId).toMatch(/^[0-9a-f]{40}$/);
+      const journaled = readEvents(dir);
+      expect(journaled).toHaveLength(1);
+      expect(journaled[0]).toMatchObject({
+        event: "lgtm",
+        sha,
+        patch_id: pin.patchId,
+        round: 1,
+        source: "local_verdict",
+      });
+      expect(livePinnedLocalLgtm(journaled)).toEqual({ sha, patchId: pin.patchId });
+    },
+  );
 });
 // -/ 2/4
 
 // -- 3/4 CORE · carry-over sagas --
 describe("applyLgtmCarryOver", () => {
-  it("carries the lgtm across a pure gate rebase (same whole-range patch-id)", { timeout: 30_000 }, async () => {
-    const repo = reviewedRepo();
-    const dir = runDir();
-    const reviewedSha = git(repo, "rev-parse", "HEAD");
-    await pinLocalLgtm({ git: gitRunner(), cwd: repo, runDir: dir, baseRef: "main", sha: reviewedSha, round: 1 });
-    gateRebase(repo);
-    const publishedSha = git(repo, "rev-parse", "HEAD");
-    expect(publishedSha).not.toBe(reviewedSha);
+  it(
+    "carries the lgtm across a pure gate rebase (same whole-range patch-id)",
+    { timeout: 30_000 },
+    async () => {
+      const repo = reviewedRepo();
+      const dir = runDir();
+      const reviewedSha = git(repo, "rev-parse", "HEAD");
+      await pinLocalLgtm({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        sha: reviewedSha,
+        round: 1,
+      });
+      gateRebase(repo);
+      const publishedSha = git(repo, "rev-parse", "HEAD");
+      expect(publishedSha).not.toBe(reviewedSha);
 
-    const result = await applyLgtmCarryOver({
-      git: gitRunner(),
-      cwd: repo,
-      runDir: dir,
-      baseRef: "main",
-      publishedSha,
-    });
+      const result = await applyLgtmCarryOver({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        publishedSha,
+      });
 
-    expect(result).toMatchObject({ outcome: "carried", pin: { sha: publishedSha } });
-    const events = readEvents(dir);
-    expect(livePinnedLocalLgtm(events)).toMatchObject({ sha: publishedSha });
-    const carried = events.at(-1)!;
-    expect(carried).toMatchObject({ event: "lgtm", sha: publishedSha, carried_from: reviewedSha });
-    expect(events.some((entry) => entry.event === "lgtm_stale")).toBe(false);
-  });
+      expect(result).toMatchObject({ outcome: "carried", pin: { sha: publishedSha } });
+      const events = readEvents(dir);
+      expect(livePinnedLocalLgtm(events)).toMatchObject({ sha: publishedSha });
+      const carried = events.at(-1)!;
+      expect(carried).toMatchObject({ event: "lgtm", sha: publishedSha, carried_from: reviewedSha });
+      expect(events.some((entry) => entry.event === "lgtm_stale")).toBe(false);
+    },
+  );
 
-  it("#295 saga: a gate autofix commit invalidates the lgtm and requests a re-review round, not needs_human", { timeout: 30_000 }, async () => {
-    // Repro steps 5-7: reviewed changeset at B, no-mistakes adds an autofix
-    // commit and publishes C. The changed changeset must route back to a local
-    // re-review round without pre-seeding LGTM at C.
-    const repo = reviewedRepo();
-    const dir = runDir();
-    const reviewedSha = git(repo, "rev-parse", "HEAD");
-    appendEvent(dir, "local_review_requested", { round: 1, sha: reviewedSha });
-    await pinLocalLgtm({ git: gitRunner(), cwd: repo, runDir: dir, baseRef: "main", sha: reviewedSha, round: 1 });
-    gateRebase(repo);
-    writeFileSync(join(repo, "feature.txt"), "feature change\nautofix\n");
-    git(repo, "add", ".");
-    git(repo, "commit", "-m", "fix: gate autofix");
-    const publishedSha = git(repo, "rev-parse", "HEAD");
+  it(
+    "#295 saga: a gate autofix commit invalidates the lgtm and requests a re-review round, not needs_human",
+    { timeout: 30_000 },
+    async () => {
+      // Repro steps 5-7: reviewed changeset at B, no-mistakes adds an autofix
+      // commit and publishes C. The changed changeset must route back to a local
+      // re-review round without pre-seeding LGTM at C.
+      const repo = reviewedRepo();
+      const dir = runDir();
+      const reviewedSha = git(repo, "rev-parse", "HEAD");
+      appendEvent(dir, "local_review_requested", { round: 1, sha: reviewedSha });
+      await pinLocalLgtm({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        sha: reviewedSha,
+        round: 1,
+      });
+      gateRebase(repo);
+      writeFileSync(join(repo, "feature.txt"), "feature change\nautofix\n");
+      git(repo, "add", ".");
+      git(repo, "commit", "-m", "fix: gate autofix");
+      const publishedSha = git(repo, "rev-parse", "HEAD");
 
-    const result = await applyLgtmCarryOver({
-      git: gitRunner(),
-      cwd: repo,
-      runDir: dir,
-      baseRef: "main",
-      publishedSha,
-    });
+      const result = await applyLgtmCarryOver({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        publishedSha,
+      });
 
-    expect(result).toMatchObject({ outcome: "re_review_requested", round: 2, reason: "patch_id_mismatch" });
-    const events = readEvents(dir);
-    expect(livePinnedLocalLgtm(events)).toBeUndefined();
-    expect(events.at(-2)).toMatchObject({
-      event: "lgtm_stale",
-      old_sha: reviewedSha,
-      new_sha: publishedSha,
-      reason: "patch_id_mismatch",
-    });
-    expect(events.at(-1)).toMatchObject({
-      event: "local_review_requested",
-      round: 2,
-      sha: publishedSha,
-      reason: "lgtm_carry_over",
-    });
-    expect(events.some((entry) => entry.event === "needs_human")).toBe(false);
-  });
+      expect(result).toMatchObject({ outcome: "re_review_requested", round: 2, reason: "patch_id_mismatch" });
+      const events = readEvents(dir);
+      expect(livePinnedLocalLgtm(events)).toBeUndefined();
+      expect(events.at(-2)).toMatchObject({
+        event: "lgtm_stale",
+        old_sha: reviewedSha,
+        new_sha: publishedSha,
+        reason: "patch_id_mismatch",
+      });
+      expect(events.at(-1)).toMatchObject({
+        event: "local_review_requested",
+        round: 2,
+        sha: publishedSha,
+        reason: "lgtm_carry_over",
+      });
+      expect(events.some((entry) => entry.event === "needs_human")).toBe(false);
+    },
+  );
 
-  it("returns already_current without journaling when the gate published the reviewed head", { timeout: 30_000 }, async () => {
-    const repo = reviewedRepo();
-    const dir = runDir();
-    const reviewedSha = git(repo, "rev-parse", "HEAD");
-    await pinLocalLgtm({ git: gitRunner(), cwd: repo, runDir: dir, baseRef: "main", sha: reviewedSha, round: 1 });
-    const before = readEvents(dir);
+  it(
+    "returns already_current without journaling when the gate published the reviewed head",
+    { timeout: 30_000 },
+    async () => {
+      const repo = reviewedRepo();
+      const dir = runDir();
+      const reviewedSha = git(repo, "rev-parse", "HEAD");
+      await pinLocalLgtm({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        sha: reviewedSha,
+        round: 1,
+      });
+      const before = readEvents(dir);
 
-    const result = await applyLgtmCarryOver({
-      git: gitRunner(),
-      cwd: repo,
-      runDir: dir,
-      baseRef: "main",
-      publishedSha: reviewedSha,
-    });
+      const result = await applyLgtmCarryOver({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        publishedSha: reviewedSha,
+      });
 
-    expect(result).toMatchObject({ outcome: "already_current", pin: { sha: reviewedSha } });
-    expect(readEvents(dir)).toEqual(before);
-  });
+      expect(result).toMatchObject({ outcome: "already_current", pin: { sha: reviewedSha } });
+      expect(readEvents(dir)).toEqual(before);
+    },
+  );
 
   it("is a no-op when no local lgtm pin is live", { timeout: 30_000 }, async () => {
     const repo = reviewedRepo();
@@ -263,28 +300,39 @@ describe("applyLgtmCarryOver", () => {
     expect(readEvents(dir)).toEqual([]);
   });
 
-  it("routes a re-review round when the published head cannot be resolved locally", { timeout: 30_000 }, async () => {
-    // Conservative leg: if equivalence cannot be verified the lgtm must not
-    // be assumed to hold. Still a re-review request, never needs_human.
-    const repo = reviewedRepo();
-    const dir = runDir();
-    const reviewedSha = git(repo, "rev-parse", "HEAD");
-    await pinLocalLgtm({ git: gitRunner(), cwd: repo, runDir: dir, baseRef: "main", sha: reviewedSha, round: 1 });
+  it(
+    "routes a re-review round when the published head cannot be resolved locally",
+    { timeout: 30_000 },
+    async () => {
+      // Conservative leg: if equivalence cannot be verified the lgtm must not
+      // be assumed to hold. Still a re-review request, never needs_human.
+      const repo = reviewedRepo();
+      const dir = runDir();
+      const reviewedSha = git(repo, "rev-parse", "HEAD");
+      await pinLocalLgtm({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        sha: reviewedSha,
+        round: 1,
+      });
 
-    const result = await applyLgtmCarryOver({
-      git: gitRunner(),
-      cwd: repo,
-      runDir: dir,
-      baseRef: "main",
-      publishedSha: SHA_B,
-    });
+      const result = await applyLgtmCarryOver({
+        git: gitRunner(),
+        cwd: repo,
+        runDir: dir,
+        baseRef: "main",
+        publishedSha: SHA_B,
+      });
 
-    expect(result).toMatchObject({ outcome: "re_review_requested", reason: "patch_id_unavailable" });
-    const events = readEvents(dir);
-    expect(events.at(-2)).toMatchObject({ event: "lgtm_stale", old_sha: reviewedSha, new_sha: SHA_B });
-    expect(events.at(-1)).toMatchObject({ event: "local_review_requested", sha: SHA_B });
-    expect(events.some((entry) => entry.event === "needs_human")).toBe(false);
-  });
+      expect(result).toMatchObject({ outcome: "re_review_requested", reason: "patch_id_unavailable" });
+      const events = readEvents(dir);
+      expect(events.at(-2)).toMatchObject({ event: "lgtm_stale", old_sha: reviewedSha, new_sha: SHA_B });
+      expect(events.at(-1)).toMatchObject({ event: "local_review_requested", sha: SHA_B });
+      expect(events.some((entry) => entry.event === "needs_human")).toBe(false);
+    },
+  );
 });
 // -/ 3/4
 
@@ -363,10 +411,7 @@ describe("capsuleReadyAgreement", () => {
   it("blocks without gate validation at the current head or with a blocking gate state", () => {
     const staleGate = capsuleReadyAgreement(
       readyInput({
-        events: [
-          event("gate_validated", { sha: SHA_B }),
-          event("lgtm", { sha: SHA_A, patch_id: PATCH_ID }),
-        ],
+        events: [event("gate_validated", { sha: SHA_B }), event("lgtm", { sha: SHA_A, patch_id: PATCH_ID })],
       }),
     );
     expect(staleGate.ready).toBe(false);
