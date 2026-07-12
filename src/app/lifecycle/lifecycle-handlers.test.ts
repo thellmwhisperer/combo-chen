@@ -42,6 +42,7 @@ import {
   writeConfigSnapshot,
   writeFileSync,
 } from "../../testing/cli-harness.js";
+import { deriveStatus } from "../../core/combo.js";
 
 // -- 1/1 CORE · command contracts <- START HERE --
 describe("closure", () => {
@@ -196,6 +197,94 @@ describe("stop", () => {
 
     await expect(exec(deps, ["stop", "-n", "o-r-7"])).rejects.toThrow(/kill/i);
     expect(readEvents(dir)).toEqual([]);
+  });
+});
+
+describe("decide", () => {
+  function seedEscalatedCombo(h: string): string {
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    return dir;
+  }
+
+  it("records a decision against the latest pending needs_human and clears it", async () => {
+    const h = home();
+    const dir = seedEscalatedCombo(h);
+    const escalation = appendEvent(dir, "needs_human", { reason: "review_no_progress", round: 2 });
+    const { deps, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["decide", "-n", "o-r-7", "retry", "--note", "flaky reviewer, run it again"]);
+
+    const events = readEvents(dir);
+    expect(events.at(-1)).toMatchObject({
+      event: "decision",
+      needs_human_ref: escalation.t,
+      verb: "retry",
+      note: "flaky reviewer, run it again",
+      by: "human",
+    });
+    expect(deriveStatus(events).needsHuman).toBe(false);
+    expect(out.join("\n")).toContain("retry");
+    expect(out.join("\n")).toContain("review_no_progress");
+  });
+
+  it("normalizes take-over spelling and rejects unknown verbs", async () => {
+    const h = home();
+    const dir = seedEscalatedCombo(h);
+    appendEvent(dir, "needs_human", { reason: "review_fix_noop" });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["decide", "-n", "o-r-7", "take-over"]);
+    expect(readEvents(dir).at(-1)).toMatchObject({ event: "decision", verb: "take_over" });
+
+    await expect(exec(deps, ["decide", "-n", "o-r-7", "nuke"])).rejects.toThrow(/verb/);
+  });
+
+  it("refuses when no pending needs_human escalation exists", async () => {
+    const h = home();
+    const dir = seedEscalatedCombo(h);
+    const escalation = appendEvent(dir, "needs_human", { reason: "review_max_rounds" });
+    appendEvent(dir, "decision", { needs_human_ref: escalation.t, verb: "skip" });
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(exec(deps, ["decide", "-n", "o-r-7", "retry"])).rejects.toThrow(/no pending/i);
+  });
+
+  it("answers an explicit --ref while leaving other pending escalations open", async () => {
+    const h = home();
+    const dir = seedEscalatedCombo(h);
+    const first = appendEvent(dir, "needs_human", { reason: "review_no_progress" });
+    const second = appendEvent(dir, "needs_human", { reason: "review_fix_noop" });
+    // appendEvent allocates unique timestamps, so even same-millisecond
+    // escalations carry distinct decision identities.
+    expect(first.t).not.toBe(second.t);
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["decide", "-n", "o-r-7", "ignore", "--ref", first.t]);
+    expect(readEvents(dir).at(-1)).toMatchObject({
+      event: "decision",
+      needs_human_ref: first.t,
+      verb: "ignore",
+    });
+
+    // The second escalation is still pending; a bare decide answers it.
+    await exec(deps, ["decide", "-n", "o-r-7", "retry"]);
+    expect(readEvents(dir).at(-1)).toMatchObject({
+      event: "decision",
+      needs_human_ref: second.t,
+      verb: "retry",
+    });
+
+    // Nothing pending is left.
+    await expect(exec(deps, ["decide", "-n", "o-r-7", "retry"])).rejects.toThrow(/no pending/i);
   });
 });
 

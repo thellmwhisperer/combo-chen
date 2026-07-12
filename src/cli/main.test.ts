@@ -98,6 +98,7 @@ describe("command surface", () => {
         "attach",
         "capsule",
         "closure",
+        "decide",
         "director-prompt",
         "director-tick",
         "director-watch",
