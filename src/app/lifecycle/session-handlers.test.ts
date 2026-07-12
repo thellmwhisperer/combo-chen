@@ -278,6 +278,96 @@ describe("resume", () => {
     expect(out.join("\n")).toContain("resume: PR ready for reviewer");
   });
 
+  it("resumes a capsule engine combo by ensuring the capsule window instead of director-watch", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[run]\nengine = "capsule"\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "coder_done", {});
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    const capsuleWindow = newWindows.find((call) => call[call.indexOf("-n") + 1] === "capsule");
+    expect(capsuleWindow?.at(-1)).toContain(`capsule ${shellQuote(dir)}`);
+    expect(newWindows.some((call) => call.includes("director-watch"))).toBe(false);
+    expect(out.join("\n")).toContain("capsule engine (supervise)");
+    expect(out.join("\n")).not.toContain("salvage");
+  });
+
+  it("treats a capsule coder_done without a PR as the gate resume phase, not salvage", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[run]\nengine = "capsule"\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    appendEvent(dir, "coder_started", {});
+    appendEvent(dir, "coder_done", {});
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
+    expect(newWindows.some((call) => call[call.indexOf("-n") + 1] === "capsule")).toBe(true);
+    expect(out.join("\n")).toContain("capsule engine (gate)");
+    expect(out.join("\n")).not.toContain("salvage");
+  });
+
+  it("does not resume a capsule combo whose journal is already combo_closed", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const worktree = join(repoDir, ".worktrees", "issue-7");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[run]\nengine = "capsule"\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    appendEvent(dir, "combo_closed", {});
+
+    const { deps, calls, out } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["resume", "-n", "o-r-7"]);
+
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
+    expect(out.join("\n")).toContain("already combo_closed");
+  });
+
   it("monitors a live no-mistakes run instead of relaunching gatekeeper work", async () => {
     const h = home();
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));

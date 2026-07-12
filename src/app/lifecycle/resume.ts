@@ -21,15 +21,19 @@
  *
  *   INTERNALS
  *   ---------
- *   classifyResumeState, ensurePrOpenedForLiveCi, salvageCoderStoppedBeforeHandoff, event field helpers, director-watch window management for initial-gate retry
+ *   classifyResumeState (capsule-engine arm delegates to classifyCapsulePhase),
+ *   convergeCapsuleTopology, convergeStableTopology, ensurePrOpenedForLiveCi,
+ *   salvageCoderStoppedBeforeHandoff, event field helpers, director-watch window management for initial-gate retry
  *
  * @exports ResumeDeps, resumeCombo
- * @deps ../../core/events, ../../core/shell-quote, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../director/reviewer, ../director/watchers, ../gate/gate, ../github/github, ../reporting/status, ../runtime/sessions, ./closure
+ * @deps ../../core/events, ../../core/shell-quote, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../capsule/capsule, ../director/reviewer, ../director/watchers, ../gate/gate, ../github/github, ../reporting/status, ../runtime/sessions, ./closure
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import { shellQuote } from "../../core/shell-quote.js";
 import { readCombo, runDirFor, type ComboRecord } from "../../core/state.js";
+import { isCapsuleEngine } from "../../infra/config.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
+import { classifyCapsulePhase, type CapsulePhase } from "../capsule/capsule.js";
 import type { TmuxResult } from "../../infra/tmux.js";
 import { buildDirectorInvocation } from "../../roles/director-invocation.js";
 import { closeMergedCombo } from "./closure.js";
@@ -43,10 +47,12 @@ import {
 import { parsePrView, type GhRunner } from "../github/github.js";
 import { activateReviewer } from "../director/reviewer.js";
 import {
+  CAPSULE_WINDOW,
   CODER_WINDOW,
   DIRECTOR_WATCH_WINDOW,
   DIRECTOR_WINDOW,
   REVIEWER_WINDOW,
+  capsuleWindowCommand,
   ensureComboSession,
   ensureWindowPresent,
   idleRoleWindowCommand,
@@ -164,6 +170,7 @@ type ResumeState =
   | { kind: "initial_gate_retry" }
   | { kind: "closure_pending"; reason: "journal" | "github" }
   | { kind: "pr_exists"; prUrl: string }
+  | { kind: "capsule"; phase: CapsulePhase }
   | { kind: "coder_salvage"; lines: string[] }
   | { kind: "gate_ambiguous"; state: string }
   | { kind: "unknown_salvage" };
@@ -235,8 +242,21 @@ function classifyResumeState(input: {
   home: string;
   cli: string;
   gh: GhRunner;
+  engine: "v0" | "capsule";
 }): ResumeState {
   const { combo, events, downstream, headSha, home, cli } = input;
+  // Capsule-engine combos resume through the capsule's own journal-derived
+  // phase; the display-string downstream dispatch below stays v0-only. A dead
+  // gnhf after coder_done is healthy here (thread harvested, awaiting the
+  // next routed turn), so it must not classify as coder salvage.
+  if (input.engine === "capsule") {
+    if (hasClosurePendingEvent(events)) return { kind: "closure_pending", reason: "journal" };
+    const capsulePrUrl = latestPrUrlFromEvents(events);
+    if (capsulePrUrl !== undefined && githubPrMerged(input.gh, capsulePrUrl)) {
+      return { kind: "closure_pending", reason: "github" };
+    }
+    return { kind: "capsule", phase: classifyCapsulePhase(events) };
+  }
   if (downstream === PR_READY_FOR_REVIEWER) return { kind: "reviewer_ready" };
   if (downstream?.startsWith(NO_MISTAKES_RUNNING)) {
     return { kind: "gate_running", downstream };
@@ -278,12 +298,30 @@ export async function resumeCombo(input: {
   const combo = readCombo(runDir);
   const events = readEvents(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const downstream = deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
-    requiredCheckNames: config.readyRequiredChecks,
-    ambientCheckNames: config.externalCommentAgents,
-  });
+  const engine = isCapsuleEngine(config) ? "capsule" : "v0";
+  const downstream =
+    engine === "capsule"
+      ? undefined
+      : deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
+          requiredCheckNames: config.readyRequiredChecks,
+          ambientCheckNames: config.externalCommentAgents,
+        });
   const headSha = currentWorktreeHeadSha(deps, combo);
-  const state = classifyResumeState({ combo, events, downstream, headSha, home, cli, gh: deps.gh });
+  const state = classifyResumeState({ combo, events, downstream, headSha, home, cli, gh: deps.gh, engine });
+
+  if (state.kind === "capsule") {
+    if (state.phase === "closed") {
+      deps.out(`resume: ${combo.id} is already combo_closed; nothing to resume`);
+      return;
+    }
+    const recreated = convergeCapsuleTopology({ deps, combo, home, cli, config, runDir });
+    pruneLegacyTopology({ deps, combo, config });
+    deps.out(
+      `resume: capsule engine (${state.phase}); capsule window ensured in ${combo.tmuxSession}` +
+        `${recreated ? " (recreated tmux session)" : ""}`,
+    );
+    return;
+  }
 
   if (state.kind === "reviewer_ready") {
     const recreated = convergeStableTopology({ deps, combo, home, cli, config });
@@ -359,6 +397,34 @@ export async function resumeCombo(input: {
     `resume: salvage required for ${combo.id}; no pr_opened event. ` +
       `Inspect ${runDir} and ${combo.worktree} before continuing coder work.`,
   );
+}
+
+function convergeCapsuleTopology(input: {
+  deps: Pick<ResumeDeps, "env" | "tmux">;
+  combo: ComboRecord;
+  home: string;
+  cli: string;
+  config: ReturnType<typeof loadRuntimeConfig>;
+  runDir: string;
+}): boolean {
+  const { deps, combo, home, cli, config, runDir } = input;
+  const recreated = ensureComboSession({ deps, combo, home, cli });
+  ensureWindowPresent(
+    deps,
+    combo,
+    DIRECTOR_WINDOW,
+    buildDirectorInvocation({ combo, directorCommand: config.directorCommand }),
+  );
+  ensureWindowPresent(deps, combo, CODER_WINDOW, idleRoleWindowCommand(CODER_WINDOW));
+  ensureGatekeeperWindow(deps, combo, {
+    timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+    retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+  });
+  ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
+  // The relaunched capsule re-derives its own phase from the journal, so the
+  // same entry command is correct for gate and supervise resumes alike.
+  ensureWindowPresent(deps, combo, CAPSULE_WINDOW, capsuleWindowCommand({ cli, comboHome: home, runDir }));
+  return recreated;
 }
 
 function convergeStableTopology(input: {
