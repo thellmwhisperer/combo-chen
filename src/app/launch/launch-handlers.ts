@@ -10,6 +10,8 @@
  *   MAIN FLOW
  *   ---------
  *   options -> overture -> Treehouse lease -> artifacts -> tmux topology -> launched combo
+ *   Engine split: v0 writes runner.sh + director-watch loop; capsule engine makes
+ *   pane 0 the `combo-chen capsule <run-dir>` sequencer and drops both.
  *
  *   PUBLIC API
  *   ----------
@@ -21,7 +23,7 @@
  *   Treehouse path parsing, lease acquisition, rollback, and best-effort cleanup.
  *
  * @exports launchCombo, runOverture
- * @deps ../../core/combo, ../../core/events, ../../core/runtime-ledger, ../../core/shell-quote, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../../roles/director-invocation, ../../roles/gatekeeper, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./overture, node:fs, node:path
+ * @deps ../../core/combo, ../../core/events, ../../core/runtime-ledger, ../../core/shell-quote, ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../../roles/director-invocation, ../../roles/gatekeeper, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./overture, node:fs, node:path
  */
 import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -32,6 +34,7 @@ import { buildRuntimeLedger, writeRuntimeLedger } from "../../core/runtime-ledge
 import { shellQuote } from "../../core/shell-quote.js";
 import { comboHome, writeCombo, type ComboRecord } from "../../core/state.js";
 import { renderWorkPlanMarkdown } from "../../core/work-plan.js";
+import { isCapsuleEngine } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
 import { killSessionArgs, newSessionArgs, newWindowArgs } from "../../infra/tmux.js";
 import { buildCoderInvocation, defaultWorkPlanPrompt } from "../../roles/coder-invocation.js";
@@ -51,11 +54,13 @@ import {
 } from "../gate/gate.js";
 import { assertOverturePassed, prepareOverture, renderOvertureChecklist } from "./overture.js";
 import {
+  CAPSULE_WINDOW,
   CODER_WINDOW,
   DIRECTOR_WINDOW,
   DIRECTOR_WATCH_WINDOW,
   JOURNAL_WINDOW,
   REVIEWER_WINDOW,
+  capsuleWindowCommand,
   ensureWindowPresent,
   idleRoleWindowCommand,
 } from "../runtime/sessions.js";
@@ -92,6 +97,14 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
   let { combo } = overture;
   const { config, issue, issueDetails, runDir, workPlan } = overture;
   const resolvedTeam = overture.result.resolvedTeam;
+  const capsuleEngine = isCapsuleEngine(config);
+  if (capsuleEngine && options.prompt !== undefined) {
+    rmSync(runDir, { recursive: true, force: true });
+    throw new Error(
+      "--prompt is not supported with the capsule engine yet: the capsule rebuilds the coder " +
+        "invocation from the frozen snapshot. Encode the objective in the issue or work plan.",
+    );
+  }
   try {
     combo = acquireTreehouseWorktree({ deps, combo, baseRef: options.base });
   } catch (error) {
@@ -104,56 +117,59 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
   const branch = combo.branch;
   const worktree = combo.worktree;
   let directorCommand: string;
-  let runnerPath: string;
+  let runnerPath: string | undefined;
 
   try {
-    const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
-      coderCommand: config.coderCommand,
-      combo,
-    };
-    if (options.prompt !== undefined) coderInput.prompt = options.prompt;
-    else if (issue === undefined) {
-      coderInput.prompt = defaultWorkPlanPrompt(workPlan, join(runDir, WORK_PLAN_ARTIFACT));
-    }
-    const coderCommand = buildCoderInvocation(coderInput);
     directorCommand = buildDirectorInvocation({
       combo,
       directorCommand: config.directorCommand,
     });
-    const prIntent =
-      issueDetails === undefined
-        ? buildWorkPlanPrIntent(workPlan)
-        : buildIssuePrIntent({
-            combo,
-            issueTitle: issueDetails.title,
-            issueBody: issueDetails.body,
-          });
+    let runner: string | undefined;
+    if (!capsuleEngine) {
+      const coderInput: Parameters<typeof buildCoderInvocation>[0] = {
+        coderCommand: config.coderCommand,
+        combo,
+      };
+      if (options.prompt !== undefined) coderInput.prompt = options.prompt;
+      else if (issue === undefined) {
+        coderInput.prompt = defaultWorkPlanPrompt(workPlan, join(runDir, WORK_PLAN_ARTIFACT));
+      }
+      const coderCommand = buildCoderInvocation(coderInput);
+      const prIntent =
+        issueDetails === undefined
+          ? buildWorkPlanPrIntent(workPlan)
+          : buildIssuePrIntent({
+              combo,
+              issueTitle: issueDetails.title,
+              issueBody: issueDetails.body,
+            });
 
-    const gatekeeperCommand = buildGatekeeperInvocation({
-      gatekeeperCommand: config.gatekeeperCommand,
-      combo,
-      ...(issueDetails === undefined
-        ? { workPlan }
-        : { issueTitle: issueDetails.title, issueBody: issueDetails.body }),
-    });
-    const quotedId = shellQuote(id);
-    const runnerInput: Parameters<typeof buildRunnerScript>[0] = {
-      combo,
-      baseRef: options.base,
-      coderCommand,
-      gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
-      gatekeeperMirrorIntent: buildNoMistakesPushIntent(prIntent),
-      activateCoder: cli + " activate-coder -n " + quotedId,
-      emit: cli + " emit -n " + quotedId,
-      activateReviewer: cli + " activate-reviewer -n " + quotedId,
-      gateLeaseAcquire: cli + " gate-lease acquire -n " + quotedId,
-      gateLeaseRelease: cli + " gate-lease release -n " + quotedId,
-    };
-    if (issue !== undefined) {
-      runnerInput.ensurePrAutoclose = cli + " ensure-pr-autoclose -n " + quotedId + " --pr-url";
+      const gatekeeperCommand = buildGatekeeperInvocation({
+        gatekeeperCommand: config.gatekeeperCommand,
+        combo,
+        ...(issueDetails === undefined
+          ? { workPlan }
+          : { issueTitle: issueDetails.title, issueBody: issueDetails.body }),
+      });
+      const quotedId = shellQuote(id);
+      const runnerInput: Parameters<typeof buildRunnerScript>[0] = {
+        combo,
+        baseRef: options.base,
+        coderCommand,
+        gatekeeperCommand: scriptedMirrorGatekeeperCommandTemplate(gatekeeperCommand),
+        gatekeeperMirrorIntent: buildNoMistakesPushIntent(prIntent),
+        activateCoder: cli + " activate-coder -n " + quotedId,
+        emit: cli + " emit -n " + quotedId,
+        activateReviewer: cli + " activate-reviewer -n " + quotedId,
+        gateLeaseAcquire: cli + " gate-lease acquire -n " + quotedId,
+        gateLeaseRelease: cli + " gate-lease release -n " + quotedId,
+      };
+      if (issue !== undefined) {
+        runnerInput.ensurePrAutoclose = cli + " ensure-pr-autoclose -n " + quotedId + " --pr-url";
+      }
+      runner = buildRunnerScript(runnerInput);
+      runnerPath = join(runDir, "runner.sh");
     }
-    const runner = buildRunnerScript(runnerInput);
-    runnerPath = join(runDir, "runner.sh");
 
     if (propagateNoMistakesConfig(options.repo, worktree)) {
       deps.out("no-mistakes: copied local config to " + worktree + "/" + NO_MISTAKES_CONFIG_FILE);
@@ -168,12 +184,13 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
         runDir,
         cli,
         roleWindows: {
+          ...(capsuleEngine ? { capsule: CAPSULE_WINDOW } : {}),
           journal: JOURNAL_WINDOW,
           director: DIRECTOR_WINDOW,
           coder: CODER_WINDOW,
           gatekeeper: GATEKEEPER_WINDOW,
           reviewer: REVIEWER_WINDOW,
-          directorWatch: DIRECTOR_WATCH_WINDOW,
+          ...(capsuleEngine ? {} : { directorWatch: DIRECTOR_WATCH_WINDOW }),
         },
         promptTargets: {
           director: session + ":" + DIRECTOR_WINDOW,
@@ -181,8 +198,10 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
         },
       }),
     );
-    writeFileSync(runnerPath, runner);
-    chmodSync(runnerPath, 0o755);
+    if (runner !== undefined && runnerPath !== undefined) {
+      writeFileSync(runnerPath, runner);
+      chmodSync(runnerPath, 0o755);
+    }
 
     appendEvent(runDir, "combo_created", {
       issue_url: combo.issueUrl,
@@ -203,8 +222,11 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
     throw error;
   }
 
+  const journalCommand = cli + " events --follow -n " + shellQuote(id);
   const created = deps.tmux(
-    newSessionArgs(session, JOURNAL_WINDOW, cli + " events --follow -n " + shellQuote(id)),
+    capsuleEngine
+      ? newSessionArgs(session, CAPSULE_WINDOW, capsuleWindowCommand({ cli, comboHome: home, runDir }))
+      : newSessionArgs(session, JOURNAL_WINDOW, journalCommand),
   );
   if (created.status !== 0) {
     rmSync(runDir, { recursive: true, force: true });
@@ -212,39 +234,46 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
     throw new Error("tmux failed to start the combo: " + created.stderr.trim());
   }
   try {
+    if (capsuleEngine) {
+      ensureWindowPresent(deps, combo, JOURNAL_WINDOW, journalCommand);
+    }
     ensureWindowPresent(deps, combo, DIRECTOR_WINDOW, directorCommand);
     ensureWindowPresent(
       deps,
       combo,
       CODER_WINDOW,
-      "COMBO_CHEN_RUNNER_PROGRESS=1 sh " + shellQuote(runnerPath),
+      capsuleEngine || runnerPath === undefined
+        ? idleRoleWindowCommand(CODER_WINDOW)
+        : "COMBO_CHEN_RUNNER_PROGRESS=1 sh " + shellQuote(runnerPath),
     );
     startGatekeeperWindow(deps, combo, {
       timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
       retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
     });
     ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
-    const directorWatch = deps.tmux(
-      newWindowArgs(
-        session,
-        DIRECTOR_WATCH_WINDOW,
-        buildDirectorWatchCommand({
-          cli,
-          comboHome: home,
-          comboId: id,
-          pollSeconds: config.limits.babysitPollSeconds,
-          watchFailureLimit: config.limits.watchFailureLimit,
-          watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
-        }),
-      ),
-    );
-    if (directorWatch.status !== 0) {
-      throw new Error(
-        'tmux failed to start director watcher in "' +
-          session +
-          '": ' +
-          (directorWatch.stderr.trim() || "unknown error"),
+    if (!capsuleEngine) {
+      const directorWatch = deps.tmux(
+        newWindowArgs(
+          session,
+          DIRECTOR_WATCH_WINDOW,
+          buildDirectorWatchCommand({
+            cli,
+            comboHome: home,
+            comboId: id,
+            pollSeconds: config.limits.babysitPollSeconds,
+            watchFailureLimit: config.limits.watchFailureLimit,
+            watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
+          }),
+        ),
       );
+      if (directorWatch.status !== 0) {
+        throw new Error(
+          'tmux failed to start director watcher in "' +
+            session +
+            '": ' +
+            (directorWatch.stderr.trim() || "unknown error"),
+        );
+      }
     }
   } catch (error) {
     const killed = deps.tmux(killSessionArgs(session));
@@ -268,12 +297,14 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
   deps.out("   coder: " + config.roles.coder + " · gatekeeper: " + config.roles.gatekeeper);
   deps.out(
     [
-      "   topology: journal=" + JOURNAL_WINDOW,
+      ...(capsuleEngine
+        ? ["   topology: capsule=" + CAPSULE_WINDOW, "journal=" + JOURNAL_WINDOW]
+        : ["   topology: journal=" + JOURNAL_WINDOW]),
       "director=" + DIRECTOR_WINDOW,
       "coder=" + CODER_WINDOW,
       "gatekeeper=" + GATEKEEPER_WINDOW,
       "reviewer=" + REVIEWER_WINDOW,
-      "director-watch=" + DIRECTOR_WATCH_WINDOW,
+      ...(capsuleEngine ? [] : ["director-watch=" + DIRECTOR_WATCH_WINDOW]),
       "coder-response=" + config.coderRespondingWindowName,
     ].join(" · "),
   );

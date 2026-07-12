@@ -45,6 +45,7 @@ import { cleanOptional, readCombo, type ComboRecord } from "./state.js";
 export const RUNTIME_LEDGER_FILE = "runtime-ledger.json";
 
 export interface RuntimeRoleWindows {
+  capsule?: string;
   coder?: string;
   journal?: string;
   director?: string;
@@ -56,6 +57,7 @@ export interface RuntimeRoleWindows {
 }
 
 const ACTIVE_ROLE_WINDOW_KEYS = new Set([
+  "capsule",
   "coder",
   "journal",
   "director",

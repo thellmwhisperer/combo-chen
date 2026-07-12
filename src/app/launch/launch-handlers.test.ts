@@ -233,6 +233,71 @@ describe("run", () => {
     expect(events[0]?.event).toBe("combo_created");
   });
 
+  it("launches the capsule topology without a runner script when the capsule engine is configured", async () => {
+    const h = home();
+    const repoDir = launchFixtureDir("combo-chen-repo-");
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[run]\nengine = "capsule"\n');
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    const runDir = runDirFor(h, "o-r-7");
+    expect(existsSync(join(runDir, "combo.json"))).toBe(true);
+    expect(existsSync(join(runDir, "runner.sh"))).toBe(false);
+    expect(readConfigSnapshot(runDir).runEngine).toBe("capsule");
+
+    const tmuxNewSession = calls.find((c) => c[0] === "tmux" && c[1] === "new-session");
+    expect(tmuxNewSession).toEqual([
+      "tmux",
+      "new-session",
+      "-d",
+      "-s",
+      "combo-chen-o-r-7",
+      "-n",
+      "capsule",
+      expect.stringContaining(`capsule ${shellQuote(runDir)}`),
+    ]);
+    const tmuxNewWindows = calls.filter((c) => c[0] === "tmux" && c[1] === "new-window");
+    expect(tmuxNewWindows.map((call) => call[call.indexOf("-n") + 1])).toEqual([
+      "journal",
+      "director",
+      "coder",
+      "gatekeeper",
+      "reviewer",
+    ]);
+    const coderWindow = tmuxNewWindows.find((call) => call[call.indexOf("-n") + 1] === "coder");
+    expect(coderWindow?.at(-1)).toContain("coder window idle");
+    expect(coderWindow?.at(-1)).not.toContain("runner.sh");
+
+    const ledger = JSON.parse(readFileSync(join(runDir, "runtime-ledger.json"), "utf8")) as {
+      roleWindows: Record<string, string>;
+    };
+    expect(ledger.roleWindows).toMatchObject({
+      capsule: "capsule",
+      journal: "journal",
+      director: "director",
+      coder: "coder",
+      gatekeeper: "gatekeeper",
+      reviewer: "reviewer",
+    });
+    expect(ledger.roleWindows).not.toHaveProperty("directorWatch");
+
+    const events = readEvents(runDir);
+    expect(events[0]?.event).toBe("combo_created");
+  });
+
+  it("rejects a --prompt override for capsule engine launches", async () => {
+    const h = home();
+    const repoDir = launchFixtureDir("combo-chen-repo-");
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[run]\nengine = "capsule"\n');
+    const { deps, calls } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
+
+    await expect(
+      exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir, "--prompt", "do it"]),
+    ).rejects.toThrow(/--prompt/);
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-session")).toBe(false);
+  });
+
   it("preserves human-readable role topology through a first-pass READY and closure path", async () => {
     const h = home();
     const repoDir = launchFixtureDir("combo-chen-repo-");
