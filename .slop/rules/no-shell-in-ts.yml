@@ -1,19 +1,15 @@
-# Guard against inline shell code in TypeScript that should be generated from
-# a source-of-truth script file. As of v1 (W6d) the shell template system is
-# retired; the only surviving shell is the gatekeeper-attach window entry
-# commands inlined in src/app/gate/gate.ts (about 80 lines of POSIX). Those are
-# deliberately kept as inlined constants because they are the single canonical
-# source and do not repeat elsewhere. This rule fires on additional inline shell
-# patterns — any new shell in TS must justify itself against this rule.
+# Guard against inline shell code in TypeScript. The v0 shell template system
+# is retired; generated shell no longer lives in TS strings. This rule fires
+# on sed, case, while, trap, grep pipe, and printf-substitution patterns
+# embedded in TypeScript — any new shell in TS must justify itself.
 id: no-shell-in-ts
 language: TypeScript
 files:
   - "src/**"
 ignores:
   - "**/*.test.ts"
-  - "src/app/gate/gate.ts"
 rule:
   kind: string
   regex: "sed -n |while \\[ |\\| grep -|trap '|\\$\\(printf |no_mistakes_axi_field"
-message: shell construct inside a TS string literal outside the allowed gate.ts block; justify or move to a shell script source file
+message: shell construct inside a TS string literal; inline shell was retired in v1
 severity: error

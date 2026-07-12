@@ -168,10 +168,7 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
     ensureWindowPresent(deps, combo, JOURNAL_WINDOW, journalCommand);
     ensureWindowPresent(deps, combo, DIRECTOR_WINDOW, directorCommand);
     ensureWindowPresent(deps, combo, CODER_WINDOW, idleRoleWindowCommand(CODER_WINDOW));
-    startGatekeeperWindow(deps, combo, {
-      timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-      retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-    });
+    startGatekeeperWindow(deps, combo);
     ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
   } catch (error) {
     const killed = deps.tmux(killSessionArgs(session));

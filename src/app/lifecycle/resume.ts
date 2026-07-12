@@ -31,7 +31,6 @@
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import { shellQuote } from "../../core/shell-quote.js";
 import { readCombo, runDirFor, type ComboRecord } from "../../core/state.js";
-import { isCapsuleEngine } from "../../infra/config.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import { classifyCapsulePhase, type CapsulePhase } from "../capsule/capsule.js";
 import type { TmuxResult } from "../../infra/tmux.js";
@@ -55,7 +54,6 @@ import {
 } from "../runtime/sessions.js";
 import {
   AWAITING_REVIEW_GATE,
-  deepComboStatus,
   NO_MISTAKES_RUNNING,
   PR_READY_FOR_REVIEWER,
   type CommandResult,
@@ -292,16 +290,18 @@ export async function resumeCombo(input: {
   const combo = readCombo(runDir);
   const events = readEvents(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  const engine = isCapsuleEngine(config) ? "capsule" : "v0";
-  const downstream =
-    engine === "capsule"
-      ? undefined
-      : deepComboStatus(combo, events, deps.noMistakes, deps.gh, {
-          requiredCheckNames: config.readyRequiredChecks,
-          ambientCheckNames: config.externalCommentAgents,
-        });
+  const engine = "capsule";
   const headSha = currentWorktreeHeadSha(deps, combo);
-  const state = classifyResumeState({ combo, events, downstream, headSha, home, cli, gh: deps.gh, engine });
+  const state = classifyResumeState({
+    combo,
+    events,
+    downstream: undefined,
+    headSha,
+    home,
+    cli,
+    gh: deps.gh,
+    engine,
+  });
 
   if (state.kind === "capsule") {
     if (state.phase === "closed") {
@@ -416,10 +416,7 @@ function convergeCapsuleTopology(input: {
     buildDirectorInvocation({ combo, directorCommand: config.directorCommand }),
   );
   ensureWindowPresent(deps, combo, CODER_WINDOW, idleRoleWindowCommand(CODER_WINDOW));
-  ensureGatekeeperWindow(deps, combo, {
-    timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-    retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-  });
+  ensureGatekeeperWindow(deps, combo);
   ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
   // A stale v0 shell watcher must not survive on a capsule run: the capsule
   // pane's in-process supervisor is the only observer.
@@ -443,10 +440,7 @@ function convergeStableTopology(input: {
     buildDirectorInvocation({ combo, directorCommand: config.directorCommand }),
   );
   ensureWindowPresent(deps, combo, CODER_WINDOW, idleRoleWindowCommand(CODER_WINDOW));
-  ensureGatekeeperWindow(deps, combo, {
-    timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-    retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-  });
+  ensureGatekeeperWindow(deps, combo);
   ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
   return recreated;
 }

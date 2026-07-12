@@ -777,26 +777,19 @@ describe("recoverStuckWorker", () => {
 });
 
 describe("recoverDeadCoder", () => {
-  it("quotes hostile runner paths as one tmux command", () => {
-    const calls: string[][] = [];
-    const root = mkdtempSync(join(tmpdir(), "combo-chen-home-root-"));
-    const home = join(root, "home ' `whoami` $(touch nope)\nsecond");
+  it("escalates dead initial coder to needs_human instead of restarting the runner", () => {
+    const out: string[] = [];
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo({ tmuxSession: "combo-chen-owned-session" });
     const runDir = runDirFor(home, record.id);
     mkdirSync(home, { recursive: true });
     writeCombo(runDir, record);
-    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
 
     recoverDeadCoder({
       deps: {
         env: { COMBO_CHEN_HOME: home },
-        out: () => undefined,
-        tmux: (args) => {
-          calls.push(["tmux", ...args]);
-          if (args[0] === "has-session") return { status: 0, stdout: "", stderr: "" };
-          if (args[0] === "list-windows") return { status: 0, stdout: "\n", stderr: "" };
-          return { status: 0, stdout: "", stderr: "" };
-        },
+        out: (line) => out.push(line),
+        tmux: () => ({ status: 0, stdout: "", stderr: "" }),
       },
       home,
       comboId: record.id,
@@ -809,13 +802,18 @@ describe("recoverDeadCoder", () => {
       },
     });
 
-    const newWindow = calls.find((call) => call[0] === "tmux" && call[1] === "new-window");
-    expect(newWindow).toHaveLength(7);
-    const command = newWindow?.at(-1) ?? "";
-    expect(command).toContain("'\\''");
-    expect(command).toContain("`whoami`");
-    expect(command).toContain("$(touch nope)");
-    expect(command).toContain("\nsecond");
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "coder_dead",
+        detail: "dead pane",
+        attempt: 1,
+        max_attempts: 2,
+      }),
+    );
+    expect(out).toEqual([
+      'director: coder dead (worker_dead); escalated to needs_human. Run "combo-chen decide o-r-7 retry" to restart the capsule, or "take_over" to intervene manually.',
+    ]);
   });
 });
 // -/ 3/3

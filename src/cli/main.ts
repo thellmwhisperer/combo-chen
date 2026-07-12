@@ -72,7 +72,6 @@ import {
 import { resolveConfiguredTeamIdentity } from "../infra/team-identity.js";
 import { readEvents } from "../core/events.js";
 import { comboHome, readCombo } from "../core/state.js";
-import { readConfigSnapshot } from "../infra/config-snapshot.js";
 export type Deps = AppDeps;
 
 // -- 1/3 HELPER · Production adapters --
@@ -151,7 +150,6 @@ export function createProgram(deps: AppDeps): Command {
     .argument("<run-dir>", "Persisted combo run directory")
     .action(async (runDir: string) => {
       const combo = readCombo(runDir);
-      const config = readConfigSnapshot(runDir);
       const home = comboHome(deps.env);
       const phase = classifyCapsulePhase(readEvents(runDir));
       if (phase === "closed") {
@@ -202,10 +200,7 @@ export function createProgram(deps: AppDeps): Command {
             },
             activateReviewer: () => activateComboReviewer(deps, combo.id, cli),
             attachGate: () => {
-              refreshGatekeeperWindow(deps, combo, {
-                timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
-                retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
-              });
+              refreshGatekeeperWindow(deps, combo);
               deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
             },
             leaseHome: home,

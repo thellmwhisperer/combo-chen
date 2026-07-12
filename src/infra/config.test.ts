@@ -695,12 +695,12 @@ describe("loadConfig", () => {
     expect(envConfig.sourceBranch).toBe("release");
   });
 
-  it("defaults the run engine to v0 and loads the capsule opt-in from repo config or env", () => {
+  it("defaults the run engine to capsule and rejects the retired v0 engine", () => {
     const repoDir = tempDir();
 
     const defaults = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
-    expect(defaults.runEngine).toBe("v0");
-    expect(isCapsuleEngine(defaults)).toBe(false);
+    expect(defaults.runEngine).toBe("capsule");
+    expect(isCapsuleEngine(defaults)).toBe(true);
 
     writeToml(repoDir, "combo-chen.toml", '[run]\nengine = "capsule"\n');
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
@@ -713,6 +713,11 @@ describe("loadConfig", () => {
       env: { COMBO_CHEN_RUN_ENGINE: "capsule" },
     });
     expect(envConfig.runEngine).toBe("capsule");
+
+    writeToml(repoDir, "combo-chen.toml", '[run]\nengine = "v0"\n');
+    expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} })).toThrow(
+      /retired in v1/,
+    );
   });
 
   it("rejects an unknown run engine", () => {
@@ -724,8 +729,8 @@ describe("loadConfig", () => {
     );
   });
 
-  it("treats a legacy snapshot without a run engine as the v0 engine", () => {
-    expect(isCapsuleEngine({})).toBe(false);
+  it("treats a legacy pre-v1 snapshot without run engine as the capsule engine", () => {
+    expect(isCapsuleEngine({})).toBe(true);
   });
 
   it("loads the review loop round cap from repo config, env, and defaults", () => {
