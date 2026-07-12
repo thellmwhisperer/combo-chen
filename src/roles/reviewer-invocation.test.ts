@@ -6,23 +6,31 @@
  *
  *   READING GUIDE
  *   ─────────────
- *   1. Start at describe("defaultReviewerPrompt")   ← verdict contract
+ *   1. Start at describe("defaultReviewerPrompt")   ← v0 verdict contract
  *   2. Then describe("buildReviewerInvocation")     ← command rendering
+ *   3. Then describe("localReviewerPrompt")         ← v1 verdict-file contract
  *
  *   ┌─ TEST AREAS ──────────────────────────────────────┐
  *   │ defaultReviewerPrompt    Prompt contract rules + instructions │
  *   │ buildReviewerInvocation  Command template render + safety   │
+ *   │ localReviewerPrompt      v1 local review verdict-file prompt │
+ *   │ buildLocalReviewerInvocation  v1 command rendering + safety  │
  *   └────────────────────────────────────────────────────┘
  *
  * @exports none (test file)
- * @deps vitest, ./reviewer-invocation
+ * @deps vitest, ../core/verdict, ./reviewer-invocation
  */
 import { describe, expect, it } from "vitest";
 
+import { LOCAL_REVIEW_CHECKLIST } from "../core/verdict.js";
 import {
+  CRITICAL_SURFACES,
+  LOCAL_REVIEW_PROMPT_VERSION,
   ReviewerInvocationError,
+  buildLocalReviewerInvocation,
   buildReviewerInvocation,
   defaultReviewerPrompt,
+  localReviewerPrompt,
 } from "./reviewer-invocation.js";
 
 const combo = {
@@ -161,4 +169,115 @@ describe("buildReviewerInvocation", () => {
     ).not.toThrow();
   });
 });
-// -/ 1/1
+// -/ 1/2
+
+// -- 2/2 CORE · local pre-publish review prompt (v1) --
+const localInput = {
+  combo,
+  runDir: "/runs/o-r-9",
+  round: 2,
+  sha: "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0",
+  baseRef: "origin/main",
+  reviewerInstructions,
+};
+
+describe("localReviewerPrompt", () => {
+  it("instructs write-then-rename of the round's verdict file instead of GitHub posting", () => {
+    const prompt = localReviewerPrompt(localInput);
+
+    expect(prompt).toContain("/runs/o-r-9/verdict-2.json.tmp");
+    expect(prompt).toContain("/runs/o-r-9/verdict-2.json");
+    expect(prompt).toContain("rename");
+    expect(prompt).toContain("Do not write to GitHub");
+    expect(prompt).not.toContain("gh pr review");
+    expect(prompt).not.toContain("COMMENT reviews");
+    expect(prompt).toContain("There is no PR yet");
+  });
+
+  it("reviews the frozen local changeset and pins round and sha attribution", () => {
+    const prompt = localReviewerPrompt(localInput);
+
+    expect(prompt).toContain("round 2");
+    expect(prompt).toContain("origin/main..HEAD");
+    expect(prompt).toContain(localInput.sha);
+    expect(prompt).toContain(combo.worktree);
+    expect(prompt).toContain(`prompt v${LOCAL_REVIEW_PROMPT_VERSION}`);
+  });
+
+  it("carries the critical-surfaces calibration with minimum code 1", () => {
+    const prompt = localReviewerPrompt(localInput);
+
+    for (const surface of CRITICAL_SURFACES) {
+      expect(prompt).toContain(surface.id);
+    }
+    expect(prompt).toContain("minimum code 1");
+    expect(prompt).toContain("even if pre-existing");
+    expect(prompt).toContain("criticalSurface");
+  });
+
+  it("requires the full embedded checklist and declares partial verdicts malformed", () => {
+    const prompt = localReviewerPrompt(localInput);
+
+    for (const item of LOCAL_REVIEW_CHECKLIST) {
+      expect(prompt).toContain(item.id);
+    }
+    expect(prompt).toContain("malformed");
+  });
+
+  it("demands stable finding ids, machine-readable follow-ups, and produced identity", () => {
+    const prompt = localReviewerPrompt(localInput);
+
+    expect(prompt).toContain("same id");
+    expect(prompt).toContain("followUps");
+    expect(prompt).toContain("never the only home of a finding");
+    expect(prompt).toContain("identity");
+    expect(prompt).toContain("model");
+    expect(prompt).toContain("runtime");
+  });
+
+  it("hints the resolved reviewer identity when the launch contract declared one", () => {
+    const prompt = localReviewerPrompt({
+      ...localInput,
+      identity: { model: "claude-fable-5", runtime: "claude" },
+    });
+
+    expect(prompt).toContain("claude-fable-5");
+  });
+
+  it("keeps the verdict-code semantics and the anti-slop guardrails from v0", () => {
+    const prompt = localReviewerPrompt(localInput);
+
+    expect(prompt).toContain("0 = OK");
+    expect(prompt).toContain("1 = mechanical fix required");
+    expect(prompt).toContain("2 = ambiguous or intent-sensitive");
+    expect(prompt).toContain("3 = needs human");
+    expect(prompt).toContain("Anti-slop checks");
+    expect(prompt).toContain("pnpm surface or an equivalent repo search");
+    expect(prompt).toContain("who/when/why");
+    expect(prompt).toContain("surface budget");
+    expect(prompt).toContain("reviewer != coder");
+    expect(prompt).toContain("never write code");
+  });
+});
+
+describe("buildLocalReviewerInvocation", () => {
+  it("renders the reviewer command without requiring a PR URL", () => {
+    const command = buildLocalReviewerInvocation({
+      ...localInput,
+      reviewerCommand: "claude {prompt}",
+    });
+
+    expect(command.startsWith("claude '")).toBe(true);
+    expect(command).toContain("verdict-2.json");
+  });
+
+  it("rejects compound reviewer commands", () => {
+    expect(() =>
+      buildLocalReviewerInvocation({
+        ...localInput,
+        reviewerCommand: "claude {prompt} && rm -rf /",
+      }),
+    ).toThrow(ReviewerInvocationError);
+  });
+});
+// -/ 2/2
