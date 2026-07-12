@@ -166,6 +166,33 @@ describe("journal", () => {
     expect(Number.isNaN(Date.parse(events[0]!.t))).toBe(false);
   });
 
+  it("allocates strictly increasing timestamps even within one millisecond", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-12T10:00:00.000Z"));
+    try {
+      const dir = runDir();
+      // needs_human_ref identifies an escalation by its journal timestamp, so
+      // two events must never share a t (decision resolution would alias).
+      const first = appendEvent(dir, "needs_human", { reason: "one" });
+      const second = appendEvent(dir, "needs_human", { reason: "two" });
+      const batch = appendEvents(dir, [
+        { event: "needs_human", payload: { reason: "three" } },
+        { event: "needs_human", payload: { reason: "four" } },
+      ]);
+
+      const stamps = [first.t, second.t, ...batch.map((event) => event.t)];
+      expect(stamps).toEqual([
+        "2026-07-12T10:00:00.000Z",
+        "2026-07-12T10:00:00.001Z",
+        "2026-07-12T10:00:00.002Z",
+        "2026-07-12T10:00:00.003Z",
+      ]);
+      expect(readEvents(dir).map((event) => event.t)).toEqual(stamps);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps appendEvent in control of reserved journal fields", () => {
     const dir = runDir();
     const entry = appendEvent(dir, "coder_started", {
