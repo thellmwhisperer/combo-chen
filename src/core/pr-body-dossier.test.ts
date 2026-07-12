@@ -388,5 +388,51 @@ describe("projectDossierPrBody", () => {
     expect(result).toContain(DOSSIER_SECTION_END);
     expect(result).toContain("Round 1 — code 0");
   });
+
+  // -- adversarial: dossier content with marker-like strings --
+  it("converges byte-identical when dossier contains the END marker literal", () => {
+    const adversarialDossier = [
+      "## Attack table",
+      "",
+      `The marker string ${DOSSIER_SECTION_END} appears in text.`,
+    ].join("\n");
+    const round = sampleRound(1, { dossierMarkdown: adversarialDossier });
+    const first = projectDossierPrBody({ rounds: [round], existingBody: "" });
+    const second = projectDossierPrBody({ rounds: [round], existingBody: first });
+
+    // Must be byte-identical: no leaked fragments, no extra markers.
+    expect(second).toBe(first);
+    const endCount = (second.match(new RegExp(DOSSIER_SECTION_END, "g")) ?? []).length;
+    expect(endCount).toBe(1);
+  });
+
+  it("converges byte-identical when dossier contains the closing details tag", () => {
+    const adversarialDossier = [
+      "## Edge case",
+      "",
+      "The string </details> inside code fences is common in review dossiers.",
+    ].join("\n");
+    const round = sampleRound(1, { dossierMarkdown: adversarialDossier });
+    const first = projectDossierPrBody({ rounds: [round], existingBody: "" });
+    const second = projectDossierPrBody({ rounds: [round], existingBody: first });
+
+    expect(second).toBe(first);
+    // The literal </details> was neutralized so it doesn't close the outer tag.
+    expect(second).not.toMatch(/<\/details>.*<!--/);
+    expect(second).toContain("&lt;/details&gt;");
+  });
+
+  it("renders rounds newest first regardless of input order", () => {
+    const result = projectDossierPrBody({
+      rounds: [sampleRound(1), sampleRound(3), sampleRound(2)],
+      existingBody: "",
+    });
+
+    const r3 = result.indexOf("Round 3 — code 0");
+    const r2 = result.indexOf("Round 2 — code 0");
+    const r1 = result.indexOf("Round 1 — code 0");
+    expect(r3).toBeLessThan(r2);
+    expect(r2).toBeLessThan(r1);
+  });
 });
 // -/ 2/2

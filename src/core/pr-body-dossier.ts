@@ -10,8 +10,8 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at projectDossierPrBody   <- the pure projection function.
- *   2. dossierCompaction               <- compaction logic.
- *   3. Constants                       <- marker pair + default char limit.
+ *   2. Then renderFullRound            <- dossier content is sanitized.
+ *   3. Then parseMarkerSection         <- marker extraction for idempotence.
  *
  *   MAIN FLOW
  *   ---------
@@ -28,21 +28,21 @@
  *
  *   INTERNALS
  *   ---------
- *   renderFullRound, renderSection, compactOldest, parseMarkerSection
+ *   sanitizeDossierContent, renderFullRound, renderSection, parseMarkerSection
  *
  * @exports GITHUB_PR_BODY_CHAR_LIMIT, DOSSIER_SECTION_START, DOSSIER_SECTION_END, DossierRound, projectDossierPrBody, compactRoundLine
  */
 import type { VerdictCode } from "./verdict.js";
 
-// -- 1/3 CORE · constants --
+// -- 1/4 CORE · constants --
 /** GitHub PR body character limit (65,536). */
 export const GITHUB_PR_BODY_CHAR_LIMIT = 65536;
 
 export const DOSSIER_SECTION_START = "<!-- combo-chen-review-dossier -->";
 export const DOSSIER_SECTION_END = "<!-- /combo-chen-review-dossier -->";
-// -/ 1/3
+// -/ 1/4
 
-// -- 2/3 CORE · types --
+// -- 2/4 CORE · types --
 export interface DossierRound {
   round: number;
   sha: string;
@@ -58,9 +58,28 @@ interface ProjectedRound {
   full: boolean;
   markdown: string;
 }
-// -/ 2/3
+// -/ 2/4
 
-// -- 3/3 CORE · projection + compaction <- START HERE --
+// -- 3/4 CORE · content sanitization --
+/**
+ * Neutralizes HTML markers inside the embedded dossier content so the
+ * outer <details> block and the dossier section markers stay intact.
+ * Round-trip idempotence: re-projecting a previously projected body must
+ * converge byte-identical on the second pass even when the dossier
+ * markdown contains literal "</details>" or the section end marker.
+ */
+function sanitizeDossierContent(content: string): string {
+  return content
+    .replaceAll("<details>", "&lt;details&gt;")
+    .replaceAll("<DETAILS>", "&lt;DETAILS&gt;")
+    .replaceAll("</details>", "&lt;/details&gt;")
+    .replaceAll("</DETAILS>", "&lt;/DETAILS&gt;")
+    .replaceAll(DOSSIER_SECTION_START, "&lt;!-- combo-chen-review-dossier --&gt;")
+    .replaceAll(DOSSIER_SECTION_END, "&lt;!-- /combo-chen-review-dossier --&gt;");
+}
+// -/ 3/4
+
+// -- 4/4 CORE · projection + compaction <- START HERE --
 
 function renderFullRound(round: DossierRound): string {
   const sha12 = round.sha.slice(0, 12);
@@ -68,7 +87,7 @@ function renderFullRound(round: DossierRound): string {
     `<details>`,
     `<summary>Round ${round.round} — code ${round.code}, reviewed by ${round.model} @ ${sha12}</summary>`,
     "",
-    round.dossierMarkdown.trimEnd(),
+    sanitizeDossierContent(round.dossierMarkdown.trimEnd()),
     "",
     `</details>`,
   ];
@@ -146,6 +165,9 @@ export function projectDossierPrBody(options: {
     return options.existingBody;
   }
 
+  // Sort newest first (descending round) so callers don't have to.
+  const sorted = [...options.rounds].sort((a, b) => b.round - a.round);
+
   const sectionOverhead = DOSSIER_SECTION_START.length + 1 + 1 + DOSSIER_SECTION_END.length;
   const beforeClean = before.trimEnd();
   const afterClean = after.trimStart();
@@ -155,7 +177,7 @@ export function projectDossierPrBody(options: {
     sectionOverhead +
     (afterClean.length > 0 ? 2 : 0); // \n\n separator
 
-  const section = renderSection(options.rounds, limit, overhead);
+  const section = renderSection(sorted, limit, overhead);
 
   const parts: string[] = [];
   if (beforeClean.length > 0) {
@@ -170,4 +192,4 @@ export function projectDossierPrBody(options: {
 
   return `${parts.join("\n")}\n`;
 }
-// -/ 3/3
+// -/ 4/4

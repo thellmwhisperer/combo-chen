@@ -192,6 +192,15 @@ verdict (`src/core/review-dossier.ts`); the versioned local review prompt with
 critical-surfaces calibration is `localReviewerPrompt` in
 `src/roles/reviewer-invocation.ts`; the capsule runs the round between coder
 and gate (code 0 -> gate, 1/2/3 -> needs_human; the code-1 fix loop is W5b).
+W6c adds the PR body dossier projection (`src/core/pr-body-dossier.ts`) and
+permanent exit summary (`src/core/exit-summary.ts`): the dossier edits the PR
+body via `gh pr edit --body-file` (same pattern as ensurePrAutoclose in
+`src/app/github/github-handlers.ts`) with a marker-delimited section;
+re-projection is idempotent. The projection trigger is not yet wired — the
+natural call site is the post-publish external-review-green leg in the
+capsule's CodeRabbit-round handling; `updatePrBodyDossier` is ready to call
+when that leg lands. The exit summary folds over verdict files + journal
+events and is emitted at closure (file + stdout).
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
