@@ -26,7 +26,7 @@
  *   cliInvocation and the process entrypoint.
  *
  * @exports createProgram, defaultDeps, isDirectRun, Deps, resolvePollMs, buildDirectorWatchCommand
- * @deps commander, node:{child_process,fs,url}, ../app/{deps,director,gate,github,launch,lifecycle,reporting}, ../infra/{team-identity,tmux}, ../update/index
+ * @deps commander, node:{child_process,fs,url}, ../app/{capsule,deps,director,gate,github,launch,lifecycle,reporting}, ../core/state, ../infra/{config-snapshot,team-identity,tmux}, ../update/index
  */
 import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
@@ -34,6 +34,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command } from "commander";
 
 import type { AppDeps } from "../app/deps.js";
+import { runAgentProcess, runCapsule } from "../app/capsule/capsule.js";
 import {
   activateComboCoder,
   activateComboReviewer,
@@ -43,6 +44,7 @@ import {
   tickComboReviewer,
   watchDirector,
 } from "../app/director/director-handlers.js";
+import { GATEKEEPER_WINDOW, refreshGatekeeperWindow } from "../app/gate/gate.js";
 import { handleGateLease, restartGate } from "../app/gate/gate-handlers.js";
 import { ensurePrAutoclose, printIntent } from "../app/github/github-handlers.js";
 import { launchCombo, runOverture, type LaunchOptions } from "../app/launch/launch-handlers.js";
@@ -70,6 +72,8 @@ import {
   runSelfUpdate,
 } from "../update/index.js";
 import { resolveConfiguredTeamIdentity } from "../infra/team-identity.js";
+import { comboHome, readCombo } from "../core/state.js";
+import { readConfigSnapshot } from "../infra/config-snapshot.js";
 export { buildDirectorWatchCommand, resolvePollMs } from "../app/director/watchers.js";
 export type Deps = AppDeps;
 
@@ -114,6 +118,7 @@ export function defaultDeps(): AppDeps {
         (result.stderr ?? "").trim().length > 0 ? (result.stderr ?? "") : (result.error?.message ?? "");
       return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr };
     },
+    runAgent: runAgentProcess,
     resolveTeamIdentity: resolveConfiguredTeamIdentity,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     issueExists: (issueUrl) => {
@@ -141,6 +146,56 @@ export function createProgram(deps: AppDeps): Command {
   program.hook("preAction", async (_program, actionCommand) => {
     await checkForPassiveUpdate(deps, actionCommand.name());
   });
+
+  program
+    .command("capsule")
+    .description("Run the v1 TypeScript sequencer for a persisted combo run directory")
+    .argument("<run-dir>", "Persisted combo run directory")
+    .action(async (runDir: string) => {
+      const combo = readCombo(runDir);
+      const config = readConfigSnapshot(runDir);
+      const result = await runCapsule(runDir, {
+        env: deps.env,
+        out: deps.out,
+        git: async (request) => {
+          if (request.command !== "git")
+            throw new Error(`unsupported capsule git command: ${request.command}`);
+          const executed = deps.git(request.args, request.cwd);
+          return { exitCode: executed.status, stdout: executed.stdout, stderr: executed.stderr };
+        },
+        runAgent: deps.runAgent,
+        findPrUrl: async () => {
+          const found = deps.gh(["pr", "list", "--head", combo.branch, "--json", "url", "--jq", ".[0].url"]);
+          return found.status === 0 ? found.stdout.trim() || undefined : undefined;
+        },
+        resolvePrHead: async (prUrl) => {
+          const viewed = deps.gh(["pr", "view", prUrl, "--json", "headRefOid", "--jq", ".headRefOid"]);
+          return viewed.status === 0 ? viewed.stdout.trim() || undefined : undefined;
+        },
+        ensurePrAutoclose: async (prUrl) => {
+          try {
+            ensurePrAutoclose(deps, { name: combo.id, prUrl });
+            return { exitCode: 0, stdout: "", stderr: "" };
+          } catch (error) {
+            return {
+              exitCode: 1,
+              stdout: "",
+              stderr: error instanceof Error ? error.message : String(error),
+            };
+          }
+        },
+        activateReviewer: () => activateComboReviewer(deps, combo.id, cli),
+        attachGate: () => {
+          refreshGatekeeperWindow(deps, combo, {
+            timeoutSeconds: config.gatekeeperAttachTimeoutSeconds,
+            retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
+          });
+          deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
+        },
+        leaseHome: comboHome(deps.env),
+      });
+      if (result.exitCode !== 0) process.exitCode = result.exitCode;
+    });
 
   program
     .command("update")

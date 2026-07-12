@@ -196,7 +196,7 @@ describe("emit", () => {
     await expect(exec(deps, ["emit", "-n", "ghost", "coder_started"])).rejects.toThrow(/ENOENT/);
   });
 
-  it("rejects coder_done without a gnhf iteration path before journaling it", async () => {
+  it("accepts harness-neutral coder_done without a gnhf iteration path", async () => {
     const h = home();
     const dir = runDirFor(h, "o-r-7");
     writeCombo(dir, {
@@ -210,11 +210,8 @@ describe("emit", () => {
     });
     const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h } });
 
-    await expect(exec(deps, ["emit", "-n", "o-r-7", "coder_done"])).rejects.toThrow(
-      "coder_done requires gnhf_iteration_jsonl from the current gnhf run",
-    );
-
-    expect(readEvents(dir)).toEqual([]);
+    await expect(exec(deps, ["emit", "-n", "o-r-7", "coder_done"])).resolves.toBeUndefined();
+    expect(readEvents(dir).map((event) => event.event)).toEqual(["coder_done"]);
   });
 
   for (const doneEvent of ["coder_done", "rower_done"] as const) {

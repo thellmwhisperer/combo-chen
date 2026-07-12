@@ -89,6 +89,7 @@ describe("command surface", () => {
         "activate-coder",
         "activate-reviewer",
         "attach",
+        "capsule",
         "closure",
         "director-prompt",
         "director-tick",

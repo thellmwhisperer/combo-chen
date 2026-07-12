@@ -16,7 +16,6 @@
  *   ----------
  *   GateProcessRequest, GateProcessResult, GateProcessRunner, AxiStatus, ConfigCopyOutcome
  *   InProcessGateInput, InProcessGateResult
- *   buildInProcessGateInvocation
  *   runChildProcess, parseAxiStatus, axiHeadMatches, isAxiRunActive, isAxiRunAttachable
  *   resolveConfigCopyRace, runGatekeeperAndConfigCopy, copyConfigToActiveRun
  *   abortPreviousRun, daemonStartSucceeded, publishGateMirror, findAttachableRun
@@ -27,7 +26,7 @@
  *   ---------
  *   outputOf, delay, successful, finishSuccessfulGate
  *
- * @exports GateProcessRequest, GateProcessResult, GateProcessRunner, AxiStatus, ConfigCopyOutcome, InProcessGateInput, InProcessGateResult, buildInProcessGateInvocation, runChildProcess, parseAxiStatus, axiHeadMatches, isAxiRunActive, isAxiRunAttachable, resolveConfigCopyRace, runGatekeeperAndConfigCopy, copyConfigToActiveRun, abortPreviousRun, daemonStartSucceeded, publishGateMirror, findAttachableRun, shouldRecoverChecksPassed, gateIsAwaitingApproval, gateFailureReason, appendGateIdle, withGateLease, runInProcessGate
+ * @exports GateProcessRequest, GateProcessResult, GateProcessRunner, AxiStatus, ConfigCopyOutcome, InProcessGateInput, InProcessGateResult, runChildProcess, parseAxiStatus, axiHeadMatches, isAxiRunActive, isAxiRunAttachable, resolveConfigCopyRace, runGatekeeperAndConfigCopy, copyConfigToActiveRun, abortPreviousRun, daemonStartSucceeded, publishGateMirror, findAttachableRun, shouldRecoverChecksPassed, gateIsAwaitingApproval, gateFailureReason, appendGateIdle, withGateLease, runInProcessGate
  * @deps node:{child_process,fs,path}, ../../core/events, ../../core/state, ../../roles/gatekeeper, ./lease
  */
 import { spawn } from "node:child_process";
@@ -36,7 +35,7 @@ import { basename, dirname, join } from "node:path";
 
 import { appendEvent } from "../../core/events.js";
 import type { ComboRecord } from "../../core/state.js";
-import { buildGatekeeperInvocation, parseAxiOutcome, type GatekeeperInput } from "../../roles/gatekeeper.js";
+import { parseAxiOutcome } from "../../roles/gatekeeper.js";
 import {
   acquireGateLeaseForCombo,
   GATE_LEASE_CONFLICT_EXIT_CODE,
@@ -59,10 +58,6 @@ export interface GateProcessResult {
 }
 
 export type GateProcessRunner = (request: GateProcessRequest) => Promise<GateProcessResult>;
-
-export function buildInProcessGateInvocation(input: GatekeeperInput): string {
-  return buildGatekeeperInvocation(input);
-}
 
 export function runChildProcess(request: GateProcessRequest): Promise<GateProcessResult> {
   return new Promise((resolve, reject) => {
@@ -112,7 +107,7 @@ export function parseAxiStatus(raw: string): AxiStatus {
     const key = match[1] as keyof AxiStatus;
     const rawValue = match[2] ?? "";
     const value = rawValue.startsWith('"') && rawValue.endsWith('"') ? rawValue.slice(1, -1) : rawValue;
-    if (value !== "") result[key] = value;
+    if (value !== "" && result[key] === undefined) result[key] = value;
   }
   return result;
 }
@@ -297,7 +292,16 @@ export async function abortPreviousRun(input: {
       cwd: input.combo.worktree,
       env: input.env,
     });
-    if (!successful(aborted)) return false;
+    if (!successful(aborted)) {
+      const finalStatus = await input.runProcess({
+        command: "no-mistakes",
+        args: ["axi", "status"],
+        cwd: input.combo.worktree,
+        env: input.env,
+      });
+      const final = parseAxiStatus(outputOf(finalStatus));
+      return final.id === undefined || final.branch !== input.combo.branch || !isAxiRunActive(final.status);
+    }
     await delay(input.retryDelayMs ?? 1000);
   }
   const finalStatus = await input.runProcess({
@@ -519,10 +523,24 @@ export async function runInProcessGate(input: InProcessGateInput): Promise<InPro
       daemonStarted = mirror.daemonStarted;
       previousRunAborted = mirror.previousRunAborted;
       if (mirror.exitCode !== 0) {
+        const statusProbe = await runProcess({
+          command: "no-mistakes",
+          args: ["axi", "status"],
+          cwd: input.combo.worktree,
+          env: input.env,
+        });
+        const runId = findAttachableRun(outputOf(statusProbe), {
+          branch: input.combo.branch,
+          head: headSha,
+        });
+        if (runId !== undefined) {
+          appendEvent(input.runDir, "gate_status", { state: "fix_inflight", head_sha: headSha });
+          return { status: "already_running", exitCode: 0, headSha, runId };
+        }
         appendEvent(input.runDir, "gate_status", { state: "failed", head_sha: headSha });
         appendEvent(input.runDir, "gate_failed", {
           exit_code: mirror.exitCode,
-          reason: gateFailureReason(outputOf(mirror)),
+          reason: gateFailureReason(`${outputOf(mirror)}${outputOf(statusProbe)}`),
         });
         return { status: "failed", exitCode: mirror.exitCode, headSha };
       }
