@@ -118,5 +118,11 @@ describe("direct-combos skill", () => {
     expect(mentionedCommands.length).toBeGreaterThan(0);
     expect([...new Set(mentionedCommands)].filter((name) => !registeredCommands.has(name))).toEqual([]);
   });
+
+  it("does not promise cross-branch gate concurrency", () => {
+    const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
+
+    expect(markdown).not.toContain("Capsules on different branches may enter no-mistakes concurrently");
+  });
 });
 // -/ 1/1

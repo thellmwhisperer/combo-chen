@@ -239,6 +239,27 @@ describe("config-copy race truth table", () => {
       "commands:\n  test: pnpm test\n",
     );
   });
+
+  it("reads the config-copy attempt limit from the gate environment", async () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-config-copy-"));
+    const worktree = join(root, "combo-worktree");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(join(worktree, ".no-mistakes.yaml"), "commands:\n  test: pnpm test\n");
+    let calls = 0;
+
+    await expect(
+      copyConfigToActiveRun({
+        combo: { branch: "combo/issue-7", worktree },
+        runProcess: async () => {
+          calls += 1;
+          return { exitCode: 0, stdout: "status: done\n", stderr: "" };
+        },
+        env: { COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS: "2" },
+        retryDelayMs: 0,
+      }),
+    ).resolves.toBe("failed");
+    expect(calls).toBe(4);
+  });
 });
 // -/ 2/3
 
@@ -507,6 +528,28 @@ describe("mirror and lease orchestration", () => {
     expect(
       existsSync(join(home, "gate-leases.lock", encodeURIComponent("combo/issue-7"), "lease.json")),
     ).toBe(false);
+  });
+
+  it("heartbeats an acquired branch lease until the action settles", async () => {
+    const home = mkdtempSync(join(tmpdir(), "combo-chen-in-process-lease-"));
+    const runDir = runDirFor(home, "o-r-7");
+    writeCombo(runDir, combo(home));
+    const action = deferred<string>();
+    const result = withGateLease({
+      home,
+      comboId: "o-r-7",
+      headSha: "abcdef123456",
+      heartbeatIntervalMs: 1,
+      action: async () => action.promise,
+    });
+    const initialHeartbeat = readGateLease(home)?.heartbeatAt;
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(readGateLease(home)?.heartbeatAt).not.toBe(initialHeartbeat);
+    action.resolve("done");
+
+    await expect(result).resolves.toEqual({ acquired: true, value: "done" });
+    expect(readGateLease(home)).toBeUndefined();
   });
 });
 // -/ 3/3
