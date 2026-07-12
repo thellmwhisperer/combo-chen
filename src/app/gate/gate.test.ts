@@ -22,7 +22,7 @@
  *   combo
  *
  * @exports none
- * @deps ../../core/combo, ../../core/events, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ./gate, node:child_process, node:fs, node:os, node:path, vitest
+ * @deps ../../core/events, ../../core/shell-quote, ../../core/state, ../../infra/config, ../../infra/config-snapshot, ./gate, node:child_process, node:fs, node:os, node:path, vitest
  */
 import { spawnSync } from "node:child_process";
 import {
@@ -49,8 +49,8 @@ import {
   startInitialGateRetry,
   syncNoMistakesMirror,
 } from "./gate.js";
-import { shellQuote } from "../../core/combo.js";
 import { appendEvent } from "../../core/events.js";
+import { shellQuote } from "../../core/shell-quote.js";
 import type { ComboRecord } from "../../core/state.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";

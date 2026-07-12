@@ -22,13 +22,14 @@
  *   buildParkSummary
  *
  * @exports ParkDeps, parkCombo
- * @deps ../../core/combo, ../../core/events, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../github/github, ../reporting/status, node:fs, node:path
+ * @deps ../../core/combo, ../../core/events, ../../core/shell-quote, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../github/github, ../reporting/status, node:fs, node:path
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { deriveStatus, shellQuote } from "../../core/combo.js";
+import { deriveStatus } from "../../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../../core/events.js";
+import { shellQuote } from "../../core/shell-quote.js";
 import { readCombo, runDirFor, type ComboRecord } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import { hasSessionArgs, killSessionArgs, type TmuxResult } from "../../infra/tmux.js";

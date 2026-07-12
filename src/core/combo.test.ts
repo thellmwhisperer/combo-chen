@@ -18,7 +18,7 @@
  *
  * @exports none (test file)
  * @deps vitest, node:{child_process,fs,os,path}, ../infra/config,
- *   ../roles/gatekeeper, ./events, ./combo
+ *   ../roles/gatekeeper, ./combo, ./events, ./shell-quote
  */
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,7 +29,8 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_GATEKEEPER_COMMAND } from "../infra/config.js";
 import { buildGatekeeperInvocation } from "../roles/gatekeeper.js";
 import type { ComboEvent } from "./events.js";
-import { buildNoMistakesGatekeeperRunScript, buildRunnerScript, deriveStatus, shellQuote } from "./combo.js";
+import { buildNoMistakesGatekeeperRunScript, buildRunnerScript, deriveStatus } from "./combo.js";
+import { shellQuote } from "./shell-quote.js";
 
 function ev(event: ComboEvent["event"], extra: Record<string, unknown> = {}): ComboEvent {
   return { t: new Date().toISOString(), event, ...extra };

@@ -31,7 +31,7 @@
  *   buildPersistentGatekeeperWindowCommand, buildScriptWithGatekeeperAttachCommand
  *
  * @exports GateDeps, GatekeeperWindowDeps, PostAddressGateDeps, GatekeeperAttachOptions, PostAddressGateCheckResult, GATEKEEPER_WINDOW, NO_MISTAKES_CONFIG_FILE, buildGatekeeperAttachCommand, startGatekeeperWindow, ensureGatekeeperWindow, refreshGatekeeperWindow, remoteShaForRef, latestGateStatus, latestPublishedGateSha, shaMatchesHead, propagateNoMistakesConfig, scriptedMirrorGatekeeperCommandTemplate, startInitialGateRetry, buildPostAddressGateScript, restartPostAddressGate, runPostAddressGateIfNeeded, syncNoMistakesMirror
- * @deps ../../core/combo, ../../core/events, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/gatekeeper, ../../shell/templates, ../github/github, ../runtime/sessions, ../work-items/persisted-work-plan, node:fs, node:path
+ * @deps ../../core/combo, ../../core/events, ../../core/shell-quote, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/gatekeeper, ../../shell/templates, ../github/github, ../runtime/sessions, ../work-items/persisted-work-plan, node:fs, node:path
  */
 import { chmodSync, copyFileSync, existsSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -42,10 +42,10 @@ import {
   checksPassedContextCanceledRecoveryScript,
   gateLeaseScriptLines,
   guardNoMistakesDaemonStart,
-  shellQuote,
 } from "../../core/combo.js";
 import { renderShellTemplate } from "../../shell/templates.js";
 import { appendEvent, readEvents, type ComboEvent } from "../../core/events.js";
+import { shellQuote } from "../../core/shell-quote.js";
 import type { ComboRecord } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import {

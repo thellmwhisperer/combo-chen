@@ -31,15 +31,15 @@
  *   worktreeHeadSha, hasUnroutedReviewComments, ensureCoderRespondingWindow, buildPrConflictNudgePrompt, latestRoutedCoderPrompt
  *
  * @exports ActivateCoderDeps, NudgeReviewCommentsDeps, PrConflictNudge, StuckWorkerRecovery, DeadCoderRecovery, activateCoder, nudgeReviewComments, nudgePrConflict, recoverStuckWorker, recoverDeadCoder
- * @deps ../../core/combo, ../../core/events, ../../core/gh-api, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-responding, ../gate/gate, ../runtime/sessions, node:fs, node:path
+ * @deps ../../core/events, ../../core/gh-api, ../../core/shell-quote, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-responding, ../gate/gate, ../runtime/sessions, node:fs, node:path
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import type { GhApiCache } from "../../core/gh-api.js";
+import { shellQuote } from "../../core/shell-quote.js";
 import { runDirFor, readCombo } from "../../core/state.js";
-import { shellQuote } from "../../core/combo.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import {
   hasSessionArgs,
