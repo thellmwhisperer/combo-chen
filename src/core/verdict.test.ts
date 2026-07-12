@@ -105,10 +105,7 @@ describe("verdict artifact", () => {
 
   it("rejects a verdict without the embedded checklist", () => {
     const runDir = runDirFixture();
-    writeFileSync(
-      verdictFilePath(runDir, 1),
-      `${JSON.stringify({ ...fixtureVerdict(), checklist: [] })}\n`,
-    );
+    writeFileSync(verdictFilePath(runDir, 1), `${JSON.stringify({ ...fixtureVerdict(), checklist: [] })}\n`);
 
     expect(() => readVerdictFile(runDir, 1)).toThrow(VerdictError);
     expect(() => readVerdictFile(runDir, 1)).toThrow(/checklist/);
@@ -130,10 +127,7 @@ describe("verdict artifact", () => {
       { followUps: [{ title: "" }] },
     ];
     for (const broken of cases) {
-      writeFileSync(
-        verdictFilePath(runDir, 1),
-        `${JSON.stringify({ ...fixtureVerdict(), ...broken })}\n`,
-      );
+      writeFileSync(verdictFilePath(runDir, 1), `${JSON.stringify({ ...fixtureVerdict(), ...broken })}\n`);
       expect(() => readVerdictFile(runDir, 1), JSON.stringify(broken)).toThrow(VerdictError);
     }
   });

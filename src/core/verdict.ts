@@ -254,7 +254,9 @@ export function readVerdictFile(runDir: string, round: number): VerdictFile {
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
-    fail(`torn or non-JSON ${verdictFileName(round)}: ${error instanceof Error ? error.message : String(error)}`);
+    fail(
+      `torn or non-JSON ${verdictFileName(round)}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   if (!isRecord(parsed)) fail("verdict must be a JSON object");
   if (parsed["schemaVersion"] !== VERDICT_SCHEMA_VERSION) {
