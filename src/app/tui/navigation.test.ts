@@ -136,3 +136,93 @@ describe("navigate dive-in and back", () => {
   });
 });
 // -/ 2/2
+
+// -- 3/4 CORE · decision modal navigation (PRD s7/s8) <-
+describe("navigate decision modal", () => {
+  function diveInto(id: string): ReturnType<typeof navigate> {
+    return navigate(initialNavState, { input: "", return: true }, [{ comboId: id }]);
+  }
+
+  it("opens the modal on v when a pending decision is available", () => {
+    const state = navigate(diveInto("alpha"), { input: "v" }, [{ comboId: "alpha" }], {
+      decisionAvailable: true,
+    });
+    expect(state.decisionOpen).toBe(true);
+  });
+
+  it("does not open the modal when no decision is available", () => {
+    const state = navigate(diveInto("alpha"), { input: "v" }, [{ comboId: "alpha" }]);
+    expect(state.decisionOpen).toBe(false);
+  });
+
+  it("closes the modal on Escape, q, or ArrowLeft", () => {
+    let state = navigate(diveInto("alpha"), { input: "v" }, [{ comboId: "alpha" }], {
+      decisionAvailable: true,
+    });
+    state = navigate(state, { input: "", escape: true }, [{ comboId: "alpha" }]);
+    expect(state.decisionOpen).toBe(false);
+  });
+
+  it("selects a decision verb via r/s/t/i and emits a decide action, closing the modal", () => {
+    let state = navigate(diveInto("alpha"), { input: "v" }, [{ comboId: "alpha" }], {
+      decisionAvailable: true,
+    });
+    state = navigate(state, { input: "r" }, [{ comboId: "alpha" }]);
+    expect(state.decisionOpen).toBe(false);
+    expect(state.action).toEqual({ kind: "decide", verb: "retry" });
+
+    state = navigate({ ...state, action: null, decisionOpen: true }, { input: "s" }, [{ comboId: "alpha" }]);
+    expect(state.action).toEqual({ kind: "decide", verb: "skip" });
+
+    state = navigate({ ...state, action: null, decisionOpen: true }, { input: "t" }, [{ comboId: "alpha" }]);
+    expect(state.action).toEqual({ kind: "decide", verb: "take_over" });
+
+    state = navigate({ ...state, action: null, decisionOpen: true }, { input: "i" }, [{ comboId: "alpha" }]);
+    expect(state.action).toEqual({ kind: "decide", verb: "ignore" });
+  });
+
+  it("opens the modal from the fleet on v when the selected row has a pending decision", () => {
+    const state = navigate(initialNavState, { input: "v" }, [{ comboId: "alpha" }], {
+      decisionAvailable: true,
+    });
+    expect(state.decisionOpen).toBe(true);
+  });
+
+  it("swallows navigation keys while the modal is open", () => {
+    let state = navigate(diveInto("alpha"), { input: "v" }, [{ comboId: "alpha" }], {
+      decisionAvailable: true,
+    });
+    const before = { ...state, action: null };
+    state = navigate({ ...before }, { input: "", downArrow: true }, [{ comboId: "alpha" }]);
+    expect(state.diveComboId).toBe("alpha");
+    expect(state.decisionOpen).toBe(true);
+  });
+});
+// -/ 3/4
+
+// -- 4/4 CORE · tmux jump navigation (PRD s8 Enter on live actor) <-
+describe("navigate tmux jump", () => {
+  it("emits a jump action on Enter in dive when a live actor is available", () => {
+    let state = navigate(initialNavState, { input: "", return: true }, [{ comboId: "alpha" }]);
+    state = navigate(state, { input: "", return: true }, [{ comboId: "alpha" }], {
+      liveActorAvailable: true,
+    });
+    expect(state.action).toEqual({ kind: "jump" });
+    expect(state.diveComboId).toBe("alpha");
+  });
+
+  it("does not emit a jump action when no live actor is available", () => {
+    let state = navigate(initialNavState, { input: "", return: true }, [{ comboId: "alpha" }]);
+    state = navigate(state, { input: "", return: true }, [{ comboId: "alpha" }]);
+    expect(state.action).toBeNull();
+  });
+
+  it("does not emit a jump action from the fleet (Enter dives instead)", () => {
+    const state = navigate(initialNavState, { input: "", return: true }, [{ comboId: "alpha" }], {
+      liveActorAvailable: true,
+    });
+    expect(state.action).toBeNull();
+    expect(state.diveComboId).toBe("alpha");
+  });
+});
+// -/ 4/4

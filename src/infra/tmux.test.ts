@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   attachSessionArgs,
+  bindKeyArgs,
   captureWindowArgs,
   hasSessionArgs,
   JOURNAL_PANE_HEIGHT,
@@ -29,8 +30,10 @@ import {
   newWindowArgs,
   nudgeWindowArgs,
   renameWindowArgs,
+  selectWindowArgs,
   splitWindowArgs,
   switchClientArgs,
+  unbindKeyArgs,
 } from "./tmux.js";
 
 // -- 1/1 CORE · tmux argument builders: argv contracts ← START HERE --
@@ -98,6 +101,40 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
 
   it("switches the current client to a session (inside-tmux navigation)", () => {
     expect(switchClientArgs("combo-chen-home")).toEqual(["switch-client", "-t", "combo-chen-home"]);
+  });
+
+  it("selects a window within a session (sets the session active window)", () => {
+    expect(selectWindowArgs("combo-chen-o-r-7", "reviewer")).toEqual([
+      "select-window",
+      "-t",
+      "combo-chen-o-r-7:reviewer",
+    ]);
+  });
+
+  it("binds a prefix key to a tmux command for the TUI return binding", () => {
+    expect(bindKeyArgs("B", "switch-client -t combo-chen-home")).toEqual([
+      "bind-key",
+      "B",
+      "switch-client",
+      "-t",
+      "combo-chen-home",
+    ]);
+  });
+
+  it("binds a key in a named table when given a keyTable option", () => {
+    expect(bindKeyArgs("B", "switch-client -t combo-chen-home", { keyTable: "combo-chen" })).toEqual([
+      "bind-key",
+      "-T",
+      "combo-chen",
+      "B",
+      "switch-client",
+      "-t",
+      "combo-chen-home",
+    ]);
+  });
+
+  it("unbinds a prefix key", () => {
+    expect(unbindKeyArgs("B")).toEqual(["unbind-key", "B"]);
   });
 
   it("nudges an interactive sitter with pasted text and a separate raw Enter", () => {
