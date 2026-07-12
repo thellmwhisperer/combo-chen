@@ -1101,5 +1101,78 @@ describe("inspectWorkerPanes", () => {
       expect.objectContaining({ event: "needs_human", reason: "worker_stalled", worker: "coder" }),
     );
   });
+
+  it("suppresses a stall escalation when an injected evidence source reports the role binary alive", () => {
+    const { record, runDir } = combo();
+    const { deps, out } = fakeDeps({ coder: "acp loop spinner\n" });
+    const evidenceSources = {
+      coder: { aliveEvidence: () => "acp run active; orchestrator log is progressing" },
+    };
+
+    for (let tick = 0; tick < 3; tick += 1) {
+      const result = inspectWorkerPanes({
+        deps,
+        combo: record,
+        runDir,
+        workerWindows: ["coder"],
+        evidenceSources,
+      });
+      expect(result.escalated).toBe(false);
+    }
+
+    expect(out).toContainEqual(expect.stringContaining("acp run active"));
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
+  it("reports a dead worker when an injected pane fingerprint confirms terminal failure", () => {
+    const { record, runDir } = combo();
+    const { deps } = fakeDeps({ coder: "FATAL: orchestrator crashed\n" });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      evidenceSources: {
+        coder: {
+          aliveEvidence: () => undefined,
+          paneTerminalFailure: (pane) =>
+            pane.includes("FATAL") ? { kind: "dead", detail: "acp orchestrator stopped" } : undefined,
+        },
+      },
+    });
+
+    expect(result.escalated).toBe(true);
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_dead",
+        worker: "coder",
+        detail: "acp orchestrator stopped",
+      }),
+    );
+  });
+
+  it("keeps a fingerprint-matched worker alive when the injected source reports the run active", () => {
+    const { record, runDir } = combo();
+    const { deps, out } = fakeDeps({ coder: "FATAL-looking footer\n" });
+
+    const result = inspectWorkerPanes({
+      deps,
+      combo: record,
+      runDir,
+      workerWindows: ["coder"],
+      evidenceSources: {
+        coder: {
+          aliveEvidence: () => undefined,
+          paneTerminalFailure: () => ({ kind: "run_active", summary: "footer matched but run is live" }),
+        },
+      },
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("footer matched but run is live"));
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
 });
 // -/ 1/1
