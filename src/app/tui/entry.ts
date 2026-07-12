@@ -12,7 +12,8 @@
  *   2. Then loadTuiData             <- rows + dives + decisions from run dirs.
  *   3. Then resolveJumpActions      <- pure: dive-in Enter -> tmux arg vectors.
  *   4. Then decideOptions           <- pure: decision verb -> decide handler opts.
- *   5. Then renderTuiHome           <- data load + Ink render + refresh.
+ *   5. Then recordDecision           <- wraps the write so a stale card can't crash.
+ *   6. Then renderTuiHome           <- data load + Ink render + refresh.
  *
  *   MAIN FLOW
  *   ---------
@@ -20,7 +21,7 @@
  *     -> inside session: COMBO_CHEN_TUI_DIRECT=1 -> renderTuiHome
  *     -> loadTuiData loads rows + dives + decisions, renders <Home>
  *     -> Enter on live actor -> resolveJumpActions -> deps.tmux (client moves)
- *     -> decision verb -> decideComboEscalation (one write path)
+ *     -> decision verb -> recordDecision -> decideComboEscalation (one write path)
  *
  *   PUBLIC API
  *   ----------
@@ -33,14 +34,16 @@
  *   loadVerdictsForCombo Pure: loop-state rounds -> verdict map (v0-safe).
  *   resolveJumpActions  Pure: live actor -> tmux jump arg vectors (or null).
  *   decideOptions       Pure: decision verb -> decideComboEscalation options.
+ *   recordDecision      Wraps the decide write; returns ok or a non-fatal message.
+ *   refreshIntervalMs   Pure: COMBO_CHEN_TUI_REFRESH_MS -> interval (default 5s).
  *   TuiData             Loaded fleet + dives + decisions + combo index.
  *   runTuiHome          Entry: session management or direct render.
  *
  *   INTERNALS
  *   ---------
- *   loadFleetRows, loadTuiData, renderTuiHome, REFRESH_INTERVAL_MS.
+ *   loadTuiData, renderTuiHome, DEFAULT_REFRESH_MS.
  *
- * @exports HOME_SESSION_NAME, TUI_DIRECT_ENV, insideTmux, isTtyStdout, homeSessionCommand, homeSessionActions, loadVerdictsForCombo, resolveJumpActions, decideOptions, TuiData, runTuiHome
+ * @exports HOME_SESSION_NAME, TUI_DIRECT_ENV, insideTmux, isTtyStdout, homeSessionCommand, homeSessionActions, loadVerdictsForCombo, resolveJumpActions, decideOptions, recordDecision, refreshIntervalMs, TuiData, runTuiHome
  * @deps ../../core/events, ../../core/loop-state, ../../core/state, ../../core/verdict, ../../infra/tmux, ../deps, ../lifecycle/lifecycle-handlers, ./decisions-fold, ./fleet-fold, ./thread-fold, ./tmux-jump
  */
 import { readEvents } from "../../core/events.js";
@@ -55,7 +58,7 @@ import { deriveActorLiveness, deriveFleetRow, type FleetRow } from "./fleet-fold
 import { jumpToActorActions } from "./tmux-jump.js";
 import { deriveThread, type ThreadView } from "./thread-fold.js";
 
-// -- 1/3 CORE · pure session + TTY helpers <-
+// -- 1/6 CORE · pure session + TTY helpers <-
 export const HOME_SESSION_NAME = "combo-chen-home";
 export const TUI_DIRECT_ENV = "COMBO_CHEN_TUI_DIRECT";
 
@@ -80,7 +83,7 @@ export function homeSessionActions(exists: boolean, inside: boolean, cli: string
   const connect = inside ? switchClientArgs(HOME_SESSION_NAME) : attachSessionArgs(HOME_SESSION_NAME);
   return [create, connect];
 }
-// -/ 1/3
+// -/ 1/6
 
 // -- 2/6 CORE · runTuiHome entry <-
 export async function runTuiHome(deps: AppDeps, cli: string): Promise<void> {
@@ -186,26 +189,6 @@ export interface TuiData {
   readonly combosById: Record<string, ComboRecord>;
 }
 
-export function loadFleetRows(env: Record<string, string | undefined>, tmux: AppDeps["tmux"]): FleetRow[] {
-  const home = comboHome(env);
-  const combos = listCombos(home, () => {});
-  const rows: FleetRow[] = [];
-  for (const combo of combos) {
-    const runDir = runDirFor(home, combo.id);
-    let events;
-    try {
-      events = readEvents(runDir);
-    } catch {
-      continue;
-    }
-    if (events.length === 0) continue;
-    const sessionAlive = tmux(hasSessionArgs(combo.tmuxSession)).status === 0;
-    const liveness = deriveActorLiveness(events, sessionAlive);
-    rows.push(deriveFleetRow({ combo, events, liveness }));
-  }
-  return rows;
-}
-
 export function loadTuiData(deps: AppDeps): TuiData {
   const home = comboHome(deps.env);
   const combos = listCombos(home, () => {});
@@ -225,13 +208,35 @@ export function loadTuiData(deps: AppDeps): TuiData {
     if (events.length === 0) continue;
     const sessionAlive = deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0;
     const liveness = deriveActorLiveness(events, sessionAlive);
-    rows.push(deriveFleetRow({ combo, events, liveness }));
+    const row = deriveFleetRow({ combo, events, liveness });
+    rows.push(row);
     const verdicts = loadVerdictsForCombo(runDir);
     dives[combo.id] = deriveThread({ combo, events, verdicts, liveness });
-    const pending = derivePendingDecisions({ comboId: combo.id, events });
+    const pending = derivePendingDecisions({
+      comboId: combo.id,
+      events,
+      workItemLabel: row.workItemLabel,
+    });
     if (pending.length > 0) decisions[combo.id] = pending;
   }
   return { rows, dives, decisions, combosById };
+}
+
+/**
+ * Wraps the decide write so a stale ref or already-answered card cannot crash
+ * the TUI (the 5s refresh can race the operator's choice). Returns ok or a
+ * non-fatal message the UI surfaces as a notice instead of throwing.
+ */
+export function recordDecision(
+  deps: Pick<AppDeps, "env" | "out">,
+  options: { name: string; verb: string; ref?: string },
+): { ok: true } | { ok: false; message: string } {
+  try {
+    decideComboEscalation(deps, options);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function renderTuiHome(deps: AppDeps): Promise<void> {
@@ -241,6 +246,7 @@ async function renderTuiHome(deps: AppDeps): Promise<void> {
   const inside = insideTmux(deps.env);
   const initial = loadTuiData(deps);
   let current = initial;
+  let notice: string | undefined;
 
   const onJump = (comboId: string): void => {
     const combo = current.combosById[comboId];
@@ -255,30 +261,33 @@ async function renderTuiHome(deps: AppDeps): Promise<void> {
     for (const args of actions) deps.tmux(args);
   };
   const onDecide = (comboId: string, verb: string, ref?: string): void => {
-    decideComboEscalation(deps, decideOptions(comboId, verb, ref));
+    const result = recordDecision(deps, decideOptions(comboId, verb, ref));
+    if (result.ok) {
+      notice = undefined;
+    } else {
+      notice = `decision not recorded: ${result.message}`;
+      renderNow();
+    }
   };
 
-  const instance = render(
-    React.createElement(Home, {
-      rows: initial.rows,
-      dives: initial.dives,
-      decisions: initial.decisions,
-      onJump,
-      onDecide,
-    }),
-  );
+  const homeProps = (): React.ComponentProps<typeof Home> => ({
+    rows: current.rows,
+    dives: current.dives,
+    decisions: current.decisions,
+    onJump,
+    onDecide,
+    ...(notice !== undefined ? { notice } : {}),
+  });
+  const renderNow = (): void => {
+    instance.rerender(React.createElement(Home, homeProps()));
+  };
+
+  const instance = render(React.createElement(Home, homeProps()));
   const interval = setInterval(() => {
     try {
       current = loadTuiData(deps);
-      instance.rerender(
-        React.createElement(Home, {
-          rows: current.rows,
-          dives: current.dives,
-          decisions: current.decisions,
-          onJump,
-          onDecide,
-        }),
-      );
+      notice = undefined; // a successful refresh clears any stale notice
+      renderNow();
     } catch {
       // Data loading errors are non-fatal; keep the last known state.
     }

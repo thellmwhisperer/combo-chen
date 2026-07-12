@@ -97,8 +97,8 @@ describe("derivePendingDecisions card content", () => {
     });
     const card = cards[0]!;
     expect(card.question).toContain("gate");
-    expect(card.context).toContain("o-r-7");
-    expect(card.context).toContain("#142");
+    expect(card.comboId).toBe("o-r-7");
+    expect(card.workItemLabel).toBe("#142 Add 2FA");
     expect(card.verbs).toEqual(DECISION_VERBS);
   });
 

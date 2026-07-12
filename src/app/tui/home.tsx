@@ -117,6 +117,8 @@ export interface HomeProps {
   readonly decisions?: Readonly<Record<string, readonly DecisionCard[]>>;
   readonly onJump?: (comboId: string) => void;
   readonly onDecide?: (comboId: string, verb: string, ref?: string) => void;
+  /** Transient non-fatal notice (e.g. a stale-card decision write that failed). */
+  readonly notice?: string;
   /** Testing seam / external control: seed the initial navigation state. */
   readonly initialNav?: NavState;
 }
@@ -127,6 +129,7 @@ export function Home({
   decisions,
   onJump,
   onDecide,
+  notice,
   initialNav,
 }: HomeProps): React.ReactElement {
   const { exit } = useApp();
@@ -184,11 +187,20 @@ export function Home({
 
   const focusId = nav.diveComboId ?? view.rows[nav.selected]?.comboId ?? null;
   const modalCard = nav.decisionOpen && focusId !== null ? (decisions?.[focusId]?.[0] ?? null) : null;
+  const noticeBox = notice !== undefined ? <Notice text={notice} /> : null;
 
   if (nav.diveComboId !== null) {
-    return <DiveThread dive={dives?.[nav.diveComboId]} comboId={nav.diveComboId} modal={modalCard} />;
+    return (
+      <DiveThread dive={dives?.[nav.diveComboId]} comboId={nav.diveComboId} modal={modalCard}>
+        {noticeBox}
+      </DiveThread>
+    );
   }
-  return <FleetBody view={view} selected={nav.selected} modal={modalCard} />;
+  return (
+    <FleetBody view={view} selected={nav.selected} modal={modalCard}>
+      {noticeBox}
+    </FleetBody>
+  );
 }
 // -/ 2/5
 
@@ -197,15 +209,18 @@ function FleetBody({
   view,
   selected,
   modal,
+  children,
 }: {
   readonly view: FleetView;
   readonly selected: number;
   readonly modal: DecisionCard | null;
+  readonly children?: React.ReactNode;
 }): React.ReactElement {
   if (view.emptyState === "onboarding") {
     return (
       <Box flexDirection="column">
         <OnboardingScreen />
+        {children}
         {modal !== null && <DecisionModal card={modal} />}
       </Box>
     );
@@ -214,6 +229,7 @@ function FleetBody({
     return (
       <Box flexDirection="column">
         <AllQuietScreen />
+        {children}
         {modal !== null && <DecisionModal card={modal} />}
       </Box>
     );
@@ -247,6 +263,7 @@ function FleetBody({
       <Box marginTop={1}>
         <Text dimColor>{"↑↓ select · Enter dive · v decision · 1-3 tabs · q quit"}</Text>
       </Box>
+      {children}
       {modal !== null && <DecisionModal card={modal} />}
     </Box>
   );
@@ -289,15 +306,18 @@ function DiveThread({
   dive,
   comboId,
   modal,
+  children,
 }: {
   readonly dive: ThreadView | undefined;
   readonly comboId: string;
   readonly modal: DecisionCard | null;
+  readonly children?: React.ReactNode;
 }): React.ReactElement {
   if (dive === undefined) {
     return (
       <Box flexDirection="column">
         <DiveUnavailable comboId={comboId} />
+        {children}
         {modal !== null && <DecisionModal card={modal} />}
       </Box>
     );
@@ -331,6 +351,7 @@ function DiveThread({
             : "v decision · q/←/Esc back"}
         </Text>
       </Box>
+      {children}
       {modal !== null && <DecisionModal card={modal} />}
     </Box>
   );
@@ -380,8 +401,9 @@ function DecisionModal({ card }: { readonly card: DecisionCard }): React.ReactEl
       <Box marginTop={1}>
         <Text>{card.question}</Text>
       </Box>
-      <Box>
-        <Text dimColor>{card.context}</Text>
+      <Box flexDirection="column">
+        <Text dimColor>{card.comboId}</Text>
+        {card.workItemLabel !== undefined && <Text dimColor>{card.workItemLabel}</Text>}
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text>
@@ -448,6 +470,15 @@ function DiveUnavailable({ comboId }: { readonly comboId: string }): React.React
       <Box marginTop={1}>
         <Text dimColor>{"q/←/Esc back to fleet"}</Text>
       </Box>
+    </Box>
+  );
+}
+
+function Notice({ text }: { readonly text: string }): React.ReactElement {
+  return (
+    <Box marginTop={1}>
+      <Text color="red">{"! "}</Text>
+      <Text color="yellow">{text}</Text>
     </Box>
   );
 }

@@ -55,8 +55,8 @@ function thread(overrides: Partial<ThreadView> = {}): ThreadView {
     round: 0,
     breadcrumb: { stages: [] },
     entries: [
-      { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "▸ launched" },
-      { at: "2026-07-12T08:30:00.000Z", kind: "coder_done", headline: "● coder finished" },
+      { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "launched" },
+      { at: "2026-07-12T08:30:00.000Z", kind: "coder_done", headline: "coder finished" },
     ],
     pendingDecisions: 0,
     ...overrides,
@@ -69,7 +69,7 @@ function card(overrides: Partial<DecisionCard> = {}): DecisionCard {
     comboId: "o-r-7",
     reason: "gate_failed",
     question: "The gate failed and could not auto-recover.",
-    context: "o-r-7 · #7 Add login",
+    workItemLabel: "#7 Add login",
     verbs: ["retry", "skip", "take_over", "ignore"],
     ...overrides,
   };
@@ -225,11 +225,11 @@ describe("Home dive-in thread", () => {
         ],
       },
       entries: [
-        { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "▸ launched" },
+        { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "launched" },
         {
           at: "2026-07-12T09:00:00.000Z",
           kind: "verdict",
-          headline: "◆ reviewer V1 · code 1 · 2 findings",
+          headline: "reviewer V1 · code 1 · 2 findings",
           findings: [
             { severity: "major", file: "auth.ts", line: 88, title: "DRY violation" },
             { severity: "note", file: "enroll.ts", title: "naming" },
@@ -249,9 +249,9 @@ describe("Home dive-in thread", () => {
   it("renders escalation and decision entries in the thread", () => {
     const dive = thread({
       entries: [
-        { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "▸ launched" },
-        { at: "2026-07-12T09:00:00.000Z", kind: "escalated", headline: "⚑ needs you · gate_failed" },
-        { at: "2026-07-12T09:30:00.000Z", kind: "decision", headline: "◈ you decided · retry" },
+        { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "launched" },
+        { at: "2026-07-12T09:00:00.000Z", kind: "escalated", headline: "needs you · gate_failed" },
+        { at: "2026-07-12T09:30:00.000Z", kind: "decision", headline: "you decided · retry" },
       ],
     });
     const { lastFrame } = render(<Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} />);
@@ -289,6 +289,8 @@ describe("Home decision modal", () => {
     const frame = lastFrame()!;
     expect(frame).toContain("decision");
     expect(frame).toContain("The gate failed");
+    expect(frame).toContain("o-r-7");
+    expect(frame).toContain("#7 Add login");
     expect(frame).toContain("[r]");
     expect(frame).toContain("[s]");
     expect(frame).toContain("[t]");
@@ -335,6 +337,13 @@ describe("Home decision modal", () => {
     // re-render must not re-fire the cleared action
     expect(lastFrame()).toBeDefined();
     expect(decided).toEqual(["skip"]);
+  });
+
+  it("surfaces a non-fatal notice line when one is provided", () => {
+    const { lastFrame } = render(
+      <Home rows={[row()]} notice="decision not recorded: no pending needs_human escalation for o-r-7" />,
+    );
+    expect(lastFrame()).toContain("decision not recorded");
   });
 });
 // -/ 5/6

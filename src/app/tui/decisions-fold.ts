@@ -18,7 +18,7 @@
  *
  *   PUBLIC API
  *   ----------
- *   DECISION_VERBS         The fixed verbs (mirrors the decide handler).
+ *   DECISION_VERBS         The fixed verbs (re-exported from the decide handler).
  *   DecisionCard           One pending escalation's modal content.
  *   DecisionsInput         Fold input.
  *   derivePendingDecisions Pure fold: events -> pending decision cards.
@@ -28,17 +28,14 @@
  *   humanizeReason.
  *
  * @exports DECISION_VERBS, DecisionCard, DecisionsInput, derivePendingDecisions
- * @deps ../reporting/status-fold
+ * @deps ../lifecycle/lifecycle-handlers, ../reporting/status-fold
  */
+import { DECISION_VERBS } from "../lifecycle/lifecycle-handlers.js";
 import type { JournalFact } from "../reporting/status-fold.js";
 
+export { DECISION_VERBS };
+
 // -- 1/2 CORE · derivePendingDecisions <- START HERE --
-/**
- * The four decision verbs. Mirrors the validation set in the `decide`
- * subcommand handler (src/app/lifecycle/lifecycle-handlers.ts). The card and
- * the handler share this contract so the TUI never duplicates decision logic.
- */
-export const DECISION_VERBS = ["retry", "skip", "take_over", "ignore"] as const;
 
 export interface DecisionCard {
   /** Journal timestamp of the needs_human event (unique identity). */
@@ -46,7 +43,8 @@ export interface DecisionCard {
   readonly comboId: string;
   readonly reason: string;
   readonly question: string;
-  readonly context: string;
+  /** Second line of context (PRD s7: two lines). The first line is the comboId. */
+  readonly workItemLabel?: string;
   readonly verbs: readonly string[];
 }
 
@@ -63,7 +61,6 @@ export function derivePendingDecisions(input: DecisionsInput): DecisionCard[] {
       .map((event) => String(event["needs_human_ref"])),
   );
   const pending = input.events.filter((event) => event.event === "needs_human" && !decided.has(event.t));
-  const context = decisionContext(input.comboId, input.workItemLabel);
   return pending.map((event) => {
     const reason = typeof event["reason"] === "string" ? (event["reason"] as string) : event.event;
     return {
@@ -71,18 +68,14 @@ export function derivePendingDecisions(input: DecisionsInput): DecisionCard[] {
       comboId: input.comboId,
       reason,
       question: humanizeReason(reason),
-      context,
+      ...(input.workItemLabel !== undefined ? { workItemLabel: input.workItemLabel } : {}),
       verbs: DECISION_VERBS,
     };
   });
 }
 // -/ 1/2
 
-// -- 2/2 HELPER · humanizeReason + context --
-function decisionContext(comboId: string, workItemLabel: string | undefined): string {
-  return workItemLabel !== undefined ? `${comboId} · ${workItemLabel}` : comboId;
-}
-
+// -- 2/2 HELPER · humanizeReason --
 /**
  * Maps a machine needs_human reason to a one-sentence question the operator
  * can act on. Unknown reasons fall back to their raw text so the card never

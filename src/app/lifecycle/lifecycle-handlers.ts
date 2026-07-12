@@ -13,14 +13,14 @@
  *
  *   PUBLIC API
  *   ----------
- *   attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo,
+ *   DECISION_VERBS, attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo,
  *   stopCombo, printComboEvents, emitComboEvent, decideComboEscalation
  *
  *   INTERNALS
  *   ---------
- *   DECISION_VERBS.
+ *   none.
  *
- * @exports attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent, decideComboEscalation
+ * @exports DECISION_VERBS, attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent, decideComboEscalation
  * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
  */
 import {
@@ -112,7 +112,12 @@ export function emitComboEvent(
 // -/ 1/3
 
 // -- 2/3 CORE · Resume, closure, reconcile, decide, and park --
-const DECISION_VERBS = ["retry", "skip", "take_over", "ignore"] as const;
+/**
+ * The four decision verbs. The single source of truth: the `decide` handler
+ * validates against this list, and the TUI decision-card fold imports it so
+ * the read and write paths can never drift.
+ */
+export const DECISION_VERBS = ["retry", "skip", "take_over", "ignore"] as const;
 
 /**
  * Answer a pending needs_human escalation with a decision journal event
