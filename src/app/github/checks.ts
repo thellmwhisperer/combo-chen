@@ -20,12 +20,15 @@
  *   requiredChecksSucceeded   True when every configured READY check succeeds.
  *   externalReviewSkippedByConfiguredAgent
  *                             True when a configured external reviewer says review skipped.
+ *   textLooksReviewSkipped    Raw "review skipped" marker predicate for review bodies.
+ *   configuredAgents          Normalized configured external-agent logins.
+ *   authorMatchesConfiguredAgent  Login-vs-agents match accepting the [bot] suffix.
  *
  *   INTERNALS
  *   ---------
  *   upperString, checkSignalSucceeded, checkSignalIsReviewSkipped, checkLabels, comment helpers
  *
- * @exports checkNameMatchesAny, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, externalReviewSkippedByConfiguredAgent
+ * @exports checkNameMatchesAny, checkSignalIsSuccess, checkRollupSucceeded, requiredChecksSucceeded, externalReviewSkippedByConfiguredAgent, textLooksReviewSkipped, configuredAgents, authorMatchesConfiguredAgent
  * @deps ../../core/guards
  */
 import { isRecord } from "../../core/guards.js";
@@ -44,9 +47,14 @@ function lowerString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toLowerCase() : undefined;
 }
 
+/** True when text carries a provider's "review skipped / rate limited" marker. */
+export function textLooksReviewSkipped(text: string): boolean {
+  return EXTERNAL_REVIEW_SKIPPED_PATTERN.test(text);
+}
+
 function checkSignalIsReviewSkipped(item: Record<string, unknown>): boolean {
   return [item["description"], item["summary"], item["title"], item["text"]].some((value) =>
-    EXTERNAL_REVIEW_SKIPPED_PATTERN.test(lowerString(value) ?? ""),
+    textLooksReviewSkipped(lowerString(value) ?? ""),
   );
 }
 
@@ -58,7 +66,8 @@ function checkLabels(item: unknown): string[] {
   return parts.filter((part): part is string => typeof part === "string");
 }
 
-function configuredAgents(agents: string[]): string[] {
+/** Normalizes configured external-agent logins: trimmed, lowercased, non-empty. */
+export function configuredAgents(agents: string[]): string[] {
   return agents.map((agent) => agent.trim().toLowerCase()).filter((agent) => agent.length > 0);
 }
 
@@ -77,7 +86,8 @@ function commentBody(comment: Record<string, unknown>): string | undefined {
   return typeof body === "string" && body.trim() !== "" ? body : undefined;
 }
 
-function authorMatchesConfiguredAgent(login: string, agents: string[]): boolean {
+/** Matches a lowercased login against normalized agents, accepting the [bot] suffix. */
+export function authorMatchesConfiguredAgent(login: string, agents: string[]): boolean {
   return agents.some((agent) => login === agent || login === `${agent}[bot]`);
 }
 
