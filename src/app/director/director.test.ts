@@ -1158,7 +1158,7 @@ describe("tickDirector", () => {
         added_labels: ["combo:working"],
         removed_labels: [],
         reason: "working",
-        source: "director-watch",
+        source: "director-tick",
       }),
     ]);
   });
