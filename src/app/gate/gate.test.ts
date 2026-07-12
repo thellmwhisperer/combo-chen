@@ -196,16 +196,20 @@ describe("gatekeeper attach window helpers", () => {
 
   // The rendered script gets a 20 s budget and one real retry-interval sleep;
   // the vitest default of 5 s flakes under parallel-suite subprocess load.
-  it("attaches within one retry interval when axi status flips to a matching quoted-field run", { timeout: 30_000 }, () => {
-    const harness = attachHarness();
-    const result = runAttach({ harness, branch: "combo/issue-7", timeoutSeconds: 20 });
+  it(
+    "attaches within one retry interval when axi status flips to a matching quoted-field run",
+    { timeout: 30_000 },
+    () => {
+      const harness = attachHarness();
+      const result = runAttach({ harness, branch: "combo/issue-7", timeoutSeconds: 20 });
 
-    expect(result.status).toBe(2);
-    const attachArgs = readFileSync(harness.attachLog, "utf8");
-    expect(attachArgs).toContain("attach --run 01KWZBNYNYCYW3585TVK5ZSA11");
-    const statusCalls = readFileSync(join(harness.binDir, "status-calls"), "utf8");
-    expect(statusCalls).toBe("2");
-  });
+      expect(result.status).toBe(2);
+      const attachArgs = readFileSync(harness.attachLog, "utf8");
+      expect(attachArgs).toContain("attach --run 01KWZBNYNYCYW3585TVK5ZSA11");
+      const statusCalls = readFileSync(join(harness.binDir, "status-calls"), "utf8");
+      expect(statusCalls).toBe("2");
+    },
+  );
 
   it("never attaches to a sibling-branch run and keeps the timeout path", { timeout: 10000 }, () => {
     const harness = attachHarness();

@@ -52,11 +52,10 @@ function graphqlPage(nodes: ThreadNode[], endCursor?: string): string {
   });
 }
 
-function fakeGh(input: {
-  reviews: unknown[];
-  threadPages?: string[];
-  graphqlStatus?: number;
-}): { gh: (args: string[]) => { status: number; stdout: string; stderr: string }; calls: FakeGhCall[] } {
+function fakeGh(input: { reviews: unknown[]; threadPages?: string[]; graphqlStatus?: number }): {
+  gh: (args: string[]) => { status: number; stdout: string; stderr: string };
+  calls: FakeGhCall[];
+} {
   const calls: FakeGhCall[] = [];
   let graphqlCall = 0;
   return {

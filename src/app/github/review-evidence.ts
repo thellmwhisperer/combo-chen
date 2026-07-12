@@ -134,8 +134,7 @@ interface ReviewThread {
 function parseThreadNode(node: unknown): ReviewThread | undefined {
   if (!isRecord(node)) return undefined;
   const comments = node["comments"];
-  const first =
-    isRecord(comments) && Array.isArray(comments["nodes"]) ? comments["nodes"][0] : undefined;
+  const first = isRecord(comments) && Array.isArray(comments["nodes"]) ? comments["nodes"][0] : undefined;
   const author =
     isRecord(first) && isRecord(first["author"]) && typeof first["author"]["login"] === "string"
       ? first["author"]["login"]
@@ -258,8 +257,7 @@ export function fetchExternalReviewEvidence(
   }
   const agents = configuredAgents(externalCommentAgents);
   try {
-    const review =
-      agents.length === 0 ? undefined : readAgentReviewAtHead(gh, ref, headSha, agents, cache);
+    const review = agents.length === 0 ? undefined : readAgentReviewAtHead(gh, ref, headSha, agents, cache);
     if (review === undefined) {
       return {
         state: "missing",
