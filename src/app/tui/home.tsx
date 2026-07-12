@@ -382,7 +382,7 @@ function ThreadEntryView({
 }): React.ReactElement {
   const glyph = ENTRY_GLYPH[entry.kind];
   const color = ENTRY_COLOR[entry.kind];
-  const train = entry.live ? dotTrain(now, now, 1400, 7) : null;
+  const train = entry.live ? dotTrain(now, entry.startMs ?? now, 1400, 7) : null;
   return (
     <Box flexDirection="column">
       <Box gap={1}>

@@ -78,6 +78,8 @@ export interface ThreadEntry {
   readonly findings?: readonly ThreadFinding[];
   /** Projected live entry (no journal event behind it). Rendered last. */
   readonly live?: boolean;
+  /** Stable epoch-ms start timestamp for dot-train animation (live entries). */
+  readonly startMs?: number;
 }
 
 export type ThreadBreadcrumbStage = "coder" | "review" | "gate" | "pr" | "merge";
@@ -94,6 +96,7 @@ export interface ThreadBreadcrumb {
 export interface LiveActor {
   readonly actor: "coder" | "reviewer" | "gate";
   readonly sinceMs: number;
+  readonly startMs?: number;
   readonly note: string;
   readonly telemetryLine?: string;
 }
@@ -274,26 +277,32 @@ function liveActorFrom(
 ): LiveActor | undefined {
   if (liveness?.coder && (phase === "SETUP" || phase === "CODING" || phase === "LOCAL_REVIEW")) {
     const note = phase === "LOCAL_REVIEW" ? "coder fixing" : "coder working";
+    const startIso = sinceForActor(events, "coder");
     const telemetryLine = telemetry?.coder !== undefined ? formatCoderDetail(telemetry.coder) : undefined;
     return {
       actor: "coder",
-      sinceMs: Math.max(0, now - Date.parse(sinceForActor(events, "coder"))),
+      sinceMs: Math.max(0, now - Date.parse(startIso)),
+      startMs: Date.parse(startIso),
       note,
       ...(telemetryLine !== undefined ? { telemetryLine } : {}),
     };
   }
   if (liveness?.reviewer && phase === "LOCAL_REVIEW") {
+    const startIso = sinceForActor(events, "reviewer");
     return {
       actor: "reviewer",
-      sinceMs: Math.max(0, now - Date.parse(sinceForActor(events, "reviewer"))),
+      sinceMs: Math.max(0, now - Date.parse(startIso)),
+      startMs: Date.parse(startIso),
       note: "reviewer judging",
     };
   }
   if (liveness?.gate && phase === "GATING") {
+    const startIso = sinceForActor(events, "gate");
     const telemetryLine = telemetry?.gate !== undefined ? formatGateStepBar(telemetry.gate) : undefined;
     return {
       actor: "gate",
-      sinceMs: Math.max(0, now - Date.parse(sinceForActor(events, "gate"))),
+      sinceMs: Math.max(0, now - Date.parse(startIso)),
+      startMs: Date.parse(startIso),
       note: "no-mistakes validating",
       ...(telemetryLine !== undefined ? { telemetryLine } : {}),
     };
@@ -320,6 +329,7 @@ function liveActorEntry(actor: LiveActor): ThreadEntry {
     kind: "note",
     live: true,
     headline,
+    ...(actor.startMs !== undefined ? { startMs: actor.startMs } : {}),
     ...(actor.telemetryLine !== undefined ? { detail: actor.telemetryLine } : {}),
   };
 }
