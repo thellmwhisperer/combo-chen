@@ -1,30 +1,38 @@
 /**
  * @overview v1 capsule sequencer: rebase, owned coder process, local
- *   pre-publish review round, in-process gate, and PR tail.
+ *   pre-publish V-C-V review loop, in-process gate, and PR tail.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at runCapsule             <- complete persisted-run sequence.
  *   2. Then runCoderPhase              <- commits-first completion and thread bridge.
- *   3. Then runLocalReviewPhase        <- verdict-file round between coder and gate.
+ *   3. Then runLocalReviewPhase        <- the V-C-V loop, guards, and loop-state.
  *   4. Read runAgentProcess            <- production child/PTY custody boundary.
  *   5. Everything else is artifact and git support.
  *
  *   MAIN FLOW
  *   ---------
  *   runCapsule -> rebase -> runCoderPhase -> runLocalReviewPhase
- *     -> code 0: pinLocalLgtm -> runInProcessGate (+ bounded retry) -> PR/reviewer outcome
+ *     verdict round -> code 0: pinLocalLgtm -> runInProcessGate (+ bounded retry)
  *                -> validated: applyLgtmCarryOver (D3 patch-id carry or re-review round)
- *     -> code 1/2/3 or defective verdict: needs_human (W5b adds the code-1 loop)
- *   Resume: classifyCapsulePhase derives the entry point from the journal;
- *   startAtGate skips rebase and coder for a run that already has coder_done.
+ *       -> code 1: coder fix turn (resumed thread, owned child) -> re-review
+ *          guards: fingerprint surviving 2 rounds | no-op fix turn | round cap
+ *       -> code 2/3, guard fire, or defective verdict: needs_human
+ *     invariant: the loop opens and closes with a verdict, never a coder turn
+ *   Resume: classifyCapsulePhase derives the entry point from the journal
+ *   (review_fix coder events stay loop-internal); startAtGate skips rebase
+ *   and coder, and resolveLoopEntry folds journal + loop-state.json into the
+ *   exact next loop action: round numbers are never reused, orphan verdict
+ *   artifacts are consumed, interrupted fix turns are judged by commits, and
+ *   pending escalations stay parked until a retry decision.
  *
  *   PUBLIC API
  *   ----------
  *   CapsuleDeps          Injectable process, gate, and PR boundary.
  *   CapsuleResult        Terminal result returned to the CLI adapter.
  *   CapsulePhase         Journal-derived resume position for a capsule run.
- *   AgentProcessRequest  Owned interactive agent invocation.
+ *   AgentProcessRequest  Owned interactive agent invocation (bounded by timeoutMs).
+ *   AgentTurnResult      Exit facts plus custody's timed-out marker.
  *   runAgentProcess      Spawn an agent as a child on the capsule pane's PTY.
  *   classifyCapsulePhase Sequence/gate/supervise/closed resume classification.
  *   runCapsule           Sequence one frozen run directory (optionally from the gate).
@@ -33,17 +41,28 @@
  *   ---------
  *   readBaseRef, runRebasePhase, runCoderPhase, snapshotIterations,
  *   freshIterationJsonl, containsStopCondition, runLocalReviewPhase,
+ *   resolveLoopEntry, routeFixTurn, escalateWithGuard, runBoundedAgentTurn,
+ *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn,
  *   waitForVerdictFile, reviewerIdentity, findingsProjection, escalate,
- *   buildGateFacts
+ *   LOOP_ESCALATION_REASONS, buildGateFacts
  *
- * @exports AgentProcessRequest, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
- * @deps node:{child_process,fs,path}, ../../core/{events,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../work-items/persisted-work-plan, ./ready
+ * @exports AgentProcessRequest, AgentTurnResult, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
+ * @deps node:{child_process,fs,path}, ../../core/{events,loop-state,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,coder-responding,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../work-items/persisted-work-plan, ./ready
  */
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { appendEvent, readEvents, sleep, type ComboEvent } from "../../core/events.js";
+import {
+  findingsSurvivingRound,
+  initialLoopState,
+  readLoopState,
+  recordLoopRound,
+  withLoopGuard,
+  writeLoopState,
+  type LoopState,
+} from "../../core/loop-state.js";
 import { renderReviewDossier, reviewDossierPath } from "../../core/review-dossier.js";
 import { readCombo, type ComboRecord } from "../../core/state.js";
 import {
@@ -55,15 +74,18 @@ import {
   verdictFilePath,
   type ProducingIdentity,
   type VerdictFile,
+  type VerdictFinding,
 } from "../../core/verdict.js";
 import type { WorkPlan } from "../../core/work-plan.js";
 import { assertSafeCoderInvocation } from "../../infra/config.js";
 import { readConfigSnapshot, type ConfigSnapshot } from "../../infra/config-snapshot.js";
 import {
   buildCoderInvocation,
+  buildReviewFixPrompt,
   defaultWorkPlanPrompt,
   persistCoderThreadArtifact,
 } from "../../roles/coder-invocation.js";
+import { buildCoderFixTurnCommand, readCoderThreadArtifact } from "../../roles/coder-responding.js";
 import { buildLocalReviewerInvocation } from "../../roles/reviewer-invocation.js";
 import {
   buildGatekeeperInvocation,
@@ -86,13 +108,20 @@ export interface AgentProcessRequest {
   command: string;
   cwd: string;
   env?: Record<string, string | undefined>;
+  /** Wall-clock bound: production custody terminates the child on expiry. */
+  timeoutMs?: number;
+}
+
+/** GateProcessResult plus custody's timeout marker for a terminated child. */
+export interface AgentTurnResult extends GateProcessResult {
+  timedOut?: boolean;
 }
 
 export interface CapsuleDeps {
   env: Record<string, string | undefined>;
   out: (line: string) => void;
   git: GateProcessRunner;
-  runAgent: (request: AgentProcessRequest) => Promise<GateProcessResult>;
+  runAgent: (request: AgentProcessRequest) => Promise<AgentTurnResult>;
   runGate?: (input: InProcessGateInput) => Promise<InProcessGateResult>;
   gateProcess?: GateProcessRunner;
   findPrUrl: () => Promise<string | undefined>;
@@ -120,7 +149,15 @@ export type CapsuleResult = {
   exitCode: number;
 };
 
-export function runAgentProcess(request: AgentProcessRequest): Promise<GateProcessResult> {
+/** Grace between SIGTERM and SIGKILL for a timed-out owned child. */
+const DEFAULT_AGENT_KILL_GRACE_MS = 10_000;
+
+function agentKillGraceMs(env: Record<string, string | undefined>): number {
+  const parsed = Number(env["COMBO_CHEN_AGENT_KILL_GRACE_MS"]);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_AGENT_KILL_GRACE_MS;
+}
+
+export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurnResult> {
   return new Promise((resolveResult, reject) => {
     // In the capsule topology the parent already owns the tmux pane PTY. Inheriting
     // all three descriptors keeps the child interactive while preserving a real
@@ -130,11 +167,67 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<GateProce
       env: { ...process.env, ...request.env },
       stdio: "inherit",
     });
-    child.once("error", reject);
+    let timedOut = false;
+    let termTimer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    if (request.timeoutMs !== undefined) {
+      termTimer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => child.kill("SIGKILL"), agentKillGraceMs(request.env ?? process.env));
+      }, request.timeoutMs);
+    }
+    const clearTimers = (): void => {
+      if (termTimer !== undefined) clearTimeout(termTimer);
+      if (killTimer !== undefined) clearTimeout(killTimer);
+    };
+    child.once("error", (error) => {
+      clearTimers();
+      reject(error);
+    });
     child.once("close", (code, signal) => {
-      resolveResult({ exitCode: code ?? (signal === null ? 1 : 128), stdout: "", stderr: "" });
+      clearTimers();
+      resolveResult({
+        exitCode: code ?? (signal === null ? 1 : 128),
+        stdout: "",
+        stderr: "",
+        ...(timedOut ? { timedOut: true } : {}),
+      });
     });
   });
+}
+
+type AgentTurnOutcome =
+  { kind: "exited"; result: AgentTurnResult } | { kind: "timeout" } | { kind: "spawn_error"; detail: string };
+
+/**
+ * Bounded custody for one owned agent turn: production custody terminates the
+ * child at request.timeoutMs, and this harness-side race guarantees the loop
+ * itself converges even when the injected runAgent never settles. Spawn
+ * rejection routes to an outcome instead of crashing the capsule.
+ */
+async function runBoundedAgentTurn(
+  deps: CapsuleDeps,
+  request: AgentProcessRequest,
+): Promise<AgentTurnOutcome> {
+  let raceTimer: NodeJS.Timeout | undefined;
+  try {
+    const turn = deps.runAgent(request).then(
+      (result): AgentTurnOutcome =>
+        result.timedOut === true ? { kind: "timeout" } : { kind: "exited", result },
+      (error: unknown): AgentTurnOutcome => ({
+        kind: "spawn_error",
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    if (request.timeoutMs === undefined) return await turn;
+    const expiry = new Promise<AgentTurnOutcome>((resolveExpiry) => {
+      raceTimer = setTimeout(() => resolveExpiry({ kind: "timeout" }), request.timeoutMs);
+    });
+    return await Promise.race([turn, expiry]);
+  } finally {
+    if (raceTimer !== undefined) clearTimeout(raceTimer);
+  }
 }
 // -/ 1/5
 
@@ -328,12 +421,7 @@ async function runCoderPhase(
 }
 // -/ 3/5
 
-// -- 4/5 CORE · local pre-publish review round (PRD s3) --
-function localVerdictWaitMs(env: Record<string, string | undefined>): number {
-  const parsed = Number(env["COMBO_CHEN_LOCAL_VERDICT_WAIT_MS"]);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5_000;
-}
-
+// -- 4/5 CORE · local pre-publish V-C-V review loop (PRD s3) --
 async function waitForVerdictFile(runDir: string, round: number, timeoutMs: number): Promise<boolean> {
   const path = verdictFilePath(runDir, round);
   const deadline = Date.now() + timeoutMs;
@@ -351,9 +439,9 @@ function reviewerIdentity(config: ConfigSnapshot): ProducingIdentity | undefined
   return { model: reviewer.model, runtime: reviewer.binary };
 }
 
-/** Compact journal projection of the findings; the verdict file stays the source of truth. */
-function findingsProjection(verdict: VerdictFile): Array<Record<string, unknown>> {
-  return verdict.findings.map((finding) => ({
+/** Compact journal projection of findings; the verdict file stays the source of truth. */
+function findingsProjection(findings: VerdictFinding[]): Array<Record<string, unknown>> {
+  return findings.map((finding) => ({
     id: finding.id,
     severity: finding.severity,
     file: finding.file,
@@ -368,17 +456,18 @@ function escalate(runDir: string, reason: string, payload: Record<string, unknow
   return { status: "local_review_escalated", exitCode: 0 };
 }
 
-async function runLocalReviewPhase(
+type VerdictRoundOutcome =
+  { verdict: VerdictFile; sha: string } | { escalation: CapsuleResult; reason: string };
+
+async function runVerdictRound(
   deps: CapsuleDeps,
   combo: ComboRecord,
   runDir: string,
   config: ConfigSnapshot,
   baseRef: string,
   workPlan: WorkPlan,
-): Promise<CapsuleResult | undefined> {
-  // W5a ships a single verdict round; W5b replaces the fixed round with the
-  // V-C-V loop and its no-progress guard.
-  const round = 1;
+  round: number,
+): Promise<VerdictRoundOutcome> {
   const sha = await gitHead(deps, combo);
   appendEvent(runDir, "local_review_requested", { round, sha });
   const identity = reviewerIdentity(config);
@@ -393,21 +482,64 @@ async function runLocalReviewPhase(
     workPlan,
     ...(identity === undefined ? {} : { identity }),
   });
-  const reviewer = await deps.runAgent({ command, cwd: combo.worktree, env: deps.env });
-  const appeared = await waitForVerdictFile(runDir, round, localVerdictWaitMs(deps.env));
-  if (!appeared) {
-    return escalate(runDir, "local_verdict_missing", {
-      round,
-      sha,
-      reviewer_exit_code: reviewer.exitCode,
-    });
+  const turn = await runBoundedAgentTurn(deps, {
+    command,
+    cwd: combo.worktree,
+    env: deps.env,
+    timeoutMs: config.reviewerTurnTimeoutMinutes * 60_000,
+  });
+  if (turn.kind === "timeout") {
+    return {
+      escalation: escalate(runDir, "local_review_timeout", {
+        round,
+        sha,
+        timeout_minutes: config.reviewerTurnTimeoutMinutes,
+      }),
+      reason: "local_review_timeout",
+    };
   }
+  if (turn.kind === "spawn_error") {
+    return {
+      escalation: escalate(runDir, "local_review_spawn_failed", { round, sha, detail: turn.detail }),
+      reason: "local_review_spawn_failed",
+    };
+  }
+  const reviewer = turn.result;
+  const appeared = await waitForVerdictFile(runDir, round, config.reviewVerdictWaitMs);
+  if (!appeared) {
+    return {
+      escalation: escalate(runDir, "local_verdict_missing", {
+        round,
+        sha,
+        reviewer_exit_code: reviewer.exitCode,
+      }),
+      reason: "local_verdict_missing",
+    };
+  }
+  return ingestVerdictArtifact(deps, combo, runDir, round, sha);
+}
+
+/**
+ * Validate, journal, and project one verdict artifact. Shared by the live
+ * round (after the reviewer exits) and by resume, which consumes an orphan
+ * artifact whose rename landed before the crash killed the journal append.
+ */
+function ingestVerdictArtifact(
+  deps: CapsuleDeps,
+  combo: ComboRecord,
+  runDir: string,
+  round: number,
+  sha: string,
+): VerdictRoundOutcome {
   let verdict: VerdictFile;
   try {
     verdict = readVerdictFile(runDir, round);
   } catch (error) {
     const detail = error instanceof VerdictError ? error.message : String(error);
-    return escalate(runDir, "local_verdict_malformed", { round, sha, detail });
+    return {
+      escalation: escalate(runDir, "local_verdict_malformed", { round, sha, detail }),
+      reason: "local_verdict_malformed",
+    };
   }
   const missingIds = missingChecklistIds(verdict);
   const attributionDefects = [
@@ -416,20 +548,22 @@ async function runLocalReviewPhase(
     ...(missingIds.length === 0 ? [] : [`checklist missing ids: ${missingIds.join(", ")}`]),
   ];
   if (attributionDefects.length > 0) {
-    return escalate(runDir, "local_verdict_malformed", {
-      round,
-      sha,
-      detail: attributionDefects.join("; "),
-    });
+    return {
+      escalation: escalate(runDir, "local_verdict_malformed", {
+        round,
+        sha,
+        detail: attributionDefects.join("; "),
+      }),
+      reason: "local_verdict_malformed",
+    };
   }
-  const findings = findingsProjection(verdict);
   appendEvent(runDir, "local_verdict", {
     round,
     code: verdict.code,
     verdict_path: verdictFileName(round),
     identity: verdict.identity,
     sha,
-    findings,
+    findings: findingsProjection(verdict.findings),
   });
   try {
     writeFileSync(reviewDossierPath(runDir, round, sha), renderReviewDossier(verdict));
@@ -440,16 +574,411 @@ async function runLocalReviewPhase(
   if (verdict.followUps.length > 0) {
     appendEvent(runDir, "follow_ups", { round, items: verdict.followUps });
   }
-  if (verdict.code === 0) return undefined;
-  // TODO(W5b): code 1 iterates here (prompt coder with the findings, commit,
-  // re-review). Until the loop lands, code 1 escalates like 2/3 but keeps the
-  // findings machine-readable for the human.
-  return escalate(runDir, `local_verdict_code_${verdict.code}`, {
-    round,
-    sha,
-    verdict_path: verdictFileName(round),
-    findings,
+  return { verdict, sha };
+}
+
+type FixTurnOutcome =
+  | { kind: "commits"; count: number }
+  | { kind: "noop"; exitCode: number }
+  | { kind: "thread_unavailable"; detail: string }
+  | { kind: "timeout"; timeoutMinutes: number }
+  | { kind: "spawn_error"; detail: string }
+  | { kind: "count_failed"; detail: string };
+
+/**
+ * One code-1 fix turn: resume the implementing thread as an owned child of
+ * the capsule (never a fresh gnhf loop) and judge the turn by observables
+ * only, per D1 custody: the child exits, then new commits are counted.
+ */
+async function runCoderFixTurn(
+  deps: CapsuleDeps,
+  combo: ComboRecord,
+  runDir: string,
+  config: ConfigSnapshot,
+  round: number,
+  verdict: VerdictFile,
+): Promise<FixTurnOutcome> {
+  let command: string;
+  try {
+    const artifact = readCoderThreadArtifact(runDir);
+    const prompt = buildReviewFixPrompt({
+      round,
+      sha: verdict.reviewed.sha,
+      findings: verdict.findings,
+      dossierPath: reviewDossierPath(runDir, round, verdict.reviewed.sha),
+    });
+    command = buildCoderFixTurnCommand(artifact, config.coderResumeCommand, prompt);
+  } catch (error) {
+    return { kind: "thread_unavailable", detail: error instanceof Error ? error.message : String(error) };
+  }
+  const baseSha = await gitHead(deps, combo);
+  appendEvent(runDir, "coder_started", { round, mode: "review_fix" });
+  const turn = await runBoundedAgentTurn(deps, {
+    command,
+    cwd: combo.worktree,
+    env: deps.env,
+    timeoutMs: config.fixTurnTimeoutMinutes * 60_000,
   });
+  if (turn.kind === "timeout") return { kind: "timeout", timeoutMinutes: config.fixTurnTimeoutMinutes };
+  if (turn.kind === "spawn_error") return { kind: "spawn_error", detail: turn.detail };
+  const headSha = await gitHead(deps, combo);
+  const counted = await deps.git({
+    command: "git",
+    args: ["rev-list", "--count", `${baseSha}..${headSha}`],
+    cwd: combo.worktree,
+    env: deps.env,
+  });
+  // A failed count is missing evidence, not a no-op turn: git errors must
+  // never be read as "the coder committed nothing".
+  if (counted.exitCode !== 0 || !/^\d+$/.test(counted.stdout.trim())) {
+    return {
+      kind: "count_failed",
+      detail: counted.stderr.trim() || `git rev-list exited ${counted.exitCode}`,
+    };
+  }
+  const count = Number(counted.stdout.trim());
+  if (count === 0) return { kind: "noop", exitCode: turn.result.exitCode };
+  appendEvent(runDir, "coder_done", { round, mode: "review_fix", new_commit_count: count });
+  return { kind: "commits", count };
+}
+
+/** Every needs_human reason the review loop can emit; drives resume folding. */
+const LOOP_ESCALATION_REASONS = new Set([
+  "local_verdict_missing",
+  "local_verdict_malformed",
+  "local_verdict_code_2",
+  "local_verdict_code_3",
+  "local_review_timeout",
+  "local_review_spawn_failed",
+  "review_no_progress",
+  "review_max_rounds",
+  "review_fix_thread_unavailable",
+  "review_fix_noop",
+  "review_fix_timeout",
+  "review_fix_spawn_failed",
+  "review_fix_commit_count_failed",
+  "loop_state_malformed",
+]);
+
+/** Journal-first escalation: needs_human is ground truth, guard converges after. */
+function escalateWithGuard(
+  runDir: string,
+  state: LoopState,
+  round: number,
+  reason: string,
+  payload: Record<string, unknown>,
+): CapsuleResult {
+  const result = escalate(runDir, reason, { round, ...payload });
+  writeLoopState(runDir, withLoopGuard(state, { state: "escalated", round, reason }));
+  return result;
+}
+
+/** Run one fix turn and escalate its failure modes; undefined means commits landed. */
+async function routeFixTurn(
+  deps: CapsuleDeps,
+  combo: ComboRecord,
+  runDir: string,
+  config: ConfigSnapshot,
+  state: LoopState,
+  verdict: VerdictFile,
+): Promise<CapsuleResult | undefined> {
+  const round = verdict.round;
+  const roundFacts = { sha: verdict.reviewed.sha, verdict_path: verdictFileName(round) };
+  const findings = findingsProjection(verdict.findings);
+  const fix = await runCoderFixTurn(deps, combo, runDir, config, round, verdict);
+  switch (fix.kind) {
+    case "commits":
+      return undefined;
+    case "thread_unavailable":
+      return escalateWithGuard(runDir, state, round, "review_fix_thread_unavailable", {
+        ...roundFacts,
+        detail: fix.detail,
+        findings,
+      });
+    case "timeout":
+      return escalateWithGuard(runDir, state, round, "review_fix_timeout", {
+        ...roundFacts,
+        timeout_minutes: fix.timeoutMinutes,
+        findings,
+      });
+    case "spawn_error":
+      return escalateWithGuard(runDir, state, round, "review_fix_spawn_failed", {
+        ...roundFacts,
+        detail: fix.detail,
+        findings,
+      });
+    case "count_failed":
+      return escalateWithGuard(runDir, state, round, "review_fix_commit_count_failed", {
+        ...roundFacts,
+        detail: fix.detail,
+        findings,
+      });
+    case "noop":
+      return escalateWithGuard(runDir, state, round, "review_fix_noop", {
+        ...roundFacts,
+        coder_exit_code: fix.exitCode,
+        findings,
+      });
+  }
+}
+
+type LoopEntry =
+  | { kind: "proceed" }
+  | { kind: "done"; result: CapsuleResult }
+  | {
+      kind: "iterate";
+      state: LoopState;
+      nextRound: number;
+      pendingFix?: VerdictFile;
+      consumeArtifact: boolean;
+    };
+
+/**
+ * Resume fold (recon R1 round attribution + reviewer crash sequence): derive
+ * the exact next loop action from journal + validated loop-state instead of
+ * restarting at round 1. Verdict round numbers are never reused, guard and
+ * fingerprint history are preserved, and an interrupted fix turn is judged
+ * by its commit observables.
+ */
+async function resolveLoopEntry(
+  deps: CapsuleDeps,
+  combo: ComboRecord,
+  runDir: string,
+  initial: LoopState,
+): Promise<LoopEntry> {
+  const journal = readEvents(runDir);
+  let state = initial;
+  // Reconcile verdict rounds the journal knows but a lost write dropped from
+  // loop-state; the artifact must exist because local_verdict follows the rename.
+  for (const event of journal) {
+    if (event.event !== "local_verdict") continue;
+    const round = typeof event["round"] === "number" ? event["round"] : undefined;
+    if (round === undefined || round <= state.currentRound) continue;
+    try {
+      state = recordLoopRound(state, readVerdictFile(runDir, round));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        kind: "done",
+        result: escalateWithGuard(runDir, state, round, "loop_state_malformed", {
+          detail: `journaled round ${round} cannot be reconciled: ${detail}`,
+        }),
+      };
+    }
+  }
+
+  // Pending loop escalations are journal truth: a needs_human without a
+  // decision keeps the loop parked; only a retry decision re-enters it.
+  let pendingEscalation: ComboEvent | undefined;
+  let decidedVerb: string | undefined;
+  for (const event of journal) {
+    if (
+      event.event === "needs_human" &&
+      typeof event["reason"] === "string" &&
+      LOOP_ESCALATION_REASONS.has(event["reason"])
+    ) {
+      pendingEscalation = event;
+      decidedVerb = undefined;
+    } else if (
+      event.event === "decision" &&
+      pendingEscalation !== undefined &&
+      String(event["needs_human_ref"]) === pendingEscalation.t
+    ) {
+      decidedVerb = typeof event["verb"] === "string" ? event["verb"] : undefined;
+      pendingEscalation = undefined;
+    } else if (event.event === "local_review_requested") {
+      pendingEscalation = undefined;
+      decidedVerb = undefined;
+    }
+  }
+  if (pendingEscalation !== undefined) {
+    if (state.guard.state !== "escalated") {
+      const round =
+        typeof pendingEscalation["round"] === "number" ? pendingEscalation["round"] : state.currentRound || 1;
+      writeLoopState(
+        runDir,
+        withLoopGuard(state, { state: "escalated", round, reason: String(pendingEscalation["reason"]) }),
+      );
+    }
+    return { kind: "done", result: { status: "local_review_escalated", exitCode: 0 } };
+  }
+  if (decidedVerb !== undefined && decidedVerb !== "retry") {
+    // skip / ignore / take_over: the human owns the combo from here; the
+    // loop neither iterates nor lets an unapproved changeset reach the gate.
+    return { kind: "done", result: { status: "local_review_escalated", exitCode: 0 } };
+  }
+
+  const lastRound = state.rounds.at(-1);
+  if (state.guard.state === "cleared" || lastRound?.code === 0) return { kind: "proceed" };
+  if (lastRound === undefined) {
+    return { kind: "iterate", state, nextRound: 1, consumeArtifact: existsSync(verdictFilePath(runDir, 1)) };
+  }
+  if (decidedVerb === "retry") {
+    state = withLoopGuard(state, { state: "iterating" });
+    writeLoopState(runDir, state);
+    return {
+      kind: "iterate",
+      state,
+      nextRound: lastRound.round + 1,
+      consumeArtifact: existsSync(verdictFilePath(runDir, lastRound.round + 1)),
+    };
+  }
+  if (lastRound.code === 2 || lastRound.code === 3) {
+    // Crash landed between the verdict journal and its escalation append.
+    let findings: Array<Record<string, unknown>> = [];
+    try {
+      findings = findingsProjection(readVerdictFile(runDir, lastRound.round).findings);
+    } catch {
+      // The escalation stands even when the artifact went unreadable.
+    }
+    return {
+      kind: "done",
+      result: escalateWithGuard(runDir, state, lastRound.round, `local_verdict_code_${lastRound.code}`, {
+        sha: lastRound.sha,
+        verdict_path: lastRound.verdictPath,
+        findings,
+      }),
+    };
+  }
+  const fixDone = journal.some(
+    (event) =>
+      event.event === "coder_done" && event["mode"] === "review_fix" && event["round"] === lastRound.round,
+  );
+  const fixStarted = journal.some(
+    (event) =>
+      event.event === "coder_started" && event["mode"] === "review_fix" && event["round"] === lastRound.round,
+  );
+  if (fixDone) {
+    return {
+      kind: "iterate",
+      state,
+      nextRound: lastRound.round + 1,
+      consumeArtifact: existsSync(verdictFilePath(runDir, lastRound.round + 1)),
+    };
+  }
+  if (fixStarted) {
+    // D1 custody after a crash: the fix process is gone, so its commits are
+    // the only completion evidence.
+    const headSha = await gitHead(deps, combo);
+    const counted = await deps.git({
+      command: "git",
+      args: ["rev-list", "--count", `${lastRound.sha}..${headSha}`],
+      cwd: combo.worktree,
+      env: deps.env,
+    });
+    if (counted.exitCode !== 0 || !/^\d+$/.test(counted.stdout.trim())) {
+      return {
+        kind: "done",
+        result: escalateWithGuard(runDir, state, lastRound.round, "review_fix_commit_count_failed", {
+          detail: counted.stderr.trim() || `git rev-list exited ${counted.exitCode}`,
+        }),
+      };
+    }
+    const count = Number(counted.stdout.trim());
+    if (count > 0) {
+      appendEvent(runDir, "coder_done", {
+        round: lastRound.round,
+        mode: "review_fix",
+        new_commit_count: count,
+        recovered: true,
+      });
+      return {
+        kind: "iterate",
+        state,
+        nextRound: lastRound.round + 1,
+        consumeArtifact: existsSync(verdictFilePath(runDir, lastRound.round + 1)),
+      };
+    }
+  }
+  // No fix turn ran (or it died without committing): re-run it.
+  try {
+    const pendingFix = readVerdictFile(runDir, lastRound.round);
+    return { kind: "iterate", state, nextRound: lastRound.round + 1, pendingFix, consumeArtifact: false };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      kind: "done",
+      result: escalateWithGuard(runDir, state, lastRound.round, "loop_state_malformed", {
+        detail: `recorded round ${lastRound.round} has no readable verdict: ${detail}`,
+      }),
+    };
+  }
+}
+
+/**
+ * The V-C-V loop (PRD s3): every iteration opens with a verdict round and
+ * only a verdict closes the loop toward the gate; a coder turn can at most
+ * trigger the next round or an escalation, never the gate. Loop position is
+ * persisted to loop-state.json after every transition, and entry always
+ * resumes from journal + loop-state instead of restarting at round 1.
+ */
+async function runLocalReviewPhase(
+  deps: CapsuleDeps,
+  combo: ComboRecord,
+  runDir: string,
+  config: ConfigSnapshot,
+  baseRef: string,
+  workPlan: WorkPlan,
+): Promise<CapsuleResult | undefined> {
+  let entryState: LoopState;
+  try {
+    entryState = readLoopState(runDir) ?? initialLoopState();
+  } catch (error) {
+    return escalate(runDir, "loop_state_malformed", {
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const entry = await resolveLoopEntry(deps, combo, runDir, entryState);
+  if (entry.kind === "proceed") return undefined;
+  if (entry.kind === "done") return entry.result;
+  let state = entry.state;
+  let pendingFix = entry.pendingFix;
+  let consumeArtifact = entry.consumeArtifact;
+  for (let round = entry.nextRound; ; round += 1) {
+    // Every continuing iteration reassigns pendingFix at its end, so the
+    // value here is always this round's intended predecessor turn.
+    if (pendingFix !== undefined) {
+      const failure = await routeFixTurn(deps, combo, runDir, config, state, pendingFix);
+      if (failure !== undefined) return failure;
+    }
+    const outcome = consumeArtifact
+      ? ingestVerdictArtifact(deps, combo, runDir, round, await gitHead(deps, combo))
+      : await runVerdictRound(deps, combo, runDir, config, baseRef, workPlan, round);
+    consumeArtifact = false;
+    if ("escalation" in outcome) {
+      writeLoopState(runDir, withLoopGuard(state, { state: "escalated", round, reason: outcome.reason }));
+      return outcome.escalation;
+    }
+    const { verdict, sha } = outcome;
+    state = recordLoopRound(state, verdict);
+    if (verdict.code === 0) {
+      writeLoopState(runDir, withLoopGuard(state, { state: "cleared", round }));
+      return undefined;
+    }
+    const roundFacts = { sha, verdict_path: verdictFileName(round) };
+    if (verdict.code !== 1) {
+      return escalateWithGuard(runDir, state, round, `local_verdict_code_${verdict.code}`, {
+        ...roundFacts,
+        findings: findingsProjection(verdict.findings),
+      });
+    }
+    const survivors = findingsSurvivingRound(state, verdict.findings, round - 1);
+    if (survivors.length > 0) {
+      return escalateWithGuard(runDir, state, round, "review_no_progress", {
+        ...roundFacts,
+        findings: findingsProjection(survivors),
+      });
+    }
+    if (round >= config.reviewMaxRounds) {
+      return escalateWithGuard(runDir, state, round, "review_max_rounds", {
+        ...roundFacts,
+        max_rounds: config.reviewMaxRounds,
+        findings: findingsProjection(verdict.findings),
+      });
+    }
+    writeLoopState(runDir, state);
+    pendingFix = verdict;
+  }
 }
 // -/ 4/5
 
@@ -471,6 +1000,9 @@ export function classifyCapsulePhase(events: ComboEvent[]): CapsulePhase {
     if (phase === "closed") continue;
     if (event.event === "pr_opened") phase = "supervise";
     if (phase === "supervise") continue;
+    // Review-fix coder turns are loop-internal: the entry point stays "gate"
+    // and the review-loop resume fold owns their interrupted state.
+    if (event["mode"] === "review_fix") continue;
     if (event.event === "coder_done") phase = "gate";
     if (event.event === "coder_failed") phase = "sequence";
   }
