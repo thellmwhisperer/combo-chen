@@ -191,7 +191,27 @@ schema, checklist contract, and finding-fingerprint semantics live in
 verdict (`src/core/review-dossier.ts`); the versioned local review prompt with
 critical-surfaces calibration is `localReviewerPrompt` in
 `src/roles/reviewer-invocation.ts`; the capsule runs the round between coder
-and gate (code 0 -> gate, 1/2/3 -> needs_human; the code-1 fix loop is W5b).
+and gate.
+W5b turns that round into the V-C-V loop (PRD s3) in
+`src/app/capsule/capsule.ts`: code 1 resumes the implementing thread as an
+owned child (`buildCoderFixTurnCommand` + `buildReviewFixPrompt`), judges the
+fix turn by process exit + new-commit count, then re-reviews; the loop opens
+and closes with a verdict. Owned turns are wall-clock bounded by the frozen
+`[review]` timeouts (custody SIGTERM/SIGKILLs on expiry; timeouts, spawn
+rejection, and failed commit counts each escalate with their own reason).
+Guards: same finding fingerprint surviving two consecutive rounds
+(`findingsSurvivingRound` over the persisted survival map, restart-safe), a
+no-op fix turn, and the `[review].max_rounds` cap (default 3,
+snapshot-frozen; pre-W5b snapshots backfill defaults in readConfigSnapshot)
+all escalate needs_human carrying the findings. Loop position persists in the
+tier-1 `loop-state.json` (`src/core/loop-state.ts`, write-then-rename), and
+`resolveLoopEntry` resumes the exact next action from journal + loop-state
+(round numbers never reused; orphan verdict artifacts consumed; interrupted
+fix turns judged by commit observables; pending escalations park until a
+retry decision). `combo-chen decide -n <id> <verb>` answers a pending
+needs_human with a `decision` event (verbs: retry, skip, take_over, ignore);
+journal timestamps are unique per append, and deriveStatus resolves
+escalations per needs_human_ref, keeping other pending escalations visible.
 W6c adds the PR body dossier projection (`src/core/pr-body-dossier.ts`) and
 permanent exit summary (`src/core/exit-summary.ts`): the dossier edits the PR
 body via `gh pr edit --body-file` (same pattern as ensurePrAutoclose in
