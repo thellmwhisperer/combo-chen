@@ -23,7 +23,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ComboRecord } from "../../core/state.js";
-import { deriveFleetRow, deriveFleetView, type FleetRenderPhase } from "./fleet-fold.js";
+import { deriveActorLiveness, deriveFleetRow, deriveFleetView, type FleetRenderPhase } from "./fleet-fold.js";
 
 // -- 1/3 HELPER · fixtures --
 const NOW = Date.parse("2026-07-12T12:00:00.000Z");
@@ -286,6 +286,76 @@ describe("deriveFleetRow liveness on CODER phase", () => {
       now: NOW,
     });
     expect(row.detailLine).toContain("live");
+  });
+});
+
+describe("deriveActorLiveness", () => {
+  it("returns empty when session is not alive", () => {
+    const liveness = deriveActorLiveness(
+      [{ t: ts(10), event: "coder_started" }],
+      false,
+    );
+    expect(liveness).toEqual({});
+  });
+
+  it("reports coder active during CODING phase", () => {
+    const liveness = deriveActorLiveness(
+      [{ t: ts(10), event: "coder_started" }],
+      true,
+    );
+    expect(liveness).toEqual({ coder: true });
+  });
+
+  it("reports reviewer active during LOCAL_REVIEW with no verdict yet", () => {
+    const liveness = deriveActorLiveness(
+      [
+        { t: ts(80), event: "coder_done" },
+        { t: ts(70), event: "local_review_requested", round: 1, sha: "abc" },
+      ],
+      true,
+    );
+    expect(liveness).toEqual({ reviewer: true });
+  });
+
+  it("reports coder active during LOCAL_REVIEW after code-1 verdict", () => {
+    const liveness = deriveActorLiveness(
+      [
+        { t: ts(70), event: "local_review_requested", round: 1, sha: "abc" },
+        {
+          t: ts(60),
+          event: "local_verdict",
+          round: 1,
+          code: 1,
+          verdict_path: "/v",
+          identity: {},
+        },
+      ],
+      true,
+    );
+    expect(liveness).toEqual({ coder: true });
+  });
+
+  it("reports gate active during GATING phase", () => {
+    const liveness = deriveActorLiveness(
+      [
+        { t: ts(80), event: "coder_done" },
+        { t: ts(75), event: "gate_started" },
+      ],
+      true,
+    );
+    expect(liveness).toEqual({ gate: true });
+  });
+
+  it("returns empty for terminal phases", () => {
+    const liveness = deriveActorLiveness(
+      [
+        { t: ts(80), event: "coder_done" },
+        { t: ts(60), event: "pr_opened", url: "https://x" },
+        { t: ts(5), event: "combo_closed" },
+      ],
+      true,
+    );
+    expect(liveness).toEqual({});
   });
 });
 // -/ 2/3
