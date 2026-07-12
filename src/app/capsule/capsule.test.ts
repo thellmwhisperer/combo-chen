@@ -481,6 +481,54 @@ describe("capsule sequencer", () => {
     expect(events(f.runDir).some((event) => event.event === "needs_human")).toBe(false);
   });
 
+  it("TOMBSTONE: keeps gate custody when the resumed driver reports the orphan still active", async () => {
+    const f = fixture();
+    const h = deps(f);
+    const gateResults = [
+      { status: "already_running", exitCode: 0, headSha: "coded", runId: "01ORPHAN" } as const,
+      { status: "validated", exitCode: 0, headSha: "published" } as const,
+    ];
+    const runGate = vi.fn(async () => {
+      const result = gateResults.shift();
+      if (result === undefined) throw new Error("duplicate no-mistakes pipeline");
+      return result;
+    });
+    const attachGate = vi.fn();
+    h.deps.runGate = runGate;
+    h.deps.attachGate = attachGate;
+    h.deps.sleep = async () => undefined;
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "validated", exitCode: 0 });
+    expect(runGate).toHaveBeenCalledTimes(2);
+    expect(attachGate).toHaveBeenCalledOnce();
+    expect(attachGate).toHaveBeenCalledWith("01ORPHAN");
+    expect(events(f.runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
+  it("keeps gate custody when an initial-gate retry discovers the active orphan", async () => {
+    const f = fixture();
+    const h = deps(f);
+    const gateResults = [
+      { status: "failed", exitCode: 1, headSha: "coded" } as const,
+      { status: "already_running", exitCode: 0, headSha: "coded", runId: "01RETRY" } as const,
+      { status: "validated", exitCode: 0, headSha: "published" } as const,
+    ];
+    const runGate = vi.fn(async () => {
+      const result = gateResults.shift();
+      if (result === undefined) throw new Error("duplicate no-mistakes pipeline");
+      return result;
+    });
+    const attachGate = vi.fn();
+    h.deps.runGate = runGate;
+    h.deps.attachGate = attachGate;
+    h.deps.sleep = async () => undefined;
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "validated", exitCode: 0 });
+    expect(runGate).toHaveBeenCalledTimes(3);
+    expect(attachGate).toHaveBeenCalledWith("01RETRY");
+    expect(events(f.runDir).some((event) => event.event === "needs_human")).toBe(false);
+  });
+
   it("journals needs_human gate_failed after exhausting initial gate retries", async () => {
     const f = fixture();
     const h = deps(f, { gateResult: { status: "failed", exitCode: 3, headSha: "coded" } });
@@ -491,7 +539,6 @@ describe("capsule sequencer", () => {
   });
 
   for (const gateResult of [
-    { status: "already_running", exitCode: 0, headSha: "head", runId: "01LIVE" } as const,
     { status: "lease_unavailable", exitCode: 0, headSha: "head" } as const,
     { status: "no_pr", exitCode: 0, headSha: "head" } as const,
   ]) {
@@ -505,8 +552,7 @@ describe("capsule sequencer", () => {
         status: gateResult.status,
         exitCode: gateResult.exitCode,
       });
-      if (gateResult.status === "already_running") expect(attachGate).toHaveBeenCalledWith("01LIVE");
-      else expect(attachGate).not.toHaveBeenCalled();
+      expect(attachGate).not.toHaveBeenCalled();
     });
   }
 });

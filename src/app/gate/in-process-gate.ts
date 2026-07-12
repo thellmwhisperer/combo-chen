@@ -5,12 +5,12 @@
  *   -------------
  *   1. Start at runInProcessGate              <- complete initial/post gate entry point.
  *   2. Then runGatekeeperAndConfigCopy        <- deterministic two-promise race.
- *   3. publishGateMirror / abortPreviousRun   <- daemon and mirror preparation.
- *   4. Pure predicates                        <- status, recovery, and failure classification.
+ *   3. hasInterruptedGateCustody              <- journal proof for safe axi reattachment.
+ *   4. publishGateMirror / abortPreviousRun   <- fresh daemon and mirror preparation.
  *
  *   MAIN FLOW
  *   ---------
- *   runInProcessGate -> lease -> mirror -> gate + config watcher -> classify -> appendEvent
+ *   runInProcessGate -> lease -> reattach matching run or publish mirror -> gate + config watcher -> classify
  *
  *   PUBLIC API
  *   ----------
@@ -24,16 +24,16 @@
  *
  *   INTERNALS
  *   ---------
- *   outputOf, successful, finishSuccessfulGate
+ *   outputOf, successful, hasInterruptedGateCustody, finishSuccessfulGate
  *
  * @exports GateProcessRequest, GateProcessResult, GateProcessRunner, AxiStatus, ConfigCopyOutcome, InProcessGateInput, InProcessGateResult, runChildProcess, parseAxiStatus, axiHeadMatches, isAxiRunActive, isAxiRunAttachable, resolveConfigCopyRace, runGatekeeperAndConfigCopy, copyConfigToActiveRun, abortPreviousRun, daemonStartSucceeded, publishGateMirror, findAttachableRun, shouldRecoverChecksPassed, gateIsAwaitingApproval, gateFailureReason, appendGateIdle, withGateLease, runInProcessGate
- * @deps node:{child_process,fs,path}, ../../core/events, ../../core/state, ../../roles/gatekeeper, ./lease
+ * @deps node:{child_process,fs,path}, ../../core/{events,state}, ../../roles/gatekeeper, ./lease
  */
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { appendEvent, sleep } from "../../core/events.js";
+import { appendEvent, readEvents, sleep } from "../../core/events.js";
 import type { ComboRecord } from "../../core/state.js";
 import { parseAxiOutcome } from "../../roles/gatekeeper.js";
 import {
@@ -212,7 +212,9 @@ export async function runGatekeeperAndConfigCopy(input: {
   }
 
   const controller = new AbortController();
-  const copyPromise = input.copyConfig(controller.signal);
+  const copyPromise = Promise.resolve()
+    .then(() => input.copyConfig!(controller.signal))
+    .catch((): ConfigCopyOutcome => (controller.signal.aborted ? "killed" : "failed"));
   const first = await Promise.race([
     gatePromise.then((result) => ({ kind: "gate" as const, result })),
     copyPromise.then((outcome) => ({ kind: "copy" as const, outcome })),
@@ -246,6 +248,19 @@ function outputOf(result: GateProcessResult): string {
 
 function successful(result: GateProcessResult): boolean {
   return result.exitCode === 0;
+}
+
+function hasInterruptedGateCustody(runDir: string, headSha: string): boolean {
+  const events = readEvents(runDir);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (event.event !== "gate_status") continue;
+    return (
+      event.state === "fix_inflight" &&
+      (typeof event.head_sha !== "string" || axiHeadMatches(event.head_sha, headSha))
+    );
+  }
+  return false;
 }
 
 export function daemonStartSucceeded(start: GateProcessResult, status?: GateProcessResult): boolean {
@@ -492,13 +507,30 @@ export async function runInProcessGate(input: InProcessGateInput): Promise<InPro
       `git rev-parse HEAD failed for ${input.combo.id}: ${headResult.stderr.trim() || "empty head"}`,
     );
   }
+  const interruptedGateCustody = hasInterruptedGateCustody(input.runDir, headSha);
   appendEvent(input.runDir, "gate_started", {});
 
   const action = async (): Promise<InProcessGateResult> => {
     appendEvent(input.runDir, "gate_status", { state: "fix_inflight", head_sha: headSha });
     let daemonStarted = false;
     let previousRunAborted = false;
-    if (input.mirrorIntent !== undefined) {
+    let reattachedRunId: string | undefined;
+    if (interruptedGateCustody) {
+      const statusProbe = await runProcess({
+        command: "no-mistakes",
+        args: ["axi", "status"],
+        cwd: input.combo.worktree,
+        env: input.env,
+      });
+      reattachedRunId = findAttachableRun(outputOf(statusProbe), {
+        branch: input.combo.branch,
+        head: headSha,
+      });
+      if (reattachedRunId !== undefined) {
+        appendEvent(input.runDir, "gate_reattached", { run_id: reattachedRunId, head_sha: headSha });
+      }
+    }
+    if (reattachedRunId === undefined && input.mirrorIntent !== undefined) {
       const mirror = await publishGateMirror({
         combo: input.combo,
         intent: input.mirrorIntent,
@@ -519,19 +551,21 @@ export async function runInProcessGate(input: InProcessGateInput): Promise<InPro
           head: headSha,
         });
         if (runId !== undefined) {
-          appendEvent(input.runDir, "gate_status", { state: "fix_inflight", head_sha: headSha });
-          return { status: "already_running", exitCode: 0, headSha, runId };
+          reattachedRunId = runId;
+          appendEvent(input.runDir, "gate_reattached", { run_id: runId, head_sha: headSha });
+        } else {
+          appendEvent(input.runDir, "gate_status", { state: "failed", head_sha: headSha });
+          appendEvent(input.runDir, "gate_failed", {
+            exit_code: mirror.exitCode,
+            reason: gateFailureReason(`${outputOf(mirror)}${outputOf(statusProbe)}`),
+          });
+          return { status: "failed", exitCode: mirror.exitCode, headSha };
         }
-        appendEvent(input.runDir, "gate_status", { state: "failed", head_sha: headSha });
-        appendEvent(input.runDir, "gate_failed", {
-          exit_code: mirror.exitCode,
-          reason: gateFailureReason(`${outputOf(mirror)}${outputOf(statusProbe)}`),
-        });
-        return { status: "failed", exitCode: mirror.exitCode, headSha };
       }
     }
 
     if (
+      reattachedRunId === undefined &&
       !previousRunAborted &&
       !(await abortPreviousRun({ combo: input.combo, runProcess, env: input.env }))
     ) {
@@ -540,7 +574,7 @@ export async function runInProcessGate(input: InProcessGateInput): Promise<InPro
       return { status: "failed", exitCode: 1, headSha };
     }
 
-    if (!daemonStarted) {
+    if (reattachedRunId === undefined && !daemonStarted) {
       const start = await runProcess({
         command: "no-mistakes",
         args: ["daemon", "start"],

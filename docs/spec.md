@@ -204,21 +204,26 @@ gate scripts. It runs as an awaited child process within the capsule.
 
 Pipeline within the gate:
 
-1. **Branch-scoped lease** — acquire via `withGateLease`; same-branch conflict
+1. **Restart custody probe** — when the journal ends in `gate_status state=fix_inflight`,
+   query `no-mistakes axi status`. A matching active branch
+   and head is journaled as `gate_reattached`, then the frozen gatekeeper command
+   drives that same run (including its `--yes` policy) instead of publishing or
+   aborting a duplicate.
+2. **Branch-scoped lease** — acquire via `withGateLease`; same-branch conflict
    exits with a deterministic code and does not block sibling branches.
-2. **Mirror publish** — `git push no-mistakes HEAD:refs/heads/<branch>` with
+3. **Mirror publish** — `git push no-mistakes HEAD:refs/heads/<branch>` with
    `--force-with-lease` when the mirror branch exists.
-3. **Daemon start** — `no-mistakes daemon start` (idempotent; left running for
+4. **Daemon start** — `no-mistakes daemon start` (idempotent; left running for
    sibling capsules).
-4. **Gatekeeper + config copy race** — the gateway command and `.no-mistakes.yaml`
+5. **Gatekeeper + config copy race** — the gateway command and `.no-mistakes.yaml`
    propagation to the daemon's active run worktree run in parallel. If the gate
    finishes before the config copy, the result is rejected (deterministic validation).
-5. **Outcome classification** — `awaiting_approval` journals `needs_human reason=gate_waiting`;
+6. **Outcome classification** — `awaiting_approval` journals `needs_human reason=gate_waiting`;
    `checks-passed` + `context canceled` recovers as success; all other non-zero exits
    journal `gate_failed`.
-6. **PR detection** — queries `gh pr list --head <branch>`, runs the autoclose guard
+7. **PR detection** — queries `gh pr list --head <branch>`, runs the autoclose guard
    (for issue-backed combos), journals `pr_opened`.
-7. **Initial-gate retry** — up to `gatekeeperInitialGateRetryAttempts` with
+8. **Initial-gate retry** — up to `gatekeeperInitialGateRetryAttempts` with
    `gatekeeperInitialGateRetryBackoffSeconds` delay; exhausted retries escalate
    `needs_human reason=gate_failed`.
 
@@ -383,6 +388,7 @@ directory lock. Key v1 events:
 | `lgtm`                   | capsule/ready    | SHA-pinned LGTM (sha, patch_id?, round, source)                   |
 | `lgtm_stale`             | ready            | Prior LGTM invalidated (old_sha, new_sha, reason)                 |
 | `gate_started`           | in-process-gate  | Gate process started                                              |
+| `gate_reattached`        | in-process-gate  | Interrupted gate custody resumed by run ID and head               |
 | `gate_status`            | in-process-gate  | State: `fix_inflight`, `idle`, `failed`, `awaiting_approval`      |
 | `gate_failed`            | in-process-gate  | Gate exited non-zero (exit_code, reason)                          |
 | `gate_validated`         | in-process-gate  | Post-address gate validated the published head                    |
@@ -393,6 +399,7 @@ directory lock. Key v1 events:
 | `pr_conflict`            | director         | PR merge state is DIRTY/CONFLICTING (sha, action)                 |
 | `merged`                 | director/closure | PR merged (sha, by, mergedAt)                                     |
 | `combo_closed`           | closure          | Terminal resource convergence                                     |
+| `capsule_crashed`        | capsule backstop | Fatal reason journaled synchronously before process exit          |
 | `pr_labels_updated`      | director         | Label mutation (old_labels, new_labels, reason)                   |
 | `watch_error/dead`       | supervisor       | Tick failure tracking                                             |
 

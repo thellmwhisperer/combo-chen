@@ -211,6 +211,26 @@ describe("config-copy race truth table", () => {
     });
   });
 
+  it("contains a config watcher rejection after the failed gate aborts it", async () => {
+    const gate = deferred<GateProcessResult>();
+    const resultPromise = runGatekeeperAndConfigCopy({
+      configPresent: true,
+      gate: () => gate.promise,
+      copyConfig: async (signal) =>
+        new Promise((_, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("watcher aborted")), { once: true });
+        }),
+    });
+
+    gate.resolve({ exitCode: 42, stdout: "", stderr: "gate failed" });
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitCode: 1,
+      rawExitCode: 42,
+      configFailed: true,
+    });
+  });
+
   it("copies the config only into the active matching branch worktree", async () => {
     const root = mkdtempSync(join(tmpdir(), "combo-chen-config-copy-"));
     const worktree = join(root, "combo-worktree");
@@ -386,6 +406,85 @@ describe("gate output and axi status predicates", () => {
 });
 
 describe("mirror and lease orchestration", () => {
+  it("TOMBSTONE: resumes custody of a matching active run without publishing a duplicate", async () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-in-process-gate-"));
+    const record = combo(root);
+    const runDir = join(root, "run");
+    mkdirSync(record.worktree, { recursive: true });
+    mkdirSync(runDir);
+    const calls: string[] = [];
+    let driverCrashed = false;
+    let publishAttempts = 0;
+    let driverCalls = 0;
+    const runProcess = async (request: GateProcessRequest): Promise<GateProcessResult> => {
+      const call = `${request.command} ${request.args.join(" ")}`;
+      calls.push(call);
+      if (call === "git rev-parse HEAD") {
+        return { exitCode: 0, stdout: "abcdef123456\n", stderr: "" };
+      }
+      if (call === "no-mistakes axi status") {
+        if (!driverCrashed) return { exitCode: 0, stdout: "status: done\n", stderr: "" };
+        return {
+          exitCode: 0,
+          stdout: "id: 01ORPHAN\nbranch: combo/issue-7\nhead: abcdef12\nstatus: running\n",
+          stderr: "",
+        };
+      }
+      if (call === "git remote get-url no-mistakes") {
+        publishAttempts += 1;
+        return { exitCode: 2, stdout: "", stderr: "no mirror" };
+      }
+      if (call === "no-mistakes daemon start") {
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (call === "sh -c gate-command") {
+        driverCalls += 1;
+        if (!driverCrashed) {
+          driverCrashed = true;
+          throw new Error("capsule killed after gate start");
+        }
+        return { exitCode: 0, stdout: "outcome: checks-passed\n", stderr: "" };
+      }
+      throw new Error(`duplicate pipeline operation: ${call}`);
+    };
+
+    await expect(
+      runInProcessGate({
+        combo: record,
+        runDir,
+        kind: "initial",
+        gatekeeperCommand: "gate-command",
+        mirrorIntent: "intent",
+        runProcess,
+      }),
+    ).rejects.toThrow("capsule killed after gate start");
+
+    await expect(
+      runInProcessGate({
+        combo: record,
+        runDir,
+        kind: "initial",
+        gatekeeperCommand: "gate-command",
+        mirrorIntent: "intent",
+        runProcess,
+        findPrUrl: async () => "https://github.com/o/r/pull/7",
+        resolvePrHead: async () => "published",
+      }),
+    ).resolves.toEqual({ status: "validated", exitCode: 0, headSha: "published" });
+    expect(publishAttempts).toBe(1);
+    expect(driverCalls).toBe(2);
+    expect(calls.slice(-3)).toEqual(["git rev-parse HEAD", "no-mistakes axi status", "sh -c gate-command"]);
+    expect(eventShapes(runDir)).toEqual([
+      { event: "gate_started" },
+      { event: "gate_status", state: "fix_inflight", head_sha: "abcdef123456" },
+      { event: "gate_started" },
+      { event: "gate_status", state: "fix_inflight", head_sha: "abcdef123456" },
+      { event: "gate_reattached", run_id: "01ORPHAN", head_sha: "abcdef123456" },
+      { event: "gate_status", state: "idle", head_sha: "published" },
+      { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
+    ]);
+  });
+
   it("forgives an abort failure when the run became inactive on its own", async () => {
     const statuses = [
       "id: 01RUN\nbranch: combo/issue-7\nstatus: running\n",
@@ -433,6 +532,10 @@ describe("mirror and lease orchestration", () => {
             stderr: "",
           },
         },
+        {
+          command: "sh -c gate-command",
+          result: { exitCode: 0, stdout: "outcome: checks-passed\n", stderr: "" },
+        },
       ],
       calls,
     );
@@ -445,17 +548,20 @@ describe("mirror and lease orchestration", () => {
         gatekeeperCommand: "gate-command",
         mirrorIntent: "intent",
         runProcess,
+        findPrUrl: async () => "https://github.com/o/r/pull/7",
+        resolvePrHead: async () => "published",
       }),
     ).resolves.toEqual({
-      status: "already_running",
+      status: "validated",
       exitCode: 0,
-      headSha: "abcdef123456",
-      runId: "01LIVE",
+      headSha: "published",
     });
     expect(eventShapes(runDir)).toEqual([
       { event: "gate_started" },
       { event: "gate_status", state: "fix_inflight", head_sha: "abcdef123456" },
-      { event: "gate_status", state: "fix_inflight", head_sha: "abcdef123456" },
+      { event: "gate_reattached", run_id: "01LIVE", head_sha: "abcdef123456" },
+      { event: "gate_status", state: "idle", head_sha: "published" },
+      { event: "pr_opened", url: "https://github.com/o/r/pull/7" },
     ]);
   });
 
