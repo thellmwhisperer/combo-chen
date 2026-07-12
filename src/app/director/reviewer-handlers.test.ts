@@ -31,11 +31,13 @@ import {
   home,
   it,
   join,
+  loadConfig,
   mkdtempSync,
   readEvents,
   runDirFor,
   tmpdir,
   writeCombo,
+  writeConfigSnapshot,
   writeFileSync,
 } from "../../testing/cli-harness.js";
 
@@ -112,6 +114,50 @@ describe("activate-reviewer", () => {
     );
     expect(calls).toContainEqual(["tmux", "send-keys", "-t", "combo-chen-o-r-7:reviewer", "C-m"]);
     expect(out.join("\n")).toContain("reviewer");
+  });
+
+  it("does not create a director-watch window for capsule engine combos", async () => {
+    const h = home();
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    writeFileSync(join(repoDir, "combo-chen.toml"), '[run]\nengine = "capsule"\n');
+    const dir = runDirFor(h, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: ISSUE,
+      repoDir,
+      worktree: join(repoDir, ".worktrees", "issue-7"),
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date().toISOString(),
+    });
+    writeConfigSnapshot(dir, loadConfig({ repoDir, env: {} }));
+    appendEvent(dir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
+
+    const { deps, calls } = fakeDeps({
+      env: { COMBO_CHEN_HOME: h },
+      tmux: (args) => {
+        calls.push(["tmux", ...args]);
+        if (args[0] === "list-windows") {
+          return {
+            status: 0,
+            stdout: "capsule\njournal\ndirector\ncoder\ngatekeeper\nreviewer\n",
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    });
+
+    await exec(deps, ["activate-reviewer", "-n", "o-r-7"]);
+
+    expect(calls.some((c) => c[0] === "tmux" && c[1] === "new-window" && c.includes("director-watch"))).toBe(
+      false,
+    );
+    expect(
+      calls.some(
+        (c) => c[0] === "tmux" && c[1] === "set-buffer" && String(c.at(-1)).includes("director-tick"),
+      ),
+    ).toBe(false);
   });
 
   it("refuses activation before the combo has an opened PR in the journal", async () => {

@@ -23,13 +23,14 @@
  *   reviewerWorkPlan, hasCompleteWorkItemMetadata
  *
  * @exports ActivateReviewerDeps, TickReviewerDeps, activateReviewer, tickReviewer, latestOpenedPrUrl, livePinnedLgtmSha, hasJournaledLgtm, canonicalLgtmShaForHead, terminalReviewerEvent, hasMergedEvent, closurePendingReviewerEvent
- * @deps ../../core/events, ../../core/gh-api, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../../roles/reviewer-invocation, ../github/github, ../runtime/sessions, ../work-items/persisted-work-plan, ./coder, ./prompt, ./watchers
+ * @deps ../../core/events, ../../core/gh-api, ../../core/runtime-ledger, ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/director-invocation, ../../roles/reviewer-invocation, ../github/github, ../runtime/sessions, ../work-items/persisted-work-plan, ./coder, ./prompt, ./watchers
  */
 import { appendEvent, latestPrUrlFromEvents, readEvents, type ComboEvent } from "../../core/events.js";
 import type { GhApiCache } from "../../core/gh-api.js";
 import { updateRuntimeLedger } from "../../core/runtime-ledger.js";
 import { cleanOptional, runDirFor, readCombo, type ComboRecord } from "../../core/state.js";
 import type { WorkPlan } from "../../core/work-plan.js";
+import { isCapsuleEngine } from "../../infra/config.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
 import { captureWindowArgs, nudgeWindowArgs, type TmuxResult } from "../../infra/tmux.js";
 import { buildDirectorInvocation } from "../../roles/director-invocation.js";
@@ -115,19 +116,24 @@ export function activateReviewer(input: {
     );
   }
 
-  ensureWindowPresent(
-    deps,
-    combo,
-    DIRECTOR_WATCH_WINDOW,
-    buildDirectorWatchCommand({
-      cli,
-      comboHome: home,
-      comboId: combo.id,
-      pollSeconds: config.limits.babysitPollSeconds,
-      watchFailureLimit: config.limits.watchFailureLimit,
-      watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
-    }),
-  );
+  // Capsule-engine combos are supervised by the in-process supervisor in the
+  // capsule pane; only v0 combos get the generated director-watch shell loop.
+  const capsuleEngine = isCapsuleEngine(config);
+  if (!capsuleEngine) {
+    ensureWindowPresent(
+      deps,
+      combo,
+      DIRECTOR_WATCH_WINDOW,
+      buildDirectorWatchCommand({
+        cli,
+        comboHome: home,
+        comboId: combo.id,
+        pollSeconds: config.limits.babysitPollSeconds,
+        watchFailureLimit: config.limits.watchFailureLimit,
+        watchBackoffMaxSeconds: config.limits.watchBackoffMaxSeconds,
+      }),
+    );
+  }
 
   updateRuntimeLedger(runDir, {
     cli,
@@ -135,7 +141,7 @@ export function activateReviewer(input: {
     roleWindows: {
       director: DIRECTOR_WINDOW,
       reviewer: REVIEWER_WINDOW,
-      directorWatch: DIRECTOR_WATCH_WINDOW,
+      ...(capsuleEngine ? {} : { directorWatch: DIRECTOR_WATCH_WINDOW }),
     },
   });
   deps.out(`reviewer: ${config.reviewerAgent} reviewing ${prUrl} in ${combo.tmuxSession}:${REVIEWER_WINDOW}`);
