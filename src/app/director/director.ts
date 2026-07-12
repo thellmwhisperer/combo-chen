@@ -374,7 +374,7 @@ function syncDirectorPrLabels(input: {
       runDir: input.runDir,
       prUrl: input.prUrl,
       events: input.events,
-      source: "director-watch",
+      source: "director-tick",
     });
   } catch (error) {
     input.deps.out(
