@@ -371,6 +371,10 @@ describe("capsule sequencer", () => {
       "coder_done",
       "local_review_requested",
       "local_verdict",
+      // W6a: the resumed run still pins the lgtm and carries it to the
+      // published head by patch-id equivalence.
+      "lgtm",
+      "lgtm",
     ]);
   });
 
