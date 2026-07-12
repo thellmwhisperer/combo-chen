@@ -72,7 +72,6 @@ describe("event schema", () => {
         "worker_recovered",
         "worker_recovery_failed",
         "director_prompted",
-        "external_review_requested",
         "review_comment",
         "lgtm",
         "lgtm_stale",

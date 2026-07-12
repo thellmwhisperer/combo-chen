@@ -70,7 +70,6 @@ export const EVENT_TYPES = {
   worker_recovered: { required: ["worker", "reason", "attempt"] },
   worker_recovery_failed: { required: ["worker", "reason", "attempt"] },
   director_prompted: { required: ["reason", "target"] },
-  external_review_requested: { required: ["sha", "command", "pr_url"] },
   // v1 pre-publish local review loop (PRD s3/s11). identity carries the
   // producing {model, runtime}; code is the 0-3 verdict routing code.
   local_review_requested: { required: ["round", "sha"] },

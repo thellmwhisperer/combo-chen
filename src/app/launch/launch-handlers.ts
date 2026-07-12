@@ -305,7 +305,7 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
       "gatekeeper=" + GATEKEEPER_WINDOW,
       "reviewer=" + REVIEWER_WINDOW,
       ...(capsuleEngine ? [] : ["director-watch=" + DIRECTOR_WATCH_WINDOW]),
-      "coder-response=" + config.coderRespondingWindowName,
+      "coder-response=" + CODER_WINDOW,
     ].join(" · "),
   );
   deps.out("   journal: tmux attach -t " + session + "  ·  combo-chen events --follow -n " + id);

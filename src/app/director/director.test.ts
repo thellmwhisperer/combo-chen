@@ -590,10 +590,7 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      '[coder_responding]\nwindow_name = "coder-responding"\n',
-    );
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder"\n');
     writeCombo(runDir, record);
     writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
@@ -782,10 +779,7 @@ describe("tickDirector", () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      '[coder_responding]\nwindow_name = "coder-responding"\n',
-    );
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder"\n');
     writeCombo(runDir, record);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
     const { deps, calls } = fakeDeps({
@@ -795,7 +789,7 @@ describe("tickDirector", () => {
       mergeStateStatus: "CLEAN",
       tmux: (args) => {
         if (args[0] === "list-windows") {
-          return { status: 0, stdout: "coder-responding\n", stderr: "" };
+          return { status: 0, stdout: "coder\n", stderr: "" };
         }
         if (args[0] === "list-panes") {
           return { status: 0, stdout: "", stderr: "" };
@@ -806,13 +800,8 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({
-        event: "needs_human",
-        reason: "worker_dead",
-        worker: "coder-responding",
-        detail: "dead pane",
-      }),
+    expect(readEvents(runDir)).not.toContainEqual(
+      expect.objectContaining({ event: "needs_human", reason: "worker_dead" }),
     );
     expect(
       calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("coder")),
@@ -853,11 +842,8 @@ describe("tickDirector", () => {
     const record = combo();
     const runDir = runDirFor(h, record.id);
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const windows = new Set(["coder-responding"]);
-    writeFileSync(
-      join(record.repoDir, "combo-chen.toml"),
-      '[coder_responding]\nwindow_name = "coder-responding"\n',
-    );
+    const windows = new Set(["coder"]);
+    writeFileSync(join(record.repoDir, "combo-chen.toml"), '[coder_responding]\nwindow_name = "coder"\n');
     writeCombo(runDir, record);
     writeCoderThreadArtifact(runDir);
     appendEvent(runDir, "pr_opened", { url: "https://github.com/o/r/pull/7" });
@@ -932,12 +918,12 @@ describe("tickDirector", () => {
       expect.objectContaining({
         event: "needs_human",
         reason: "worker_stalled",
-        worker: "coder-responding",
+        worker: "coder",
         detail: "recovery attempts exhausted after 2; unchanged pane for 2 ticks",
       }),
     );
-    expect(out).toContain("director: recovered stalled coder-responding attempt 1/2");
-    expect(out).toContain("director: recovered stalled coder-responding attempt 2/2");
+    expect(out).toContain("director: recovered stalled coder attempt 1/2");
+    expect(out).toContain("director: recovered stalled coder attempt 2/2");
   });
 
   it("does not recycle coder-responding while an intent needs_human hold is active", async () => {
@@ -1174,7 +1160,7 @@ describe("tickDirector", () => {
   it("recreates a permission-prompted coder responding worker until the recovery budget is exhausted", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const windows = new Set(["coder-responding"]);
+    const windows = new Set(["coder"]);
     const record = combo();
     const runDir = runDirFor(h, record.id);
     writeCombo(runDir, record);
@@ -1183,7 +1169,7 @@ describe("tickDirector", () => {
       join(record.repoDir, "combo-chen.toml"),
       [
         "[coder_responding]",
-        'window_name = "coder-responding"',
+        'window_name = "coder"',
         "",
         "[monitor]",
         "permission_prompt_policy = 'recreate-non-interactive'",
@@ -1235,13 +1221,13 @@ describe("tickDirector", () => {
       expect.objectContaining({
         event: "worker_recovered",
         reason: "worker_permission_prompt",
-        worker: "coder-responding",
+        worker: "coder",
         attempt: 1,
         max_attempts: 1,
       }),
     );
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(out).toContain("director: recovered coder-responding after worker_permission_prompt attempt 1/1");
+    expect(out).toContain("director: recovered coder after worker_permission_prompt attempt 1/1");
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
@@ -1250,7 +1236,7 @@ describe("tickDirector", () => {
       expect.objectContaining({
         event: "needs_human",
         reason: "worker_permission_prompt",
-        worker: "coder-responding",
+        worker: "coder",
         detail: "recovery attempts exhausted after 1; permission prompt",
       }),
     );
@@ -1418,14 +1404,7 @@ describe("tickDirector", () => {
 
     const labelEditCalls = calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit");
     expect(labelEditCalls).toEqual([
-      [
-        "gh",
-        "pr",
-        "edit",
-        "https://github.com/o/r/pull/7",
-        "--add-label",
-        "combo:working-reviewer,combo:external-review-green",
-      ],
+      ["gh", "pr", "edit", "https://github.com/o/r/pull/7", "--add-label", "combo:working"],
     ]);
     expect(readEvents(runDir).filter((event) => event.event === "pr_labels_updated")).toEqual([
       expect.objectContaining({
@@ -1433,10 +1412,10 @@ describe("tickDirector", () => {
         pr_url: "https://github.com/o/r/pull/7",
         head_sha: headSha,
         old_labels: ["documentation"],
-        new_labels: ["documentation", "combo:working-reviewer", "combo:external-review-green"],
-        added_labels: ["combo:working-reviewer", "combo:external-review-green"],
+        new_labels: ["documentation", "combo:working"],
+        added_labels: ["combo:working"],
         removed_labels: [],
-        reason: "current",
+        reason: "working",
         source: "director-watch",
       }),
     ]);
@@ -1470,8 +1449,14 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "edit")).toEqual([]);
-    expect(readEvents(runDir).filter((event) => event.event === "pr_labels_updated")).toEqual([]);
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "edit",
+      "https://github.com/o/r/pull/7",
+      "--add-label",
+      "combo:working",
+    ]);
   });
 
   it("removes combo:ready when a required READY check is skipped", async () => {
@@ -1497,7 +1482,7 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(calls).toContainEqual([
+    expect(calls).not.toContainEqual([
       "gh",
       "pr",
       "edit",
@@ -1505,14 +1490,7 @@ describe("tickDirector", () => {
       "--remove-label",
       "combo:ready",
     ]);
-    expect(readEvents(runDir)).toContainEqual(
-      expect.objectContaining({
-        event: "pr_labels_updated",
-        removed_labels: ["combo:ready"],
-        reason: "current",
-        source: "director-watch",
-      }),
-    );
+    expect(readEvents(runDir).filter((event) => event.event === "pr_labels_updated")).toEqual([]);
   });
 
   it("emits READY when gate, reviewer, required checks, and normal checks all agree on the current head", async () => {
@@ -1703,7 +1681,7 @@ describe("tickDirector", () => {
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(readEvents(runDir)).toContainEqual(expect.objectContaining({ event: "lgtm", sha: headSha }));
-    expect(readEvents(runDir)).toContainEqual(
+    expect(readEvents(runDir)).not.toContainEqual(
       expect.objectContaining({
         event: "external_review_requested",
         sha: headSha,
@@ -1712,23 +1690,15 @@ describe("tickDirector", () => {
       }),
     );
     const commentCall = calls.find((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment");
-    expect(commentCall).toEqual([
-      "gh",
-      "pr",
-      "comment",
-      "https://github.com/o/r/pull/7",
-      "--body",
-      expect.stringContaining("@coderabbitai review"),
-    ]);
-    expect(commentCall?.at(-1)).toContain(headSha);
-    expect(out).toContain(`director: requested external review @coderabbitai review at ${headSha}`);
+    expect(commentCall).toBeUndefined();
+    expect(out).not.toContain(`director: requested external review @coderabbitai review at ${headSha}`);
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
     expect(
       calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment"),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("does not emit READY when the required external check is SUCCESS but its PR comment says review skipped", async () => {
@@ -1766,7 +1736,7 @@ describe("tickDirector", () => {
 
     await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
 
-    expect(readEvents(runDir)).toContainEqual(
+    expect(readEvents(runDir)).not.toContainEqual(
       expect.objectContaining({
         event: "external_review_requested",
         sha: headSha,
@@ -1776,8 +1746,8 @@ describe("tickDirector", () => {
     expect(readEvents(runDir).some((event) => event.event === "ready_for_merge")).toBe(false);
     expect(
       calls.filter((call) => call[0] === "gh" && call[1] === "pr" && call[2] === "comment"),
-    ).toHaveLength(1);
-    expect(out).toContain(`director: requested external review @coderabbitai review at ${headSha}`);
+    ).toHaveLength(0);
+    expect(out).not.toContain(`director: requested external review @coderabbitai review at ${headSha}`);
   });
 
   it("emits READY without an external clean comment when configured required checks pass", async () => {
@@ -1963,8 +1933,8 @@ describe("tickDirector", () => {
 
     expect(apiEndpoints).toEqual([
       "repos/o/r/issues/7/comments",
-      "repos/o/r/pulls/7/reviews",
       "repos/o/r/pulls/7/comments",
+      "repos/o/r/pulls/7/reviews",
     ]);
   });
 

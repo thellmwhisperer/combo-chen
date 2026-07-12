@@ -1,35 +1,31 @@
 /**
- * @overview GitHub CLI parsing helpers. ~580 lines, gh JSON normalization.
+ * @overview GitHub CLI parsing helpers for issue, PR, and check facts.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at fetchIssueDetails     <- issue title/body for runner PR intent.
- *   2. Then reviewer signal parsers   <- LGTM pins and verdict blocks may be author-filtered.
- *   3. Then parsePrView              <- normalized PR state for reviewer tick.
- *   4. Finish at fetchForensicsGithubFacts <- read-only report enrichment.
+ *   2. Then parsePrView              <- normalized PR state for lifecycle ticks.
+ *   3. Finish at fetchForensicsGithubFacts <- read-only report enrichment.
  *
  *   MAIN FLOW
  *   ---------
- *   gh stdout -> JSON parse -> typed issue/PR/LGTM facts
+ *   gh stdout -> JSON parse -> typed issue/PR/check facts
  *
  *   PUBLIC API
  *   ----------
- *   GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts
- *   remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict
+ *   GhResult, GhRunner, IssueDetails, GithubSignalState, ForensicsGithubFacts
+ *   remoteSlug, fetchIssueDetails
  *   PrView, blockingReadyMergeState, parsePrView, fetchForensicsGithubFacts
  *
  *   INTERNALS
  *   ---------
- *   LatestReviewerSignalOptions, GitHubPin, TimedReviewerVerdict, loginFromItem,
- *   reviewerCandidateLines, lgtmPinFromBody, reviewerVerdictFromBody, pinsFromItems,
- *   reviewerVerdictsFromItems, rollupSignal, parseIssueView
+ *   rollupSignal, rollupAmbientSignal, checkSignalState, parseIssueView
  *
- * @exports GhResult, GhRunner, IssueDetails, GithubSignalState, ReviewerVerdict, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, latestGitHubLgtmSha, latestGitHubReviewerVerdict, PrView, blockingReadyMergeState, parsePrView, fetchForensicsGithubFacts
- * @deps ../../core/gh-api, ../../core/guards, ../../core/pr-url, ./checks
+ * @exports GhResult, GhRunner, IssueDetails, GithubSignalState, ForensicsGithubFacts, remoteSlug, fetchIssueDetails, PrView, blockingReadyMergeState, parsePrView, fetchForensicsGithubFacts
+ * @deps ../../core/guards, ./checks
  */
-import { readGhArray, type GhApiCache } from "../../core/gh-api.js";
+import type { GhApiCache } from "../../core/gh-api.js";
 import { isRecord } from "../../core/guards.js";
-import { parseGitHubPullRequestUrl } from "../../core/pr-url.js";
 import { checkNameMatchesAny } from "./checks.js";
 
 // -- 1/5 CORE · Issue metadata and remoteSlug <- START HERE --
@@ -52,7 +48,6 @@ export interface ForensicsGithubFacts {
   pr?: {
     url: string;
     headSha?: string;
-    reviewerPinnedSha?: string | null;
     state?: string;
     mergedAt?: string;
     ci?: GithubSignalState;
@@ -105,207 +100,7 @@ export function fetchIssueDetails(gh: GhRunner, issueUrl: string): IssueDetails 
 }
 // -/ 1/5
 
-// -- 2/5 HELPER · Reviewer signal parsing --
-interface GitHubPin {
-  sha: string;
-  t: number;
-}
-
-export interface ReviewerVerdict {
-  headSha: string;
-  code: 0 | 1 | 2 | 3;
-  author?: string;
-}
-
-interface TimedReviewerVerdict extends ReviewerVerdict {
-  t: number;
-}
-
-interface LatestReviewerSignalOptions {
-  allowedAuthors?: string[];
-}
-
-const LGTM_PIN_LINE = /^\s*lgtm\s*@\s*([0-9a-f]{7,40})\s*$/i;
-const REVIEWER_VERDICT_HEADER = /^\s*combo-chen-reviewer-verdict:\s*$/i;
-const REVIEWER_VERDICT_HEAD = /^\s*head:\s*([0-9a-f]{7,40})\s*$/i;
-const REVIEWER_VERDICT_CODE = /^\s*code:\s*([0-3])\s*$/i;
-
-function reviewerCandidateLines(body: string): string[] {
-  const lines: string[] = [];
-  let inCodeFence = false;
-
-  for (const line of body.split(/\r?\n/)) {
-    const trimmed = line.trimStart();
-    if (/^(?:```|~~~)/.test(trimmed)) {
-      inCodeFence = !inCodeFence;
-      continue;
-    }
-    if (inCodeFence || trimmed.startsWith(">")) continue;
-    if (line.startsWith("    ")) continue;
-
-    lines.push(line.replace(/`[^`\r\n]*`/g, ""));
-  }
-
-  return lines;
-}
-
-function lgtmPinFromBody(body: string): string | undefined {
-  for (const line of reviewerCandidateLines(body)) {
-    const match = LGTM_PIN_LINE.exec(line);
-    if (!match) continue;
-    return match[1]!;
-  }
-  return undefined;
-}
-
-function lgtmPinMatchesHead(body: string, currentHeadSha: string): boolean {
-  const pin = lgtmPinFromBody(body);
-  return pin !== undefined && currentHeadSha.toLowerCase().startsWith(pin.toLowerCase());
-}
-
-function loginFromItem(entry: object): string | undefined {
-  const user = (entry as { user?: unknown }).user;
-  if (typeof user !== "object" || user === null) return undefined;
-  const login = (user as { login?: unknown }).login;
-  return typeof login === "string" && login.trim().length > 0 ? login : undefined;
-}
-
-function authorAllowed(entry: object, allowedAuthorsSet: Set<string> | undefined): boolean {
-  if (allowedAuthorsSet === undefined) return true;
-  const author = loginFromItem(entry);
-  return author !== undefined && allowedAuthorsSet.has(author.toLowerCase());
-}
-
-function timestampFromItem(entry: object): number {
-  const rawTime =
-    (entry as { submitted_at?: unknown }).submitted_at ??
-    (entry as { submittedAt?: unknown }).submittedAt ??
-    (entry as { created_at?: unknown }).created_at ??
-    (entry as { createdAt?: unknown }).createdAt ??
-    (entry as { updated_at?: unknown }).updated_at ??
-    (entry as { updatedAt?: unknown }).updatedAt;
-  const t = typeof rawTime === "string" ? Date.parse(rawTime) : Number.NaN;
-  return Number.isNaN(t) ? 0 : t;
-}
-
-function validReviewerEntries(entries: unknown[], options: LatestReviewerSignalOptions): object[] {
-  const allowedAuthorsSet = options.allowedAuthors
-    ? new Set(options.allowedAuthors.map((author) => author.toLowerCase()))
-    : undefined;
-  return entries.filter((entry): entry is object => {
-    if (typeof entry !== "object" || entry === null) return false;
-    return authorAllowed(entry, allowedAuthorsSet);
-  });
-}
-
-function pinsFromItems(entries: unknown[], options: LatestReviewerSignalOptions = {}): GitHubPin[] {
-  const pins: GitHubPin[] = [];
-  for (const entry of validReviewerEntries(entries, options)) {
-    const body = (entry as { body?: unknown }).body;
-    if (typeof body !== "string") continue;
-    const sha = lgtmPinFromBody(body);
-    if (!sha) continue;
-    pins.push({ sha, t: timestampFromItem(entry) });
-  }
-  return pins;
-}
-
-function reviewerVerdictFromBody(body: string, currentHeadSha: string): ReviewerVerdict | undefined {
-  const lines = reviewerCandidateLines(body);
-  const headerIndexes = lines
-    .map((line, index) => (REVIEWER_VERDICT_HEADER.test(line) ? index : -1))
-    .filter((index) => index >= 0);
-  if (headerIndexes.length !== 1) return undefined;
-
-  let headSha: string | undefined;
-  let code: ReviewerVerdict["code"] | undefined;
-  for (const line of lines.slice(headerIndexes[0]! + 1)) {
-    if (line.trim() === "") break;
-    const headMatch = REVIEWER_VERDICT_HEAD.exec(line);
-    if (headMatch) {
-      if (headSha !== undefined) return undefined;
-      headSha = headMatch[1]!;
-      continue;
-    }
-    const codeMatch = REVIEWER_VERDICT_CODE.exec(line);
-    if (codeMatch) {
-      if (code !== undefined) return undefined;
-      code = Number(codeMatch[1]) as ReviewerVerdict["code"];
-      continue;
-    }
-    const lgtmMatch = LGTM_PIN_LINE.exec(line);
-    if (lgtmMatch) {
-      if (lgtmMatch[1]!.toLowerCase() !== currentHeadSha.toLowerCase()) return undefined;
-      continue;
-    }
-    return undefined;
-  }
-
-  if (headSha === undefined || code === undefined) return undefined;
-  if (headSha.toLowerCase() !== currentHeadSha.toLowerCase()) return undefined;
-  if (code === 0 && !lgtmPinMatchesHead(body, currentHeadSha)) return undefined;
-  return { headSha: currentHeadSha, code };
-}
-
-function reviewerVerdictsFromItems(
-  entries: unknown[],
-  currentHeadSha: string,
-  options: LatestReviewerSignalOptions = {},
-): TimedReviewerVerdict[] {
-  const verdicts: TimedReviewerVerdict[] = [];
-  for (const entry of validReviewerEntries(entries, options)) {
-    const body = (entry as { body?: unknown }).body;
-    if (typeof body !== "string") continue;
-    const verdict = reviewerVerdictFromBody(body, currentHeadSha);
-    if (verdict === undefined) continue;
-    verdicts.push({ ...verdict, author: loginFromItem(entry), t: timestampFromItem(entry) });
-  }
-  return verdicts;
-}
-// -/ 2/5
-
-// -- 3/5 CORE · latestGitHubLgtmSha + latestGitHubReviewerVerdict --
-export function latestGitHubLgtmSha(
-  gh: GhRunner,
-  prUrl: string,
-  cache?: GhApiCache,
-  options: LatestReviewerSignalOptions = {},
-): string | undefined {
-  const ref = parseGitHubPullRequestUrl(prUrl);
-  if (!ref) return undefined;
-
-  const comments = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`, cache);
-  const reviews = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`, cache);
-  const pins = [...pinsFromItems(comments, options), ...pinsFromItems(reviews, options)];
-  pins.sort((a, b) => a.t - b.t);
-  return pins.at(-1)?.sha;
-}
-
-export function latestGitHubReviewerVerdict(
-  gh: GhRunner,
-  prUrl: string,
-  currentHeadSha: string,
-  cache?: GhApiCache,
-  options: LatestReviewerSignalOptions = {},
-): ReviewerVerdict | undefined {
-  const ref = parseGitHubPullRequestUrl(prUrl);
-  if (!ref) return undefined;
-
-  const comments = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/issues/${ref.number}/comments`, cache);
-  const reviews = readGhArray(gh, `repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`, cache);
-  const verdicts = [
-    ...reviewerVerdictsFromItems(comments, currentHeadSha, options),
-    ...reviewerVerdictsFromItems(reviews, currentHeadSha, options),
-  ];
-  verdicts.sort((a, b) => a.t - b.t);
-  const latest = verdicts.at(-1);
-  return latest === undefined
-    ? undefined
-    : { headSha: latest.headSha, code: latest.code, author: latest.author };
-}
-// -/ 3/5
-
-// -- 4/5 CORE · parsePrView --
+// -- 2/3 CORE · parsePrView --
 export interface PrView {
   headSha: string;
   state: string;
@@ -410,15 +205,15 @@ export function parsePrView(stdout: string): PrView {
 
   throw new Error("gh pr view did not return headRefOid");
 }
-// -/ 4/5
+// -/ 2/3
 
-// -- 5/5 CORE · fetchForensicsGithubFacts --
+// -- 3/3 CORE · fetchForensicsGithubFacts --
 export function fetchForensicsGithubFacts(
   gh: GhRunner,
   issueUrl: string | undefined,
   prUrl: string | undefined,
   cache?: GhApiCache,
-  options: { requiredCheckNames?: string[]; ambientCheckNames?: string[]; reviewerLogins?: string[] } = {},
+  options: { requiredCheckNames?: string[]; ambientCheckNames?: string[] } = {},
 ): ForensicsGithubFacts | undefined {
   const facts: ForensicsGithubFacts = {};
 
@@ -456,13 +251,6 @@ export function fetchForensicsGithubFacts(
               }
             : {}),
         };
-        try {
-          facts.pr.reviewerPinnedSha =
-            latestGitHubLgtmSha(gh, prUrl, cache, { allowedAuthors: options.reviewerLogins }) ?? null;
-        } catch {
-          // Forensics is best-effort: PR metadata is still useful if comments or
-          // reviews are temporarily unreadable.
-        }
       } catch {
         // Leave PR facts unknown when gh returns an unexpected shape.
       }
@@ -579,4 +367,4 @@ function upperString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value.trim().toUpperCase() : undefined;
 }
 
-// -/ 5/5
+// -/ 3/3

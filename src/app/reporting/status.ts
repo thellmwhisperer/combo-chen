@@ -38,12 +38,7 @@ import type { GateLeaseRecord } from "../../core/gate-lease.js";
 import type { ComboRecord } from "../../core/state.js";
 import { checkRollupSucceeded, requiredChecksSucceeded } from "../github/checks.js";
 import { shaMatchesHead } from "../gate/gate.js";
-import {
-  blockingReadyMergeState,
-  latestGitHubLgtmSha,
-  parsePrView,
-  type GhRunner,
-} from "../github/github.js";
+import { blockingReadyMergeState, parsePrView, type GhRunner } from "../github/github.js";
 
 export const PR_READY_FOR_REVIEWER = "PR ready for reviewer";
 const PR_CONFLICT_REBASE_REQUIRED = "PR conflict: rebase required";
@@ -73,7 +68,6 @@ interface DeepGithubStatusOptions {
   localHeadSha?: string;
   requiredCheckNames?: string[];
   ambientCheckNames?: string[];
-  reviewerLogins?: string[];
 }
 
 function unquote(value: string): string {
@@ -283,16 +277,7 @@ function deepGithubPrStatus(
     return undefined;
   }
 
-  let reviewerPin: string | undefined;
-  try {
-    reviewerPin = latestGitHubLgtmSha(gh, prUrl, undefined, {
-      allowedAuthors: options.reviewerLogins,
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return `GitHub review unavailable: ${firstLine(detail)}`;
-  }
-  return shaMatchesHead(reviewerPin, pr.headSha) ? undefined : PR_READY_FOR_REVIEWER;
+  return undefined;
 }
 
 export function deepComboStatus(

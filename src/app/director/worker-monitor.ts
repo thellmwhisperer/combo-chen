@@ -290,7 +290,6 @@ function reviewerOrchestratorEvidence(events: ComboEvent[]): string | undefined 
       return undefined;
     }
     if (event.event === "lgtm") return "reviewer artifact recent";
-    if (event.event === "external_review_requested") return "external review active";
   }
   return undefined;
 }

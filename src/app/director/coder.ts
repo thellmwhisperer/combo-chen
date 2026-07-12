@@ -61,6 +61,15 @@ import {
 import { latestPublishedGateSha, syncNoMistakesMirror } from "../gate/gate.js";
 import { CODER_WINDOW, ensureWindowPresent, killWindowIfPresent, windowSet } from "../runtime/sessions.js";
 
+const CODER_RESPONDING_WINDOW = CODER_WINDOW;
+const REVIEW_NUDGE_PROMPT = [
+  "New review comment for coder responding mode:",
+  "{url}",
+  "",
+  "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.",
+  "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
+].join("\n");
+
 // -- 1/3 HELPER · Dependency contracts --
 export interface ActivateCoderDeps {
   env: Record<string, string | undefined>;
@@ -236,7 +245,7 @@ export function activateCoder(input: {
     deps,
     combo,
     runDir,
-    windowName: config.coderRespondingWindowName,
+    windowName: CODER_RESPONDING_WINDOW,
     resumeCommand: config.coderResumeCommand,
   });
   deps.out(`coder responding active for ${combo.id}`);
@@ -276,7 +285,7 @@ export function nudgeReviewComments(input: {
         deps,
         combo,
         runDir,
-        windowName: config.coderRespondingWindowName,
+        windowName: CODER_RESPONDING_WINDOW,
         resumeCommand: config.coderResumeCommand,
       });
     }
@@ -286,8 +295,8 @@ export function nudgeReviewComments(input: {
       tmuxSession: combo.tmuxSession,
       comments,
       headSha,
-      reviewNudgePrompt: config.reviewNudgePrompt,
-      windowName: config.coderRespondingWindowName,
+      reviewNudgePrompt: REVIEW_NUDGE_PROMPT,
+      windowName: CODER_RESPONDING_WINDOW,
       tmux: deps.tmux,
     });
     for (const comment of routed) {
@@ -347,11 +356,11 @@ export function nudgePrConflict(input: {
     deps,
     combo,
     runDir,
-    windowName: config.coderRespondingWindowName,
+    windowName: CODER_RESPONDING_WINDOW,
     resumeCommand: config.coderResumeCommand,
   });
   const prompt = buildPrConflictNudgePrompt(conflict);
-  for (const args of nudgeWindowArgs(combo.tmuxSession, config.coderRespondingWindowName, prompt)) {
+  for (const args of nudgeWindowArgs(combo.tmuxSession, CODER_RESPONDING_WINDOW, prompt)) {
     const result = deps.tmux(args);
     if (result.status !== 0) {
       throw new Error(`tmux pr_conflict nudge failed: ${result.stderr.trim() || "unknown error"}`);
@@ -370,28 +379,28 @@ export function recoverStuckWorker(input: {
   const runDir = runDirFor(home, comboId);
   const combo = readCombo(runDir);
   const config = loadRuntimeConfig(runDir, { repoDir: combo.repoDir, env: deps.env });
-  if (recovery.worker !== config.coderRespondingWindowName) return false;
+  if (recovery.worker !== CODER_RESPONDING_WINDOW) return false;
 
-  const prompt = latestRoutedCoderPrompt(readEvents(runDir), config.reviewNudgePrompt);
+  const prompt = latestRoutedCoderPrompt(readEvents(runDir), REVIEW_NUDGE_PROMPT);
   if (prompt === undefined) {
     throw new Error(`No routed coder prompt available to recover ${recovery.worker}`);
   }
   readCoderThreadArtifact(runDir);
 
-  const killed = deps.tmux(killWindowArgs(combo.tmuxSession, config.coderRespondingWindowName));
+  const killed = deps.tmux(killWindowArgs(combo.tmuxSession, CODER_RESPONDING_WINDOW));
   if (killed.status !== 0) {
     throw new Error(
-      `tmux failed to kill ${config.coderRespondingWindowName}: ${killed.stderr.trim() || "unknown error"}`,
+      `tmux failed to kill ${CODER_RESPONDING_WINDOW}: ${killed.stderr.trim() || "unknown error"}`,
     );
   }
   ensureCoderRespondingWindow({
     deps,
     combo,
     runDir,
-    windowName: config.coderRespondingWindowName,
+    windowName: CODER_RESPONDING_WINDOW,
     resumeCommand: config.coderResumeCommand,
   });
-  for (const args of nudgeWindowArgs(combo.tmuxSession, config.coderRespondingWindowName, prompt)) {
+  for (const args of nudgeWindowArgs(combo.tmuxSession, CODER_RESPONDING_WINDOW, prompt)) {
     const result = deps.tmux(args);
     if (result.status !== 0) {
       throw new Error(

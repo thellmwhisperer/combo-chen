@@ -98,10 +98,6 @@ export interface ComboConfig {
   gatekeeperInitialGateRetryAttempts: number;
   /** Seconds to wait before relaunching a failed initial pre-PR gate. */
   gatekeeperInitialGateRetryBackoffSeconds: number;
-  /** Prompt template sent to the coder responding mode for each routed review signal. */
-  reviewNudgePrompt: string;
-  /** tmux window name for the resumed coder responding mode. */
-  coderRespondingWindowName: string;
   /** First configured reviewer with an executable command template. */
   reviewerAgent: string;
   /** Command template for the reviewer loop, with {placeholders}. */
@@ -116,16 +112,10 @@ export interface ComboConfig {
   fixTurnTimeoutMinutes: number;
   /** How long the capsule waits for the verdict artifact after the reviewer exits. */
   reviewVerdictWaitMs: number;
-  /** GitHub logins allowed to publish SHA-pinned reviewer LGTM verdicts. */
-  reviewerLogins: string[];
   /** External PR comment agents matched for noise filtering and coder routing. */
   externalCommentAgents: string[];
-  /** PR comment commands to trigger external reviewers after the active reviewer LGTM. */
-  externalReviewCommands: string[];
   /** GitHub check names that must be present with SUCCESS before READY. */
   readyRequiredChecks: string[];
-  /** GitHub check names that satisfy the green external-review PR label. */
-  prLabelGreenCheckNames: string[];
   /** Unchanged pane ticks before a worker is considered stalled. */
   workerStallTicks: number;
   /** Recovery attempts before a stalled, permission-prompted, or dead coder worker escalates. */
@@ -154,6 +144,7 @@ const ROLE_ALIASES: Record<string, CanonicalRoleName> = {
   coder: "coder",
   rower: "coder",
   gatekeeper: "gatekeeper",
+  gate: "gatekeeper",
   hodor: "gatekeeper",
   reviewer: "reviewer",
   gordon: "reviewer",
@@ -238,27 +229,11 @@ const DEFAULTS = {
   director: {
     command: DEFAULT_DIRECTOR_COMMAND,
   },
-  coder_responding: {
-    window_name: "coder",
-    review_nudge_prompt: [
-      "New review comment for coder responding mode:",
-      "{url}",
-      "",
-      "Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.",
-      "Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.",
-    ].join("\n"),
-  },
   external_comments: {
     agents: [],
   },
-  external_review: {
-    commands: [],
-  },
   ready: {
     required_checks: [],
-  },
-  pr_labels: {
-    green_check_names: [],
   },
   review: {
     max_rounds: DEFAULT_REVIEW_SETTINGS.maxRounds,
@@ -341,11 +316,31 @@ function mergeRoles(base: ComboRoles, raw: unknown, source: string): ComboRoles 
       );
     }
     const canonical = ROLE_ALIASES[key]!;
+    // v1 command tables live directly under [roles.*]. Scalar role names are
+    // retained only as a deprecated compatibility bridge for frozen v0 snapshots.
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) continue;
     if (canonical === "reviewer") {
       merged.reviewer = Array.isArray(value) ? value.map(String) : [String(value)];
     } else {
       merged[canonical] = String(value);
     }
+  }
+  return merged;
+}
+
+interface UnifiedRoleTables {
+  coder: TomlTable;
+  reviewer: TomlTable;
+  gate: TomlTable;
+}
+
+function mergeUnifiedRoleTables(base: UnifiedRoleTables, raw: unknown, source: string): UnifiedRoleTables {
+  const roles = asTable(raw, `[roles] in ${source}`);
+  const merged = { coder: { ...base.coder }, reviewer: { ...base.reviewer }, gate: { ...base.gate } };
+  for (const role of ["coder", "reviewer", "gate"] as const) {
+    const value = roles[role];
+    if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
+    merged[role] = { ...merged[role], ...asTable(value, `[roles.${role}] in ${source}`) };
   }
   return merged;
 }
@@ -556,15 +551,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   };
   let gatekeeperTable: TomlTable = { ...DEFAULTS.gatekeeper };
   let directorTable: TomlTable = { ...DEFAULTS.director };
-  let coderRespondingTable: TomlTable = { ...DEFAULTS.coder_responding };
   let externalCommentsTable: TomlTable = { ...DEFAULTS.external_comments };
-  let externalReviewTable: TomlTable = { ...DEFAULTS.external_review };
   let readyTable: TomlTable = { ...DEFAULTS.ready };
-  let prLabelsTable: TomlTable = { ...DEFAULTS.pr_labels };
   let reviewTable: TomlTable = { ...DEFAULTS.review };
+  let unifiedRoles: UnifiedRoleTables = { coder: {}, reviewer: {}, gate: {} };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerPrompt = DEFAULT_REVIEWER_PROMPT;
-  let reviewerLogins: string[] | undefined;
   let monitorTable: TomlTable = { ...DEFAULTS.monitor };
   let runTable: TomlTable = { ...DEFAULTS.run };
   let team: ComboTeam | undefined;
@@ -572,6 +564,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   for (const layer of layers) {
     if (layer.table["roles"] !== undefined) {
       roles = mergeRoles(roles, layer.table["roles"], layer.source);
+      unifiedRoles = mergeUnifiedRoleTables(unifiedRoles, layer.table["roles"], layer.source);
     }
     if (layer.table["team"] !== undefined) {
       team = mergeTeam(team, layer.table["team"], layer.source);
@@ -605,13 +598,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         ...asTable(layer.table["director"], `[director] in ${layer.source}`),
       };
     }
-    for (const section of ["thread_sitter", "coder_responding"]) {
-      if (layer.table[section] === undefined) continue;
-      coderRespondingTable = {
-        ...coderRespondingTable,
-        ...asTable(layer.table[section], `[${section}] in ${layer.source}`),
-      };
-    }
     for (const section of ["gordon", "reviewer"]) {
       if (layer.table[section] === undefined) continue;
       const reviewerTable = asTable(layer.table[section], `[${section}] in ${layer.source}`);
@@ -626,9 +612,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
           ...externalCommentsTable,
           agents: reviewerTable["ambient"],
         };
-      }
-      if (reviewerTable["logins"] !== undefined) {
-        reviewerLogins = pickNonEmptyStringArray(reviewerTable["logins"], `${section}.logins`);
       }
       for (const [name, entry] of Object.entries(reviewerTable)) {
         if (name === "prompt" || name === "ambient" || name === "logins") continue;
@@ -651,18 +634,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       externalCommentsTable = {
         ...externalCommentsTable,
         ...asTable(layer.table["external_comments"], `[external_comments] in ${layer.source}`),
-      };
-    }
-    if (layer.table["external_review"] !== undefined) {
-      externalReviewTable = {
-        ...externalReviewTable,
-        ...asTable(layer.table["external_review"], `[external_review] in ${layer.source}`),
-      };
-    }
-    if (layer.table["pr_labels"] !== undefined) {
-      prLabelsTable = {
-        ...prLabelsTable,
-        ...asTable(layer.table["pr_labels"], `[pr_labels] in ${layer.source}`),
       };
     }
     if (layer.table["review"] !== undefined) {
@@ -743,21 +714,6 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       "external_comments.agents",
     );
   }
-  if (env["COMBO_CHEN_EXTERNAL_REVIEW_COMMANDS"] !== undefined) {
-    externalReviewTable["commands"] = parseEnvStringArray(
-      env["COMBO_CHEN_EXTERNAL_REVIEW_COMMANDS"],
-      "external_review.commands",
-    );
-  }
-  if (env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"] !== undefined) {
-    prLabelsTable["green_check_names"] = parseEnvStringArray(
-      env["COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES"],
-      "pr_labels.green_check_names",
-    );
-  }
-  if (env["COMBO_CHEN_REVIEWER_LOGINS"] !== undefined) {
-    reviewerLogins = parseEnvStringArray(env["COMBO_CHEN_REVIEWER_LOGINS"], "reviewer.logins");
-  }
   if (env["COMBO_CHEN_SOURCE_BRANCH"] !== undefined) {
     runTable["source_branch"] = env["COMBO_CHEN_SOURCE_BRANCH"];
   }
@@ -793,15 +749,20 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   }
 
   const coderCommand = pickNonEmptyString(
-    coderTemplates[roles.coder]?.command,
+    unifiedRoles.coder["implement_command"] ??
+      unifiedRoles.coder["command"] ??
+      coderTemplates[roles.coder]?.command,
     `command template for coder "${roles.coder}"`,
   );
   const coderResumeCommand = pickNonEmptyString(
-    coderTemplates[roles.coder]?.resume_command,
+    unifiedRoles.coder["respond_command"] ?? coderTemplates[roles.coder]?.resume_command,
     `resume command template for coder "${roles.coder}"`,
   );
 
-  const reviewerAgent = roles.reviewer.find((agent) => reviewerTemplates[agent]?.command !== undefined);
+  const reviewerAgent =
+    unifiedRoles.reviewer["command"] !== undefined
+      ? roles.reviewer[0]
+      : roles.reviewer.find((agent) => reviewerTemplates[agent]?.command !== undefined);
   if (!reviewerAgent) {
     throw new ComboConfigError(
       `No command template for reviewer (formerly gordon) ${roles.reviewer.map((agent) => `"${agent}"`).join(", ")}. ` +
@@ -809,7 +770,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     );
   }
   const reviewerCommand = pickNonEmptyString(
-    reviewerTemplates[reviewerAgent]?.command,
+    unifiedRoles.reviewer["command"] ?? reviewerTemplates[reviewerAgent]?.command,
     `command template for reviewer "${reviewerAgent}"`,
   );
   const configuredAgents = pickStringArray(
@@ -818,14 +779,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   ).filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const legacyAmbient = roles.reviewer.filter((agent) => agent !== roles.coder && agent !== reviewerAgent);
   const externalCommentAgents = [...new Set([...configuredAgents, ...legacyAmbient])];
-  const externalReviewCommands = [
-    ...new Set(pickStringArray(externalReviewTable["commands"], "external_review.commands")),
-  ];
   const readyRequiredChecks = [
     ...new Set(pickStringArray(readyTable["required_checks"], "ready.required_checks")),
-  ];
-  const prLabelGreenCheckNamesResolved = [
-    ...new Set(pickStringArray(prLabelsTable["green_check_names"], "pr_labels.green_check_names")),
   ];
   const workerPermissionPromptPatterns = pickNonEmptyStringArray(
     monitorTable["permission_prompt_patterns"],
@@ -870,7 +825,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     },
     coderCommand,
     coderResumeCommand,
-    gatekeeperCommand: pickNonEmptyString(gatekeeperTable["command"], "command template for [gatekeeper]"),
+    gatekeeperCommand: pickNonEmptyString(
+      unifiedRoles.gate["command"] ?? gatekeeperTable["command"],
+      "command template for [roles.gate]",
+    ),
     directorCommand: pickNonEmptyString(directorTable["command"], "command template for [director]"),
     gatekeeperAttachTimeoutSeconds: pickNumber(
       gatekeeperTable,
@@ -896,17 +854,10 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       DEFAULTS.gatekeeper.initial_gate_retry_backoff_seconds,
       "[gatekeeper]",
     ),
-    reviewNudgePrompt: pickNonEmptyString(
-      coderRespondingTable["review_nudge_prompt"],
-      "coder_responding.review_nudge_prompt",
-    ),
-    coderRespondingWindowName: pickNonEmptyString(
-      coderRespondingTable["window_name"],
-      "coder_responding.window_name",
-    ),
     reviewerAgent,
     reviewerCommand,
-    reviewerPrompt,
+    reviewerPrompt:
+      typeof unifiedRoles.reviewer["prompt"] === "string" ? unifiedRoles.reviewer["prompt"] : reviewerPrompt,
     reviewMaxRounds: pickPositiveInteger(reviewTable, "max_rounds", DEFAULTS.review.max_rounds, "[review]"),
     reviewerTurnTimeoutMinutes: pickPositiveInteger(
       reviewTable,
@@ -926,11 +877,8 @@ export function loadConfig(options: LoadOptions): ComboConfig {
       DEFAULTS.review.verdict_wait_ms,
       "[review]",
     ),
-    reviewerLogins: [...new Set(reviewerLogins ?? [reviewerAgent])],
     externalCommentAgents: [...new Set(externalCommentAgents)],
-    externalReviewCommands,
     readyRequiredChecks,
-    prLabelGreenCheckNames: prLabelGreenCheckNamesResolved,
     workerStallTicks: pickPositiveInteger(
       monitorTable,
       "worker_stall_ticks",

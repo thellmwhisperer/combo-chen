@@ -6,16 +6,21 @@
 # gitignored by default.
 
 [roles]
-# The cast. Fixed roles, configurable agents.
-coder = "codex"                   # implements; needs a [coder.<name>] command
-# gatekeeper is ALWAYS the no-mistakes binary; WHICH MODEL runs the gate is
-# chosen in the target repo's .no-mistakes.yaml (agent: codex | claude |
-# acp:hermes-deepseek | ...). Non-interactive agents are fine there: the
-# gate drives them headlessly through its own agent interface.
-gatekeeper = "no-mistakes"
-# reviewer runs post-PR. External checks/comments are configured separately below.
-reviewer = ["claude"]              # validated: reviewer != coder
 merge = "human"                   # hard default: earn automerge with data first
+
+[roles.coder]
+# Implement and respond are distinct invocations. Both may use {worktree} and
+# {prompt}; the built-in defaults remain in effect when these are omitted.
+# implement_command = "codex exec --cd {worktree} {prompt}"
+# respond_command = "codex exec --cd {worktree} {prompt}"
+
+[roles.reviewer]
+# Reviewer writes its verdict artifact locally; it never comments on GitHub.
+command = "claude {prompt}"
+
+[roles.gate]
+# no-mistakes remains the normal publisher. Repo policy chooses its agent.
+command = "no-mistakes daemon start && no-mistakes axi run --intent {issue_pr_intent}"
 
 # Declare the expected effective identity per role. Each identity line pins
 # binary → agent → model; the overture check resolves the actual identity from
@@ -148,36 +153,8 @@ verdict_wait_ms = 5000
 # approval. Each configured name must be present with exact SUCCESS; all other
 # checks in the PR rollup must also be green.
 # Environment override: COMBO_CHEN_READY_REQUIRED_CHECKS.
-# This repo dogfoods CodeRabbit as the required external reviewer. If a target
-# repo uses another external reviewer, replace the names in [ready],
-# [external_review], [pr_labels], and [external_comments] together.
+# This repo dogfoods CodeRabbit as the required external reviewer.
 required_checks = ["CodeRabbit"]
-
-[external_review]
-# Commands posted as PR comments after the active reviewer emits a current-head
-# LGTM, used to trigger external review systems whose SUCCESS checks are listed
-# in [ready]. Each command is posted once per head SHA.
-# Environment override: COMBO_CHEN_EXTERNAL_REVIEW_COMMANDS.
-commands = ["@coderabbitai review"]
-
-[pr_labels]
-# Check names that satisfy the combo:external-review-green PR label.
-# Environment override: COMBO_CHEN_PR_LABEL_GREEN_CHECK_NAMES.
-green_check_names = ["CodeRabbit"]
-
-[coder_responding]
-# Defaults to the persistent coder role window. Set this to a separate window
-# name such as "coder-responding" only for historical/adopted capsules that
-# still need the compatibility bridge.
-window_name = "coder"
-# {placeholders}: author, kind, url.
-review_nudge_prompt = '''
-New review comment for coder responding mode:
-{url}
-
-Use the two-bucket contract: handle mechanical fixes autonomously with TDD, code, and committed local changes; escalate intent-touching decisions with needs_human before changing code.
-Do not push to origin or the PR branch. Leave committed local changes for gatekeeper/no-mistakes to validate and publish.
-'''
 
 [external_comments]
 # External comment agents are matched by review/comment author for noise
@@ -185,28 +162,6 @@ Do not push to origin or the PR branch. Leave committed local changes for gateke
 # Environment override: COMBO_CHEN_EXTERNAL_COMMENT_AGENTS.
 agents = ["coderabbitai"]
 
-[reviewer]
-# Free-form reviewer instructions passed into the generated prompt. Keep this
-# generic; put any personal/local review process in your own local config.
-# Reviewer submit commands must be one plain command, normally:
-# gh pr review <url> --comment --body "<body>"
-# Do not use temp files, cat, rm, pipes, redirection, semicolons, &&, or ||.
-# prompt = "Apply my local review process."
-# GitHub logins allowed to satisfy the SHA-pinned reviewer LGTM gate and whose
-# machine-readable verdict blocks are accepted for routing. Defaults
-# to the active reviewer agent name; set this when the GitHub author differs.
-# Environment override: COMBO_CHEN_REVIEWER_LOGINS.
-logins = ["claude"]
-# The generated reviewer prompt always includes anti-slop guardrails:
-# - verify `pnpm surface` was consulted for new helpers (route code 1 for dupes)
-# - route code 1 for config without who/when/why, or compat paths without
-#   a removal issue/date
-# - flag script/runner string assertions that should be contract tests
-# - treat many new top-level exports as a surface budget breach unless justified
-
-[reviewer.claude]
-# {placeholders}: issue_url, pr_url, worktree, repo, branch, prompt.
-command = "claude {prompt}"
 
 [monitor]
 # Environment overrides: COMBO_CHEN_WORKER_STALL_TICKS,

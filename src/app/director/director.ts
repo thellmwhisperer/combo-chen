@@ -41,7 +41,6 @@ import {
 import { createGhApiCache } from "../../core/gh-api.js";
 import { comboHome, readCombo, runDirFor } from "../../core/state.js";
 import { loadRuntimeConfig } from "../../infra/config-snapshot.js";
-import { captureWindowArgs, listWindowsArgs } from "../../infra/tmux.js";
 import type { TmuxResult } from "../../infra/tmux.js";
 import { nudgePrConflict, nudgeReviewComments, recoverDeadCoder, recoverStuckWorker } from "./coder.js";
 import {
@@ -66,7 +65,7 @@ import {
   terminalReviewerEvent,
   tickReviewer,
 } from "./reviewer.js";
-import { CODER_WINDOW, idleRoleWindowCommand, REVIEWER_WINDOW } from "../runtime/sessions.js";
+import { CODER_WINDOW, REVIEWER_WINDOW } from "../runtime/sessions.js";
 import {
   appendWorkerEscalation,
   inspectWorkerPanes,
@@ -128,7 +127,7 @@ export async function tickDirector(input: {
 
   let events = readEvents(runDir);
   let workerSummaries: string[] = [];
-  const workerWindows = workerWindowsForEvents(events, config.coderRespondingWindowName);
+  const workerWindows = workerWindowsForEvents(events, CODER_WINDOW);
   const workerHoldReason = activeNonWorkerNeedsHumanReason(events);
   if (workerWindows.length > 0 && workerHoldReason !== undefined) {
     const summary = `worker recovery paused: needs_human ${workerHoldReason}`;
@@ -145,10 +144,10 @@ export async function tickDirector(input: {
       coderGnhfProgressMaxAgeMs: config.coderGnhfProgressMaxAgeMs,
       gatekeeperStatusTimeoutMs: config.gatekeeperStatusTimeoutMs,
       recoverableDeadWorkers: prAlreadyOpened ? [] : [CODER_WINDOW],
-      recoverableStalledWorkers: prAlreadyOpened ? [config.coderRespondingWindowName] : [],
+      recoverableStalledWorkers: prAlreadyOpened ? [CODER_WINDOW] : [],
       recoverablePermissionPromptWorkers:
         config.workerPermissionPromptPolicy === "recreate-non-interactive" && prAlreadyOpened
-          ? [config.coderRespondingWindowName]
+          ? [CODER_WINDOW]
           : [],
       autoApprovePermissionPromptMaxAttempts: config.workerRecoveryAttempts,
       permissionPromptPatterns: config.workerPermissionPromptPatterns,
@@ -163,7 +162,7 @@ export async function tickDirector(input: {
         runDir,
         findings: workerInspection.findings,
         events: readEvents(runDir),
-        coderRespondingWindowName: config.coderRespondingWindowName,
+        coderWindowName: CODER_WINDOW,
         maxAttempts: config.workerRecoveryAttempts,
       });
       const statusEvents = readEvents(runDir);
@@ -211,7 +210,7 @@ export async function tickDirector(input: {
   await tickReviewer({ deps, home, comboId, ghApiCache });
   let postReviewEvents = readEvents(runDir);
   if (terminalReviewerEvent(postReviewEvents)) {
-    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
+    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl });
     emitTickComplete({
       deps,
       comboId,
@@ -228,7 +227,7 @@ export async function tickDirector(input: {
   if (closurePendingReviewerEvent(postReviewEvents)) {
     await runClosureIfPending({ deps, home, comboId });
     postReviewEvents = readEvents(runDir);
-    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
+    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl });
     emitTickComplete({
       deps,
       comboId,
@@ -244,7 +243,7 @@ export async function tickDirector(input: {
   }
   const postReviewHoldReason = activeNonWorkerNeedsHumanReason(postReviewEvents);
   if (postReviewHoldReason !== undefined) {
-    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl, config });
+    syncDirectorPrLabels({ deps, combo, runDir, events: postReviewEvents, prUrl: openedPrUrl });
     emitTickComplete({
       deps,
       comboId,
@@ -317,7 +316,6 @@ export async function tickDirector(input: {
     runDir,
     events: finalEvents,
     prUrl,
-    config,
   });
   emitTickComplete({
     deps,
@@ -427,12 +425,6 @@ function syncDirectorPrLabels(input: {
   runDir: string;
   events: ComboEvent[];
   prUrl: string;
-  config: {
-    coderRespondingWindowName: string;
-    readyRequiredChecks: string[];
-    externalCommentAgents: string[];
-    prLabelGreenCheckNames: string[];
-  };
 }): void {
   try {
     syncComboPrLabels({
@@ -440,15 +432,6 @@ function syncDirectorPrLabels(input: {
       runDir: input.runDir,
       prUrl: input.prUrl,
       events: input.events,
-      activity: livePrLabelActivity(
-        input.deps,
-        input.combo,
-        input.config.coderRespondingWindowName,
-        input.events,
-      ),
-      requiredCheckNames: input.config.readyRequiredChecks,
-      ambientCheckNames: input.config.externalCommentAgents,
-      greenCheckNames: input.config.prLabelGreenCheckNames,
       source: "director-watch",
     });
   } catch (error) {
@@ -460,62 +443,11 @@ function syncDirectorPrLabels(input: {
   }
 }
 
-function livePrLabelActivity(
-  deps: Pick<DirectorDeps, "tmux">,
-  combo: ReturnType<typeof readCombo>,
-  coderRespondingWindowName: string,
-  events: ComboEvent[],
-): { coderRespondingActive?: boolean; reviewerActive?: boolean; gateActive?: boolean } {
-  const listed = deps.tmux(listWindowsArgs(combo.tmuxSession));
-  if (listed.status !== 0) return {};
-  const windows = new Set(
-    listed.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
-  const coderRespondingActive =
-    coderRespondingWindowName === CODER_WINDOW
-      ? windows.has(CODER_WINDOW) && hasRoutedCoderPrompt(events)
-      : windows.has(coderRespondingWindowName);
-  return {
-    coderRespondingActive,
-    reviewerActive:
-      windows.has(REVIEWER_WINDOW) && roleWindowLooksActiveForPrLabels(deps, combo, REVIEWER_WINDOW),
-    gateActive: windows.has(GATEKEEPER_WINDOW),
-  };
-}
-
-function roleWindowLooksActiveForPrLabels(
-  deps: Pick<DirectorDeps, "tmux">,
-  combo: ReturnType<typeof readCombo>,
-  windowName: string,
-): boolean {
-  const captured = deps.tmux(captureWindowArgs(combo.tmuxSession, windowName));
-  if (captured.status !== 0) return false;
-  const lines = captured.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length === 0) return false;
-  return !roleWindowCaptureLooksIdle(windowName, lines);
-}
-
-function roleWindowCaptureLooksIdle(windowName: string, lines: string[]): boolean {
-  const idleMessage = `[combo-chen] ${windowName} window idle; waiting for combo-chen to prompt it.`;
-  const idleScriptLines = new Set(
-    [idleMessage, ...idleRoleWindowCommand(windowName).split(/\r?\n/)]
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
-  return lines.some((line) => line.includes(idleMessage)) && lines.every((line) => idleScriptLines.has(line));
-}
-
-function workerWindowsForEvents(events: ComboEvent[], coderRespondingWindowName: string): string[] {
+function workerWindowsForEvents(events: ComboEvent[], coderWindowName: string): string[] {
   if (latestPrUrlFromEvents(events) !== undefined) {
     const workerWindows = [REVIEWER_WINDOW];
-    if (coderRespondingWindowName !== CODER_WINDOW || hasRoutedCoderPrompt(events)) {
-      workerWindows.push(coderRespondingWindowName);
+    if (coderWindowName !== CODER_WINDOW || hasRoutedCoderPrompt(events)) {
+      workerWindows.push(coderWindowName);
     }
     return [...new Set(workerWindows)];
   }
@@ -566,7 +498,7 @@ function recoverWorkerFindings(input: {
   runDir: string;
   findings: WorkerPaneFinding[];
   events: ComboEvent[];
-  coderRespondingWindowName: string;
+  coderWindowName: string;
   maxAttempts: number;
 }): boolean {
   let recovered = false;
@@ -574,7 +506,7 @@ function recoverWorkerFindings(input: {
   for (const finding of input.findings) {
     const isStalledOrPrompt =
       (finding.reason === "worker_stalled" || finding.reason === "worker_permission_prompt") &&
-      finding.worker === input.coderRespondingWindowName;
+      finding.worker === input.coderWindowName;
     const isDeadCoder = finding.reason === "worker_dead" && finding.worker === CODER_WINDOW;
 
     if (
@@ -851,61 +783,6 @@ export function reviewStateAllowsReady(events: ComboEvent[], headSha: string): b
   return livePinnedLgtmSha(events) === headSha;
 }
 
-function hasExternalReviewRequest(
-  events: ComboEvent[],
-  input: {
-    headSha: string;
-    command: string;
-    prUrl: string;
-  },
-): boolean {
-  return events.some(
-    (event) =>
-      event.event === "external_review_requested" &&
-      event["sha"] === input.headSha &&
-      event["command"] === input.command &&
-      event["pr_url"] === input.prUrl,
-  );
-}
-
-function externalReviewRequestBody(command: string, headSha: string): string {
-  return [command, "", `Codex -- Re-running external reviewer for current PR head ${headSha}.`].join("\n");
-}
-
-function requestExternalReviewsIfNeeded(input: {
-  deps: DirectorDeps;
-  runDir: string;
-  events: ComboEvent[];
-  prUrl: string;
-  headSha: string;
-  commands: string[];
-}): void {
-  for (const command of input.commands) {
-    if (hasExternalReviewRequest(input.events, { headSha: input.headSha, command, prUrl: input.prUrl }))
-      continue;
-    const result = input.deps.gh([
-      "pr",
-      "comment",
-      input.prUrl,
-      "--body",
-      externalReviewRequestBody(command, input.headSha),
-    ]);
-    if (result.status !== 0) {
-      input.deps.out(
-        `director: external review request failed for ${input.prUrl}: ` +
-          `${result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`}`,
-      );
-      continue;
-    }
-    appendEvent(input.runDir, "external_review_requested", {
-      sha: input.headSha,
-      command,
-      pr_url: input.prUrl,
-    });
-    input.deps.out(`director: requested external review ${command} at ${input.headSha}`);
-  }
-}
-
 function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   const runDir = runDirFor(comboHome(deps.env), comboId);
   let events = readEvents(runDir);
@@ -988,17 +865,8 @@ function runReadyForMergeIfNeeded(deps: DirectorDeps, comboId: string): void {
   if (
     externalReviewSkippedByConfiguredAgent(prView.comments, config.externalCommentAgents) ||
     !requiredChecksSucceeded(prView.statusCheckRollup, config.readyRequiredChecks)
-  ) {
-    requestExternalReviewsIfNeeded({
-      deps,
-      runDir,
-      events,
-      prUrl,
-      headSha,
-      commands: config.externalReviewCommands,
-    });
+  )
     return;
-  }
   if (!gateStateAllowsReady(events, headSha)) {
     const status = latestGateStatus(events);
     if (status?.state === "fix_inflight" || status?.state === "awaiting_approval") return;

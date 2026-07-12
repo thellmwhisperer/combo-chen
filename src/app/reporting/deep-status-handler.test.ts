@@ -294,7 +294,7 @@ describe("status", () => {
     const text = out.join("\n");
     expect(text).toContain("STALLED");
     expect(text).toContain("gate_failed");
-    expect(text).toContain("PR ready for reviewer");
+    expect(text).not.toContain("PR ready for reviewer");
   });
 
   it("prints PR head drift in deep mode when the local worktree is behind the PR", async () => {
@@ -411,7 +411,7 @@ describe("status", () => {
 
     const text = out.join("\n");
     expect(text).toContain(prUrl);
-    expect(text).toContain("PR ready for reviewer");
+    expect(text).not.toContain("PR ready for reviewer");
   });
 
   it("allows configured required READY checks to be the only green checks in deep mode", async () => {
@@ -462,7 +462,7 @@ describe("status", () => {
     });
     await exec(deps, ["status", "--deep"]);
 
-    expect(out.join("\n")).toContain("PR ready for reviewer");
+    expect(out.join("\n")).not.toContain("PR ready for reviewer");
   });
 
   it("does not report PR ready for reviewer when a configured required READY check fails", async () => {
@@ -623,7 +623,7 @@ describe("status", () => {
 
     await exec(deps, ["status", "--deep"]);
 
-    expect(out.join("\n")).toContain("PR ready for reviewer");
+    expect(out.join("\n")).not.toContain("PR ready for reviewer");
   });
 });
 // -/ 1/1

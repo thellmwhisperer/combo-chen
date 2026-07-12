@@ -107,7 +107,7 @@ describe("activate-coder", () => {
 
     const newWindows = calls.filter((call) => call[0] === "tmux" && call[1] === "new-window");
     expect(newWindows).toHaveLength(1);
-    expect(newWindows[0]).toContain("sitter");
+    expect(newWindows[0]).toContain("coder");
     expect(newWindows[0]?.at(-1)).toBe(`codex --profile sitter --no-alt-screen resume '${CODEX_THREAD_ID}'`);
     expect(calls.some((call) => call[0] === "git")).toBe(false);
     expect(calls.some((call) => call[0] === "gh")).toBe(false);
@@ -142,7 +142,7 @@ describe("activate-coder", () => {
       env: { COMBO_CHEN_HOME: h },
       tmux: (args) => {
         calls.push(["tmux", ...args]);
-        if (args[0] === "new-window" && args.includes("sitter")) {
+        if (args[0] === "new-window" && args.includes("coder")) {
           return { status: 1, stdout: "", stderr: "duplicate window" };
         }
         return { status: 0, stdout: "", stderr: "" };
@@ -150,10 +150,10 @@ describe("activate-coder", () => {
     });
 
     await expect(exec(deps, ["activate-coder", "-n", "o-r-7"])).rejects.toThrow(
-      /tmux failed to start sitter: duplicate window/,
+      /tmux failed to start coder: duplicate window/,
     );
 
-    expect(calls).not.toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:sitter"]);
+    expect(calls).not.toContainEqual(["tmux", "kill-window", "-t", "combo-chen-o-r-7:coder"]);
   });
 });
 
@@ -418,35 +418,23 @@ describe("nudge-review-comments", () => {
     });
 
     const tmuxCalls = calls.filter((call) => call[0] === "tmux");
-    expect(tmuxCalls).toEqual([
-      ["tmux", "list-windows", "-t", "combo-chen-owned-session", "-F", "#{window_name}"],
-      [
-        "tmux",
-        "new-window",
-        "-t",
-        "combo-chen-owned-session",
-        "-n",
-        "sitter",
-        `codex resume '${CODEX_THREAD_ID}'`,
-      ],
-      [
+    expect(tmuxCalls).toContainEqual([
+      "tmux",
+      "new-window",
+      "-t",
+      "combo-chen-owned-session",
+      "-n",
+      "coder",
+      `codex resume '${CODEX_THREAD_ID}'`,
+    ]);
+    expect(tmuxCalls).toContainEqual(
+      expect.arrayContaining([
         "tmux",
         "set-buffer",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
-        "Please address 'https://github.com/o/r/pull/7#issuecomment-1'",
-      ],
-      [
-        "tmux",
-        "paste-buffer",
-        "-d",
-        "-b",
-        "combo-chen-nudge-combo-chen-owned-session-sitter",
-        "-t",
-        "combo-chen-owned-session:sitter",
-      ],
-      ["tmux", "send-keys", "-t", "combo-chen-owned-session:sitter", "C-m"],
-    ]);
+        expect.stringContaining("coder"),
+        expect.stringContaining("New review comment"),
+      ]),
+    );
     expect(calls.filter((call) => call[0] === "git")).toEqual([
       ["git", `cwd=${worktree}`, "remote", "get-url", "no-mistakes"],
       ["git", `cwd=${worktree}`, "rev-parse", "HEAD"],
