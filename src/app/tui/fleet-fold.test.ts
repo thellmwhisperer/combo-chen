@@ -23,7 +23,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ComboRecord } from "../../core/state.js";
-import { deriveFleetRow, deriveFleetView, type FleetRenderPhase, type FleetTab } from "./fleet-fold.js";
+import { deriveFleetRow, deriveFleetView, type FleetRenderPhase } from "./fleet-fold.js";
 
 // -- 1/3 HELPER · fixtures --
 const NOW = Date.parse("2026-07-12T12:00:00.000Z");
@@ -40,8 +40,6 @@ function combo(overrides: Partial<ComboRecord> = {}): ComboRecord {
     ...overrides,
   };
 }
-
-type Fact = { t: string; event: string; [k: string]: unknown };
 
 function ts(minutes: number): string {
   return new Date(NOW - minutes * 60_000).toISOString();
