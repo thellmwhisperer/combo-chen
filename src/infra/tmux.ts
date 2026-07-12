@@ -1,7 +1,7 @@
 /**
  * @overview tmux plumbing: pure argument builders + one system-calling
  *   executor. Builders are pinned by tests; tmux() touches the OS. ~150
- *   lines, 15 exports.
+ *   lines, 21 exports.
  *
  *   READING GUIDE
  *   ─────────────
@@ -26,9 +26,12 @@
  *   │ selectWindowArgs        Build args for select-window               │
  *   │ bindKeyArgs             Build args for bind-key (TUI return binding)│
  *   │ killSessionArgs         Build args for kill-session               │
- *   │ killWindowArgs          Build args for kill-window                │
+ *   │ killWindowArgs          Build args for named kill-window          │
+ *   │ killWindowTargetArgs    Build args for id-targeted kill-window    │
  *   │ listWindowsArgs         Build args for list-windows               │
+ *   │ listWindowDetailsArgs   Build id/index/name list-windows args     │
  *   │ listPanesArgs           Build args for list-panes                 │
+ *   │ listPanesTargetArgs     Build args for an exact window target     │
  *   │ captureWindowArgs       Build args for capture-pane               │
  *   │ renameWindowArgs        Build args for rename-window              │
  *   │ nudgeWindowArgs         Build paste-buffer nudge command list      │
@@ -38,7 +41,7 @@
  *   │ JOURNAL_PANE_HEIGHT     Legacy; journals live in a dedicated window │
  *   └────────────────────────────────────────────────────────────────────┘
  *
- * @exports JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, switchClientArgs, selectWindowArgs, bindKeyArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux
+ * @exports JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, switchClientArgs, selectWindowArgs, bindKeyArgs, killSessionArgs, killWindowArgs, killWindowTargetArgs, listWindowsArgs, listWindowDetailsArgs, listPanesArgs, listPanesTargetArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux
  * @deps node:child_process
  */
 import { spawnSync } from "node:child_process";
@@ -108,12 +111,24 @@ export function killWindowArgs(session: string, windowName: string): string[] {
   return ["kill-window", "-t", `${session}:${windowName}`];
 }
 
+export function killWindowTargetArgs(windowTarget: string): string[] {
+  return ["kill-window", "-t", windowTarget];
+}
+
 export function listWindowsArgs(session: string): string[] {
   return ["list-windows", "-t", session, "-F", "#{window_name}"];
 }
 
+export function listWindowDetailsArgs(session: string): string[] {
+  return ["list-windows", "-t", session, "-F", "#{window_id}|#{window_index}|#{window_name}"];
+}
+
 export function listPanesArgs(session: string, windowName: string, format = "#{pane_index}"): string[] {
   return ["list-panes", "-t", `${session}:${windowName}`, "-F", format];
+}
+
+export function listPanesTargetArgs(windowTarget: string, format = "#{pane_index}"): string[] {
+  return ["list-panes", "-t", windowTarget, "-F", format];
 }
 
 export function captureWindowArgs(session: string, windowName: string): string[] {

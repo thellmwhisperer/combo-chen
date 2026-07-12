@@ -1,5 +1,5 @@
 /**
- * @overview tmux session helpers. ~330 lines, 19 exports, attach/recovery, D1 role seats, and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~390 lines, 25 exports, attach/recovery, duplicate-safe D1 role seats, and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
@@ -22,7 +22,7 @@
  *
  *   INTERNALS
  *   ---------
- *   tmuxFailureText, isMissingSession, livePaneTtys, roleChildAlive, SEAT_PANE_FORMAT
+ *   tmuxFailureText, isMissingSession, parseWindowRecords, resolveWindowTarget, repairDuplicateIdleWindows, livePaneTtys, roleChildAlive, SEAT_PANE_FORMAT
  *
  * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, SeatOccupancy, RoleSeat, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, resolveRoleSeatTty, seatOccupancy, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
  * @deps ../../core/guards, ../../core/shell-quote, ../../core/state, ../../infra/tmux
@@ -33,8 +33,10 @@ import { type ComboRecord, listCombos } from "../../core/state.js";
 import {
   hasSessionArgs,
   killSessionArgs,
+  killWindowTargetArgs,
   killWindowArgs,
-  listPanesArgs,
+  listPanesTargetArgs,
+  listWindowDetailsArgs,
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
@@ -113,6 +115,61 @@ export function windowSet(stdout: string): Set<string> {
   );
 }
 
+interface WindowRecord {
+  id?: string;
+  index: number;
+  name: string;
+}
+
+function parseWindowRecords(stdout: string): WindowRecord[] {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, order) => {
+      const [id, indexText, ...nameParts] = line.split("|");
+      const index = Number(indexText);
+      if (id?.startsWith("@") && Number.isInteger(index) && nameParts.length > 0) {
+        return { id, index, name: nameParts.join("|") };
+      }
+      return { index: order, name: line };
+    });
+}
+
+function sortedRoleWindows(stdout: string, windowName: string): WindowRecord[] {
+  return parseWindowRecords(stdout)
+    .filter((window) => window.name === windowName)
+    .sort((left, right) => left.index - right.index || (left.id ?? "").localeCompare(right.id ?? ""));
+}
+
+function repairDuplicateIdleWindows(deps: SessionDeps, combo: ComboRecord, windowName: string): void {
+  const listed = deps.tmux(listWindowDetailsArgs(combo.tmuxSession));
+  if (listed.status !== 0) {
+    throw new Error(
+      `tmux failed to inspect duplicate "${windowName}" windows in "${combo.tmuxSession}": ` +
+        `${listed.stderr.trim() || "unknown error"}`,
+    );
+  }
+  const duplicates = sortedRoleWindows(listed.stdout, windowName).slice(1);
+  for (const duplicate of duplicates) {
+    if (duplicate.id === undefined) continue;
+    const panes = deps.tmux(listPanesTargetArgs(duplicate.id, "#{pane_dead}|#{pane_current_command}"));
+    const paneStates = panes.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const idle = panes.status === 0 && paneStates.length > 0 && paneStates.every((line) => line === "0|tail");
+    if (!idle) continue;
+    const killed = deps.tmux(killWindowTargetArgs(duplicate.id));
+    if (killed.status !== 0) {
+      throw new Error(
+        `tmux failed to remove duplicate idle "${windowName}" window ${duplicate.id}: ` +
+          `${killed.stderr.trim() || "unknown error"}`,
+      );
+    }
+  }
+}
+
 export function ensureWindowPresent(
   deps: SessionDeps,
   combo: ComboRecord,
@@ -126,7 +183,9 @@ export function ensureWindowPresent(
         `${listed.stderr.trim() || "unknown error"}`,
     );
   }
-  if (windowSet(listed.stdout).has(windowName)) return false;
+  const matchingWindows = listed.stdout.split(/\r?\n/).filter((name) => name === windowName);
+  if (matchingWindows.length > 1) repairDuplicateIdleWindows(deps, combo, windowName);
+  if (matchingWindows.length > 0) return false;
 
   const created = deps.tmux(newWindowArgs(combo.tmuxSession, windowName, command));
   if (created.status !== 0) {
@@ -146,8 +205,20 @@ export function idleRoleWindowCommand(role: string): string {
 /** list-panes format shared by seat resolution and the occupancy assertion. */
 const SEAT_PANE_FORMAT = "#{pane_dead} #{pane_tty}";
 
-function livePaneTtys(deps: SessionDeps, combo: ComboRecord, windowName: string): string[] | TmuxResult {
-  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, windowName, SEAT_PANE_FORMAT));
+function resolveWindowTarget(
+  deps: SessionDeps,
+  combo: ComboRecord,
+  windowName: string,
+): string | undefined | TmuxResult {
+  const listed = deps.tmux(listWindowDetailsArgs(combo.tmuxSession));
+  if (listed.status !== 0) return listed;
+  const window = sortedRoleWindows(listed.stdout, windowName)[0];
+  if (window === undefined) return undefined;
+  return window.id ?? `${combo.tmuxSession}:${windowName}`;
+}
+
+function livePaneTtys(deps: SessionDeps, windowTarget: string): string[] | TmuxResult {
+  const listed = deps.tmux(listPanesTargetArgs(windowTarget, SEAT_PANE_FORMAT));
   if (listed.status !== 0) return listed;
   return listed.stdout
     .split(/\r?\n/)
@@ -170,8 +241,9 @@ export function resolveRoleSeatTty(
   windowName: string,
 ): string | undefined {
   try {
-    ensureWindowPresent(deps, combo, windowName, idleRoleWindowCommand(windowName));
-    const ttys = livePaneTtys(deps, combo, windowName);
+    const windowTarget = resolveWindowTarget(deps, combo, windowName);
+    if (typeof windowTarget !== "string") return undefined;
+    const ttys = livePaneTtys(deps, windowTarget);
     if (!Array.isArray(ttys)) return undefined;
     return ttys[0];
   } catch {
@@ -215,7 +287,15 @@ export function seatOccupancy(
   windowName: string,
   seat: RoleSeat,
 ): SeatOccupancy {
-  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, windowName, SEAT_PANE_FORMAT));
+  const windowTarget = resolveWindowTarget(deps, combo, windowName);
+  if (typeof windowTarget !== "string") {
+    const detail =
+      windowTarget === undefined
+        ? `tmux cannot find window ${windowName}`
+        : windowTarget.stderr.trim() || `tmux cannot list windows for ${windowName}`;
+    return { occupied: false, detail };
+  }
+  const listed = deps.tmux(listPanesTargetArgs(windowTarget, SEAT_PANE_FORMAT));
   if (listed.status !== 0) {
     return { occupied: false, detail: listed.stderr.trim() || `tmux cannot list panes in ${windowName}` };
   }

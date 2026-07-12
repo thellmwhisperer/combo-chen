@@ -18,7 +18,7 @@
  *   launchFixtureDir, home; command-specific fixtures live inside their describe block.
  *
  * @exports none
- * @deps ../../testing/cli-harness
+ * @deps ../../testing/cli-harness, ../runtime/sessions
  */
 
 import {
@@ -42,6 +42,7 @@ import {
   shellQuote,
   writeFileSync,
 } from "../../testing/cli-harness.js";
+import { resolveRoleSeatTty } from "../runtime/sessions.js";
 
 // -- 1/1 CORE · command contracts <- START HERE --
 describe("run", () => {
@@ -200,6 +201,85 @@ describe("run", () => {
 
     const events = readEvents(runDir);
     expect(events[0]?.event).toBe("combo_created");
+  });
+
+  it("keeps launch as the sole role-window creator when capsule seat resolution overlaps setup", async () => {
+    const h = home();
+    const repoDir = launchFixtureDir("combo-chen-repo-");
+    const tmuxCalls: string[][] = [];
+    const windows: Array<{ id: string; index: number; name: string }> = [];
+    let nextId = 1;
+    let sessionExists = false;
+    let resolvingSeat = false;
+    let overlapTriggered = false;
+    let capsuleWaiting = false;
+
+    const resolveCapsuleSeat = () => {
+      overlapTriggered = true;
+      resolvingSeat = true;
+      resolveRoleSeatTty(
+        { tmux },
+        {
+          id: "o-r-7",
+          issueUrl: ISSUE,
+          repoDir,
+          worktree: join(repoDir, ".worktrees", "issue-7"),
+          branch: "combo/issue-7",
+          tmuxSession: "combo-chen-o-r-7",
+          createdAt: new Date(0).toISOString(),
+        },
+        "coder",
+      );
+      resolvingSeat = false;
+    };
+
+    const tmux = (args: string[]) => {
+      tmuxCalls.push(args);
+      if (args[0] === "has-session") {
+        return { status: sessionExists ? 0 : 1, stdout: "", stderr: "" };
+      } else if (args[0] === "new-session") {
+        sessionExists = true;
+        capsuleWaiting = args.at(-1)?.includes("tmux wait-for") === true;
+        windows.push({ id: `@${nextId++}`, index: 0, name: args[args.indexOf("-n") + 1]! });
+      } else if (args[0] === "new-window") {
+        windows.push({
+          id: `@${nextId++}`,
+          index: windows.length,
+          name: args[args.indexOf("-n") + 1]!,
+        });
+      } else if (args[0] === "list-windows") {
+        const snapshot = windows.map((window) => window.name).join("\n") + "\n";
+        if (
+          !capsuleWaiting &&
+          !resolvingSeat &&
+          !overlapTriggered &&
+          windows.some((window) => window.name === "director")
+        ) {
+          resolveCapsuleSeat();
+        }
+        return { status: 0, stdout: snapshot, stderr: "" };
+      } else if (args[0] === "list-panes") {
+        return { status: 0, stdout: "0 /dev/ttys019\n", stderr: "" };
+      } else if (args[0] === "wait-for" && args[1] === "-S") {
+        resolveCapsuleSeat();
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    const { deps } = fakeDeps({ env: { COMBO_CHEN_HOME: h }, tmux });
+
+    await exec(deps, ["run", "--issue", ISSUE, "--repo", repoDir]);
+
+    expect(overlapTriggered).toBe(true);
+    expect(tmuxCalls.find((call) => call[0] === "new-session")?.at(-1)).toContain("tmux wait-for");
+    const createdNames = tmuxCalls
+      .filter((call) => call[0] === "new-window")
+      .map((call) => call[call.indexOf("-n") + 1]);
+    expect(createdNames).toEqual(["journal", "director", "coder", "gatekeeper", "reviewer"]);
+    const releaseIndex = tmuxCalls.findIndex((call) => call[0] === "wait-for" && call[1] === "-S");
+    const reviewerIndex = tmuxCalls.findIndex(
+      (call) => call[0] === "new-window" && call[call.indexOf("-n") + 1] === "reviewer",
+    );
+    expect(releaseIndex).toBeGreaterThan(reviewerIndex);
   });
 
   it("launches the capsule topology without a runner script when the capsule engine is configured", async () => {

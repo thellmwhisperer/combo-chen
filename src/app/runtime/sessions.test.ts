@@ -32,6 +32,7 @@ import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import {
   ensureJournalPane,
   ensureComboSession,
+  ensureWindowPresent,
   idleRoleWindowCommand,
   killComboSession,
   killWindowIfPresent,
@@ -105,6 +106,38 @@ describe("ensureJournalPane", () => {
       ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
       ["new-window", "-t", "combo-chen-o-r-7", "-n", "journal", "node cli.mjs events --follow -n 'o-r-7'"],
     ]);
+  });
+});
+
+describe("ensureWindowPresent", () => {
+  it("repairs duplicate idle placeholders by keeping the lowest-index role window", () => {
+    const calls: string[][] = [];
+
+    expect(
+      ensureWindowPresent(
+        {
+          tmux: (args) => {
+            calls.push(args);
+            if (args[0] === "list-windows" && args.at(-1) === "#{window_name}") {
+              return { status: 0, stdout: "coder\ncoder\n", stderr: "" };
+            }
+            if (args[0] === "list-windows") {
+              return { status: 0, stdout: "@7|4|coder\n@9|3|coder\n", stderr: "" };
+            }
+            if (args[0] === "list-panes") {
+              return { status: 0, stdout: "0|tail\n", stderr: "" };
+            }
+            return { status: 0, stdout: "", stderr: "" };
+          },
+        },
+        combo(),
+        "coder",
+        idleRoleWindowCommand("coder"),
+      ),
+    ).toBe(false);
+
+    expect(calls).toContainEqual(["kill-window", "-t", "@7"]);
+    expect(calls.some((call) => call[0] === "new-window")).toBe(false);
   });
 });
 // -/ 3/4
@@ -259,7 +292,44 @@ describe("resolveRoleSeatTty", () => {
     ]);
   });
 
-  it("recreates a missing role window as the idle seat before resolving its tty", () => {
+  it("resolves a duplicate role name deterministically by window id without creating another seat", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    const tty = resolveRoleSeatTty(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return {
+              status: 0,
+              stdout: "@7|4|coder\n@9|3|coder\n@2|0|capsule\n",
+              stderr: "",
+            };
+          }
+          if (args[0] === "list-panes" && args[2] === "@9") {
+            return { status: 0, stdout: "0 /dev/ttys019\n", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: "ambiguous window name" };
+        },
+      },
+      record,
+      "coder",
+    );
+
+    expect(tty).toBe("/dev/ttys019");
+    expect(calls).toContainEqual([
+      "list-windows",
+      "-t",
+      "combo-chen-o-r-7",
+      "-F",
+      "#{window_id}|#{window_index}|#{window_name}",
+    ]);
+    expect(calls).toContainEqual(["list-panes", "-t", "@9", "-F", "#{pane_dead} #{pane_tty}"]);
+    expect(calls.some((call) => call[0] === "new-window")).toBe(false);
+  });
+
+  it("leaves a missing role window for topology setup instead of creating a competing seat", () => {
     const calls: string[][] = [];
     const record = combo();
 
@@ -268,7 +338,6 @@ describe("resolveRoleSeatTty", () => {
         tmux: (args) => {
           calls.push(args);
           if (args[0] === "list-windows") return { status: 0, stdout: "capsule\n", stderr: "" };
-          if (args[0] === "list-panes") return { status: 0, stdout: "0 /dev/ttys012\n", stderr: "" };
           return { status: 0, stdout: "", stderr: "" };
         },
       },
@@ -276,15 +345,8 @@ describe("resolveRoleSeatTty", () => {
       REVIEWER_WINDOW,
     );
 
-    expect(tty).toBe("/dev/ttys012");
-    expect(calls).toContainEqual([
-      "new-window",
-      "-t",
-      "combo-chen-o-r-7",
-      "-n",
-      REVIEWER_WINDOW,
-      idleRoleWindowCommand(REVIEWER_WINDOW),
-    ]);
+    expect(tty).toBeUndefined();
+    expect(calls.some((call) => call[0] === "new-window")).toBe(false);
   });
 
   it("skips dead panes when picking the seat", () => {
@@ -326,6 +388,9 @@ describe("seatOccupancy", () => {
   function seatDeps(listPanesStdout: string, status = 0) {
     return {
       tmux: (args: string[]) => {
+        if (args[0] === "list-windows") {
+          return { status: 0, stdout: "@3|2|reviewer\n", stderr: "" };
+        }
         if (args[0] === "list-panes") return { status, stdout: listPanesStdout, stderr: "no such window" };
         return { status: 0, stdout: "", stderr: "" };
       },
@@ -348,6 +413,30 @@ describe("seatOccupancy", () => {
     expect(result.occupied).toBe(true);
     expect(result.detail).toContain("/dev/ttys011");
     expect(result.detail).toContain(`active role child ${process.pid}`);
+  });
+
+  it("checks occupancy through the deterministic lowest-index window id when role names duplicate", () => {
+    const calls: string[][] = [];
+    const result = seatOccupancy(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") {
+            return { status: 0, stdout: "@7|4|coder\n@9|3|coder\n", stderr: "" };
+          }
+          if (args[0] === "list-panes" && args[2] === "@9") {
+            return { status: 0, stdout: "0 /dev/ttys019\n", stderr: "" };
+          }
+          return { status: 1, stdout: "", stderr: "ambiguous window name" };
+        },
+      },
+      combo(),
+      "coder",
+      { seatTty: "/dev/ttys019", childPid: process.pid },
+    );
+
+    expect(result.occupied).toBe(true);
+    expect(calls).toContainEqual(["list-panes", "-t", "@9", "-F", "#{pane_dead} #{pane_tty}"]);
   });
 
   it("rejects a placeholder-only seat: live pane and matching tty but no running role child", () => {

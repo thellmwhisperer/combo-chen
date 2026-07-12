@@ -19,7 +19,7 @@
  *
  *   INTERNALS
  *   ---------
- *   Treehouse path parsing, lease acquisition, rollback, and best-effort cleanup.
+ *   Treehouse path parsing, topology-ready rendezvous, lease acquisition, rollback, and best-effort cleanup.
  *
  * @exports launchCombo, runOverture
  * @deps ../../core/events, ../../core/runtime-ledger, ../../core/shell-quote, ../../core/state, ../../core/work-plan, ../../infra/config, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../../roles/director-invocation, ../../roles/gatekeeper, ../deps, ../gate/gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./overture, node:fs, node:path
@@ -156,9 +156,10 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
   }
 
   const journalCommand = cli + " events --follow -n " + shellQuote(id);
-  const created = deps.tmux(
-    newSessionArgs(session, CAPSULE_WINDOW, capsuleWindowCommand({ cli, comboHome: home, runDir })),
-  );
+  const topologyReady = `combo-chen-topology-ready-${session}`;
+  const capsuleCommand =
+    `tmux wait-for ${shellQuote(topologyReady)} && ` + capsuleWindowCommand({ cli, comboHome: home, runDir });
+  const created = deps.tmux(newSessionArgs(session, CAPSULE_WINDOW, capsuleCommand));
   if (created.status !== 0) {
     rmSync(runDir, { recursive: true, force: true });
     rollbackTreehouseLaunch(deps, combo);
@@ -170,6 +171,13 @@ export async function launchCombo(deps: AppDeps, options: LaunchOptions, cli: st
     ensureWindowPresent(deps, combo, CODER_WINDOW, idleRoleWindowCommand(CODER_WINDOW));
     startGatekeeperWindow(deps, combo);
     ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
+    const released = deps.tmux(["wait-for", "-S", topologyReady]);
+    if (released.status !== 0) {
+      throw new Error(
+        `tmux failed to release capsule topology setup in "${session}": ` +
+          `${released.stderr.trim() || "unknown error"}`,
+      );
+    }
   } catch (error) {
     const killed = deps.tmux(killSessionArgs(session));
     let rollbackError: string | undefined;
