@@ -358,6 +358,83 @@ describe("tickDirector", () => {
     expect(out).toContainEqual(expect.stringContaining("worker coder unchanged pane for 2 ticks"));
   });
 
+  it("watches the reviewer seat during LOCAL_REVIEW and escalates its permission prompt", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "local_review_requested", { round: 1, sha: "coded" });
+    const { deps } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "capsule\ncoder\nreviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") {
+        const target = String(args.at(-1) ?? "");
+        // The seated reviewer child renders in the reviewer window; the idle
+        // banner stays in scrollback above it (decorative-idle is gone).
+        if (target.endsWith(":reviewer")) {
+          return {
+            status: 0,
+            stdout:
+              "[combo-chen] reviewer window idle; waiting for combo-chen to prompt it.\n" +
+              "Do you want to proceed? [y/N]\n",
+            stderr: "",
+          };
+        }
+        return { status: 0, stdout: "sequencer output\n", stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(readEvents(runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "worker_permission_prompt",
+        worker: "reviewer",
+      }),
+    );
+  });
+
+  it("treats an unchanged reviewer pane as a capsule-owned turn, not a stall, while a round is open", async () => {
+    const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
+    const record = combo();
+    const runDir = runDirFor(h, record.id);
+    writeCombo(runDir, record);
+    appendEvent(runDir, "coder_started", {});
+    appendEvent(runDir, "coder_done", {});
+    appendEvent(runDir, "local_review_requested", { round: 1, sha: "coded" });
+    const { deps, out } = fakeDeps({
+      homeDir: h,
+      record,
+      prHeadSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      env: { COMBO_CHEN_WORKER_STALL_TICKS: "2" },
+    });
+    deps.tmux = (args) => {
+      if (args[0] === "list-windows") return { status: 0, stdout: "capsule\ncoder\nreviewer\n", stderr: "" };
+      if (args[0] === "list-panes") return { status: 0, stdout: "12345\n", stderr: "" };
+      if (args[0] === "capture-pane") return { status: 0, stdout: "reviewer reasoning...\n", stderr: "" };
+      return { status: 0, stdout: "", stderr: "" };
+    };
+
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+    await tickDirector({ deps, home: h, comboId: record.id, cli: "node /repo/dist/cli.mjs" });
+
+    expect(
+      readEvents(runDir).some(
+        (journaled) => journaled.event === "needs_human" && journaled["worker"] === "reviewer",
+      ),
+    ).toBe(false);
+    expect(out).toContainEqual(expect.stringContaining("capsule-owned reviewer turn active"));
+  });
+
   it("relaunches the capsule sequencer for a dead pre-PR coder pane", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
