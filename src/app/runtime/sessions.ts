@@ -14,15 +14,15 @@
  *
  *   PUBLIC API
  *   ----------
- *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, SessionDeps
+ *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps
  *   KillComboSessionResult, windowSet
- *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
  *   tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, SessionDeps, KillComboSessionResult, windowSet, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
  * @deps ../../core/guards, ../../core/shell-quote, ../../core/state, ../../infra/tmux, ../../shell/templates
  */
 import { errorMessage } from "../../core/guards.js";
@@ -47,7 +47,13 @@ export const REVIEWER_WINDOW = "reviewer";
 export const REVIEWER_WATCH_WINDOW = "reviewer-watch";
 export const DIRECTOR_WATCH_WINDOW = "director-watch";
 export const GATE_RUNNER_WINDOW = "gate-runner";
+export const CAPSULE_WINDOW = "capsule";
 const CODER_RESPONDING_WINDOW = "coder-responding";
+
+/** Plain tmux entry command for the v1 capsule sequencer pane (PRD §6). */
+export function capsuleWindowCommand(input: { cli: string; comboHome: string; runDir: string }): string {
+  return `COMBO_CHEN_HOME=${shellQuote(input.comboHome)} ${input.cli} capsule ${shellQuote(input.runDir)}`;
+}
 
 export interface SessionDeps {
   tmux: (args: string[]) => TmuxResult;
