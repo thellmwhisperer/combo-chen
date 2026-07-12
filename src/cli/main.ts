@@ -43,7 +43,6 @@ import {
   tickComboReviewer,
 } from "../app/director/director-handlers.js";
 import { GATEKEEPER_WINDOW, refreshGatekeeperWindow } from "../app/gate/gate.js";
-import { restartGate } from "../app/gate/gate-handlers.js";
 import { ensurePrAutoclose, printIntent } from "../app/github/github-handlers.js";
 import { launchCombo, runOverture, type LaunchOptions } from "../app/launch/launch-handlers.js";
 import {
@@ -407,22 +406,10 @@ export function createProgram(deps: AppDeps): Command {
 
   program
     .command("intent")
-    .description(
-      "Print the canonical no-mistakes issue PR intent for a combo (inspection/forensics; to relaunch a gate use gate-restart)",
-    )
+    .description("Print the canonical no-mistakes issue PR intent for a combo (inspection/forensics)")
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action((options: { name: string }) => {
       printIntent(deps, options.name);
-    });
-
-  program
-    .command("gate-restart")
-    .description(
-      "Restart the no-mistakes gate for a combo using the canonical intent (one plain command; replaces a manual axi run)",
-    )
-    .requiredOption("-n, --name <comboId>", "Combo id")
-    .action((options: { name: string }) => {
-      restartGate(deps, options.name, cli);
     });
 
   program

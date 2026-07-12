@@ -135,8 +135,9 @@ export function ensureWindowPresent(
   return true;
 }
 
+/** Static idle placeholder: prints the banner and parks without any shell loop. */
 export function idleRoleWindowCommand(role: string): string {
-  return `printf '[combo-chen] ${role} window idle; waiting for combo-chen to prompt it.\\n'; trap 'exit 0' INT; while :; do sleep 3600; done`;
+  return `printf '[combo-chen] ${role} window idle; waiting for combo-chen to prompt it.\\n'; exec tail -f /dev/null`;
 }
 
 export function removeLegacyTopologyWindows(

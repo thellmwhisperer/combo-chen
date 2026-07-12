@@ -133,12 +133,12 @@ describe("passive update CLI cache", () => {
 });
 
 describe("passive update command policy", () => {
-  it("runs for public inspection commands but skips active update and generated worker commands", () => {
+  it("runs for public inspection commands but skips active update and hidden worker commands", () => {
     expect(shouldRunPassiveUpdateForCommand("status")).toBe(true);
     expect(shouldRunPassiveUpdateForCommand("events")).toBe(true);
     expect(shouldRunPassiveUpdateForCommand("update")).toBe(false);
-    expect(shouldRunPassiveUpdateForCommand("emit")).toBe(false);
-    expect(shouldRunPassiveUpdateForCommand("director-watch")).toBe(false);
+    expect(shouldRunPassiveUpdateForCommand("director-tick")).toBe(false);
+    expect(shouldRunPassiveUpdateForCommand("reviewer-tick")).toBe(false);
   });
 });
 // -/ 1/1
