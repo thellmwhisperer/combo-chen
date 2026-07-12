@@ -1,28 +1,30 @@
 /**
- * @overview tmux session helpers. ~220 lines, 17 exports, attach/recovery and idempotent cleanup utilities.
+ * @overview tmux session helpers. ~330 lines, 19 exports, attach/recovery, D1 role seats, and idempotent cleanup utilities.
  *
  *   READING GUIDE
  *   -------------
  *   1. Start at resolveAttachCombo    <- resolves explicit or sole running combo.
  *   2. Then ensureComboSession        <- recreates a visible room from persisted state.
- *   3. Then ensureJournalPane         <- creates dedicated journal window, not a pane.
- *   4. Use kill helpers on demand     <- stop/reviewer cleanup paths.
+ *   3. Then resolveRoleSeatTty        <- D1 seat: role window pane tty for owned children.
+ *   4. Then ensureJournalPane         <- creates dedicated journal window, not a pane.
+ *   5. Use kill helpers on demand     <- stop/reviewer cleanup paths.
  *
  *   MAIN FLOW
  *   ---------
  *   resume/gate recovery -> ensureComboSession -> ensure journal role window
+ *   capsule agent turn -> resolveRoleSeatTty -> seated owned child; seatOccupancy asserts it
  *
  *   PUBLIC API
  *   ----------
  *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps
- *   KillComboSessionResult, windowSet
- *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
+ *   KillComboSessionResult, windowSet, SeatOccupancy
+ *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, resolveRoleSeatTty, seatOccupancy, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
- *   tmuxFailureText, isMissingSession
+ *   tmuxFailureText, isMissingSession, livePaneTtys, SEAT_PANE_FORMAT
  *
- * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, SeatOccupancy, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, resolveRoleSeatTty, seatOccupancy, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
  * @deps ../../core/guards, ../../core/shell-quote, ../../core/state, ../../infra/tmux
  */
 import { errorMessage } from "../../core/guards.js";
@@ -32,6 +34,7 @@ import {
   hasSessionArgs,
   killSessionArgs,
   killWindowArgs,
+  listPanesArgs,
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
@@ -138,6 +141,74 @@ export function ensureWindowPresent(
 /** Static idle placeholder: prints the banner and parks without any shell loop. */
 export function idleRoleWindowCommand(role: string): string {
   return `printf '[combo-chen] ${role} window idle; waiting for combo-chen to prompt it.\\n'; exec tail -f /dev/null`;
+}
+
+/** list-panes format shared by seat resolution and the occupancy assertion. */
+const SEAT_PANE_FORMAT = "#{pane_dead} #{pane_tty}";
+
+function livePaneTtys(deps: SessionDeps, combo: ComboRecord, windowName: string): string[] | TmuxResult {
+  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, windowName, SEAT_PANE_FORMAT));
+  if (listed.status !== 0) return listed;
+  return listed.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("0 "))
+    .map((line) => line.slice(2).trim())
+    .filter(Boolean);
+}
+
+/**
+ * D1 seat resolution: the pty of a role window's live pane. The capsule
+ * spawns the owned agent child on this tty so the process renders and reads
+ * in its named window while the capsule keeps the parent/child exit-code
+ * contract. Failures return undefined: panes are forensic access, never an
+ * operational necessity, so a broken seat must not block the pipeline.
+ */
+export function resolveRoleSeatTty(
+  deps: SessionDeps,
+  combo: ComboRecord,
+  windowName: string,
+): string | undefined {
+  try {
+    ensureWindowPresent(deps, combo, windowName, idleRoleWindowCommand(windowName));
+    const ttys = livePaneTtys(deps, combo, windowName);
+    if (!Array.isArray(ttys)) return undefined;
+    return ttys[0];
+  } catch {
+    return undefined;
+  }
+}
+
+export interface SeatOccupancy {
+  occupied: boolean;
+  detail: string;
+}
+
+/** Runtime occupancy assertion: the window's live pane genuinely hosts the seat tty. */
+export function seatOccupancy(
+  deps: SessionDeps,
+  combo: ComboRecord,
+  windowName: string,
+  seatTty: string,
+): SeatOccupancy {
+  const listed = deps.tmux(listPanesArgs(combo.tmuxSession, windowName, SEAT_PANE_FORMAT));
+  if (listed.status !== 0) {
+    return { occupied: false, detail: listed.stderr.trim() || `tmux cannot list panes in ${windowName}` };
+  }
+  const panes = listed.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (panes.includes(`0 ${seatTty}`)) {
+    return { occupied: true, detail: `${windowName} live pane hosts seat ${seatTty}` };
+  }
+  if (panes.includes(`1 ${seatTty}`)) {
+    return { occupied: false, detail: `${windowName} pane for seat ${seatTty} is dead` };
+  }
+  return {
+    occupied: false,
+    detail: `${windowName} hosts no pane on seat ${seatTty} (panes: ${panes.join(", ") || "none"})`,
+  };
 }
 
 export function removeLegacyTopologyWindows(

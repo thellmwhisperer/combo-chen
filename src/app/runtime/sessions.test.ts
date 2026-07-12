@@ -31,11 +31,14 @@ import { runDirFor, writeCombo, type ComboRecord } from "../../core/state.js";
 import {
   ensureJournalPane,
   ensureComboSession,
+  idleRoleWindowCommand,
   killComboSession,
   killWindowIfPresent,
   JOURNAL_WINDOW,
   REVIEWER_WINDOW,
   resolveAttachCombo,
+  resolveRoleSeatTty,
+  seatOccupancy,
 } from "./sessions.js";
 
 // -- 1/4 HELPER · combo fixture --
@@ -224,6 +227,136 @@ describe("killComboSession", () => {
     ).not.toThrow();
 
     expect(calls).toEqual([["kill-session", "-t", "combo-chen-o-r-7"]]);
+  });
+});
+
+describe("resolveRoleSeatTty", () => {
+  it("returns the live pane tty of an existing role window", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    const tty = resolveRoleSeatTty(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") return { status: 0, stdout: "capsule\nreviewer\n", stderr: "" };
+          if (args[0] === "list-panes") return { status: 0, stdout: "0 /dev/ttys011\n", stderr: "" };
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      record,
+      REVIEWER_WINDOW,
+    );
+
+    expect(tty).toBe("/dev/ttys011");
+    expect(calls).toContainEqual([
+      "list-panes",
+      "-t",
+      "combo-chen-o-r-7:reviewer",
+      "-F",
+      "#{pane_dead} #{pane_tty}",
+    ]);
+  });
+
+  it("recreates a missing role window as the idle seat before resolving its tty", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    const tty = resolveRoleSeatTty(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          if (args[0] === "list-windows") return { status: 0, stdout: "capsule\n", stderr: "" };
+          if (args[0] === "list-panes") return { status: 0, stdout: "0 /dev/ttys012\n", stderr: "" };
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      record,
+      REVIEWER_WINDOW,
+    );
+
+    expect(tty).toBe("/dev/ttys012");
+    expect(calls).toContainEqual([
+      "new-window",
+      "-t",
+      "combo-chen-o-r-7",
+      "-n",
+      REVIEWER_WINDOW,
+      idleRoleWindowCommand(REVIEWER_WINDOW),
+    ]);
+  });
+
+  it("skips dead panes when picking the seat", () => {
+    const record = combo();
+
+    const tty = resolveRoleSeatTty(
+      {
+        tmux: (args) => {
+          if (args[0] === "list-windows") return { status: 0, stdout: "reviewer\n", stderr: "" };
+          if (args[0] === "list-panes") {
+            return { status: 0, stdout: "1 /dev/ttys011\n0 /dev/ttys012\n", stderr: "" };
+          }
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      record,
+      REVIEWER_WINDOW,
+    );
+
+    expect(tty).toBe("/dev/ttys012");
+  });
+
+  it("returns undefined instead of throwing when tmux is unavailable", () => {
+    const record = combo();
+
+    const tty = resolveRoleSeatTty(
+      {
+        tmux: () => ({ status: 1, stdout: "", stderr: "no server running" }),
+      },
+      record,
+      REVIEWER_WINDOW,
+    );
+
+    expect(tty).toBeUndefined();
+  });
+});
+
+describe("seatOccupancy", () => {
+  function seatDeps(listPanesStdout: string, status = 0) {
+    return {
+      tmux: (args: string[]) => {
+        if (args[0] === "list-panes") return { status, stdout: listPanesStdout, stderr: "no such window" };
+        return { status: 0, stdout: "", stderr: "" };
+      },
+    };
+  }
+
+  it("confirms occupancy when the window's live pane hosts the seat tty", () => {
+    const result = seatOccupancy(seatDeps("0 /dev/ttys011\n"), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+
+    expect(result.occupied).toBe(true);
+    expect(result.detail).toContain("/dev/ttys011");
+  });
+
+  it("rejects occupancy when the pane hosting the seat tty is dead", () => {
+    const result = seatOccupancy(seatDeps("1 /dev/ttys011\n"), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+
+    expect(result.occupied).toBe(false);
+    expect(result.detail).toContain("dead");
+  });
+
+  it("rejects occupancy when the window's panes host a different tty", () => {
+    const result = seatOccupancy(seatDeps("0 /dev/ttys044\n"), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+
+    expect(result.occupied).toBe(false);
+    expect(result.detail).toContain("/dev/ttys044");
+  });
+
+  it("rejects occupancy when the window has no panes to host the seat", () => {
+    const result = seatOccupancy(seatDeps("", 1), combo(), REVIEWER_WINDOW, "/dev/ttys011");
+
+    expect(result.occupied).toBe(false);
+    expect(result.detail).toContain("no such window");
   });
 });
 

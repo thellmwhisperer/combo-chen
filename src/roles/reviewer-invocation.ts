@@ -13,7 +13,7 @@
  *   MAIN FLOW
  *   ─────────
  *   capsule → buildLocalReviewerInvocation → localReviewerPrompt
- *     → renderCommand → owned reviewer child in the capsule pane
+ *     → renderCommand → owned reviewer child seated in the reviewer window
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
  *   │ assertReviewerCommandSafe Reject compound reviewer shell commands │
