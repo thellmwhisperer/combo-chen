@@ -291,18 +291,12 @@ describe("deriveFleetRow liveness on CODER phase", () => {
 
 describe("deriveActorLiveness", () => {
   it("returns empty when session is not alive", () => {
-    const liveness = deriveActorLiveness(
-      [{ t: ts(10), event: "coder_started" }],
-      false,
-    );
+    const liveness = deriveActorLiveness([{ t: ts(10), event: "coder_started" }], false);
     expect(liveness).toEqual({});
   });
 
   it("reports coder active during CODING phase", () => {
-    const liveness = deriveActorLiveness(
-      [{ t: ts(10), event: "coder_started" }],
-      true,
-    );
+    const liveness = deriveActorLiveness([{ t: ts(10), event: "coder_started" }], true);
     expect(liveness).toEqual({ coder: true });
   });
 
@@ -410,10 +404,7 @@ describe("deriveFleetView", () => {
 
   it("parked tab shows only parked", () => {
     const view = deriveFleetView({
-      rows: [
-        rowFor("CODER", { comboId: "live" }),
-        rowFor("PARKED", { comboId: "parked", sortPriority: 3 }),
-      ],
+      rows: [rowFor("CODER", { comboId: "live" }), rowFor("PARKED", { comboId: "parked", sortPriority: 3 })],
       tab: "parked",
     });
     expect(view.rows.map((r) => r.comboId)).toEqual(["parked"]);
@@ -421,10 +412,7 @@ describe("deriveFleetView", () => {
 
   it("closed tab shows only closed", () => {
     const view = deriveFleetView({
-      rows: [
-        rowFor("CODER", { comboId: "live" }),
-        rowFor("CLOSED", { comboId: "closed", sortPriority: 4 }),
-      ],
+      rows: [rowFor("CODER", { comboId: "live" }), rowFor("CLOSED", { comboId: "closed", sortPriority: 4 })],
       tab: "closed",
     });
     expect(view.rows.map((r) => r.comboId)).toEqual(["closed"]);

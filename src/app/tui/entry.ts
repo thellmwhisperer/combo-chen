@@ -34,12 +34,7 @@
  */
 import { readEvents } from "../../core/events.js";
 import { comboHome, listCombos, runDirFor } from "../../core/state.js";
-import {
-  attachSessionArgs,
-  hasSessionArgs,
-  newSessionArgs,
-  switchClientArgs,
-} from "../../infra/tmux.js";
+import { attachSessionArgs, hasSessionArgs, newSessionArgs, switchClientArgs } from "../../infra/tmux.js";
 import type { AppDeps } from "../deps.js";
 import { deriveActorLiveness, deriveFleetRow, type FleetRow } from "./fleet-fold.js";
 
@@ -60,11 +55,7 @@ export function homeSessionCommand(cli: string): string {
   return `${TUI_DIRECT_ENV}=1 ${cli}`;
 }
 
-export function homeSessionActions(
-  exists: boolean,
-  inside: boolean,
-  cli: string,
-): string[][] {
+export function homeSessionActions(exists: boolean, inside: boolean, cli: string): string[][] {
   if (exists) {
     return [inside ? switchClientArgs(HOME_SESSION_NAME) : attachSessionArgs(HOME_SESSION_NAME)];
   }
@@ -89,12 +80,15 @@ export async function runTuiHome(deps: AppDeps, cli: string): Promise<void> {
 // -/ 2/3
 
 // -- 3/3 HELPER · data loading + render loop --
-const REFRESH_INTERVAL_MS = 5000;
+const DEFAULT_REFRESH_MS = 5000;
 
-export function loadFleetRows(
-  env: Record<string, string | undefined>,
-  tmux: AppDeps["tmux"],
-): FleetRow[] {
+export function refreshIntervalMs(env: Record<string, string | undefined>): number {
+  const raw = env["COMBO_CHEN_TUI_REFRESH_MS"];
+  const parsed = raw !== undefined ? Number(raw) : DEFAULT_REFRESH_MS;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_REFRESH_MS;
+}
+
+export function loadFleetRows(env: Record<string, string | undefined>, tmux: AppDeps["tmux"]): FleetRow[] {
   const home = comboHome(env);
   const combos = listCombos(home, () => {});
   const rows: FleetRow[] = [];
@@ -127,7 +121,7 @@ async function renderTuiHome(deps: AppDeps): Promise<void> {
     } catch {
       // Data loading errors are non-fatal; keep the last known state.
     }
-  }, REFRESH_INTERVAL_MS);
+  }, refreshIntervalMs(deps.env));
   try {
     await instance.waitUntilExit();
   } finally {

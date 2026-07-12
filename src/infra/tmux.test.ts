@@ -97,11 +97,7 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
   });
 
   it("switches the current client to a session (inside-tmux navigation)", () => {
-    expect(switchClientArgs("combo-chen-home")).toEqual([
-      "switch-client",
-      "-t",
-      "combo-chen-home",
-    ]);
+    expect(switchClientArgs("combo-chen-home")).toEqual(["switch-client", "-t", "combo-chen-home"]);
   });
 
   it("nudges an interactive sitter with pasted text and a separate raw Enter", () => {
