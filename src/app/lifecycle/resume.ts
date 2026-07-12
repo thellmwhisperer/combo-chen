@@ -91,8 +91,7 @@ function githubPrMerged(gh: GhRunner, prUrl: string): boolean {
 }
 
 type ResumeState =
-  | { kind: "closure_pending"; reason: "journal" | "github" }
-  | { kind: "capsule"; phase: CapsulePhase };
+  { kind: "closure_pending"; reason: "journal" | "github" } | { kind: "capsule"; phase: CapsulePhase };
 
 function classifyResumeState(input: { events: ComboEvent[]; gh: GhRunner }): ResumeState {
   const { events } = input;

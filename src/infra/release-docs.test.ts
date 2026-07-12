@@ -98,19 +98,21 @@ describe("release docs", () => {
     }
   });
 
-  it("documents the fixed role topology without advertising removed windows", () => {
+  it("documents the capsule role topology without advertising removed windows", () => {
     const readme = normalizeDoc(readDoc("README.md"));
     const spec = normalizeDoc(readDoc("docs/spec.md"));
     const agents = normalizeDoc(readDoc("AGENTS.md"));
 
     for (const doc of [readme, spec, agents]) {
-      expect(doc).toContain("fixed tmux role topology");
-      expect(doc).toContain("journal, director, coder, gatekeeper, reviewer, and director-watch");
-      expect(doc).toContain("gatekeeper and reviewer");
-      expect(doc).toContain("precreated at launch");
-      expect(doc).toContain("director-watch");
+      expect(doc).toContain("capsule");
+      expect(doc).toContain("pane 0");
+      expect(doc).toContain("journal, director, coder, gatekeeper, and reviewer");
+      expect(doc).toContain("no director-watch window");
       expect(doc).toContain("persistent coder window");
-      expect(doc).not.toContain("gate-runner");
+      // The retired windows may appear only in retirement notes, never as
+      // fixed topology.
+      expect(doc).not.toContain("reviewer, and director-watch");
+      expect(doc).not.toContain("director-watch windows");
     }
   });
 
@@ -127,13 +129,19 @@ describe("release docs", () => {
   it("documents PR label projection as single-writer and keeps deep status read-only", () => {
     const spec = normalizeDoc(readDoc("docs/spec.md"));
 
-    expect(spec).toContain("`director-watch` or `director-tick`");
+    expect(spec).toContain("Only the supervisor tick (`director-tick`) writes labels");
     expect(spec).toContain("`status`");
     expect(spec).toContain("status --deep");
     expect(spec).toContain("status --deep --all");
     expect(spec).toContain("read-only");
-    expect(spec).not.toContain("director-watch loop and `status --deep` keep GitHub PR labels in sync");
-    expect(spec).not.toContain("`director-watch` or `status-deep`");
+    expect(spec).toContain("combo:working");
+    expect(spec).toContain("combo:ready");
+    expect(spec).toContain("combo:merged");
+    expect(spec).toContain("combo:conflict");
+    expect(spec).not.toContain("combo:working-coder");
+    expect(spec).not.toContain("combo:lgtm");
+    expect(spec).not.toContain("combo:external-review-green");
+    expect(spec).not.toContain("combo:stale");
   });
 
   it("documents CodeRabbit as dogfood configuration rather than runtime default", () => {

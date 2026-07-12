@@ -24,13 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  ComboConfigError,
-  isCapsuleEngine,
-  loadConfig,
-  renderCommand,
-  unsafeCoderInvocationReasons,
-} from "./config.js";
+import { ComboConfigError, loadConfig, renderCommand, unsafeCoderInvocationReasons } from "./config.js";
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "combo-chen-test-"));
@@ -59,8 +53,8 @@ describe("loadConfig", () => {
     expect(config.roles).not.toHaveProperty("gordon");
     expect(config.limits.babysitPollSeconds).toBe(120);
     expect(config.limits.coderTimeoutMinutes).toBe(180);
-    expect(config.gatekeeperAttachTimeoutSeconds).toBe(1800);
-    expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(10);
+    expect(config).not.toHaveProperty("gatekeeperAttachTimeoutSeconds");
+    expect(config).not.toHaveProperty("gatekeeperAttachRetryIntervalSeconds");
     expect(config.limits.teardownGitRetries).toBe(2);
     expect(config.limits.teardownGitBackoffSeconds).toBe(2);
     expect(config.limits.watchFailureLimit).toBe(5);
@@ -354,47 +348,20 @@ describe("loadConfig", () => {
     expect(config.roles.coder).toBe("codex");
   });
 
-  it("loads gatekeeper attach retry settings through env, repo, user, fallback order", () => {
-    const userDir = tempDir();
-    const userConfig = writeToml(
-      userDir,
-      "config.toml",
-      "[hodor]\nattach_timeout_seconds = 900\nattach_retry_interval_seconds = 30\n",
-    );
+  it("ignores retired gatekeeper attach retry settings from any layer", () => {
+    // The v0 gatekeeper window wrapper polled no-mistakes attach in a shell
+    // loop; the v1 entry is a static attach command, so the retry knobs are
+    // retired and read as ordinary unknown keys.
     const repoDir = tempDir();
     writeToml(
       repoDir,
       "combo-chen.toml",
-      "[hodor]\nattach_timeout_seconds = 600\nattach_retry_interval_seconds = 20\n",
+      "[gatekeeper]\nattach_timeout_seconds = 600\nattach_retry_interval_seconds = 20\n",
     );
 
-    const repoConfig = loadConfig({ repoDir, userConfigPath: userConfig, env: {} });
-    expect(repoConfig.gatekeeperAttachTimeoutSeconds).toBe(600);
-    expect(repoConfig.gatekeeperAttachRetryIntervalSeconds).toBe(20);
-
-    const envConfig = loadConfig({
-      repoDir,
-      userConfigPath: userConfig,
-      env: {
-        COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS: "75",
-        COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS: "15",
-      },
-    });
-    expect(envConfig.gatekeeperAttachTimeoutSeconds).toBe(75);
-    expect(envConfig.gatekeeperAttachRetryIntervalSeconds).toBe(15);
-
-    const newEnvConfig = loadConfig({
-      repoDir,
-      userConfigPath: userConfig,
-      env: {
-        COMBO_CHEN_HODOR_ATTACH_TIMEOUT_SECONDS: "75",
-        COMBO_CHEN_HODOR_ATTACH_RETRY_INTERVAL_SECONDS: "15",
-        COMBO_CHEN_GATEKEEPER_ATTACH_TIMEOUT_SECONDS: "45",
-        COMBO_CHEN_GATEKEEPER_ATTACH_RETRY_INTERVAL_SECONDS: "9",
-      },
-    });
-    expect(newEnvConfig.gatekeeperAttachTimeoutSeconds).toBe(45);
-    expect(newEnvConfig.gatekeeperAttachRetryIntervalSeconds).toBe(9);
+    const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(config).not.toHaveProperty("gatekeeperAttachTimeoutSeconds");
+    expect(config).not.toHaveProperty("gatekeeperAttachRetryIntervalSeconds");
   });
 
   it("loads initial gate retry settings through env, repo, user, fallback order", () => {
@@ -700,12 +667,10 @@ describe("loadConfig", () => {
 
     const defaults = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
     expect(defaults.runEngine).toBe("capsule");
-    expect(isCapsuleEngine(defaults)).toBe(true);
 
     writeToml(repoDir, "combo-chen.toml", '[run]\nengine = "capsule"\n');
     const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
     expect(repoConfig.runEngine).toBe("capsule");
-    expect(isCapsuleEngine(repoConfig)).toBe(true);
 
     const envConfig = loadConfig({
       repoDir: tempDir(),
@@ -727,10 +692,6 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} })).toThrow(
       /run\.engine/,
     );
-  });
-
-  it("treats a legacy pre-v1 snapshot without run engine as the capsule engine", () => {
-    expect(isCapsuleEngine({})).toBe(true);
   });
 
   it("loads the review loop round cap from repo config, env, and defaults", () => {
@@ -838,8 +799,6 @@ describe("loadConfig", () => {
         "",
         "[gatekeeper]",
         'command = "gate --intent {issue_pr_intent}"',
-        "attach_timeout_seconds = 42",
-        "attach_retry_interval_seconds = 6",
         "",
         "[reviewer]",
         'prompt = "project reviewer instructions 1234"',
@@ -867,11 +826,7 @@ describe("loadConfig", () => {
     expect(config).not.toHaveProperty("rowerCommand");
     expect(config).not.toHaveProperty("rowerResumeCommand");
     expect(config.gatekeeperCommand).toBe("gate --intent {issue_pr_intent}");
-    expect(config.gatekeeperAttachTimeoutSeconds).toBe(42);
-    expect(config.gatekeeperAttachRetryIntervalSeconds).toBe(6);
     expect(config).not.toHaveProperty("hodorCommand");
-    expect(config).not.toHaveProperty("hodorAttachTimeoutSeconds");
-    expect(config).not.toHaveProperty("hodorAttachRetryIntervalSeconds");
     expect(config.reviewerAgent).toBe("hermes:gemini");
     expect(config.reviewerCommand).toBe("hermes review {pr_url} {prompt}");
     expect(config.reviewerPrompt).toBe("project reviewer instructions 1234");

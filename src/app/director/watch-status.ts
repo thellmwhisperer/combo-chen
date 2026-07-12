@@ -1,5 +1,5 @@
 /**
- * @overview Director-watch operator status line formatter. ~300 lines,
+ * @overview Supervisor tick operator status line formatter. ~300 lines,
  *   pure timeline/checklist rendering for tmux panes.
  *
  *   READING GUIDE
@@ -10,7 +10,7 @@
  *
  *   MAIN FLOW
  *   ---------
- *   director-watch tick facts -> deriveStatus/events -> tmux-friendly line
+ *   supervisor tick facts -> deriveStatus/events -> tmux-friendly line
  *
  *   PUBLIC API
  *   ----------

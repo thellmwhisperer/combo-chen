@@ -26,12 +26,13 @@ const combo = {
 
 // -- 1/1 CORE · director prompt + invocation --
 describe("defaultDirectorPrompt", () => {
-  it("keeps the director window promptable without replacing director-watch", () => {
+  it("keeps the director window promptable without replacing the supervisor", () => {
     const prompt = defaultDirectorPrompt({ combo });
 
     expect(prompt).toContain("Combo director for o-r-9");
     expect(prompt).toContain("Stay in this tmux window");
-    expect(prompt).toContain("director-watch");
+    expect(prompt).toContain("in-process supervisor");
+    expect(prompt).not.toContain("director-watch");
     expect(prompt).toContain("needs_human");
     expect(prompt).toContain("Do not review or answer review threads");
     expect(prompt).toContain("GitHub writes");

@@ -111,9 +111,9 @@ export function ensurePrAutoclose(
 
 // -- 3/3 CORE · updatePrBodyDossier --
 // TRIGGER (W6b/W6a): when the external-review signal is green on the
-// current head, the capsule or director-watch loop calls this to project
-// local review rounds into the PR body. Not yet wired; the natural call
-// site is the post-publish external-review-green leg in the capsule's
+// current head, the capsule or supervisor calls this to project local
+// review rounds into the PR body. Not yet wired; the natural call site is
+// the post-publish external-review-green leg in the capsule's
 // CodeRabbit-round handling or W6a's READY fold.
 export function updatePrBodyDossier(
   deps: Pick<AppDeps, "env" | "gh" | "out">,

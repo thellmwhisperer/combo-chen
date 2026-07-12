@@ -843,12 +843,7 @@ describe("recoverDeadCoder", () => {
     });
 
     expect(recovered).toBe(true);
-    expect(shim.calls).toContainEqual([
-      "tmux",
-      "kill-window",
-      "-t",
-      `${record.tmuxSession}:capsule`,
-    ]);
+    expect(shim.calls).toContainEqual(["tmux", "kill-window", "-t", `${record.tmuxSession}:capsule`]);
     const created = shim.calls.find((call) => call[1] === "new-window" && call.includes("capsule"));
     expect(created).toBeDefined();
     expect(created?.at(-1)).toContain(" capsule ");
@@ -864,9 +859,7 @@ describe("recoverDeadCoder", () => {
       }),
     );
     expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
-    expect(out).toEqual([
-      "director: coder dead (worker_dead); relaunched capsule sequencer attempt 1/2",
-    ]);
+    expect(out).toEqual(["director: coder dead (worker_dead); relaunched capsule sequencer attempt 1/2"]);
   });
 
   it("recreates the capsule session when the tmux session is gone", () => {

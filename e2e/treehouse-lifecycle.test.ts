@@ -699,7 +699,9 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
         cwd: harness.repo,
         env: { ...harness.env, E2E_PR_STATE: "OPEN" },
       });
-      expect(resume.stdout).toContain(`resume: migrated frozen v0 engine snapshot to capsule for ${combo.id}`);
+      expect(resume.stdout).toContain(
+        `resume: migrated frozen v0 engine snapshot to capsule for ${combo.id}`,
+      );
       expect(resume.stdout).toContain("resume: capsule engine");
 
       const migrated = readJson<{ runEngine?: string }>(snapshotPath);
