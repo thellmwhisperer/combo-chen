@@ -630,6 +630,93 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
     }
   });
 
+  it("parks and resumes a freshly launched combo with the default capsule snapshot", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      const snapshot = readJson<{ runEngine?: string }>(join(runDir, "config.snapshot.json"));
+      expect(snapshot.runEngine).toBe("capsule");
+
+      const park = run(process.execPath, [cliPath, "park", "-n", combo.id, "--by", "e2e"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      expect(park.stdout).toContain(`parked ${combo.id}`);
+      expect(existsSync(join(runDir, "park-handoff.md"))).toBe(true);
+      let tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      expect(tmuxState.sessions[combo.tmuxSession]).toBeUndefined();
+      const parkedEvents = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(parkedEvents).toContainEqual(expect.objectContaining({ event: "parked", by: "e2e" }));
+
+      const resume = run(process.execPath, [cliPath, "resume", "-n", combo.id], {
+        cwd: harness.repo,
+        env: { ...harness.env, E2E_PR_STATE: "OPEN" },
+      });
+      expect(resume.stdout).toContain("resume: capsule engine");
+      expect(resume.stdout).toContain("(recreated tmux session)");
+      expect(resume.stdout).not.toContain("migrated frozen v0 engine snapshot");
+
+      tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      expect(Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows).sort()).toEqual([
+        "capsule",
+        "coder",
+        "director",
+        "gatekeeper",
+        "journal",
+        "reviewer",
+      ]);
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
+  it("migrates an old frozen v0 snapshot to capsule across park and resume", () => {
+    const harness = prepareHarness();
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+
+      // Rewrite the frozen artifact to what a v0-era launch persisted.
+      const snapshotPath = join(runDir, "config.snapshot.json");
+      const frozen = readJson<Record<string, unknown>>(snapshotPath);
+      writeFileSync(snapshotPath, `${JSON.stringify({ ...frozen, runEngine: "v0" }, null, 2)}\n`);
+
+      const park = run(process.execPath, [cliPath, "park", "-n", combo.id, "--by", "e2e"], {
+        cwd: harness.repo,
+        env: harness.env,
+      });
+      expect(park.stdout).toContain(`parked ${combo.id}`);
+      expect(existsSync(join(runDir, "park-handoff.md"))).toBe(true);
+
+      const resume = run(process.execPath, [cliPath, "resume", "-n", combo.id], {
+        cwd: harness.repo,
+        env: { ...harness.env, E2E_PR_STATE: "OPEN" },
+      });
+      expect(resume.stdout).toContain(`resume: migrated frozen v0 engine snapshot to capsule for ${combo.id}`);
+      expect(resume.stdout).toContain("resume: capsule engine");
+
+      const migrated = readJson<{ runEngine?: string }>(snapshotPath);
+      expect(migrated.runEngine).toBe("capsule");
+
+      const tmuxState = readJson<TmuxStateJson>(harness.env.E2E_TMUX_STATE!);
+      const windows = Object.keys(tmuxState.sessions[combo.tmuxSession]!.windows);
+      expect(windows).toContain("capsule");
+      expect(windows).not.toContain("director-watch");
+      expect(windows).not.toContain("gate-runner");
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("resumes a GitHub-merged combo by converging closure instead of restarting review", () => {
     const harness = prepareHarness();
     let passed = false;

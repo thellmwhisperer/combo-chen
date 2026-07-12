@@ -31,6 +31,7 @@ import { loadConfig } from "./config.js";
 import {
   CONFIG_SNAPSHOT_FILE,
   loadRuntimeConfig,
+  migrateConfigSnapshotEngine,
   readConfigSnapshot,
   writeConfigSnapshot,
 } from "./config-snapshot.js";
@@ -51,13 +52,83 @@ describe("config snapshots", () => {
     expect(readConfigSnapshot(runDir)).toEqual({ schemaVersion: 1, ...config });
   });
 
-  it("defaults a legacy snapshot without schema_version to v0 semantics on read", () => {
+  it("stamps schema_version 1 on a legacy snapshot without one", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
     const config = loadConfig({ repoDir, userConfigPath: join(repoDir, "missing.toml"), env: {} });
     writeFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), `${JSON.stringify(config, null, 2)}\n`);
 
     expect(readConfigSnapshot(runDir).schemaVersion).toBe(1);
+  });
+
+  it("migrates a frozen v0 run engine to capsule on read", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const config = loadConfig({ repoDir, userConfigPath: join(repoDir, "missing.toml"), env: {} });
+    writeFileSync(
+      join(runDir, CONFIG_SNAPSHOT_FILE),
+      `${JSON.stringify({ ...config, runEngine: "v0" }, null, 2)}\n`,
+    );
+
+    expect(readConfigSnapshot(runDir).runEngine).toBe("capsule");
+  });
+
+  it("migrates a frozen snapshot without a run engine to capsule on read", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const { runEngine: _engine, ...preEngine } = loadConfig({
+      repoDir,
+      userConfigPath: join(repoDir, "missing.toml"),
+      env: {},
+    });
+    writeFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), `${JSON.stringify(preEngine, null, 2)}\n`);
+
+    expect(readConfigSnapshot(runDir).runEngine).toBe("capsule");
+  });
+
+  it("fails closed on an unknown frozen run engine", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const config = loadConfig({ repoDir, userConfigPath: join(repoDir, "missing.toml"), env: {} });
+    writeFileSync(
+      join(runDir, CONFIG_SNAPSHOT_FILE),
+      `${JSON.stringify({ ...config, runEngine: "v2-future" }, null, 2)}\n`,
+    );
+
+    expect(() => readConfigSnapshot(runDir)).toThrow(/run engine "v2-future" is not supported/);
+    expect(() => migrateConfigSnapshotEngine(runDir)).toThrow(/run engine "v2-future" is not supported/);
+  });
+
+  it("rewrites a frozen v0 artifact to capsule and preserves its schema version", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const config = loadConfig({ repoDir, userConfigPath: join(repoDir, "missing.toml"), env: {} });
+    writeFileSync(
+      join(runDir, CONFIG_SNAPSHOT_FILE),
+      `${JSON.stringify({ ...config, schemaVersion: 2, runEngine: "v0" }, null, 2)}\n`,
+    );
+
+    expect(migrateConfigSnapshotEngine(runDir)).toBe(true);
+
+    const raw = JSON.parse(readFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), "utf8")) as {
+      runEngine?: string;
+      schemaVersion?: number;
+    };
+    expect(raw.runEngine).toBe("capsule");
+    expect(raw.schemaVersion).toBe(2);
+  });
+
+  it("does not rewrite an already-capsule artifact or a missing snapshot", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const emptyRunDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const config = loadConfig({ repoDir, userConfigPath: join(repoDir, "missing.toml"), env: {} });
+    writeConfigSnapshot(runDir, config);
+    const frozen = readFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), "utf8");
+
+    expect(migrateConfigSnapshotEngine(runDir)).toBe(false);
+    expect(readFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), "utf8")).toBe(frozen);
+    expect(migrateConfigSnapshotEngine(emptyRunDir)).toBe(false);
   });
 
   it("backfills review settings missing from pre-W5b snapshots with the documented defaults", () => {
