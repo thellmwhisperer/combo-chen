@@ -30,6 +30,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { deriveStatus } from "../../core/combo.js";
 import { appendEvent, readEvents, type ComboEvent } from "../../core/events.js";
+import { runDirFor } from "../../core/state.js";
+import { tickDirector, type DirectorDeps } from "../director/director.js";
 import {
   initialLoopState,
   readLoopState,
@@ -47,7 +49,7 @@ import {
 import { normalizeGitHubIssueWorkPlan, renderWorkPlanMarkdown } from "../../core/work-plan.js";
 import { loadConfig } from "../../infra/config.js";
 import { writeConfigSnapshot } from "../../infra/config-snapshot.js";
-import { writeCoderThreadArtifact } from "../../testing/cli-harness.js";
+import { processGroupOf, waitForSeatedChild, writeCoderThreadArtifact } from "../../testing/cli-harness.js";
 import { CODER_WINDOW, REVIEWER_WINDOW, resolveRoleSeatTty, seatOccupancy } from "../runtime/sessions.js";
 import {
   classifyCapsulePhase,
@@ -1630,16 +1632,148 @@ describe("capsule seat conformance (D1)", () => {
     ]);
   });
 
-  it("keeps the pipeline moving unseated when no seat tty resolves", async () => {
+  it("escalates seat_unavailable instead of running the coder unseated, with bounded retries", async () => {
     const f = fixture();
-    const out: string[] = [];
-    const h = deps(f, { resolveSeatTty: () => undefined });
-    h.deps.out = (line) => out.push(line);
+    let resolveCalls = 0;
+    const slept: number[] = [];
+    const h = deps(f, {
+      resolveSeatTty: () => {
+        resolveCalls += 1;
+        return undefined;
+      },
+    });
+    h.deps.sleep = async (ms) => {
+      slept.push(ms);
+    };
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "seat_unavailable",
+      exitCode: 0,
+    });
+    // The blind-watchdog incident must never come back: no child ran at all.
+    expect(h.agentRequests).toEqual([]);
+    expect(resolveCalls).toBe(3);
+    expect(slept.length).toBe(2);
+    expect(events(f.runDir)).toContainEqual(
+      expect.objectContaining({
+        event: "needs_human",
+        reason: "seat_unavailable",
+        window: CODER_WINDOW,
+      }),
+    );
+    expect(events(f.runDir).some((event) => event.event === "coder_started")).toBe(false);
+  });
+
+  it("escalates seat_unavailable when the reviewer seat vanishes mid-run", async () => {
+    const f = fixture();
+    const seats = seatHarness();
+    const h = deps(f, {
+      resolveSeatTty: (window) =>
+        window === REVIEWER_WINDOW ? undefined : resolveRoleSeatTty({ tmux: seats.tmux }, f.combo, window),
+    });
+    h.deps.sleep = async () => {};
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "local_review_escalated",
+      exitCode: 0,
+    });
+    // The coder ran seated; the reviewer round never spawned an unseated child.
+    expect(h.agentRequests.map((request) => request.seatTty)).toEqual([seats.ttys[CODER_WINDOW]]);
+    expect(events(f.runDir).at(-1)).toMatchObject({
+      event: "needs_human",
+      reason: "seat_unavailable",
+      window: REVIEWER_WINDOW,
+      round: 1,
+    });
+    expect(readLoopState(f.runDir)?.guard).toEqual({
+      state: "escalated",
+      round: 1,
+      reason: "seat_unavailable",
+    });
+  });
+
+  it("escalates seat_unavailable when the coder seat vanishes before a fix turn", async () => {
+    const f = fixture();
+    writeCoderThreadArtifact(f.runDir);
+    const seats = seatHarness();
+    let coderSeatCalls = 0;
+    const h = deps(f, {
+      resolveSeatTty: (window) => {
+        if (window === CODER_WINDOW) {
+          coderSeatCalls += 1;
+          // First resolution seats the initial pass; the fix turn finds the
+          // window gone.
+          if (coderSeatCalls > 1) return undefined;
+        }
+        return resolveRoleSeatTty({ tmux: seats.tmux }, f.combo, window);
+      },
+      agents: [
+        async () => ok,
+        async () => {
+          verdict(f.runDir, { round: 1, code: 1, findings: [finding] });
+          return ok;
+        },
+      ],
+    });
+    h.deps.sleep = async () => {};
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "local_review_escalated",
+      exitCode: 0,
+    });
+    expect(h.agentRequests.map((request) => request.seatTty)).toEqual([
+      seats.ttys[CODER_WINDOW],
+      seats.ttys[REVIEWER_WINDOW],
+    ]);
+    expect(events(f.runDir).at(-1)).toMatchObject({
+      event: "needs_human",
+      reason: "seat_unavailable",
+      window: CODER_WINDOW,
+      round: 1,
+      mode: "review_fix",
+    });
+    expect(readLoopState(f.runDir)?.guard).toEqual({
+      state: "escalated",
+      round: 1,
+      reason: "seat_unavailable",
+    });
+  });
+
+  it("escalates seat_unavailable when the resolved coder seat cannot be opened", async () => {
+    const f = fixture();
+    const h = deps(f, { resolveSeatTty: () => "/nonexistent/seat-tty" });
+    h.deps.runAgent = runAgentProcess;
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({
+      status: "seat_unavailable",
+      exitCode: 0,
+    });
+    expect(events(f.runDir).at(-1)).toMatchObject({
+      event: "needs_human",
+      reason: "seat_unavailable",
+      window: CODER_WINDOW,
+    });
+  });
+
+  it("re-enters the loop after a rerun initial pass instead of parking on a stale coder seat escalation", async () => {
+    const f = fixture();
+    // Crash shape: a coder-phase seat_unavailable escalation, then the human
+    // fixed tmux and resumed; the rerun initial pass supersedes the stale
+    // escalation, so the loop must request round 1 rather than park.
+    appendEvent(f.runDir, "needs_human", {
+      reason: "seat_unavailable",
+      window: CODER_WINDOW,
+      detail: "no live pane tty for coder after 3 attempts",
+    });
+    const seats = seatHarness();
+    const h = deps(f, {
+      resolveSeatTty: (window) => resolveRoleSeatTty({ tmux: seats.tmux }, f.combo, window),
+    });
 
     await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "validated", exitCode: 0 });
-    expect(h.agentRequests.map((request) => request.seatTty)).toEqual([undefined, undefined]);
-    expect(out).toContainEqual(expect.stringContaining(`no seat tty for ${CODER_WINDOW}`));
-    expect(out).toContainEqual(expect.stringContaining(`no seat tty for ${REVIEWER_WINDOW}`));
+    expect(events(f.runDir)).toContainEqual(
+      expect.objectContaining({ event: "local_review_requested", round: 1 }),
+    );
   });
 });
 
@@ -1665,16 +1799,16 @@ describe("runAgentProcess seating (D1)", () => {
     expect(result.exitCode).toBe(7);
   });
 
-  it("falls back to the capsule pane when the seat cannot be opened", async () => {
+  it("rejects instead of running unseated when the seat cannot be opened", async () => {
     const root = mkdtempSync(join(tmpdir(), "combo-chen-seat-"));
 
-    const result = await runAgentProcess({
-      command: "exit 5",
-      cwd: root,
-      seatTty: join(root, "missing", "tty"),
-    });
-
-    expect(result.exitCode).toBe(5);
+    await expect(
+      runAgentProcess({
+        command: "exit 5",
+        cwd: root,
+        seatTty: join(root, "missing", "tty"),
+      }),
+    ).rejects.toThrow(/seat/);
   });
 
   it("terminates a timed-out seated child in production custody", async () => {
@@ -1687,6 +1821,176 @@ describe("runAgentProcess seating (D1)", () => {
 
     expect(result.timedOut).toBe(true);
     expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("keeps the seated child in the capsule's process group so session teardown reaps it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-seat-"));
+    const seat = join(root, "seat-tty");
+    writeFileSync(seat, "");
+    const marker = "sleep 37.397";
+
+    const turn = runAgentProcess({ command: marker, cwd: root, seatTty: seat });
+    const child = await waitForSeatedChild(marker, process.pid);
+
+    // tmux kill-session HUPs the capsule pane's process group; a seated child
+    // is only reaped by it if the capsule never detaches it into its own group.
+    expect(child.pgid).toBe(processGroupOf(process.pid));
+    process.kill(child.pid, "SIGHUP");
+    await expect(turn).resolves.toMatchObject({ exitCode: 128 });
+  });
+});
+
+describe("capsule seat geometry (D1 end to end)", () => {
+  /** Stateful room: each window's pane tty is a real file that seated children write to. */
+  function geometryRoom(root: string): {
+    tmux: (args: string[]) => { status: number; stdout: string; stderr: string };
+    ttys: Record<string, string>;
+  } {
+    const ttys: Record<string, string> = {};
+    for (const name of ["capsule", "journal", "director", "coder", "gatekeeper", "reviewer"]) {
+      const tty = join(root, `tty-${name}`);
+      writeFileSync(tty, "");
+      ttys[name] = tty;
+    }
+    const windowOf = (target: string): string => target.split(":").at(1) ?? "";
+    const tmux = (args: string[]): { status: number; stdout: string; stderr: string } => {
+      if (args[0] === "list-windows") {
+        return { status: 0, stdout: `${Object.keys(ttys).join("\n")}\n`, stderr: "" };
+      }
+      if (args[0] === "list-panes") {
+        const tty = ttys[windowOf(String(args[2] ?? ""))];
+        if (tty === undefined) return { status: 1, stdout: "", stderr: "no such window" };
+        return args.at(-1) === "#{pane_dead} #{pane_tty}"
+          ? { status: 0, stdout: `0 ${tty}\n`, stderr: "" }
+          : { status: 0, stdout: "12345\n", stderr: "" };
+      }
+      if (args[0] === "capture-pane") {
+        const tty = ttys[windowOf(String(args.at(-1) ?? ""))];
+        if (tty === undefined) return { status: 1, stdout: "", stderr: "no such window" };
+        return { status: 0, stdout: readFileSync(tty, "utf8"), stderr: "" };
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    return { tmux, ttys };
+  }
+
+  async function waitFor(predicate: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!predicate()) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+      await new Promise((resolveTick) => setTimeout(resolveTick, 50));
+    }
+  }
+
+  it("runs a round with real children in their windows and the real watchdog sees the prompt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-geometry-"));
+    const home = join(root, "home");
+    const worktree = join(root, "worktree");
+    mkdirSync(worktree);
+    const combo: ComboRecord = {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      workItemSourceType: "github_issue",
+      workItemSourceReference: "https://github.com/o/r/issues/7",
+      repoDir: root,
+      worktree,
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: new Date(0).toISOString(),
+    };
+    const runDir = runDirFor(home, combo.id);
+    writeCombo(runDir, combo);
+    writeConfigSnapshot(
+      runDir,
+      loadConfig({ repoDir: root, env: { COMBO_CHEN_REVIEW_VERDICT_WAIT_MS: "50" } }),
+    );
+    writeFileSync(
+      join(runDir, "work-plan.md"),
+      renderWorkPlanMarkdown(
+        normalizeGitHubIssueWorkPlan({ issueUrl: combo.issueUrl, title: "Issue title", body: "Issue body" }),
+      ),
+    );
+    writeFileSync(
+      join(runDir, "overture.json"),
+      `${JSON.stringify({ resources: { base: "origin/main" } })}\n`,
+    );
+
+    const room = geometryRoom(root);
+    const flag = join(root, "reviewer-may-exit");
+    const commands = [
+      "printf 'coder: implementing the work item\\n'",
+      // The reviewer child prints its UI (ending blocked on a permission
+      // prompt) and holds its seat until the test releases it.
+      `printf '[reviewer] round 1 review\\nDo you want to proceed? [y/N]\\n'; while [ ! -e '${flag}' ]; do sleep 0.05; done`,
+    ];
+    const heads = ["base", "coded"];
+    const capsuleDeps: CapsuleDeps = {
+      env: {},
+      out: () => undefined,
+      git: async (request) => {
+        if (request.args[0] === "rev-parse")
+          return { exitCode: 0, stdout: `${heads.shift() ?? "coded"}\n`, stderr: "" };
+        if (request.args[0] === "rev-list") return { exitCode: 0, stdout: "1\n", stderr: "" };
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+      runAgent: (request) => runAgentProcess({ ...request, command: commands.shift() ?? "true" }),
+      runGate: async () => ({ status: "validated", exitCode: 0, headSha: "published" }),
+      findPrUrl: async () => "https://github.com/o/r/pull/7",
+      resolvePrHead: async () => "published",
+      activateReviewer: () => undefined,
+      resolveSeatTty: (window) => resolveRoleSeatTty({ tmux: room.tmux }, combo, window),
+    };
+
+    const run = runCapsule(runDir, capsuleDeps);
+    try {
+      await waitFor(
+        () => readFileSync(room.ttys["reviewer"]!, "utf8").includes("Do you want to proceed?"),
+        "the reviewer prompt to render in the reviewer window",
+      );
+
+      // The reviewer's UI is visible in the REVIEWER window (via tmux capture).
+      const reviewerPane = room.tmux(["capture-pane", "-p", "-t", `${combo.tmuxSession}:reviewer`]);
+      expect(reviewerPane.stdout).toContain("[reviewer] round 1 review");
+      // The coder pass rendered in the CODER window, and the capsule pane
+      // hosts only the sequencer: no role child output landed there.
+      expect(readFileSync(room.ttys["coder"]!, "utf8")).toContain("coder: implementing the work item");
+      expect(readFileSync(room.ttys["capsule"]!, "utf8")).toBe("");
+      // Runtime occupancy: the reviewer seat is that window's live pane.
+      expect(
+        seatOccupancy({ tmux: room.tmux }, combo, REVIEWER_WINDOW, room.ttys["reviewer"]!),
+      ).toMatchObject({ occupied: true });
+      expect(deriveStatus(readEvents(runDir)).phase).toBe("LOCAL_REVIEW");
+
+      // The REAL watchdog (tickDirector -> workerWindowsForEvents ->
+      // inspectWorkerPanes) sees the blocked prompt in the reviewer seat.
+      const watchdogOut: string[] = [];
+      const directorDeps: DirectorDeps = {
+        env: {},
+        out: (line) => watchdogOut.push(line),
+        tmux: room.tmux,
+        git: () => ({ status: 0, stdout: "", stderr: "" }),
+        treehouse: () => ({ status: 0, stdout: "", stderr: "" }),
+        gh: () => ({ status: 1, stdout: "", stderr: "no pr" }),
+        noMistakes: () => ({ status: 1, stdout: "", stderr: "No active run." }),
+        sleep: async () => undefined,
+      };
+      await tickDirector({ deps: directorDeps, home, comboId: combo.id, cli: "node /repo/dist/cli.mjs" });
+      expect(readEvents(runDir)).toContainEqual(
+        expect.objectContaining({
+          event: "needs_human",
+          reason: "worker_permission_prompt",
+          worker: "reviewer",
+        }),
+      );
+    } finally {
+      // Release the reviewer child: the verdict is in place, so the round
+      // closes and the capsule converges even if an assertion above failed.
+      verdict(runDir);
+      writeFileSync(flag, "");
+    }
+
+    await expect(run).resolves.toEqual({ status: "validated", exitCode: 0 });
+    expect(readFileSync(room.ttys["capsule"]!, "utf8")).toBe("");
   });
 });
 // -/ 2/2

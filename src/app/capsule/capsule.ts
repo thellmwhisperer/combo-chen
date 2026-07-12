@@ -42,9 +42,10 @@
  *   readBaseRef, runRebasePhase, runCoderPhase, snapshotIterations,
  *   freshIterationJsonl, containsStopCondition, runLocalReviewPhase,
  *   resolveLoopEntry, routeFixTurn, escalateWithGuard, runBoundedAgentTurn,
- *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn, agentSeat,
- *   openSeatFd, waitForVerdictFile, reviewerIdentity, findingsProjection,
- *   escalate, LOOP_ESCALATION_REASONS, buildGateFacts
+ *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn, resolveAgentSeat,
+ *   escalateSeatUnavailable, SeatOpenError, openSeatFd, waitForVerdictFile,
+ *   reviewerIdentity, findingsProjection, escalate, LOOP_ESCALATION_REASONS,
+ *   buildGateFacts
  *
  * @exports AgentProcessRequest, AgentTurnResult, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
  * @deps node:{child_process,fs,path}, ../../core/{events,loop-state,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,coder-responding,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./ready
@@ -149,9 +150,11 @@ export interface CapsuleDeps {
   /** Abortable delay used between initial-gate retries; defaults to core sleep. */
   sleep?: (ms: number) => Promise<void>;
   /**
-   * Resolve the seat tty of a role window so owned children run seated there
-   * instead of in the capsule pane. Undefined (or a failed resolution) keeps
-   * the pipeline moving unseated: panes are forensic, never operational.
+   * Resolve the seat tty of a role window so owned children run seated there.
+   * A missing resolver means the embedder owns seating (tests, non-tmux
+   * harnesses); a present resolver that cannot produce a seat fails the turn
+   * to needs_human seat_unavailable after bounded retries. The child never
+   * runs unseated in the capsule pane.
    */
   resolveSeatTty?: (windowName: string) => string | undefined;
 }
@@ -167,17 +170,28 @@ export type CapsuleResult = {
     | "rebase_failed"
     | "rebase_conflict"
     | "coder_failed"
+    | "seat_unavailable"
     | "local_review_escalated";
   exitCode: number;
 };
 
 /** Grace between SIGTERM and SIGKILL for a timed-out owned child. */
 const DEFAULT_AGENT_KILL_GRACE_MS = 10_000;
+/** Bounded seat retries before a role turn escalates seat_unavailable. */
+const DEFAULT_SEAT_RESOLVE_ATTEMPTS = 3;
+const DEFAULT_SEAT_RESOLVE_RETRY_MS = 500;
+
+function positiveIntEnv(env: Record<string, string | undefined>, key: string, fallback: number): number {
+  const parsed = Number(env[key]);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function agentKillGraceMs(env: Record<string, string | undefined>): number {
-  const parsed = Number(env["COMBO_CHEN_AGENT_KILL_GRACE_MS"]);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_AGENT_KILL_GRACE_MS;
+  return positiveIntEnv(env, "COMBO_CHEN_AGENT_KILL_GRACE_MS", DEFAULT_AGENT_KILL_GRACE_MS);
 }
+
+/** A resolved seat that cannot be opened is a seat failure, never an inherit fallback. */
+class SeatOpenError extends Error {}
 
 function openSeatFd(seatTty: string | undefined): number | undefined {
   if (seatTty === undefined) return undefined;
@@ -185,8 +199,10 @@ function openSeatFd(seatTty: string | undefined): number | undefined {
     // O_NOCTTY: the seat renders the child; it must never become the
     // capsule's controlling terminal.
     return openSync(seatTty, constants.O_RDWR | constants.O_NOCTTY);
-  } catch {
-    return undefined;
+  } catch (error) {
+    throw new SeatOpenError(
+      `seat tty ${seatTty} cannot be opened: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -194,9 +210,11 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
   return new Promise((resolveResult, reject) => {
     // D1 custody: the capsule owns the child (real exit code, timeout kill, no
     // marker files) while the child's stdio sits on the seat tty of its role
-    // window, so the agent is visible and interactive in that window. When no
-    // seat resolves or opens, the child inherits the capsule pane so a broken
-    // pane never blocks the pipeline.
+    // window, so the agent is visible and interactive in that window. A seat
+    // that cannot be opened rejects (SeatOpenError): running the child
+    // unseated in the capsule pane is the blind-watchdog incident and is
+    // never a fallback. Only a request without a seat (embedder-owned
+    // seating) inherits.
     const seatFd = openSeatFd(request.seatTty);
     const child = spawn("sh", ["-c", request.command], {
       cwd: request.cwd,
@@ -234,23 +252,45 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
   });
 }
 
+type SeatResolution = { seatTty?: string } | { failure: string };
+
 /**
- * Seat for one owned agent turn: the role window's pane tty, spread into the
- * AgentProcessRequest. An unresolved seat degrades to the capsule pane with an
- * operator note instead of blocking the turn.
+ * D1 seat resolution with bounded retries (the resolver itself recreates a
+ * missing role window per attempt). A missing resolver means the embedder
+ * owns seating (tests, non-tmux harnesses). A present resolver that cannot
+ * produce a live seat is a hard turn failure: running the child unseated in
+ * the capsule pane is the blind-watchdog incident, never a fallback.
  */
-function agentSeat(deps: CapsuleDeps, windowName: string): { seatTty?: string } {
+async function resolveAgentSeat(deps: CapsuleDeps, windowName: string): Promise<SeatResolution> {
   if (deps.resolveSeatTty === undefined) return {};
-  const seatTty = deps.resolveSeatTty(windowName);
-  if (seatTty === undefined) {
-    deps.out(`capsule: no seat tty for ${windowName}; running its child unseated in the capsule pane`);
-    return {};
+  const attempts = positiveIntEnv(
+    deps.env,
+    "COMBO_CHEN_SEAT_RESOLVE_ATTEMPTS",
+    DEFAULT_SEAT_RESOLVE_ATTEMPTS,
+  );
+  const retryMs = positiveIntEnv(deps.env, "COMBO_CHEN_SEAT_RESOLVE_RETRY_MS", DEFAULT_SEAT_RESOLVE_RETRY_MS);
+  const delay = deps.sleep ?? sleep;
+  for (let attempt = 1; ; attempt += 1) {
+    const seatTty = deps.resolveSeatTty(windowName);
+    if (seatTty !== undefined) return { seatTty };
+    if (attempt >= attempts) {
+      return { failure: `no live pane tty for ${windowName} after ${attempts} attempts` };
+    }
+    await delay(retryMs);
   }
-  return { seatTty };
+}
+
+/** Pre-loop seat escalation: needs_human is journaled and the capsule stops. */
+function escalateSeatUnavailable(runDir: string, payload: Record<string, unknown>): CapsuleResult {
+  appendEvent(runDir, "needs_human", { reason: "seat_unavailable", ...payload });
+  return { status: "seat_unavailable", exitCode: 0 };
 }
 
 type AgentTurnOutcome =
-  { kind: "exited"; result: AgentTurnResult } | { kind: "timeout" } | { kind: "spawn_error"; detail: string };
+  | { kind: "exited"; result: AgentTurnResult }
+  | { kind: "timeout" }
+  | { kind: "seat_error"; detail: string }
+  | { kind: "spawn_error"; detail: string };
 
 /**
  * Bounded custody for one owned agent turn: production custody terminates the
@@ -267,10 +307,10 @@ async function runBoundedAgentTurn(
     const turn = deps.runAgent(request).then(
       (result): AgentTurnOutcome =>
         result.timedOut === true ? { kind: "timeout" } : { kind: "exited", result },
-      (error: unknown): AgentTurnOutcome => ({
-        kind: "spawn_error",
-        detail: error instanceof Error ? error.message : String(error),
-      }),
+      (error: unknown): AgentTurnOutcome =>
+        error instanceof SeatOpenError
+          ? { kind: "seat_error", detail: error.message }
+          : { kind: "spawn_error", detail: error instanceof Error ? error.message : String(error) },
     );
     if (request.timeoutMs === undefined) return await turn;
     const expiry = new Promise<AgentTurnOutcome>((resolveExpiry) => {
@@ -437,15 +477,22 @@ async function runCoderPhase(
   runDir: string,
   command: string,
 ): Promise<CapsuleResult | undefined> {
+  const seat = await resolveAgentSeat(deps, CODER_WINDOW);
+  if ("failure" in seat) {
+    return escalateSeatUnavailable(runDir, { window: CODER_WINDOW, detail: seat.failure });
+  }
   const baseSha = await gitHead(deps, combo);
   const before = snapshotIterations(combo.worktree);
   appendEvent(runDir, "coder_started", {});
-  const coder = await deps.runAgent({
-    command,
-    cwd: combo.worktree,
-    env: deps.env,
-    ...agentSeat(deps, CODER_WINDOW),
-  });
+  let coder: AgentTurnResult;
+  try {
+    coder = await deps.runAgent({ command, cwd: combo.worktree, env: deps.env, ...seat });
+  } catch (error) {
+    if (error instanceof SeatOpenError) {
+      return escalateSeatUnavailable(runDir, { window: CODER_WINDOW, detail: error.message });
+    }
+    throw error;
+  }
   const headSha = await gitHead(deps, combo);
   const countResult = await deps.git({
     command: "git",
@@ -526,6 +573,18 @@ async function runVerdictRound(
   round: number,
 ): Promise<VerdictRoundOutcome> {
   const sha = await gitHead(deps, combo);
+  const seat = await resolveAgentSeat(deps, REVIEWER_WINDOW);
+  if ("failure" in seat) {
+    return {
+      escalation: escalate(runDir, "seat_unavailable", {
+        round,
+        sha,
+        window: REVIEWER_WINDOW,
+        detail: seat.failure,
+      }),
+      reason: "seat_unavailable",
+    };
+  }
   appendEvent(runDir, "local_review_requested", { round, sha });
   const identity = reviewerIdentity(config);
   const command = buildLocalReviewerInvocation({
@@ -544,8 +603,19 @@ async function runVerdictRound(
     cwd: combo.worktree,
     env: deps.env,
     timeoutMs: config.reviewerTurnTimeoutMinutes * 60_000,
-    ...agentSeat(deps, REVIEWER_WINDOW),
+    ...seat,
   });
+  if (turn.kind === "seat_error") {
+    return {
+      escalation: escalate(runDir, "seat_unavailable", {
+        round,
+        sha,
+        window: REVIEWER_WINDOW,
+        detail: turn.detail,
+      }),
+      reason: "seat_unavailable",
+    };
+  }
   if (turn.kind === "timeout") {
     return {
       escalation: escalate(runDir, "local_review_timeout", {
@@ -640,6 +710,7 @@ type FixTurnOutcome =
   | { kind: "noop"; exitCode: number }
   | { kind: "thread_unavailable"; detail: string }
   | { kind: "timeout"; timeoutMinutes: number }
+  | { kind: "seat_unavailable"; detail: string }
   | { kind: "spawn_error"; detail: string }
   | { kind: "count_failed"; detail: string };
 
@@ -669,6 +740,8 @@ async function runCoderFixTurn(
   } catch (error) {
     return { kind: "thread_unavailable", detail: error instanceof Error ? error.message : String(error) };
   }
+  const seat = await resolveAgentSeat(deps, CODER_WINDOW);
+  if ("failure" in seat) return { kind: "seat_unavailable", detail: seat.failure };
   const baseSha = await gitHead(deps, combo);
   appendEvent(runDir, "coder_started", { round, mode: "review_fix" });
   const turn = await runBoundedAgentTurn(deps, {
@@ -676,8 +749,9 @@ async function runCoderFixTurn(
     cwd: combo.worktree,
     env: deps.env,
     timeoutMs: config.fixTurnTimeoutMinutes * 60_000,
-    ...agentSeat(deps, CODER_WINDOW),
+    ...seat,
   });
+  if (turn.kind === "seat_error") return { kind: "seat_unavailable", detail: turn.detail };
   if (turn.kind === "timeout") return { kind: "timeout", timeoutMinutes: config.fixTurnTimeoutMinutes };
   if (turn.kind === "spawn_error") return { kind: "spawn_error", detail: turn.detail };
   const headSha = await gitHead(deps, combo);
@@ -716,6 +790,7 @@ const LOOP_ESCALATION_REASONS = new Set([
   "review_fix_timeout",
   "review_fix_spawn_failed",
   "review_fix_commit_count_failed",
+  "seat_unavailable",
   "loop_state_malformed",
 ]);
 
@@ -758,6 +833,14 @@ async function routeFixTurn(
       return escalateWithGuard(runDir, state, round, "review_fix_timeout", {
         ...roundFacts,
         timeout_minutes: fix.timeoutMinutes,
+        findings,
+      });
+    case "seat_unavailable":
+      return escalateWithGuard(runDir, state, round, "seat_unavailable", {
+        ...roundFacts,
+        window: CODER_WINDOW,
+        mode: "review_fix",
+        detail: fix.detail,
         findings,
       });
     case "spawn_error":
@@ -846,6 +929,12 @@ async function resolveLoopEntry(
       decidedVerb = typeof event["verb"] === "string" ? event["verb"] : undefined;
       pendingEscalation = undefined;
     } else if (event.event === "local_review_requested") {
+      pendingEscalation = undefined;
+      decidedVerb = undefined;
+    } else if (event.event === "coder_started" && event["mode"] !== "review_fix") {
+      // A rerun initial pass supersedes a pre-loop (coder seat) escalation.
+      // Loop escalations always follow coder_done, and a pending one resumes
+      // at the gate without a fresh initial pass, so none can be lost here.
       pendingEscalation = undefined;
       decidedVerb = undefined;
     }

@@ -211,8 +211,10 @@ Active features:
   fix turns — run their stdio on the role window's pane tty
   (`resolveRoleSeatTty`/`seatOccupancy` in `src/app/runtime/sessions.ts`), so
   each agent is visible and interactive in its named window while the capsule
-  keeps real exit codes and timeout custody; panes stay forensic, never
-  operational;
+  keeps real exit codes and timeout custody; a seat that cannot be resolved or
+  opened escalates `needs_human seat_unavailable` after bounded retries
+  (env `COMBO_CHEN_SEAT_RESOLVE_ATTEMPTS`/`_RETRY_MS`) — a role child never
+  runs unseated in the capsule pane;
   the gatekeeper window entry is the static `no-mistakes attach` one-liner;
   reviewer performs no post-publish GitHub writes; coder-response targets the
   persistent coder window; raw event output never replaces the coder role)
