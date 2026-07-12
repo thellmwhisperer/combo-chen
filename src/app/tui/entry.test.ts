@@ -30,6 +30,7 @@ import { writeVerdictFile } from "../../core/verdict.js";
 import {
   HOME_SESSION_NAME,
   TUI_DIRECT_ENV,
+  animationIntervalMs,
   decideOptions,
   homeSessionActions,
   homeSessionCommand,
@@ -274,3 +275,21 @@ describe("recordDecision", () => {
   });
 });
 // -/ 6/6
+
+// -- 7/7 CORE · animationIntervalMs (dot-train/spinner cadence) --
+describe("animationIntervalMs", () => {
+  it("returns the default 200ms when env is unset", () => {
+    expect(animationIntervalMs({})).toBe(200);
+  });
+
+  it("returns the configured value when set", () => {
+    expect(animationIntervalMs({ COMBO_CHEN_TUI_ANIM_MS: "150" })).toBe(150);
+  });
+
+  it("falls back to default for invalid values", () => {
+    expect(animationIntervalMs({ COMBO_CHEN_TUI_ANIM_MS: "abc" })).toBe(200);
+    expect(animationIntervalMs({ COMBO_CHEN_TUI_ANIM_MS: "0" })).toBe(200);
+    expect(animationIntervalMs({ COMBO_CHEN_TUI_ANIM_MS: "-5" })).toBe(200);
+  });
+});
+// -/ 7/7

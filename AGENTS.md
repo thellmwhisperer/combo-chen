@@ -213,7 +213,12 @@ Active features:
 - Ink/React TUI home (fleet view): bare `combo-chen` on a TTY opens the
   home; pure folds in `src/app/tui/`; Ink 6.8.0 + React 19.2.7 bundled
   single-file via tsdown `codeSplitting: false` + react-devtools-core alias
-  stub
+  stub; live-actor telemetry (gnhf iteration/tokens from `.gnhf` files, commit
+  count/last subject from git rev-list, gate steps from no-mistakes axi status)
+  enriches fleet detail lines and dive-in live actor entries with dot-train
+  animation (200ms cadence, `COMBO_CHEN_TUI_ANIM_MS`); telemetry readers
+  (`src/app/tui/telemetry-readers.ts`) are entry-layer I/O, pure formatting in
+  `src/app/tui/live-telemetry.ts`; NEVER reads tmux panes
 - `recap` subcommand; v1 journal events + LOCAL_REVIEW phase + schema_version
 - Coder helper preflight (use `pnpm surface` when the target repo exposes it;
   otherwise search before adding helpers); reviewer anti-slop guardrails

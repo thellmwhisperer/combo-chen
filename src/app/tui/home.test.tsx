@@ -276,6 +276,95 @@ describe("Home dive-in thread", () => {
     expect(lastFrame()!.toLowerCase()).not.toContain("live actor");
   });
 });
+
+describe("Home live telemetry rendering", () => {
+  const dived = { ...initialNavState, diveComboId: "o-r-7" };
+
+  it("renders a dot-train indicator for live coder fleet rows", () => {
+    const { lastFrame } = render(
+      <Home
+        rows={[
+          row({
+            comboId: "live",
+            renderPhase: "CODER",
+            detailLine: "coder working · live · iter 3 · 6.2M in/40K out · 8 commits",
+            liveHint: "coder working · iter 3 · 6.2M in/40K out · 8 commits",
+          }),
+        ]}
+        now={1_000_000}
+      />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain("iter 3");
+    expect(frame).toContain("6.2M in/40K out");
+    expect(frame).toContain("8 commits");
+    // dot train glyphs present (· and ●)
+    expect(frame).toContain("·");
+    expect(frame).toContain("●");
+  });
+
+  it("renders the gate step bar in a GATE fleet row detail line", () => {
+    const { lastFrame } = render(
+      <Home
+        rows={[
+          row({
+            comboId: "gate",
+            renderPhase: "GATE",
+            detailLine: "no-mistakes · review ✓ · test ● · lint ·   step 2/3",
+            liveHint: "gate · review ✓ · test ● · lint ·   step 2/3",
+          }),
+        ]}
+        now={1_000_000}
+      />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain("review ✓");
+    expect(frame).toContain("step 2/3");
+  });
+
+  it("renders the enriched live actor headline with telemetry in the dive-in", () => {
+    const dive = thread({
+      liveActor: { actor: "coder", sinceMs: 25 * 60_000 + 25_000, note: "coder working" },
+      entries: [
+        {
+          at: "now",
+          kind: "note",
+          live: true,
+          headline: "coder working · 25:25 · iter 3 · 6.2M in/40K out · 8 commits · last: docs(x): fix",
+          detail: "iter 3 · 6.2M in/40K out · 8 commits · last: docs(x): fix",
+        },
+      ],
+    });
+    const { lastFrame } = render(
+      <Home rows={[row()]} dives={{ "o-r-7": dive }} initialNav={dived} now={1_000_000} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain("25:25");
+    expect(frame).toContain("iter 3");
+    expect(frame).toContain("6.2M in/40K out");
+    expect(frame).toContain("last: docs(x): fix");
+  });
+
+  it("does not show a dot train for non-live phases (READY, CLOSED)", () => {
+    const { lastFrame } = render(
+      <Home
+        rows={[
+          row({
+            comboId: "ready",
+            renderPhase: "READY",
+            detailLine: "ready for merge",
+            sortPriority: 1,
+          }),
+        ]}
+        now={1_000_000}
+      />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain("ready for merge");
+    // READY rows have no dot-train: the detail line has no leading ·● sequence
+    expect(frame).not.toMatch(/···●|··●·|·●··|●···/);
+  });
+});
 // -/ 4/6
 
 // -- 5/6 CORE · decision modal (PRD s7/s8) <-

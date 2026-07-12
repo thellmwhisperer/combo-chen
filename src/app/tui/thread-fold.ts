@@ -28,10 +28,11 @@
  *   INTERNALS
  *   ---------
  *   entriesFromEvents, findingFromVerdict, verdictFindings, reviewRound,
- *   liveActorFrom, sinceForActor, breadcrumbFrom, projectionFrom, findLast.
+ *   liveActorFrom, sinceForActor, liveActorEntry, breadcrumbFrom,
+ *   projectionFrom, findLast.
  *
  * @exports ThreadEntry, ThreadFinding, ThreadBreadcrumbStage, ThreadBreadcrumb, LiveActor, ThreadInput, ThreadView, deriveThread
- * @deps ../../core/combo, ../../core/state, ../../core/verdict, ../reporting/status-fold, ./decisions-fold, ./fleet-fold
+ * @deps ../../core/combo, ../../core/state, ../../core/verdict, ../reporting/status-fold, ./decisions-fold, ./fleet-fold, ./live-telemetry
  */
 import { deriveStatus } from "../../core/combo.js";
 import { describeWorkItem, type ComboRecord } from "../../core/state.js";
@@ -39,6 +40,12 @@ import type { VerdictFile, VerdictFinding } from "../../core/verdict.js";
 import type { JournalFact } from "../reporting/status-fold.js";
 import { derivePendingDecisions } from "./decisions-fold.js";
 import { deriveFleetRow, type FleetRenderPhase } from "./fleet-fold.js";
+import {
+  formatCoderDetail,
+  formatGateStepBar,
+  formatMmss,
+  type LiveTelemetryFacts,
+} from "./live-telemetry.js";
 
 // -- 1/5 CORE · types <- START HERE --
 export type ThreadEntryKind =
@@ -88,6 +95,7 @@ export interface LiveActor {
   readonly actor: "coder" | "reviewer" | "gate";
   readonly sinceMs: number;
   readonly note: string;
+  readonly telemetryLine?: string;
 }
 
 export interface ThreadInput {
@@ -95,6 +103,7 @@ export interface ThreadInput {
   readonly events: readonly JournalFact[];
   readonly verdicts?: ReadonlyMap<number, VerdictFile>;
   readonly liveness?: { readonly coder?: boolean; readonly reviewer?: boolean; readonly gate?: boolean };
+  readonly telemetry?: LiveTelemetryFacts;
   readonly now?: number;
 }
 
@@ -124,7 +133,7 @@ export function deriveThread(input: ThreadInput): ThreadView {
     now,
   });
   const entries = entriesFromEvents(events, verdicts, input.combo);
-  const liveActor = liveActorFrom(events, input.liveness, status.phase, now);
+  const liveActor = liveActorFrom(events, input.liveness, input.telemetry, status.phase, now);
   const entriesWithLive = liveActor === undefined ? entries : [...entries, liveActorEntry(liveActor)];
   const projection = projectionFrom(status.phase, liveActor, fleet.renderPhase);
   return {
@@ -259,14 +268,18 @@ function findingFromVerdict(finding: VerdictFinding): ThreadFinding {
 function liveActorFrom(
   events: readonly JournalFact[],
   liveness: ThreadInput["liveness"],
+  telemetry: LiveTelemetryFacts | undefined,
   phase: ReturnType<typeof deriveStatus>["phase"],
   now: number,
 ): LiveActor | undefined {
   if (liveness?.coder && (phase === "SETUP" || phase === "CODING" || phase === "LOCAL_REVIEW")) {
+    const note = phase === "LOCAL_REVIEW" ? "coder fixing" : "coder working";
+    const telemetryLine = telemetry?.coder !== undefined ? formatCoderDetail(telemetry.coder) : undefined;
     return {
       actor: "coder",
       sinceMs: Math.max(0, now - Date.parse(sinceForActor(events, "coder"))),
-      note: phase === "LOCAL_REVIEW" ? "coder fixing" : "coder working",
+      note,
+      ...(telemetryLine !== undefined ? { telemetryLine } : {}),
     };
   }
   if (liveness?.reviewer && phase === "LOCAL_REVIEW") {
@@ -277,10 +290,12 @@ function liveActorFrom(
     };
   }
   if (liveness?.gate && phase === "GATING") {
+    const telemetryLine = telemetry?.gate !== undefined ? formatGateStepBar(telemetry.gate) : undefined;
     return {
       actor: "gate",
       sinceMs: Math.max(0, now - Date.parse(sinceForActor(events, "gate"))),
       note: "no-mistakes validating",
+      ...(telemetryLine !== undefined ? { telemetryLine } : {}),
     };
   }
   return undefined;
@@ -295,14 +310,17 @@ function sinceForActor(events: readonly JournalFact[], actor: "coder" | "reviewe
 }
 
 function liveActorEntry(actor: LiveActor): ThreadEntry {
-  const secs = Math.floor(actor.sinceMs / 1000);
-  const mm = String(Math.floor(secs / 60)).padStart(2, "0");
-  const ss = String(secs % 60).padStart(2, "0");
+  const timer = formatMmss(actor.sinceMs);
+  const headline =
+    actor.telemetryLine !== undefined
+      ? `${actor.note} · ${timer} · ${actor.telemetryLine}`
+      : `${actor.note} · ${timer}`;
   return {
     at: "now",
     kind: "note",
     live: true,
-    headline: `${actor.note} · ${mm}:${ss}`,
+    headline,
+    ...(actor.telemetryLine !== undefined ? { detail: actor.telemetryLine } : {}),
   };
 }
 

@@ -289,6 +289,103 @@ describe("deriveFleetRow liveness on CODER phase", () => {
   });
 });
 
+describe("deriveFleetRow telemetry-enriched detail", () => {
+  it("appends compact coder telemetry to the CODER detail line when live", () => {
+    const row = deriveFleetRow({
+      combo: combo(),
+      events: [
+        { t: ts(120), event: "combo_created", issue_url: "x" },
+        { t: ts(10), event: "coder_started" },
+      ],
+      liveness: { coder: true },
+      now: NOW,
+      telemetry: {
+        coder: {
+          iteration: 3,
+          maxIterations: 24,
+          inputTokens: 6_200_000,
+          outputTokens: 40_000,
+          commitCount: 8,
+        },
+      },
+    });
+    expect(row.detailLine).toContain("iter 3/24");
+    expect(row.detailLine).toContain("6.2M in/40K out");
+    expect(row.detailLine).toContain("8 commits");
+    expect(row.telemetry?.coder?.iteration).toBe(3);
+  });
+
+  it("shows gate step bar in the GATE detail line when gate telemetry is present", () => {
+    const row = deriveFleetRow({
+      combo: combo(),
+      events: [
+        { t: ts(120), event: "combo_created", issue_url: "x" },
+        { t: ts(80), event: "coder_done" },
+        { t: ts(70), event: "local_review_requested", round: 1, sha: "a" },
+        { t: ts(60), event: "local_verdict", round: 1, code: 0, verdict_path: "v1", identity: {} },
+        { t: ts(10), event: "gate_started" },
+      ],
+      now: NOW,
+      telemetry: {
+        gate: {
+          steps: [
+            { name: "review", state: "done" },
+            { name: "test", state: "live" },
+            { name: "lint", state: "pending" },
+          ],
+        },
+      },
+    });
+    expect(row.renderPhase).toBe("GATE");
+    expect(row.detailLine).toContain("review ✓");
+    expect(row.detailLine).toContain("step 2/3");
+    expect(row.telemetry?.gate?.steps).toHaveLength(3);
+  });
+
+  it("leaves the detail line unchanged when telemetry is absent", () => {
+    const row = deriveFleetRow({
+      combo: combo(),
+      events: [
+        { t: ts(120), event: "combo_created", issue_url: "x" },
+        { t: ts(10), event: "coder_started" },
+      ],
+      liveness: { coder: true },
+      now: NOW,
+    });
+    expect(row.telemetry).toBeUndefined();
+    expect(row.detailLine).toBe("coder working · live");
+  });
+
+  it("carries a one-line live hint for live coder capsules", () => {
+    const row = deriveFleetRow({
+      combo: combo(),
+      events: [
+        { t: ts(120), event: "combo_created", issue_url: "x" },
+        { t: ts(10), event: "coder_started" },
+      ],
+      liveness: { coder: true },
+      now: NOW,
+      telemetry: {
+        coder: { iteration: 3, commitCount: 8 },
+      },
+    });
+    expect(row.liveHint).toContain("iter 3");
+    expect(row.liveHint).toContain("8 commits");
+  });
+
+  it("omits liveHint when the capsule is not live", () => {
+    const row = deriveFleetRow({
+      combo: combo(),
+      events: [
+        { t: ts(120), event: "combo_created", issue_url: "x" },
+        { t: ts(5), event: "combo_closed" },
+      ],
+      now: NOW,
+    });
+    expect(row.liveHint).toBeUndefined();
+  });
+});
+
 describe("deriveActorLiveness", () => {
   it("returns empty when session is not alive", () => {
     const liveness = deriveActorLiveness([{ t: ts(10), event: "coder_started" }], false);
