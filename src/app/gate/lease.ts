@@ -6,7 +6,8 @@
  *   READING GUIDE
  *   -------------
  *   1. Start at acquireGateLeaseForCombo <- withGateLease (in-process-gate.ts) calls this.
- *   2. Then releaseGateLeaseForCombo     <- finally-block lease cleanup after the gate settles.
+ *   2. Then heartbeatGateLeaseForCombo   <- keeps ownership current while the gate runs.
+ *   3. Then releaseGateLeaseForCombo     <- finally-block lease cleanup after the gate settles.
  *
  *   MAIN FLOW
  *   ---------
@@ -15,13 +16,18 @@
  *   PUBLIC API
  *   ----------
  *   GATE_LEASE_CONFLICT_EXIT_CODE
- *   GateLeaseActionResult, acquireGateLeaseForCombo, releaseGateLeaseForCombo
+ *   GateLeaseActionResult, acquireGateLeaseForCombo, heartbeatGateLeaseForCombo, releaseGateLeaseForCombo
  *
- * @exports GATE_LEASE_CONFLICT_EXIT_CODE, GateLeaseActionResult, acquireGateLeaseForCombo, releaseGateLeaseForCombo
+ * @exports GATE_LEASE_CONFLICT_EXIT_CODE, GateLeaseActionResult, acquireGateLeaseForCombo, heartbeatGateLeaseForCombo, releaseGateLeaseForCombo
  * @deps ../../core/events, ../../core/gate-lease, ../../core/state
  */
 import { appendEvent } from "../../core/events.js";
-import { acquireGateLease, releaseGateLease, type GateLeaseOwner } from "../../core/gate-lease.js";
+import {
+  acquireGateLease,
+  heartbeatGateLease,
+  releaseGateLease,
+  type GateLeaseOwner,
+} from "../../core/gate-lease.js";
 import { ComboStateError, readCombo, runDirFor } from "../../core/state.js";
 
 // -- 1/2 HELPER · types and owner resolution --
@@ -126,5 +132,10 @@ export function releaseGateLeaseForCombo(input: {
   }
   input.out(`gate lease already absent for ${comboIdLabel}`);
   return { state: result.state, exitCode: 0 };
+}
+
+export function heartbeatGateLeaseForCombo(input: { home: string; comboId: string }): GateLeaseActionResult {
+  const result = heartbeatGateLease({ home: input.home, owner: { comboId: input.comboId } });
+  return { state: result.state, exitCode: result.state === "ok" ? 0 : 1 };
 }
 // -/ 2/2

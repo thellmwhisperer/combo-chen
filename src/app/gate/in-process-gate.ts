@@ -24,7 +24,7 @@
  *
  *   INTERNALS
  *   ---------
- *   outputOf, successful, finishSuccessfulGate
+ *   outputOf, successful, positiveIntegerEnv, finishSuccessfulGate
  *
  * @exports GateProcessRequest, GateProcessResult, GateProcessRunner, AxiStatus, ConfigCopyOutcome, InProcessGateInput, InProcessGateResult, runChildProcess, parseAxiStatus, axiHeadMatches, isAxiRunActive, isAxiRunAttachable, resolveConfigCopyRace, runGatekeeperAndConfigCopy, copyConfigToActiveRun, abortPreviousRun, daemonStartSucceeded, publishGateMirror, findAttachableRun, shouldRecoverChecksPassed, gateIsAwaitingApproval, gateFailureReason, appendGateIdle, withGateLease, runInProcessGate
  * @deps node:{child_process,fs,path}, ../../core/events, ../../core/state, ../../roles/gatekeeper, ./lease
@@ -39,8 +39,11 @@ import { parseAxiOutcome } from "../../roles/gatekeeper.js";
 import {
   acquireGateLeaseForCombo,
   GATE_LEASE_CONFLICT_EXIT_CODE,
+  heartbeatGateLeaseForCombo,
   releaseGateLeaseForCombo,
 } from "./lease.js";
+
+const GATE_LEASE_HEARTBEAT_INTERVAL_MS = 60_000;
 
 // -- 1/5 HELPER · awaited process boundary and axi status predicates --
 export interface GateProcessRequest {
@@ -129,6 +132,12 @@ export function axiHeadMatches(candidate: string | undefined, expected: string |
 // -- 2/5 CORE · config copy watcher and race <- START HERE --
 export type ConfigCopyOutcome = "copied" | "failed" | "killed" | "not_started";
 
+function positiveIntegerEnv(value: string | undefined, fallback: number): number {
+  if (value === undefined || !/^\d+$/.test(value)) return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function resolveConfigCopyRace(input: {
   configPresent: boolean;
   gateFinishedBeforeConfig: boolean;
@@ -154,7 +163,8 @@ export async function copyConfigToActiveRun(input: {
 }): Promise<ConfigCopyOutcome> {
   const source = join(input.combo.worktree, ".no-mistakes.yaml");
   if (!existsSync(source)) return "not_started";
-  const attempts = input.attempts ?? 120;
+  const attempts =
+    input.attempts ?? positiveIntegerEnv(input.env?.COMBO_CHEN_NO_MISTAKES_CONFIG_COPY_ATTEMPTS, 120);
   const retryDelayMs = input.retryDelayMs ?? 1000;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (input.signal?.aborted) return "killed";
@@ -399,6 +409,7 @@ export async function withGateLease<T>(input: {
   comboId: string;
   headSha: string;
   out?: (line: string) => void;
+  heartbeatIntervalMs?: number;
   action: () => Promise<T>;
 }): Promise<{ acquired: true; value: T } | { acquired: false; exitCode: number }> {
   const out = input.out ?? (() => undefined);
@@ -411,9 +422,13 @@ export async function withGateLease<T>(input: {
   if (acquired.exitCode === GATE_LEASE_CONFLICT_EXIT_CODE) {
     return { acquired: false, exitCode: acquired.exitCode };
   }
+  const heartbeat = setInterval(() => {
+    heartbeatGateLeaseForCombo({ home: input.home, comboId: input.comboId });
+  }, input.heartbeatIntervalMs ?? GATE_LEASE_HEARTBEAT_INTERVAL_MS);
   try {
     return { acquired: true, value: await input.action() };
   } finally {
+    clearInterval(heartbeat);
     releaseGateLeaseForCombo({ home: input.home, comboId: input.comboId, out });
   }
 }

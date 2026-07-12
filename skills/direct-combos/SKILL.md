@@ -211,7 +211,7 @@ Route implementation and review findings back through the capsule's durable sign
 
 Treat each capsule as an independent ownership unit: one branch, one worktree, one tmux session, and one runtime ledger. Never assign two capsules to the same branch or let one capsule reuse another capsule's worktree or state directory. Parallel coders and reviewers remain isolated because their capsules own distinct resources.
 
-Branch-scoped gate leases protect publication without serializing the whole fleet. Capsules on different branches may enter no-mistakes concurrently. Two publishers must not own the same branch: a conflicting owner produces a durable lease conflict that the director surfaces and resolves by checking the current owner, never by deleting or overwriting the lease record. Treat an active lease as evidence of gate ownership, not as evidence that the gate is stuck.
+Branch-scoped gate leases prevent two publishers from owning the same branch; they do not establish that the underlying no-mistakes daemon supports concurrent runs. A conflicting same-branch owner produces a durable lease conflict that the director surfaces and resolves by checking the current owner, never by deleting or overwriting the lease record. Before allowing gates from different branches to overlap, establish the daemon's concurrency capability for that environment; otherwise serialize gate entry while coders and reviewers continue in parallel. Treat an active lease as evidence of gate ownership, not as evidence that the gate is stuck.
 
 Scale by observed waves:
 
