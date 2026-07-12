@@ -39,6 +39,24 @@ describe("direct-combos skill", () => {
     expect(markdown).toContain("`artifact <run-dir>/overture.json`");
   });
 
+  it("documents journal-first supervision and the captain wake signals", () => {
+    const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
+
+    expect(markdown).toContain("## 4. Supervise from the journal");
+    for (const command of [
+      "combo-chen status",
+      "combo-chen status --deep",
+      "combo-chen recap",
+      "combo-chen events --follow -n <combo-id>",
+    ]) {
+      expect(markdown).toContain(`\`${command}\``);
+    }
+    for (const signal of ["needs_human", "pr_opened", "ready_for_merge", "merged", "failed"]) {
+      expect(markdown).toContain(`\`${signal}\``);
+    }
+    expect(markdown).toContain("prints nothing");
+  });
+
   it("mentions only registered combo-chen subcommands", () => {
     const markdown = readFileSync(DIRECT_COMBOS_SKILL, "utf8");
     const mentionedCommands = Array.from(

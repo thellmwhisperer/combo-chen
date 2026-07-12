@@ -106,3 +106,58 @@ Capture identity from the launch output, not by guessing from the title:
 - The final `🥢 combo-chen-<combo-id>` line confirms that the tmux capsule was created. A zero exit means setup succeeded, not that the work finished.
 
 Keep the combo id and run directory in the fleet record, then move immediately to journal-first supervision.
+
+## 4. Supervise from the journal
+
+Treat the append-only journal as the source of truth. Do not capture or scrape tmux panes: panes are human observability surfaces, while journal events and the derived status are the durable machine contract.
+
+Use the reporting surfaces at different cadences:
+
+- `combo-chen status` is the cheap fleet scan. It shows actionable capsules by default, including phase, pending human reason, gate lease, and PR.
+- `combo-chen status --deep` adds downstream no-mistakes and GitHub probes. Use it to investigate a suspicious or apparently stalled row, not as the tight polling loop.
+- `combo-chen recap` is the since-you-left digest across persisted combos. Narrow it with `combo-chen recap -n <combo-id>` or use `--since <ISO-8601>` when handing a fleet between directors.
+- `combo-chen events --follow -n <combo-id>` streams one capsule's raw JSONL journal when an event-by-event feed is useful. The non-following form, `combo-chen events -n <combo-id>`, is suitable for scripts and exits after the current journal.
+
+### What to surface upward
+
+Wake the captain only for a transition that changes ownership, exposes an outcome, or needs a decision:
+
+| Journal or status signal             | Meaning for the external director                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `needs_human` / decision pending     | A durable escalation is awaiting an explicit answer; surface its combo id, reason, and timestamp. |
+| `pr_opened`                          | Publication succeeded; surface the PR URL once.                                                   |
+| `ready_for_merge` / READY            | Current-head agreement is complete; surface the PR as ready for the human merge decision.         |
+| `merged`                             | GitHub merge is observed; report the outcome and let closure converge resources.                  |
+| `failed` state or a `*_failed` event | Autonomous convergence stopped; surface the failing phase, reason, and last durable evidence.     |
+
+Absorb routine progress such as coder starts and completion, local-review rounds, gate starts and validation, label projection, worker recovery, review-comment routing, and ordinary GitHub sampling. Keep the fleet record current, but do not turn those transitions into captain notifications.
+
+### Polling bridge
+
+When the caller cannot keep a follow stream open, use a cursor per combo and print at most one line for newly observed captain-relevant events. This bridge prints nothing on routine progress:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+id="$1"
+cursor="${2:-.tmp/director-${id}.cursor}"
+seen="$(test -f "$cursor" && cat "$cursor" || printf '0')"
+journal="$(combo-chen events -n "$id")"
+count="$(printf '%s\n' "$journal" | awk 'NF { n += 1 } END { print n + 0 }')"
+
+if (( count > seen )); then
+  signal="$(printf '%s\n' "$journal" | tail -n "+$((seen + 1))" | jq -r '
+    select(
+      .event == "needs_human" or .event == "pr_opened" or
+      .event == "ready_for_merge" or .event == "merged" or
+      (.event | endswith("_failed"))
+    ) | "\(.event) combo='"$id"' reason=\(.reason // "-") url=\(.url // .pr_url // "-")"
+  ' | tail -n 1)"
+  mkdir -p "$(dirname "$cursor")"
+  printf '%s\n' "$count" >"$cursor"
+  test -z "$signal" || printf '%s\n' "$signal"
+fi
+```
+
+The cursor advances even when the new events are routine, so the same history does not wake the director later. After a wake, inspect `combo-chen status --deep` and the journal evidence before routing the next action.
