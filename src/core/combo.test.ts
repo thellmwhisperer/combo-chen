@@ -210,6 +210,88 @@ describe("deriveStatus", () => {
     expect(status.reason).toBe("coder_failed");
   });
 
+  it("enters the pre-publish LOCAL_REVIEW phase when a local review is requested", () => {
+    const status = deriveStatus([
+      ev("coder_started"),
+      ev("coder_done"),
+      ev("local_review_requested", { round: 1, sha: "abc123" }),
+    ]);
+
+    expect(status.phase).toBe("LOCAL_REVIEW");
+    expect(status.needsHuman).toBe(false);
+    expect(status.pr).toBeUndefined();
+  });
+
+  it("advances LOCAL_REVIEW by local_verdict code", () => {
+    const loop = [
+      ev("coder_started"),
+      ev("coder_done"),
+      ev("local_review_requested", { round: 1, sha: "abc123" }),
+    ];
+    const verdict = (code: number) =>
+      ev("local_verdict", {
+        round: 1,
+        code,
+        verdict_path: "/runs/o-r-7/verdict-1.json",
+        identity: { model: "m", runtime: "r" },
+      });
+
+    const fix = deriveStatus([...loop, verdict(1)]);
+    expect(fix.phase).toBe("LOCAL_REVIEW");
+    expect(fix.needsHuman).toBe(false);
+
+    const approved = deriveStatus([...loop, verdict(0)]);
+    expect(approved.phase).toBe("GATING");
+    expect(approved.needsHuman).toBe(false);
+
+    for (const code of [2, 3]) {
+      const escalated = deriveStatus([...loop, verdict(code)]);
+      expect(escalated.phase).toBe("LOCAL_REVIEW");
+      expect(escalated.needsHuman).toBe(true);
+      expect(escalated.reason).toBe(`local_verdict_code_${code}`);
+    }
+  });
+
+  it("ignores a local_verdict outside the LOCAL_REVIEW phase", () => {
+    const status = deriveStatus([
+      ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
+      ev("local_verdict", {
+        round: 1,
+        code: 3,
+        verdict_path: "/runs/o-r-7/verdict-1.json",
+        identity: { model: "m", runtime: "r" },
+      }),
+    ]);
+
+    expect(status.phase).toBe("REVIEWING");
+    expect(status.needsHuman).toBe(false);
+  });
+
+  it("clears a pending needs_human when a decision answers it", () => {
+    const events = [
+      ev("coder_started"),
+      ev("local_review_requested", { round: 1, sha: "abc123" }),
+      ev("needs_human", { reason: "local_verdict_code_3" }),
+    ];
+    expect(deriveStatus(events).needsHuman).toBe(true);
+
+    events.push(ev("decision", { needs_human_ref: "2026-07-12T00:00:03.000Z", verb: "retry" }));
+    const decided = deriveStatus(events);
+    expect(decided.needsHuman).toBe(false);
+    expect(decided.phase).toBe("LOCAL_REVIEW");
+  });
+
+  it("leaves follow_ups out of phase derivation", () => {
+    const status = deriveStatus([
+      ev("coder_started"),
+      ev("local_review_requested", { round: 1, sha: "abc123" }),
+      ev("follow_ups", { round: 1, items: [] }),
+    ]);
+
+    expect(status.phase).toBe("LOCAL_REVIEW");
+    expect(status.needsHuman).toBe(false);
+  });
+
   it("keeps merged PRs actionable until closure records combo_closed", () => {
     const merged = deriveStatus([
       ev("pr_opened", { url: "https://github.com/o/r/pull/9" }),
