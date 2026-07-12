@@ -2,6 +2,11 @@
 
 Status: draft for review. Owner: Javier. Source: architecture sessions 2026-07-11.
 
+Relation to `docs/spec.md`: spec.md is the constitution of the currently
+implemented system (what this PRD calls v0) and stays authoritative for the
+code that exists today. This PRD supersedes it in design; spec.md gets
+rewritten to conform when v1 lands.
+
 ## 1. Vision
 
 combo-chen is a deterministic combinator of tools. It takes a work item (GitHub
