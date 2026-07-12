@@ -101,6 +101,17 @@ Every iteration opens and closes with a verdict; a code-1 coder fix turn can at
 most trigger the next round. Verdicts are never reused round numbers. Code 0
 advances to gate; codes 2/3 escalate to `needs_human`.
 
+Verdict collection is artifact-driven: a complete current-round/current-SHA
+artifact closes the turn; child exit is cleanup or fallback, never the trigger.
+The shared `runAgentProcess` custody interface owns this artifact-vs-exit
+first-of; only roles with artifact completion declare it.
+The `TOMBSTONE` tests in `src/app/capsule/capsule.test.ts` enforce this invariant.
+The mandatory `artifact-driven-waits` verdict checklist item makes the same rule
+machine-validated for every future inter-agent wait point.
+Role commands documented in `combo-chen.example.toml` are runtime contracts, so
+end-to-end coverage MUST exercise their interactive shapes, not only synthetic
+children that conveniently exit.
+
 ### Verdict codes
 
 | Code | Meaning               | Action                                       |
@@ -141,14 +152,14 @@ observables, and parks pending escalations until a retry decision.
   schemaVersion: 1, round, code (0–3),
   reviewed: { sha },
   identity: { model, runtime },
-  checklist: [...],   // 8 required items (LOCAL_REVIEW_CHECKLIST)
+  checklist: [...],   // 9 required items (LOCAL_REVIEW_CHECKLIST)
   findings: [...],    // each with id, severity, file, line?, title, body
   followUps: [...],
   attackTable?: [...] // optional security review
 }
 ```
 
-The checklist is a hard contract (issue #276): a verdict without all 8 items is
+The checklist is a hard contract (issue #276): a verdict without all 9 items is
 malformed and rejected. Findings carry two identity channels for cross-round
 fingerprinting: the reviewer-assigned `id` and the `file + normalized-title`
 location channel. Line numbers are excluded from fingerprints so the location

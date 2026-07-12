@@ -74,6 +74,14 @@ function fixtureVerdict(overrides: Partial<VerdictFile> = {}): VerdictFile {
 
 // -- 2/2 CORE · verdict artifact contracts <- START HERE --
 describe("verdict artifact", () => {
+  it("permanently certifies artifact-driven inter-agent waits", () => {
+    expect(LOCAL_REVIEW_CHECKLIST).toContainEqual({
+      id: "artifact-driven-waits",
+      requirement:
+        "Every new or touched inter-agent wait triggers on its artifact and has an end-to-end producer-that-never-exits variant.",
+    });
+  });
+
   it("round-trips a schema-versioned verdict through write-then-rename", () => {
     const runDir = runDirFixture();
     const verdict = fixtureVerdict();

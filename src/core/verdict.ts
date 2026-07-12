@@ -135,6 +135,11 @@ export const LOCAL_REVIEW_CHECKLIST = [
     id: "tests-contracts",
     requirement: "Assertions pin contracts and behavior, not internal script strings.",
   },
+  {
+    id: "artifact-driven-waits",
+    requirement:
+      "Every new or touched inter-agent wait triggers on its artifact and has an end-to-end producer-that-never-exits variant.",
+  },
 ] as const satisfies ReadonlyArray<{ id: string; requirement: string }>;
 
 export function missingChecklistIds(verdict: Pick<VerdictFile, "checklist">): string[] {

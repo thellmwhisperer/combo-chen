@@ -147,8 +147,9 @@ command = "claude --permission-mode auto {prompt}"
 max_rounds = 3
 # Wall-clock bounds for the loop's owned agent turns: a reviewer or coder fix
 # child that outlives its bound is terminated and the loop escalates
-# needs_human instead of waiting forever. verdict_wait_ms bounds how long the
-# capsule waits for the verdict artifact after the reviewer exits.
+# needs_human instead of waiting forever. The capsule polls for a complete
+# verdict while the reviewer remains interactive; verdict_wait_ms bounds the
+# fallback wait after reviewer exit (the live poll cadence is capped tighter).
 # Environment overrides: COMBO_CHEN_REVIEW_REVIEWER_TURN_TIMEOUT_MINUTES,
 # COMBO_CHEN_REVIEW_FIX_TURN_TIMEOUT_MINUTES, COMBO_CHEN_REVIEW_VERDICT_WAIT_MS.
 reviewer_turn_timeout_minutes = 60
