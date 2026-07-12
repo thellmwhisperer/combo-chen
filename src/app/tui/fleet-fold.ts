@@ -14,7 +14,7 @@
  *   MAIN FLOW
  *   ---------
  *   combo + journal + liveness -> deriveStatus -> renderPhase -> FleetRow
- *   FleetRow[] -> deriveFleetView -> sorted needs-you-first, tab-filtered
+ *   FleetRow[] -> deriveFleetView -> stable needs-you-first, tab-filtered
  *
  *   PUBLIC API
  *   ----------
@@ -25,6 +25,7 @@
  *   FleetRow          One combo's render-ready row (detailLine + liveHint + telemetry).
  *   FleetTab          live|parked|closed.
  *   FleetView         Sorted, filtered, empty-state-aware fleet model.
+ *   tuiWorkItemLabel  Mock-canonical "#N Title" label for fleet/thread surfaces.
  *   deriveFleetRow    Pure fold: combo + events + liveness + telemetry -> FleetRow.
  *   deriveFleetView   Pure fold: rows + tab -> FleetView.
  *
@@ -33,7 +34,7 @@
  *   renderPhaseFrom, detailLineFrom, liveHintFrom, reviewRound, prUrlFrom,
  *   ageLabel, sortPriorityFor, emptyStateFor.
  *
- * @exports FleetRenderPhase, ActorLiveness, deriveActorLiveness, FleetRowInput, FleetRow, FleetTab, FleetView, deriveFleetRow, deriveFleetView
+ * @exports FleetRenderPhase, ActorLiveness, deriveActorLiveness, FleetRowInput, FleetRow, FleetTab, FleetView, tuiWorkItemLabel, deriveFleetRow, deriveFleetView
  * @deps ../../core/combo, ../../core/state, ../reporting/status-fold, ./live-telemetry
  */
 import { deriveStatus } from "../../core/combo.js";
@@ -96,7 +97,7 @@ export function deriveFleetRow(input: FleetRowInput): FleetRow {
   const renderPhase = renderPhaseFrom(status.phase, status.needsHuman, status.reason, lastEvent);
   const round = reviewRound(events);
   const prUrl = prUrlFrom(events, status.pr);
-  const workItem = describeWorkItem(input.combo);
+  const workItemLabel = tuiWorkItemLabel(input.combo);
   const needsYou =
     renderPhase === "NEEDS_YOU" ||
     (status.needsHuman && renderPhase !== "CLOSED" && status.reason !== "closure_pending");
@@ -115,7 +116,7 @@ export function deriveFleetRow(input: FleetRowInput): FleetRow {
   const lastEventAt = lastEvent?.t ?? createdAt;
   const row: FleetRow = {
     comboId: input.combo.id,
-    workItemLabel: workItem.label,
+    workItemLabel,
     renderPhase,
     needsYou,
     detailLine,
@@ -133,6 +134,13 @@ export function deriveFleetRow(input: FleetRowInput): FleetRow {
   return row;
 }
 
+export function tuiWorkItemLabel(combo: ComboRecord): string {
+  const workItem = describeWorkItem(combo);
+  return workItem.sourceReference !== undefined && workItem.title !== undefined
+    ? `${workItem.sourceReference} ${workItem.title}`
+    : workItem.label;
+}
+
 function renderPhaseFrom(
   phase: ReturnType<typeof deriveStatus>["phase"],
   needsHuman: boolean,
@@ -144,6 +152,7 @@ function renderPhaseFrom(
   if (last === "combo_closed" || last === "stopped") return "CLOSED";
   if (last === "merged") return "CLOSED";
   if (needsHuman && reason !== "closure_pending") return "NEEDS_YOU";
+  if (last === "coder_started" && lastEvent?.["mode"] === "review_fix") return "REVIEW";
   switch (phase) {
     case "SETUP":
     case "CODING":
@@ -199,9 +208,16 @@ function detailLineFrom(
   liveness: ActorLiveness | undefined,
   telemetry: LiveTelemetryFacts | undefined,
 ): string {
-  const roundSuffix = round > 0 ? ` · round ${round}` : "";
+  const roundSuffix = ` · round ${round}`;
   switch (phase) {
     case "CODER": {
+      if (telemetry?.coder?.mode === "gnhf") {
+        const iteration = telemetry.coder.iteration ?? 1;
+        const max = telemetry.coder.maxIterations;
+        const iterationLabel = max === undefined ? `iter ${iteration}` : `iter ${iteration}/${max}`;
+        const file = telemetry.coder.currentFile;
+        return `gnhf loop · ${iterationLabel}${file === undefined ? "" : ` · ${file}`}`;
+      }
       const base = liveness?.coder ? "coder working · live" : "coder working";
       const hint = telemetry?.coder !== undefined ? formatCoderHint(telemetry.coder) : undefined;
       return hint !== undefined ? `${base} · ${hint}` : base;
@@ -218,9 +234,9 @@ function detailLineFrom(
     case "PR":
       return prUrl !== undefined ? "PR · checks settling" : "checks settling";
     case "READY":
-      return "ready for merge";
+      return `PR ${prNumber(prUrl)} · CI ✓ · CodeRabbit ✓ · local lgtm · waiting for you`;
     case "NEEDS_YOU":
-      return reason !== undefined ? `needs you: ${reason}` : "needs you";
+      return reason !== undefined ? `› ${reason} · (v) card` : "› needs you · (v) card";
     case "PARKED":
       return "parked · resumable";
     case "CLOSED":
@@ -228,6 +244,12 @@ function detailLineFrom(
     default:
       return "";
   }
+}
+
+function prNumber(prUrl: string | undefined): string {
+  if (prUrl === undefined) return "?";
+  const match = /\/pull\/(\d+)$/.exec(prUrl);
+  return match === null ? prUrl : `#${match[1]}`;
 }
 
 function liveHintFrom(
@@ -258,7 +280,11 @@ function liveHintFrom(
 function reviewRound(events: readonly JournalFact[]): number {
   let round = 0;
   for (const event of events) {
-    if (event.event === "local_review_requested" || event.event === "local_verdict") {
+    if (
+      event.event === "local_review_requested" ||
+      event.event === "local_verdict" ||
+      (event.event === "coder_started" && event["mode"] === "review_fix")
+    ) {
       const value = event["round"];
       if (typeof value === "number") round = Math.max(round, value);
     }
@@ -303,11 +329,7 @@ function sortPriorityFor(phase: FleetRenderPhase): number {
 // -- 4/4 CORE · deriveFleetView <-
 export function deriveFleetView(input: { rows: readonly FleetRow[]; tab: FleetTab }): FleetView {
   const filtered = input.rows.filter((row) => tabForPhase(row.renderPhase) === input.tab);
-  const sorted = [...filtered].sort((a, b) => {
-    const priorityDiff = a.sortPriority - b.sortPriority;
-    if (priorityDiff !== 0) return priorityDiff;
-    return b.lastEventAt.localeCompare(a.lastEventAt);
-  });
+  const sorted = [...filtered].sort((a, b) => a.sortPriority - b.sortPriority);
   const needsCount = input.rows.filter(
     (row) => tabForPhase(row.renderPhase) === "live" && row.needsYou,
   ).length;

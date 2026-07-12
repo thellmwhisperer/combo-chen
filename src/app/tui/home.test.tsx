@@ -53,6 +53,7 @@ function thread(overrides: Partial<ThreadView> = {}): ThreadView {
     workItemLabel: "#7 Add login",
     renderPhase: "CODER",
     round: 0,
+    ageLabel: "4h",
     breadcrumb: { stages: [] },
     entries: [
       { at: "2026-07-12T08:00:00.000Z", kind: "launched", headline: "launched" },

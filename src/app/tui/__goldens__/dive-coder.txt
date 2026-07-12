@@ -1,10 +1,11 @@
-owner-repo-151 · Extract provider (github_issue:#151)                                          CODER
+owner-repo-151 · #151 Extract payment provider                                           CODER · 14m
 
 coder ⚡ ─ review · ─ gate · ─ pr · ─ merge ·
 
-11:46 ▸ launched
-           Extract provider (github_issue:#151)
-now ● coder working · 13:00 ⠋
+11:46 ▸ launched · overture ✓ · worktree issue-151 · branch combo/issue-151
+now   ● coder loop (gnhf) · live · iteration 1/24 · 13:00 ⠋
+           reading changed files ⠋
+           iter 1/24 · 1.2K tokens · stop-when: not yet · --max-iterations 24
 
 next: coder loop converges → coder_done → first review
 

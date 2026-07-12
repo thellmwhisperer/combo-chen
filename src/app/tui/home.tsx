@@ -32,13 +32,17 @@
  *   ---------
  *   FleetBody, FleetRowView, DiveThread, ThreadEntryView, DecisionModal,
  *   OnboardingScreen, AllQuietScreen, DiveUnavailable, phaseGlyph, phaseColor,
- *   entryGlyph, entryColor, severityColor, stageGlyph.
+ *   entryGlyph, entryColor, severityColor, stageGlyph, physicalRows,
+ *   entryLineCount, boundEntriesForViewport.
  *
  * @exports Home
- * @deps ink, react, ./decisions-fold, ./fleet-fold, ./live-telemetry, ./navigation, ./thread-fold
+ * @deps cli-truncate, ink, react, string-width, wrap-ansi, ./decisions-fold, ./fleet-fold, ./live-telemetry, ./navigation, ./thread-fold
  */
 import { Box, Text, useApp, useInput } from "ink";
 import React, { useEffect, useState } from "react";
+import cliTruncate from "cli-truncate";
+import stringWidth from "string-width";
+import wrapAnsi from "wrap-ansi";
 
 import type { DecisionCard } from "./decisions-fold.js";
 import { deriveFleetView, type FleetRenderPhase, type FleetRow, type FleetView } from "./fleet-fold.js";
@@ -126,11 +130,27 @@ function entryTimeLabel(at: string): string {
   return Number.isNaN(ms) ? "--:--" : clockLabel(ms);
 }
 
-/** Count rendered lines an entry will occupy (headline + detail + findings). */
-function entryLineCount(entry: ThreadEntry): number {
-  let lines = 1;
-  if (entry.detail !== undefined) lines += 1;
-  if (entry.findings !== undefined) lines += entry.findings.length;
+function physicalRows(text: string, width: number): number {
+  if (text === "") return 1;
+  return wrapAnsi(text, Math.max(1, width), { trim: false, hard: true }).split("\n").length;
+}
+
+/** Count physical terminal rows (including Ink wrapping) for one entry. */
+function entryLineCount(entry: ThreadEntry, columns: number): number {
+  const headline = `${entryTimeLabel(entry.at).padEnd(5)} ${ENTRY_GLYPH[entry.kind]} ${entry.headline}${entry.live ? " ⠋" : ""}`;
+  let lines = physicalRows(headline, columns);
+  if (entry.detail !== undefined) {
+    for (const [index, detailLine] of entry.detail.split("\n").entries()) {
+      const spinner = entry.detailSpinner === true && index === 0 && entry.live ? " ⠋" : "";
+      lines += physicalRows(detailLine + spinner, columns - 11);
+    }
+  }
+  if (entry.findings !== undefined) {
+    for (const finding of entry.findings) {
+      const line = `${finding.severity}  ${finding.file}${finding.line === undefined ? "" : `:${finding.line}`}  ${finding.title}`;
+      lines += physicalRows(line, columns - 11);
+    }
+  }
   return lines;
 }
 
@@ -142,14 +162,15 @@ function entryLineCount(entry: ThreadEntry): number {
 function boundEntriesForViewport(
   entries: readonly ThreadEntry[],
   availableLines: number,
+  columns: number,
 ): { readonly shown: readonly ThreadEntry[]; readonly hidden: number } {
   if (entries.length === 0) return { shown: [], hidden: 0 };
-  const totalLines = entries.reduce((sum, e) => sum + entryLineCount(e), 0);
+  const totalLines = entries.reduce((sum, e) => sum + entryLineCount(e, columns), 0);
   if (totalLines <= availableLines) return { shown: entries, hidden: 0 };
   let remaining = availableLines;
   let cutIndex = entries.length;
   for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const h = entryLineCount(entries[i]!);
+    const h = entryLineCount(entries[i]!, columns);
     if (remaining < h && cutIndex < entries.length) break;
     if (remaining < h) break;
     remaining -= h;
@@ -176,6 +197,8 @@ export interface HomeProps {
   readonly now?: number;
   /** Testing seam: terminal row count for viewport-bounded rendering. */
   readonly viewportRows?: number;
+  /** Testing seam: terminal column count for physical wrapping budgets. */
+  readonly viewportColumns?: number;
 }
 
 export function Home({
@@ -188,12 +211,15 @@ export function Home({
   initialNav,
   now,
   viewportRows,
+  viewportColumns,
 }: HomeProps): React.ReactElement {
   const { exit } = useApp();
   const [nav, setNav] = useState<NavState>(initialNav ?? initialNavState);
   const renderNow = now ?? Date.now();
   const terminalRows =
     viewportRows ?? (process.stdout.rows && process.stdout.rows > 0 ? process.stdout.rows : 999);
+  const terminalColumns =
+    viewportColumns ?? (process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 100);
 
   const view = deriveFleetView({ rows, tab: nav.tab });
 
@@ -257,6 +283,7 @@ export function Home({
         modal={modalCard}
         now={renderNow}
         viewportRows={terminalRows}
+        viewportColumns={terminalColumns}
       >
         {noticeBox}
       </DiveThread>
@@ -326,7 +353,7 @@ function FleetBody({
           {view.needsCount > 0 ? (
             <Text color="red">
               {"● "}
-              {view.needsCount} need{view.needsCount === 1 ? "" : "s"} you
+              {view.needsCount} needs you
             </Text>
           ) : (
             <Text color="green">● all quiet</Text>
@@ -401,6 +428,7 @@ function DiveThread({
   modal,
   now,
   viewportRows,
+  viewportColumns,
   children,
 }: {
   readonly dive: ThreadView | undefined;
@@ -408,6 +436,7 @@ function DiveThread({
   readonly modal: DecisionCard | null;
   readonly now: number;
   readonly viewportRows: number;
+  readonly viewportColumns: number;
   readonly children?: React.ReactNode;
 }): React.ReactElement {
   if (dive === undefined) {
@@ -429,25 +458,27 @@ function DiveThread({
   const FIXED_LINES = 6 + (dive.projection !== undefined ? 2 : 0);
   const rawBudget = Math.max(1, viewportRows - FIXED_LINES);
   // Reserve 1 line for the "↑ N earlier" indicator if entries are trimmed.
-  const firstPass = boundEntriesForViewport(dive.entries, rawBudget);
+  const firstPass = boundEntriesForViewport(dive.entries, rawBudget, viewportColumns);
   const entryBudget = firstPass.hidden > 0 ? Math.max(1, rawBudget - 1) : rawBudget;
-  const { shown, hidden } = boundEntriesForViewport(dive.entries, entryBudget);
+  const { shown, hidden } = boundEntriesForViewport(dive.entries, entryBudget, viewportColumns);
+  const phaseLabel = `${dive.renderPhase}${dive.round > 0 ? " r" + dive.round : ""} · ${dive.ageLabel}`;
+  const titleWidth = Math.max(1, viewportColumns - stringWidth(phaseLabel) - 1);
+  const titleLabel = cliTruncate(`${comboId} · ${dive.workItemLabel}`, titleWidth);
+  const footerLabel = hasLiveActor
+    ? "Enter hands on live actor · v decision · q/←/Esc back"
+    : "v decision · q/←/Esc back";
+  const footerWidth = Math.max(1, viewportColumns - stringWidth(comboId) - 1);
 
   return (
     <Box flexDirection="column">
       <Box justifyContent="space-between">
         <Box>
-          <Text color="magenta">{comboId}</Text>
-          <Text dimColor> · </Text>
-          <Text>{dive.workItemLabel}</Text>
+          <Text color="magenta">{titleLabel}</Text>
         </Box>
-        <Text color={phaseColor}>
-          {dive.renderPhase}
-          {dive.round > 0 ? " r" + dive.round : ""}
-        </Text>
+        <Text color={phaseColor}>{phaseLabel}</Text>
       </Box>
       <Box marginTop={1}>
-        <Text dimColor>{crumb}</Text>
+        <Text dimColor>{cliTruncate(crumb, viewportColumns)}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
         {hidden > 0 && <Text dimColor>{"↑ " + hidden + " earlier"}</Text>}
@@ -457,15 +488,11 @@ function DiveThread({
       </Box>
       {dive.projection !== undefined && (
         <Box marginTop={1}>
-          <Text dimColor>next: {dive.projection}</Text>
+          <Text dimColor>{cliTruncate(`next: ${dive.projection}`, viewportColumns)}</Text>
         </Box>
       )}
       <Box marginTop={1} justifyContent="space-between">
-        <Text dimColor>
-          {hasLiveActor
-            ? "Enter hands on live actor · v decision · q/←/Esc back"
-            : "v decision · q/←/Esc back"}
-        </Text>
+        <Text dimColor>{cliTruncate(footerLabel, footerWidth)}</Text>
         <Text dimColor>{comboId}</Text>
       </Box>
       {children}
@@ -484,7 +511,7 @@ function ThreadEntryView({
   const glyph = ENTRY_GLYPH[entry.kind];
   const color = ENTRY_COLOR[entry.kind];
   const spinner = entry.live ? spinFrame(now) : null;
-  const ts = entryTimeLabel(entry.at);
+  const ts = entryTimeLabel(entry.at).padEnd(5);
   return (
     <Box flexDirection="column">
       <Box gap={1}>
@@ -493,11 +520,14 @@ function ThreadEntryView({
         <Text color={entry.live ? color : undefined}>{entry.headline}</Text>
         {spinner !== null && <Text color={color}>{spinner}</Text>}
       </Box>
-      {entry.detail !== undefined && (
-        <Box marginLeft={11}>
-          <Text dimColor>{entry.detail}</Text>
+      {entry.detail?.split("\n").map((line, i) => (
+        <Box key={i} marginLeft={11}>
+          <Text dimColor>{line}</Text>
+          {entry.detailSpinner === true && i === 0 && spinner !== null && (
+            <Text color={color}> {spinner}</Text>
+          )}
         </Box>
-      )}
+      ))}
       {entry.findings?.map((finding, i) => (
         <Box key={i} marginLeft={11}>
           <Text>
