@@ -790,7 +790,7 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
     }
   });
 
-  it("auto-approves a known worker permission prompt before escalating needs_human", () => {
+  it("escalates a known worker permission prompt without auto-approving it", () => {
     const harness = prepareHarness({ permissionPromptPolicy: "auto-approve-known-safe" });
     let passed = false;
 
@@ -809,12 +809,12 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
         },
       });
 
-      expect(tick.stdout).toContain("director: worker reviewer permission prompt auto-approved");
+      expect(tick.stdout).toContain("director: worker reviewer permission prompt requested");
       const events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
-      expect(events.some((event) => event.event === "needs_human")).toBe(false);
+      expect(events.some((event) => event.event === "needs_human")).toBe(true);
 
       const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
-      expect(tmuxLog).toEqual(
+      expect(tmuxLog).not.toEqual(
         expect.arrayContaining([
           expect.objectContaining({ args: ["send-keys", "-t", `${combo.tmuxSession}:reviewer`, "y", "C-m"] }),
         ]),
