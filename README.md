@@ -37,7 +37,10 @@ combo-chen makes the process explicit.
 3. The capsule engine (`combo-chen capsule <run-dir>`, tmux pane 0) owns the whole
    pipeline: rebase, coder, local review loop, in-process gate, and supervision.
 4. A coder agent implements the work item as an owned child of the capsule and
-   leaves local commits.
+   leaves local commits. Its stdio is seated in the dedicated `coder` window;
+   reviewer turns use `reviewer`, while pane 0 retains child exit-code and
+   timeout custody. A missing or unusable seat escalates
+   `needs_human reason=seat_unavailable` instead of running an agent unseated.
 5. A local reviewer writes `verdict-<round>.json` with a machine-readable code
    (0=OK/LGTM, 1=mechanical fix→coder, 2=ambiguous, 3=needs human). Code 1 turns
    resume the same coder thread; code 0 pins `lgtm {sha, patch_id}` and advances
@@ -193,6 +196,13 @@ branch defaults to `main` and can be overridden with `[run].source_branch` or
 default, or from `--base <ref>` when you need an explicit recovery/test base.
 The actual work continues inside tmux. Use `status`, `events`, or
 `tmux list-sessions` to see the live run.
+
+Bare `combo-chen` on a TTY opens the fleet home in the managed
+`combo-chen-home` tmux session. It prioritizes pending decisions, supports
+dive-in journal threads and live-actor jumps, and records decisions through the
+same durable path as `combo-chen decide`. Set `COMBO_CHEN_TUI_REFRESH_MS` to
+change the data refresh interval (default 5000 ms) and
+`COMBO_CHEN_TUI_ANIM_MS` to change animation cadence (default 200 ms).
 
 From a contributor source checkout that has not installed the `combo-chen`
 binary, use `node dist/cli.mjs` in place of `combo-chen`.
@@ -558,6 +568,10 @@ Recovery playbook:
   with the role, tool, and command, then creates a `needs_human` decision card.
   Grant it, add the tool to that role's `allowed_tools`, and retry the turn.
   Prompts are learning signals and are never silently approved or left blocking.
+- Missing role seats: if the capsule cannot resolve or open the named coder or
+  reviewer pane tty after bounded retries, it journals
+  `needs_human reason=seat_unavailable` and does not run the agent unseated.
+  Repair or recreate the capsule topology, record `decide ... retry`, and resume.
 - Reviewer auth failures: fix the configured reviewer GitHub auth/login, then
   rerun reviewer activation or prompt the reviewer without changing the coder
   branch.
