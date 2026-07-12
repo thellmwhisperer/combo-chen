@@ -188,6 +188,7 @@ function deps(
   gitCalls: string[];
   agentCommands: string[];
   agentRequests: AgentProcessRequest[];
+  titleCalls: Array<{ role: string; title: string }>;
   activateReviewer: ReturnType<typeof vi.fn>;
   setCoder: (fn: CapsuleDeps["runAgent"]) => void;
   setReviewer: (fn: CapsuleDeps["runAgent"]) => void;
@@ -197,6 +198,7 @@ function deps(
   const gitCalls: string[] = [];
   const agentCommands: string[] = [];
   const agentRequests: AgentProcessRequest[] = [];
+  const titleCalls: Array<{ role: string; title: string }> = [];
   const activateReviewer = vi.fn();
   let coder: CapsuleDeps["runAgent"] = async () => ({
     exitCode: input.coderExitCode ?? 0,
@@ -212,6 +214,7 @@ function deps(
     gitCalls,
     agentCommands,
     agentRequests,
+    titleCalls,
     activateReviewer,
     setCoder: (fn) => {
       coder = fn;
@@ -250,6 +253,9 @@ function deps(
       resolvePrHead: async () => "published",
       ensurePrAutoclose: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
       activateReviewer,
+      setPaneTitle: (role, title) => {
+        titleCalls.push({ role, title });
+      },
       ...(input.resolveSeatTty === undefined ? {} : { resolveSeatTty: input.resolveSeatTty }),
     },
   };
@@ -586,6 +592,12 @@ describe("capsule local review round", () => {
       expect(existsSync(tempPath)).toBe(false);
       expect(reviewerPid).toBeDefined();
       expect(() => process.kill(reviewerPid!, 0)).toThrow();
+      // Capsule-owned pane titles: live on turn start, idle reset after artifact collection reaps the child.
+      // Only the reviewer turn uses runAgentProcess (the default coder is a plain GateProcessResult).
+      expect(h.titleCalls).toEqual([
+        { role: "reviewer", title: "reviewer · judging round 1" },
+        { role: "reviewer", title: "reviewer · idle" },
+      ]);
     } finally {
       if (reviewerPid !== undefined) {
         try {
@@ -1628,6 +1640,59 @@ describe("capsule agent custody (W5b fix round 1)", () => {
 
     expect(result.timedOut).toBe(true);
     expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("TOMBSTONE: resets the pane title after artifact collection with a live child", async () => {
+    let turnStarted = false;
+    let turnEnded = false;
+    const artifactCollected = mkdtempSync(join(tmpdir(), "combo-chen-artifact-"));
+    const artifactPath = join(artifactCollected, "done.txt");
+    const started = Date.now();
+
+    const result = await runAgentProcess({
+      command: "touch done.txt && sleep 30",
+      cwd: artifactCollected,
+      timeoutMs: 30_000,
+      completionArtifact: {
+        path: artifactPath,
+        pollMs: 5,
+        validateAndCollect: () => existsSync(artifactPath),
+      },
+      onTurnStart: () => {
+        turnStarted = true;
+      },
+      onTurnEnd: () => {
+        turnEnded = true;
+      },
+    });
+
+    expect(result.completedBy).toBe("artifact");
+    expect(turnStarted).toBe(true);
+    expect(turnEnded).toBe(true);
+    expect(Date.now() - started).toBeLessThan(10_000);
+  });
+
+  it("TOMBSTONE: resets the pane title after timeout kill", async () => {
+    let turnStarted = false;
+    let turnEnded = false;
+    const started = Date.now();
+
+    const result = await runAgentProcess({
+      command: "sleep 30",
+      cwd: tmpdir(),
+      timeoutMs: 200,
+      onTurnStart: () => {
+        turnStarted = true;
+      },
+      onTurnEnd: () => {
+        turnEnded = true;
+      },
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(turnStarted).toBe(true);
+    expect(turnEnded).toBe(true);
+    expect(Date.now() - started).toBeLessThan(10_000);
   });
 
   it("escalates a reviewer child that never exits at the frozen turn timeout", async () => {
