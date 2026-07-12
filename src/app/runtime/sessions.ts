@@ -16,13 +16,13 @@
  *   ----------
  *   CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW (legacy; killed but never created), DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps
  *   KillComboSessionResult, windowSet
- *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ *   killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
  *
  *   INTERNALS
  *   ---------
  *   tmuxFailureText, isMissingSession
  *
- * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, resolveAttachCombo, ensureJournalPane
+ * @exports CODER_WINDOW, JOURNAL_WINDOW, DIRECTOR_WINDOW, REVIEWER_WINDOW, REVIEWER_WATCH_WINDOW, DIRECTOR_WATCH_WINDOW, GATE_RUNNER_WINDOW, CAPSULE_WINDOW, SessionDeps, KillComboSessionResult, windowSet, killComboSession, killWindowIfPresent, ensureWindowPresent, idleRoleWindowCommand, capsuleWindowCommand, removeLegacyTopologyWindows, ensureComboSession, ensureCapsuleComboSession, resolveAttachCombo, ensureJournalPane
  * @deps ../../core/guards, ../../core/shell-quote, ../../core/state, ../../infra/tmux, ../../shell/templates
  */
 import { errorMessage } from "../../core/guards.js";
@@ -172,6 +172,35 @@ export function ensureComboSession(input: {
   if (created.status !== 0) {
     throw new Error(
       `tmux failed to recreate combo session "${combo.tmuxSession}": ` +
+        `${created.stderr.trim() || "unknown error"}`,
+    );
+  }
+  return true;
+}
+
+/**
+ * Capsule-engine session recovery: pane 0 must be the capsule sequencer, so a
+ * missing session is recreated with CAPSULE_WINDOW as the initial window (the
+ * launch contract), never the generic journal-first shell.
+ */
+export function ensureCapsuleComboSession(input: {
+  deps: SessionDeps;
+  combo: ComboRecord;
+  home: string;
+  cli: string;
+  runDir: string;
+}): boolean {
+  const { deps, combo, home, cli, runDir } = input;
+  const command = capsuleWindowCommand({ cli, comboHome: home, runDir });
+  if (deps.tmux(hasSessionArgs(combo.tmuxSession)).status === 0) {
+    ensureWindowPresent(deps, combo, CAPSULE_WINDOW, command);
+    return false;
+  }
+
+  const created = deps.tmux(newSessionArgs(combo.tmuxSession, CAPSULE_WINDOW, command));
+  if (created.status !== 0) {
+    throw new Error(
+      `tmux failed to recreate capsule combo session "${combo.tmuxSession}": ` +
         `${created.stderr.trim() || "unknown error"}`,
     );
   }
