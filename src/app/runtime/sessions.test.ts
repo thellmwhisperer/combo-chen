@@ -37,10 +37,13 @@ import {
   killComboSession,
   killWindowIfPresent,
   JOURNAL_WINDOW,
+  paneTitleIdle,
+  paneTitleLive,
   REVIEWER_WINDOW,
   resolveAttachCombo,
   resolveRoleSeatTty,
   seatOccupancy,
+  setPaneTitle,
 } from "./sessions.js";
 
 // -- 1/4 HELPER · combo fixture --
@@ -504,6 +507,73 @@ describe("killWindowIfPresent", () => {
       ["list-windows", "-t", "combo-chen-o-r-7", "-F", "#{window_name}"],
       ["kill-window", "-t", "combo-chen-o-r-7:reviewer"],
     ]);
+  });
+});
+
+describe("paneTitleIdle", () => {
+  it("produces idle titles by role", () => {
+    expect(paneTitleIdle("reviewer")).toBe("reviewer · idle");
+    expect(paneTitleIdle("coder")).toBe("coder · idle");
+  });
+});
+
+describe("paneTitleLive", () => {
+  it("produces live titles by role and detail", () => {
+    expect(paneTitleLive("reviewer", "judging")).toBe("reviewer · judging");
+    expect(paneTitleLive("coder", "working")).toBe("coder · working");
+  });
+});
+
+describe("setPaneTitle", () => {
+  it("sets the pane title via select-pane -T", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    setPaneTitle(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      record,
+      "reviewer",
+      "reviewer · judging",
+    );
+
+    expect(calls).toEqual([["select-pane", "-T", "reviewer · judging", "-t", "combo-chen-o-r-7:reviewer"]]);
+  });
+
+  it("resets to idle with a single call", () => {
+    const calls: string[][] = [];
+    const record = combo();
+
+    setPaneTitle(
+      {
+        tmux: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: "", stderr: "" };
+        },
+      },
+      record,
+      "reviewer",
+      paneTitleIdle("reviewer"),
+    );
+
+    expect(calls).toEqual([["select-pane", "-T", "reviewer · idle", "-t", "combo-chen-o-r-7:reviewer"]]);
+  });
+
+  it("throws when tmux select-pane fails", () => {
+    const record = combo();
+
+    expect(() =>
+      setPaneTitle(
+        { tmux: () => ({ status: 1, stdout: "", stderr: "no pane" }) },
+        record,
+        "reviewer",
+        "reviewer · idle",
+      ),
+    ).toThrow(/failed to set pane title/);
   });
 });
 // -/ 4/4

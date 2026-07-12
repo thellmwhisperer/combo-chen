@@ -63,7 +63,7 @@ import {
   showRecap,
   showStatus,
 } from "../app/reporting/reporting-handlers.js";
-import { resolveRoleSeatTty } from "../app/runtime/sessions.js";
+import { resolveRoleSeatTty, setPaneTitle as setSessionPaneTitle } from "../app/runtime/sessions.js";
 import { tmux as realTmux } from "../infra/tmux.js";
 import {
   checkForPassiveUpdate,
@@ -206,6 +206,15 @@ export function createProgram(deps: AppDeps): Command {
               // D1 seats: owned role children render and read in their named
               // windows; the capsule pane hosts only the sequencer.
               resolveSeatTty: (windowName) => resolveRoleSeatTty(deps, combo, windowName),
+              // Capsule-owned pane titles: truthful per the v1 transparency
+              // contract; best-effort (non-fatal if tmux is unavailable).
+              setPaneTitle: (role, title) => {
+                try {
+                  setSessionPaneTitle(deps, combo, role, title);
+                } catch {
+                  // best-effort
+                }
+              },
               attachGate: () => {
                 refreshGatekeeperWindow(deps, combo);
                 deps.out(`capsule: ${GATEKEEPER_WINDOW} attached to the current gate run`);
