@@ -74,7 +74,7 @@ describe("resolveAttachCombo", () => {
         home,
         undefined,
       ),
-    ).toEqual(running);
+    ).toEqual({ ...running, schemaVersion: 1 });
   });
 });
 // -/ 2/4

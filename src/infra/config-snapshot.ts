@@ -15,6 +15,8 @@
  *   PUBLIC API
  *   ----------
  *   CONFIG_SNAPSHOT_FILE  Stable artifact filename in each run directory.
+ *   CONFIG_SNAPSHOT_SCHEMA_VERSION  Snapshot schema version; legacy reads as v0.
+ *   ConfigSnapshot        ComboConfig plus its stamped schemaVersion.
  *   writeConfigSnapshot   Write resolved ComboConfig as formatted JSON.
  *   readConfigSnapshot    Read resolved ComboConfig from the run directory.
  *   loadRuntimeConfig     Read the snapshot, falling back for legacy runs only.
@@ -23,7 +25,7 @@
  *   ---------
  *   none
  *
- * @exports CONFIG_SNAPSHOT_FILE, writeConfigSnapshot, readConfigSnapshot, loadRuntimeConfig
+ * @exports CONFIG_SNAPSHOT_FILE, CONFIG_SNAPSHOT_SCHEMA_VERSION, ConfigSnapshot, writeConfigSnapshot, readConfigSnapshot, loadRuntimeConfig
  * @deps node:{fs,path,process}, ./config
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
@@ -35,20 +37,37 @@ import { loadConfig, type ComboConfig } from "./config.js";
 // -- 1/1 CORE · config snapshot artifact <- START HERE --
 export const CONFIG_SNAPSHOT_FILE = "config.snapshot.json";
 
-export function writeConfigSnapshot(runDir: string, config: ComboConfig): void {
+/** Contract artifact schema version; absent on legacy snapshots, which read as v0. */
+export const CONFIG_SNAPSHOT_SCHEMA_VERSION = 1;
+
+export interface ConfigSnapshot extends ComboConfig {
+  schemaVersion: number;
+}
+
+export function writeConfigSnapshot(runDir: string, config: ComboConfig & { schemaVersion?: number }): void {
   mkdirSync(runDir, { recursive: true });
   const snapshotPath = join(runDir, CONFIG_SNAPSHOT_FILE);
   const tempPath = `${snapshotPath}.tmp-${pid}-${Date.now()}`;
+  // A snapshot is frozen at launch: re-persisting keeps its original version.
+  const { schemaVersion, ...rest } = config;
+  const snapshot: ConfigSnapshot = {
+    schemaVersion: schemaVersion ?? CONFIG_SNAPSHOT_SCHEMA_VERSION,
+    ...rest,
+  };
   try {
-    writeFileSync(tempPath, `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(tempPath, `${JSON.stringify(snapshot, null, 2)}\n`);
     renameSync(tempPath, snapshotPath);
   } finally {
     if (existsSync(tempPath)) unlinkSync(tempPath);
   }
 }
 
-export function readConfigSnapshot(runDir: string): ComboConfig {
-  return JSON.parse(readFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), "utf8")) as ComboConfig;
+export function readConfigSnapshot(runDir: string): ConfigSnapshot {
+  const parsed = JSON.parse(readFileSync(join(runDir, CONFIG_SNAPSHOT_FILE), "utf8")) as ComboConfig & {
+    schemaVersion?: number;
+  };
+  // Legacy pre-v1 snapshots carry no schemaVersion; they read as v0 semantics.
+  return { ...parsed, schemaVersion: parsed.schemaVersion ?? CONFIG_SNAPSHOT_SCHEMA_VERSION };
 }
 
 export function loadRuntimeConfig(

@@ -17,7 +17,7 @@
  * @exports none (test file)
  * @deps vitest, node:{fs,os,path}, ./state
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -87,8 +87,85 @@ describe("combo records", () => {
     const dir = runDirFor(base, combo.id);
     writeCombo(dir, combo);
 
-    expect(readCombo(dir)).toEqual(combo);
+    expect(readCombo(dir)).toEqual({ ...combo, schemaVersion: 1 });
     expect(listCombos(base).map((c) => c.id)).toEqual(["o-r-7"]);
+  });
+
+  it("stamps schema_version 1 into the persisted combo record", () => {
+    const base = home();
+    const dir = runDirFor(base, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: "2026-07-12T00:00:00.000Z",
+    });
+
+    const persisted = JSON.parse(readFileSync(join(dir, "combo.json"), "utf8")) as {
+      schemaVersion?: unknown;
+    };
+    expect(persisted.schemaVersion).toBe(1);
+  });
+
+  it("defaults a legacy combo record without schema_version to v0 semantics on read", () => {
+    const base = home();
+    const dir = runDirFor(base, "o-r-7");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "combo.json"),
+      `${JSON.stringify({
+        id: "o-r-7",
+        issueUrl: "https://github.com/o/r/issues/7",
+        repoDir: "/repos/r",
+        worktree: "/repos/r/.worktrees/issue-7",
+        branch: "combo/issue-7",
+        tmuxSession: "combo-chen-o-r-7",
+        createdAt: "2026-06-10T00:00:00.000Z",
+      })}\n`,
+    );
+
+    expect(readCombo(dir).schemaVersion).toBe(1);
+  });
+
+  it("preserves an existing schema_version across write round-trips", () => {
+    const base = home();
+    const dir = runDirFor(base, "o-r-7");
+    writeCombo(dir, {
+      id: "o-r-7",
+      issueUrl: "https://github.com/o/r/issues/7",
+      schemaVersion: 2,
+      repoDir: "/repos/r",
+      worktree: "/repos/r/.worktrees/issue-7",
+      branch: "combo/issue-7",
+      tmuxSession: "combo-chen-o-r-7",
+      createdAt: "2026-07-12T00:00:00.000Z",
+    });
+
+    expect(readCombo(dir).schemaVersion).toBe(2);
+  });
+
+  it("treats a combo record with a non-numeric schema_version as corrupt", () => {
+    const base = home();
+    const dir = runDirFor(base, "o-r-7");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "combo.json"),
+      `${JSON.stringify({
+        id: "o-r-7",
+        issueUrl: "https://github.com/o/r/issues/7",
+        schemaVersion: "one",
+        repoDir: "/repos/r",
+        worktree: "/repos/r/.worktrees/issue-7",
+        branch: "combo/issue-7",
+        tmuxSession: "combo-chen-o-r-7",
+        createdAt: "2026-06-10T00:00:00.000Z",
+      })}\n`,
+    );
+
+    expect(() => readCombo(dir)).toThrow(ComboStateError);
   });
 
   it("lists nothing when the home does not exist yet", () => {

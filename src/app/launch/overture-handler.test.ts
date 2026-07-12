@@ -62,10 +62,12 @@ describe("overture", () => {
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-session")).toBe(false);
 
     const artifact = JSON.parse(readFileSync(join(runDirFor(h, "o-r-7"), "overture.json"), "utf8")) as {
+      schemaVersion: number;
       ok: boolean;
       resources: { comboId: string; branch: string; worktree: string; tmuxSession: string };
       checks: Array<{ id: string; status: string; resource: string }>;
     };
+    expect(artifact.schemaVersion).toBe(1);
     expect(artifact.ok).toBe(true);
     expect(artifact.resources).toMatchObject({
       comboId: "o-r-7",
