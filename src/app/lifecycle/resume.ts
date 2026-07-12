@@ -47,15 +47,16 @@ import {
 import { parsePrView, type GhRunner } from "../github/github.js";
 import { activateReviewer } from "../director/reviewer.js";
 import {
-  CAPSULE_WINDOW,
   CODER_WINDOW,
   DIRECTOR_WATCH_WINDOW,
   DIRECTOR_WINDOW,
+  JOURNAL_WINDOW,
   REVIEWER_WINDOW,
-  capsuleWindowCommand,
+  ensureCapsuleComboSession,
   ensureComboSession,
   ensureWindowPresent,
   idleRoleWindowCommand,
+  killWindowIfPresent,
   removeLegacyTopologyWindows,
 } from "../runtime/sessions.js";
 import {
@@ -408,7 +409,16 @@ function convergeCapsuleTopology(input: {
   runDir: string;
 }): boolean {
   const { deps, combo, home, cli, config, runDir } = input;
-  const recreated = ensureComboSession({ deps, combo, home, cli });
+  // Pane 0 must be the capsule sequencer (the launch contract); the relaunched
+  // capsule re-derives its own phase from the journal, so the same entry
+  // command is correct for gate and supervise resumes alike.
+  const recreated = ensureCapsuleComboSession({ deps, combo, home, cli, runDir });
+  ensureWindowPresent(
+    deps,
+    combo,
+    JOURNAL_WINDOW,
+    `COMBO_CHEN_HOME=${shellQuote(home)} ${cli} events --follow -n ${shellQuote(combo.id)}`,
+  );
   ensureWindowPresent(
     deps,
     combo,
@@ -421,9 +431,9 @@ function convergeCapsuleTopology(input: {
     retryIntervalSeconds: config.gatekeeperAttachRetryIntervalSeconds,
   });
   ensureWindowPresent(deps, combo, REVIEWER_WINDOW, idleRoleWindowCommand(REVIEWER_WINDOW));
-  // The relaunched capsule re-derives its own phase from the journal, so the
-  // same entry command is correct for gate and supervise resumes alike.
-  ensureWindowPresent(deps, combo, CAPSULE_WINDOW, capsuleWindowCommand({ cli, comboHome: home, runDir }));
+  // A stale v0 shell watcher must not survive on a capsule run: the capsule
+  // pane's in-process supervisor is the only observer.
+  killWindowIfPresent(deps, combo, DIRECTOR_WATCH_WINDOW);
   return recreated;
 }
 
