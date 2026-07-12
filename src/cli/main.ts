@@ -52,6 +52,7 @@ import { launchCombo, runOverture, type LaunchOptions } from "../app/launch/laun
 import {
   attachCombo,
   closeCombo,
+  decideComboEscalation,
   emitComboEvent,
   parkPersistedCombo,
   printComboEvents,
@@ -335,6 +336,27 @@ export function createProgram(deps: AppDeps): Command {
     .requiredOption("-n, --name <comboId>", "Combo id")
     .action(async (options: { name: string }) => {
       await resumePersistedCombo(deps, options.name, cli);
+    });
+
+  program
+    .command("decide")
+    .description("Record a decision for a pending needs_human escalation (retry | skip | take_over | ignore)")
+    .argument("<verb>", "Decision verb: retry, skip, take_over (take-over), or ignore")
+    .requiredOption("-n, --name <comboId>", "Combo id")
+    .option(
+      "--ref <timestamp>",
+      "Journal timestamp of the needs_human event to answer; defaults to the latest pending",
+    )
+    .option("--note <text>", "Free-form context recorded with the decision")
+    .option("--by <who>", "Who decided", "human")
+    .action((verb: string, options: { name: string; ref?: string; note?: string; by: string }) => {
+      decideComboEscalation(deps, {
+        name: options.name,
+        verb,
+        by: options.by,
+        ...(options.ref === undefined ? {} : { ref: options.ref }),
+        ...(options.note === undefined ? {} : { note: options.note }),
+      });
     });
 
   program

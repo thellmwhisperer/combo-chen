@@ -14,13 +14,13 @@
  *   PUBLIC API
  *   ----------
  *   attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo,
- *   stopCombo, printComboEvents, emitComboEvent
+ *   stopCombo, printComboEvents, emitComboEvent, decideComboEscalation
  *
  *   INTERNALS
  *   ---------
- *   None.
+ *   DECISION_VERBS.
  *
- * @exports attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent
+ * @exports attachCombo, closeCombo, reconcileComboState, resumePersistedCombo, parkPersistedCombo, stopCombo, printComboEvents, emitComboEvent, decideComboEscalation
  * @deps ../../core/events, ../../core/runtime-ledger, ../../core/state, ../../infra/config-snapshot, ../../infra/tmux, ../../roles/coder-invocation, ../deps, ../director/watchers, ../gate/gate, ../runtime/sessions, ./closure, ./event-fields, ./park, ./reconcile, ./resume
  */
 import {
@@ -111,7 +111,47 @@ export function emitComboEvent(
 }
 // -/ 1/3
 
-// -- 2/3 CORE · Resume, closure, reconcile, and park --
+// -- 2/3 CORE · Resume, closure, reconcile, decide, and park --
+const DECISION_VERBS = ["retry", "skip", "take_over", "ignore"] as const;
+
+/**
+ * Answer a pending needs_human escalation with a decision journal event
+ * (PRD s7). A needs_human is pending while no decision carries its journal
+ * timestamp as needs_human_ref; the latest pending one is answered unless an
+ * explicit --ref targets an earlier escalation.
+ */
+export function decideComboEscalation(
+  deps: Pick<AppDeps, "env" | "out">,
+  options: { name: string; verb: string; note?: string; ref?: string; by?: string },
+): void {
+  const runDir = runDirFor(comboHome(deps.env), options.name);
+  const verb = options.verb.replace(/-/g, "_");
+  if (!(DECISION_VERBS as readonly string[]).includes(verb)) {
+    throw new Error(`unknown decision verb "${options.verb}"; expected one of: ${DECISION_VERBS.join(", ")}`);
+  }
+  const events = readEvents(runDir);
+  const decidedRefs = new Set(
+    events.filter((event) => event.event === "decision").map((event) => String(event["needs_human_ref"])),
+  );
+  const pending = events.filter((event) => event.event === "needs_human" && !decidedRefs.has(event.t));
+  const target =
+    options.ref === undefined ? pending.at(-1) : pending.find((event) => event.t === options.ref);
+  if (target === undefined) {
+    throw new Error(
+      options.ref === undefined
+        ? `no pending needs_human escalation for ${options.name}`
+        : `no pending needs_human escalation at ${options.ref} for ${options.name}`,
+    );
+  }
+  appendEvent(runDir, "decision", {
+    needs_human_ref: target.t,
+    verb,
+    ...(options.note === undefined ? {} : { note: options.note }),
+    by: options.by ?? "human",
+  });
+  const reason = typeof target["reason"] === "string" ? ` (${target["reason"]})` : "";
+  deps.out(`decision recorded for ${options.name}: ${verb} -> needs_human@${target.t}${reason}`);
+}
 export async function closeCombo(deps: AppDeps, comboId: string): Promise<void> {
   await closeMergedCombo({
     deps,
