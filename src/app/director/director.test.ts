@@ -357,7 +357,7 @@ describe("tickDirector", () => {
     expect(out).toContainEqual(expect.stringContaining("worker coder unchanged pane for 2 ticks"));
   });
 
-  it("escalates a dead pre-PR coder pane to needs_human", async () => {
+  it("relaunches the capsule sequencer for a dead pre-PR coder pane", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
@@ -379,19 +379,21 @@ describe("tickDirector", () => {
 
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
-        event: "needs_human",
-        reason: "coder_dead",
+        event: "worker_recovered",
+        worker: "coder",
+        reason: "worker_dead",
         detail: "dead pane",
         attempt: 1,
         max_attempts: 2,
       }),
     );
-    expect(readEvents(runDir).some((event) => event.event === "worker_recovered")).toBe(false);
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
-    expect(out).toContain(
-      'director: coder dead (worker_dead); escalated to needs_human. Run "combo-chen decide o-r-7 retry" to restart the capsule, or "take_over" to intervene manually.',
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    const capsuleWindow = calls.find(
+      (call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("capsule"),
     );
+    expect(capsuleWindow).toBeDefined();
+    expect(capsuleWindow?.at(-1)).toContain(" capsule ");
+    expect(out).toContain("director: coder dead (worker_dead); relaunched capsule sequencer attempt 1/2");
   });
 
   it("does not recover the initial coder after coder_done is journaled", async () => {
@@ -399,7 +401,6 @@ describe("tickDirector", () => {
     const record = combo();
     const runDir = runDirFor(h, record.id);
     writeCombo(runDir, record);
-    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
     appendEvent(runDir, "coder_done", {});
     const { deps, calls } = fakeDeps({
@@ -427,7 +428,6 @@ describe("tickDirector", () => {
     const record = combo();
     const runDir = runDirFor(h, record.id);
     writeCombo(runDir, record);
-    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
     appendEvent(runDir, "coder_done", {});
     const { deps, calls } = fakeDeps({
@@ -468,7 +468,7 @@ describe("tickDirector", () => {
     expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
   });
 
-  it("escalates the initial coder after coder_failed with a dead pane", async () => {
+  it("relaunches the capsule after coder_failed with a dead pane", async () => {
     const h = mkdtempSync(join(tmpdir(), "combo-chen-home-"));
     const record = combo();
     const runDir = runDirFor(h, record.id);
@@ -491,19 +491,19 @@ describe("tickDirector", () => {
 
     expect(readEvents(runDir)).toContainEqual(
       expect.objectContaining({
-        event: "needs_human",
-        reason: "coder_dead",
+        event: "worker_recovered",
+        worker: "coder",
+        reason: "worker_dead",
         detail: "dead pane",
         attempt: 1,
         max_attempts: 2,
       }),
     );
-    expect(readEvents(runDir).some((event) => event.event === "worker_recovered")).toBe(false);
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "kill-window")).toBe(false);
-    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window")).toBe(false);
-    expect(out).toContain(
-      'director: coder dead (worker_dead); escalated to needs_human. Run "combo-chen decide o-r-7 retry" to restart the capsule, or "take_over" to intervene manually.',
+    expect(readEvents(runDir).some((event) => event.event === "needs_human")).toBe(false);
+    expect(calls.some((call) => call[0] === "tmux" && call[1] === "new-window" && call.includes("capsule"))).toBe(
+      true,
     );
+    expect(out).toContain("director: coder dead (worker_dead); relaunched capsule sequencer attempt 1/2");
   });
 
   it("escalates a dead pre-PR coder after the restart attempt budget is exhausted", async () => {
@@ -511,7 +511,6 @@ describe("tickDirector", () => {
     const record = combo();
     const runDir = runDirFor(h, record.id);
     writeCombo(runDir, record);
-    writeFileSync(join(runDir, "runner.sh"), "#!/bin/sh\nexit 0\n");
     appendEvent(runDir, "coder_started", {});
     appendEvent(runDir, "worker_recovered", {
       worker: "coder",

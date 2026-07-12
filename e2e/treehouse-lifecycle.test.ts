@@ -66,6 +66,7 @@ interface HarnessOptions {
   executeGatekeeperWindows?: boolean;
   activeNoMistakes?: boolean;
   workerStallTicks?: number;
+  workerRecoveryAttempts?: number;
   workPlanExtra?: string[];
   permissionPromptPolicy?: "auto-approve-known-safe" | "recreate-non-interactive" | "escalate";
   coderRole?: string;
@@ -824,6 +825,72 @@ describe("treehouse-backed combo lifecycle e2e", { timeout: LIFECYCLE_TEST_TIMEO
     }
   });
 
+  it("relaunches the capsule for a dead pre-PR coder, then escalates once the budget is exhausted", () => {
+    const harness = prepareHarness({ workerRecoveryAttempts: 1 });
+    let passed = false;
+
+    try {
+      const { combo, runDir } = launchPlanCombo(harness);
+      appendEvent(runDir, "coder_started", {});
+
+      const deadPane = ['{"success": false, "should_fully_stop": false}', "Run gnhf again to resume."].join(
+        "\n",
+      );
+      const tickEnv = { ...harness.env, E2E_TMUX_CAPTURE_CODER: deadPane };
+
+      const firstTick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+      expect(firstTick.stdout).toContain(
+        "director: coder dead (worker_dead); relaunched capsule sequencer attempt 1/1",
+      );
+
+      let events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event: "worker_recovered",
+          worker: "coder",
+          reason: "worker_dead",
+          attempt: 1,
+          max_attempts: 1,
+        }),
+      );
+      expect(events.some((event) => event.event === "needs_human")).toBe(false);
+
+      const tmuxLog = readJsonLines<LogEntryJson>(harness.logs.tmux);
+      expect(tmuxLog).toContainEqual(
+        expect.objectContaining({ args: ["kill-window", "-t", `${combo.tmuxSession}:capsule`] }),
+      );
+      const capsuleWindow = tmuxLog.find(
+        (entry) => entry.args[0] === "new-window" && entry.args.includes("capsule"),
+      );
+      expect(capsuleWindow).toBeDefined();
+      expect(capsuleWindow!.args.at(-1)).toContain(" capsule ");
+      expect(capsuleWindow!.args.at(-1)).not.toContain("runner.sh");
+
+      const secondTick = run(process.execPath, [cliPath, "director-tick", "-n", combo.id], {
+        cwd: harness.repo,
+        env: tickEnv,
+      });
+      expect(secondTick.stdout).toContain("recovery attempts exhausted after 1");
+
+      events = readJsonLines<JournalEventJson>(join(runDir, "journal.jsonl"));
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          event: "needs_human",
+          reason: "worker_dead",
+          worker: "coder",
+        }),
+      );
+
+      passed = true;
+    } finally {
+      if (passed) rmSync(harness.root, { recursive: true, force: true });
+      else process.stderr.write(`kept failing e2e harness at ${harness.root}\n`);
+    }
+  });
+
   it("does not flag the coder as stalled when gnhf log shows recent activity", () => {
     const harness = prepareHarness();
     let passed = false;
@@ -999,6 +1066,9 @@ function writeRepoConfig(repo: string, options: HarnessOptions): void {
   const coderResumeCommand = options.coderResumeCommand ?? "true";
   const monitorLines = [
     ...(options.workerStallTicks === undefined ? [] : [`worker_stall_ticks = ${options.workerStallTicks}`]),
+    ...(options.workerRecoveryAttempts === undefined
+      ? []
+      : [`worker_recovery_attempts = ${options.workerRecoveryAttempts}`]),
     ...(options.permissionPromptPolicy === undefined
       ? []
       : [`permission_prompt_policy = ${JSON.stringify(options.permissionPromptPolicy)}`]),
