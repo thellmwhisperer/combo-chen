@@ -6,7 +6,7 @@
  *   1. Start at activateCoder tests        <- resumed coder worker.
  *   2. Then nudgeReviewComments tests      <- mirror sync and comment routing.
  *   3. Then recoverStuckWorker tests        <- stale worker recreation.
- *   4. Then recoverDeadCoder tests         <- initial coder runner restart.
+ *   4. Then recoverDeadCoder tests         <- capsule-owned capsule pane relaunch.
  *   5. Test harness helpers                <- combo and thread artifact setup.
  *
  *   MAIN FLOW
