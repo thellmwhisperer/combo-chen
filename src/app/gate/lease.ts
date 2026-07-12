@@ -1,15 +1,16 @@
 /**
  * @overview Branch-scoped no-mistakes gate lease application actions.
- *   Turns persisted lease states into shell-friendly exit codes and journal facts.
+ *   Turns persisted lease states into deterministic result codes and journal facts
+ *   for the in-process gate.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at acquireGateLeaseForCombo <- generated gate scripts call this.
- *   2. Then releaseGateLeaseForCombo     <- trap-safe lease cleanup.
+ *   1. Start at acquireGateLeaseForCombo <- withGateLease (in-process-gate.ts) calls this.
+ *   2. Then releaseGateLeaseForCombo     <- finally-block lease cleanup after the gate settles.
  *
  *   MAIN FLOW
  *   ---------
- *   generated gate script -> gate-lease action -> core lease store + journal status
+ *   runInProcessGate -> withGateLease -> acquire/release action -> core lease store + journal status
  *
  *   PUBLIC API
  *   ----------

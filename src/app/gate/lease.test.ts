@@ -1,14 +1,14 @@
 /**
- * @overview Unit tests for CLI-facing gate lease actions.
- *   Pins how shell scripts surface branch-scoped no-mistakes lease states.
+ * @overview Unit tests for the in-process gate lease actions.
+ *   Pins how the in-process gate surfaces branch-scoped no-mistakes lease states.
  *
  *   READING GUIDE
  *   -------------
- *   1. Start at describe("gate lease CLI actions") <- branch ownership contract.
+ *   1. Start at describe("gate lease actions") <- branch ownership contract.
  *
  *   MAIN FLOW
  *   ---------
- *   hidden gate-lease command -> acquireGateLeaseForCombo -> journal/status code
+ *   withGateLease (in-process-gate.ts) -> acquireGateLeaseForCombo -> journal/status code
  *
  * @exports none
  * @deps ../../core/events, ../../core/gate-lease, ../../core/state, ./lease, node:fs, node:os, node:path, vitest
@@ -28,11 +28,11 @@ import {
 } from "./lease.js";
 
 function home(): string {
-  return mkdtempSync(join(tmpdir(), "combo-chen-gate-lease-cli-"));
+  return mkdtempSync(join(tmpdir(), "combo-chen-gate-lease-"));
 }
 
-// -- 1/1 CORE · gate lease CLI actions <- START HERE --
-describe("gate lease CLI actions", () => {
+// -- 1/1 CORE · gate lease actions <- START HERE --
+describe("gate lease actions", () => {
   it("records a deterministic conflict when another combo owns the same branch lease", () => {
     const h = home();
     const currentRunDir = runDirFor(h, "o-r-7");
