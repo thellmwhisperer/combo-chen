@@ -33,7 +33,6 @@ import {
   selectWindowArgs,
   splitWindowArgs,
   switchClientArgs,
-  unbindKeyArgs,
 } from "./tmux.js";
 
 // -- 1/1 CORE · tmux argument builders: argv contracts ← START HERE --
@@ -131,10 +130,6 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
       "-t",
       "combo-chen-home",
     ]);
-  });
-
-  it("unbinds a prefix key", () => {
-    expect(unbindKeyArgs("B")).toEqual(["unbind-key", "B"]);
   });
 
   it("nudges an interactive sitter with pasted text and a separate raw Enter", () => {

@@ -18,12 +18,14 @@
  * @exports none
  * @deps ./entry, vitest
  */
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { appendEvent } from "../../core/events.js";
 import { writeLoopState } from "../../core/loop-state.js";
+import { runDirFor } from "../../core/state.js";
 import { writeVerdictFile } from "../../core/verdict.js";
 import {
   HOME_SESSION_NAME,
@@ -34,10 +36,11 @@ import {
   insideTmux,
   isTtyStdout,
   loadVerdictsForCombo,
+  recordDecision,
   resolveJumpActions,
 } from "./entry.js";
 
-// -- 1/2 CORE · pure helpers <-
+// -- 1/6 CORE · pure helpers <-
 describe("session helpers", () => {
   it("detects inside-tmux from TMUX env", () => {
     expect(insideTmux({ TMUX: "/tmp/tmux-1000/default,123,0" })).toBe(true);
@@ -58,9 +61,9 @@ describe("session helpers", () => {
     expect(cmd).toContain("cli.mjs");
   });
 });
-// -/ 1/2
+// -/ 1/6
 
-// -- 2/2 CORE · homeSessionActions <-
+// -- 2/6 CORE · homeSessionActions <-
 describe("homeSessionActions", () => {
   it("switches client when session exists and inside tmux", () => {
     const actions = homeSessionActions(true, true, '"node" cli.mjs');
@@ -100,9 +103,9 @@ describe("homeSessionActions", () => {
     expect(createCmd).toContain(TUI_DIRECT_ENV);
   });
 });
-// -/ 2/2
+// -/ 2/6
 
-// -- 3/5 CORE · loadVerdictsForCombo (verdict files keyed by round) <-
+// -- 3/6 CORE · loadVerdictsForCombo (verdict files keyed by round) <-
 describe("loadVerdictsForCombo", () => {
   function freshRunDir(): string {
     return mkdtempSync(join(tmpdir(), "combo-chen-tui-entry-"));
@@ -172,9 +175,9 @@ describe("loadVerdictsForCombo", () => {
     expect(loadVerdictsForCombo(runDir, loopState).size).toBe(0);
   });
 });
-// -/ 3/5
+// -/ 3/6
 
-// -- 4/5 CORE · resolveJumpActions (TUI moves the client only) <-
+// -- 4/6 CORE · resolveJumpActions (TUI moves the client only) <-
 describe("resolveJumpActions", () => {
   it("returns null when no live actor is present", () => {
     expect(
@@ -209,9 +212,9 @@ describe("resolveJumpActions", () => {
     expect(actions![1]).toEqual(["select-window", "-t", "combo-chen-o-r-7:reviewer"]);
   });
 });
-// -/ 4/5
+// -/ 4/6
 
-// -- 5/5 CORE · decideOptions (one write path: feeds decideComboEscalation) <-
+// -- 5/6 CORE · decideOptions (one write path: feeds decideComboEscalation) <-
 describe("decideOptions", () => {
   it("builds the options for the decide handler with the pending ref", () => {
     expect(decideOptions("o-r-7", "retry", "2026-07-12T09:00:00.000Z")).toEqual({
@@ -232,4 +235,42 @@ describe("decideOptions", () => {
     expect(decideOptions("o-r-7", "take-over").verb).toBe("take_over");
   });
 });
-// -/ 5/5
+// -/ 5/6
+
+// -- 6/6 CORE · recordDecision (stale-card guard, must not crash the TUI) <-
+describe("recordDecision", () => {
+  function freshHome(): string {
+    return mkdtempSync(join(tmpdir(), "combo-chen-tui-decide-"));
+  }
+  const noopOut = (): void => {};
+
+  it("returns ok:true and records the decision when a needs_human is pending", () => {
+    const home = freshHome();
+    const env = { COMBO_CHEN_HOME: home };
+    const runDir = runDirFor(home, "o-r-7");
+    mkdirSync(runDir, { recursive: true });
+    appendEvent(runDir, "needs_human", { reason: "gate_failed" });
+    const result = recordDecision({ env, out: noopOut }, { name: "o-r-7", verb: "retry" });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("returns ok:false (does not throw) when the card is already answered", () => {
+    const home = freshHome();
+    const env = { COMBO_CHEN_HOME: home };
+    const runDir = runDirFor(home, "o-r-7");
+    mkdirSync(runDir, { recursive: true });
+    const ref = appendEvent(runDir, "needs_human", { reason: "gate_failed" }).t;
+    appendEvent(runDir, "decision", { needs_human_ref: ref, verb: "skip" });
+    const result = recordDecision({ env, out: noopOut }, { name: "o-r-7", verb: "retry", ref });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.message).toMatch(/pending/);
+  });
+
+  it("returns ok:false when the combo has no journal at all", () => {
+    const home = freshHome();
+    const env = { COMBO_CHEN_HOME: home };
+    const result = recordDecision({ env, out: noopOut }, { name: "ghost", verb: "retry" });
+    expect(result.ok).toBe(false);
+  });
+});
+// -/ 6/6

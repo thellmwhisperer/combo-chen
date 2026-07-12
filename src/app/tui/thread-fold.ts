@@ -163,16 +163,16 @@ function entryFor(
 ): ThreadEntry | undefined {
   switch (event.event) {
     case "combo_created":
-      return { at: event.t, kind: "launched", headline: "▸ launched", detail: workItem };
+      return { at: event.t, kind: "launched", headline: "launched", detail: workItem };
     case "coder_done":
-      return { at: event.t, kind: "coder_done", headline: "● coder finished" };
+      return { at: event.t, kind: "coder_done", headline: "coder finished" };
     case "coder_failed": {
       const code = typeof event["exit_code"] === "number" ? ` · exit ${event["exit_code"]}` : "";
       return { at: event.t, kind: "coder_failed", headline: `coder failed${code}` };
     }
     case "local_review_requested": {
       const round = typeof event["round"] === "number" ? event["round"] : "?";
-      return { at: event.t, kind: "review_requested", headline: `◆ review requested · round ${round}` };
+      return { at: event.t, kind: "review_requested", headline: `review requested · round ${round}` };
     }
     case "local_verdict": {
       const round = typeof event["round"] === "number" ? event["round"] : "?";
@@ -183,43 +183,43 @@ function entryFor(
       return {
         at: event.t,
         kind: "verdict",
-        headline: `◆ reviewer V${round} · code ${code} · ${verdictLabel}`,
+        headline: `reviewer V${round} · code ${code} · ${verdictLabel}`,
         ...(findings.length > 0 ? { findings } : {}),
       };
     }
     case "gate_started":
-      return { at: event.t, kind: "gate", headline: "▶ gate started" };
+      return { at: event.t, kind: "gate", headline: "gate started" };
     case "gate_validated":
-      return { at: event.t, kind: "gate", headline: "● gate validated" };
+      return { at: event.t, kind: "gate", headline: "gate validated" };
     case "pr_opened": {
       const url = typeof event["url"] === "string" ? event["url"] : undefined;
       return {
         at: event.t,
         kind: "pr",
-        headline: "● PR opened",
+        headline: "PR opened",
         ...(url !== undefined ? { detail: url } : {}),
       };
     }
     case "ready_for_merge":
-      return { at: event.t, kind: "ready", headline: "✓ READY · waiting for your merge" };
+      return { at: event.t, kind: "ready", headline: "READY · waiting for your merge" };
     case "needs_human": {
       const reason = typeof event["reason"] === "string" ? event["reason"] : "needs you";
-      return { at: event.t, kind: "escalated", headline: `⚑ needs you · ${reason}` };
+      return { at: event.t, kind: "escalated", headline: `needs you · ${reason}` };
     }
     case "decision": {
       const verb = typeof event["verb"] === "string" ? event["verb"] : "decided";
-      return { at: event.t, kind: "decision", headline: `◈ you decided · ${verb}` };
+      return { at: event.t, kind: "decision", headline: `you decided · ${verb}` };
     }
     case "parked":
-      return { at: event.t, kind: "parked", headline: "■ parked" };
+      return { at: event.t, kind: "parked", headline: "parked" };
     case "merged": {
       const by = typeof event["by"] === "string" ? ` by ${event["by"]}` : "";
       return { at: event.t, kind: "note", headline: `merged${by}` };
     }
     case "combo_closed":
-      return { at: event.t, kind: "closed", headline: "✓ closed" };
+      return { at: event.t, kind: "closed", headline: "closed" };
     case "stopped":
-      return { at: event.t, kind: "closed", headline: "■ stopped" };
+      return { at: event.t, kind: "closed", headline: "stopped" };
     case "pr_conflict": {
       const state = typeof event["merge_state"] === "string" ? event["merge_state"] : "conflict";
       return { at: event.t, kind: "note", headline: `conflict · ${state}` };
@@ -302,7 +302,7 @@ function liveActorEntry(actor: LiveActor): ThreadEntry {
     at: "now",
     kind: "note",
     live: true,
-    headline: `● ${actor.note} · ${mm}:${ss}`,
+    headline: `${actor.note} · ${mm}:${ss}`,
   };
 }
 

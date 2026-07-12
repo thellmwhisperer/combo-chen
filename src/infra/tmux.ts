@@ -25,7 +25,6 @@
  *   │ switchClientArgs        Build args for switch-client (inside tmux)│
  *   │ selectWindowArgs        Build args for select-window               │
  *   │ bindKeyArgs             Build args for bind-key (TUI return binding)│
- *   │ unbindKeyArgs           Build args for unbind-key                  │
  *   │ killSessionArgs         Build args for kill-session               │
  *   │ killWindowArgs          Build args for kill-window                │
  *   │ listWindowsArgs         Build args for list-windows               │
@@ -39,7 +38,7 @@
  *   │ JOURNAL_PANE_HEIGHT     Legacy; journals live in a dedicated window │
  *   └────────────────────────────────────────────────────────────────────┘
  *
- * @exports JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, switchClientArgs, selectWindowArgs, bindKeyArgs, unbindKeyArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux
+ * @exports JOURNAL_PANE_HEIGHT, attachSessionArgs, newSessionArgs, newWindowArgs, splitWindowArgs, hasSessionArgs, switchClientArgs, selectWindowArgs, bindKeyArgs, killSessionArgs, killWindowArgs, listWindowsArgs, listPanesArgs, captureWindowArgs, renameWindowArgs, nudgeWindowArgs, TmuxResult, tmux
  * @deps node:child_process
  */
 import { spawnSync } from "node:child_process";
@@ -98,13 +97,6 @@ export function bindKeyArgs(key: string, command: string, options: { keyTable?: 
   for (const part of command.split(/\s+/)) {
     if (part.length > 0) args.push(part);
   }
-  return args;
-}
-
-export function unbindKeyArgs(key: string, options: { keyTable?: string } = {}): string[] {
-  const args = ["unbind-key"];
-  if (options.keyTable !== undefined) args.push("-T", options.keyTable);
-  args.push(key);
   return args;
 }
 
