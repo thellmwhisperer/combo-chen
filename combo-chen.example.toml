@@ -126,6 +126,23 @@ initial_gate_retry_backoff_seconds = 10
 # {placeholders}: issue_url, worktree, repo, branch, prompt.
 command = "claude {prompt}"
 
+[review]
+# v1 local pre-publish review loop (verdict -> coder fix turn -> re-review).
+# max_rounds is the round-cap backstop; the no-progress guard (same finding
+# fingerprint surviving two consecutive rounds, or a no-op coder fix turn)
+# usually escalates needs_human first. Snapshot-frozen per run.
+# Environment override: COMBO_CHEN_REVIEW_MAX_ROUNDS.
+max_rounds = 3
+# Wall-clock bounds for the loop's owned agent turns: a reviewer or coder fix
+# child that outlives its bound is terminated and the loop escalates
+# needs_human instead of waiting forever. verdict_wait_ms bounds how long the
+# capsule waits for the verdict artifact after the reviewer exits.
+# Environment overrides: COMBO_CHEN_REVIEW_REVIEWER_TURN_TIMEOUT_MINUTES,
+# COMBO_CHEN_REVIEW_FIX_TURN_TIMEOUT_MINUTES, COMBO_CHEN_REVIEW_VERDICT_WAIT_MS.
+reviewer_turn_timeout_minutes = 60
+fix_turn_timeout_minutes = 120
+verdict_wait_ms = 5000
+
 [ready]
 # Required READY checks are GitHub status contexts/check runs, not reviewer
 # approval. Each configured name must be present with exact SUCCESS; all other

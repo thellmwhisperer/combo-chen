@@ -34,7 +34,7 @@
  *   │ WorkerPermissionPromptPolicy, ComboConfig                      │
  *   └───────────────────────────────────────────────────────────────────┘
  *
- * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, RunEngine, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, isCapsuleEngine, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
+ * @exports ComboConfigError, ComboRoles, ComboLimits, ComboTeamRole, ComboTeamIdentity, ComboTeam, WorkerPermissionPromptPolicy, RunEngine, ComboConfig, DEFAULT_GATEKEEPER_COMMAND, DEFAULT_PERMISSION_PROMPT_PATTERNS, DEFAULT_REVIEW_SETTINGS, DEFAULT_WORKER_RECOVERY_ATTEMPTS, loadConfig, hasGnhfCommand, isCapsuleEngine, unsafeCoderInvocationReasons, assertSafeCoderInvocation, renderCommand
  * @deps node:fs, node:os, node:path, smol-toml, ../core/shell-quote
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -108,6 +108,14 @@ export interface ComboConfig {
   reviewerCommand: string;
   /** Free-form reviewer prompt text injected into the reviewer guardrails. */
   reviewerPrompt: string;
+  /** Round cap backstop for the v1 local review loop; the no-progress guard usually fires first. */
+  reviewMaxRounds: number;
+  /** Wall-clock bound for one owned reviewer turn before the capsule escalates. */
+  reviewerTurnTimeoutMinutes: number;
+  /** Wall-clock bound for one owned code-1 coder fix turn before the capsule escalates. */
+  fixTurnTimeoutMinutes: number;
+  /** How long the capsule waits for the verdict artifact after the reviewer exits. */
+  reviewVerdictWaitMs: number;
   /** GitHub logins allowed to publish SHA-pinned reviewer LGTM verdicts. */
   reviewerLogins: string[];
   /** External PR comment agents matched for noise filtering and coder routing. */
@@ -181,6 +189,18 @@ const WORKER_PERMISSION_PROMPT_POLICIES: WorkerPermissionPromptPolicy[] = [
   "recreate-non-interactive",
   "escalate",
 ];
+/**
+ * Documented [review] loop bounds. Exported so config-snapshot can backfill
+ * pre-W5b frozen snapshots: a missing field must read as these defaults, not
+ * as undefined (which would silently disable the round cap and timeouts).
+ */
+export const DEFAULT_REVIEW_SETTINGS = {
+  maxRounds: 3,
+  reviewerTurnTimeoutMinutes: 60,
+  fixTurnTimeoutMinutes: 120,
+  verdictWaitMs: 5000,
+} as const;
+
 const DEFAULT_REVIEWER_TEMPLATES: Record<string, { command?: string }> = {
   claude: {
     command: "claude {prompt}",
@@ -239,6 +259,12 @@ const DEFAULTS = {
   },
   pr_labels: {
     green_check_names: [],
+  },
+  review: {
+    max_rounds: DEFAULT_REVIEW_SETTINGS.maxRounds,
+    reviewer_turn_timeout_minutes: DEFAULT_REVIEW_SETTINGS.reviewerTurnTimeoutMinutes,
+    fix_turn_timeout_minutes: DEFAULT_REVIEW_SETTINGS.fixTurnTimeoutMinutes,
+    verdict_wait_ms: DEFAULT_REVIEW_SETTINGS.verdictWaitMs,
   },
   monitor: {
     worker_stall_ticks: 3,
@@ -535,6 +561,7 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   let externalReviewTable: TomlTable = { ...DEFAULTS.external_review };
   let readyTable: TomlTable = { ...DEFAULTS.ready };
   let prLabelsTable: TomlTable = { ...DEFAULTS.pr_labels };
+  let reviewTable: TomlTable = { ...DEFAULTS.review };
   let reviewerTemplates: Record<string, { command?: unknown }> = { ...DEFAULT_REVIEWER_TEMPLATES };
   let reviewerPrompt = DEFAULT_REVIEWER_PROMPT;
   let reviewerLogins: string[] | undefined;
@@ -638,6 +665,12 @@ export function loadConfig(options: LoadOptions): ComboConfig {
         ...asTable(layer.table["pr_labels"], `[pr_labels] in ${layer.source}`),
       };
     }
+    if (layer.table["review"] !== undefined) {
+      reviewTable = {
+        ...reviewTable,
+        ...asTable(layer.table["review"], `[review] in ${layer.source}`),
+      };
+    }
     if (layer.table["monitor"] !== undefined) {
       monitorTable = {
         ...monitorTable,
@@ -730,6 +763,18 @@ export function loadConfig(options: LoadOptions): ComboConfig {
   }
   if (env["COMBO_CHEN_RUN_ENGINE"] !== undefined) {
     runTable["engine"] = env["COMBO_CHEN_RUN_ENGINE"];
+  }
+  if (env["COMBO_CHEN_REVIEW_MAX_ROUNDS"] !== undefined) {
+    reviewTable["max_rounds"] = env["COMBO_CHEN_REVIEW_MAX_ROUNDS"];
+  }
+  if (env["COMBO_CHEN_REVIEW_REVIEWER_TURN_TIMEOUT_MINUTES"] !== undefined) {
+    reviewTable["reviewer_turn_timeout_minutes"] = env["COMBO_CHEN_REVIEW_REVIEWER_TURN_TIMEOUT_MINUTES"];
+  }
+  if (env["COMBO_CHEN_REVIEW_FIX_TURN_TIMEOUT_MINUTES"] !== undefined) {
+    reviewTable["fix_turn_timeout_minutes"] = env["COMBO_CHEN_REVIEW_FIX_TURN_TIMEOUT_MINUTES"];
+  }
+  if (env["COMBO_CHEN_REVIEW_VERDICT_WAIT_MS"] !== undefined) {
+    reviewTable["verdict_wait_ms"] = env["COMBO_CHEN_REVIEW_VERDICT_WAIT_MS"];
   }
   if (env["COMBO_CHEN_DIRECTOR_COMMAND"] !== undefined) {
     directorTable["command"] = env["COMBO_CHEN_DIRECTOR_COMMAND"];
@@ -862,6 +907,25 @@ export function loadConfig(options: LoadOptions): ComboConfig {
     reviewerAgent,
     reviewerCommand,
     reviewerPrompt,
+    reviewMaxRounds: pickPositiveInteger(reviewTable, "max_rounds", DEFAULTS.review.max_rounds, "[review]"),
+    reviewerTurnTimeoutMinutes: pickPositiveInteger(
+      reviewTable,
+      "reviewer_turn_timeout_minutes",
+      DEFAULTS.review.reviewer_turn_timeout_minutes,
+      "[review]",
+    ),
+    fixTurnTimeoutMinutes: pickPositiveInteger(
+      reviewTable,
+      "fix_turn_timeout_minutes",
+      DEFAULTS.review.fix_turn_timeout_minutes,
+      "[review]",
+    ),
+    reviewVerdictWaitMs: pickPositiveInteger(
+      reviewTable,
+      "verdict_wait_ms",
+      DEFAULTS.review.verdict_wait_ms,
+      "[review]",
+    ),
     reviewerLogins: [...new Set(reviewerLogins ?? [reviewerAgent])],
     externalCommentAgents: [...new Set(externalCommentAgents)],
     externalReviewCommands,

@@ -32,7 +32,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { join } from "node:path";
 import { pid } from "node:process";
 
-import { loadConfig, type ComboConfig } from "./config.js";
+import { DEFAULT_REVIEW_SETTINGS, loadConfig, type ComboConfig } from "./config.js";
 
 // -- 1/1 CORE · config snapshot artifact <- START HERE --
 export const CONFIG_SNAPSHOT_FILE = "config.snapshot.json";
@@ -67,7 +67,18 @@ export function readConfigSnapshot(runDir: string): ConfigSnapshot {
     schemaVersion?: number;
   };
   // Legacy pre-v1 snapshots carry no schemaVersion; they read as v0 semantics.
-  return { ...parsed, schemaVersion: parsed.schemaVersion ?? CONFIG_SNAPSHOT_SCHEMA_VERSION };
+  // Pre-W5b snapshots predate the [review] loop bounds; missing fields read
+  // as the documented defaults so an older frozen run never loses the round
+  // cap or the agent turn timeouts (undefined would disable both).
+  return {
+    ...parsed,
+    schemaVersion: parsed.schemaVersion ?? CONFIG_SNAPSHOT_SCHEMA_VERSION,
+    reviewMaxRounds: parsed.reviewMaxRounds ?? DEFAULT_REVIEW_SETTINGS.maxRounds,
+    reviewerTurnTimeoutMinutes:
+      parsed.reviewerTurnTimeoutMinutes ?? DEFAULT_REVIEW_SETTINGS.reviewerTurnTimeoutMinutes,
+    fixTurnTimeoutMinutes: parsed.fixTurnTimeoutMinutes ?? DEFAULT_REVIEW_SETTINGS.fixTurnTimeoutMinutes,
+    reviewVerdictWaitMs: parsed.reviewVerdictWaitMs ?? DEFAULT_REVIEW_SETTINGS.verdictWaitMs,
+  };
 }
 
 export function loadRuntimeConfig(
