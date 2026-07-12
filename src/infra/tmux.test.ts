@@ -24,7 +24,10 @@ import {
   JOURNAL_PANE_HEIGHT,
   killSessionArgs,
   killWindowArgs,
+  killWindowTargetArgs,
   listPanesArgs,
+  listPanesTargetArgs,
+  listWindowDetailsArgs,
   listWindowsArgs,
   newSessionArgs,
   newWindowArgs,
@@ -80,12 +83,27 @@ describe("tmux argument builders (pure: what we ask tmux to do is contract)", ()
     expect(killSessionArgs("s")).toEqual(["kill-session", "-t", "s"]);
     expect(killWindowArgs("s", "thread-sitter")).toEqual(["kill-window", "-t", "s:thread-sitter"]);
     expect(killWindowArgs("s", "gordon")).toEqual(["kill-window", "-t", "s:gordon"]);
+    expect(killWindowTargetArgs("@7")).toEqual(["kill-window", "-t", "@7"]);
     expect(listWindowsArgs("s")).toEqual(["list-windows", "-t", "s", "-F", "#{window_name}"]);
+    expect(listWindowDetailsArgs("s")).toEqual([
+      "list-windows",
+      "-t",
+      "s",
+      "-F",
+      "#{window_id}|#{window_index}|#{window_name}",
+    ]);
     expect(listPanesArgs("s", "rower")).toEqual(["list-panes", "-t", "s:rower", "-F", "#{pane_index}"]);
     expect(listPanesArgs("s", "rower", "#{pane_dead}")).toEqual([
       "list-panes",
       "-t",
       "s:rower",
+      "-F",
+      "#{pane_dead}",
+    ]);
+    expect(listPanesTargetArgs("@7", "#{pane_dead}")).toEqual([
+      "list-panes",
+      "-t",
+      "@7",
       "-F",
       "#{pane_dead}",
     ]);
