@@ -13,7 +13,8 @@
  *   MAIN FLOW
  *   ---------
  *   runCapsule -> rebase -> runCoderPhase -> runLocalReviewPhase
- *     verdict round -> code 0: pinLocalLgtm -> runInProcessGate (+ bounded retry)
+ *     verdict round -> artifact lands -> journal -> reap reviewer child
+ *       -> code 0: pinLocalLgtm -> runInProcessGate (+ bounded retry)
  *                -> validated: applyLgtmCarryOver (D3 patch-id carry or re-review round)
  *       -> code 1: coder fix turn (resumed thread, owned child) -> re-review
  *          guards: fingerprint surviving 2 rounds | no-op fix turn | round cap
@@ -31,9 +32,10 @@
  *   CapsuleDeps          Injectable process, gate, and PR boundary.
  *   CapsuleResult        Terminal result returned to the CLI adapter.
  *   CapsulePhase         Journal-derived resume position for a capsule run.
+ *   AgentCompletionArtifact Optional artifact-first completion contract for an owned child.
  *   AgentProcessRequest  Owned interactive agent invocation (bounded by timeoutMs, seated by seatTty).
- *   AgentTurnResult      Exit facts plus custody's timed-out marker.
- *   runAgentProcess      Spawn an agent as an owned child seated on its role window's pty.
+ *   AgentTurnResult      Exit facts plus timeout/artifact custody markers.
+ *   runAgentProcess      Own child until declared artifact or exit, seated on its role pty.
  *   classifyCapsulePhase Sequence/gate/supervise/closed resume classification.
  *   runCapsule           Sequence one frozen run directory (optionally from the gate).
  *
@@ -44,10 +46,11 @@
  *   resolveLoopEntry, routeFixTurn, escalateWithGuard, runBoundedAgentTurn,
  *   runVerdictRound, ingestVerdictArtifact, runCoderFixTurn, resolveAgentSeat,
  *   escalateSeatUnavailable, SeatOpenError, openSeatFd, waitForVerdictFile,
- *   reviewerIdentity, findingsProjection, escalate, LOOP_ESCALATION_REASONS,
+ *   verdictAttributionDefects, hasCompleteCurrentVerdict, reviewerIdentity,
+ *   findingsProjection, escalate, LOOP_ESCALATION_REASONS,
  *   buildGateFacts
  *
- * @exports AgentProcessRequest, AgentTurnResult, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
+ * @exports AgentCompletionArtifact, AgentProcessRequest, AgentTurnResult, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
  * @deps node:{child_process,fs,path}, ../../core/{events,loop-state,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,coder-responding,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../runtime/sessions, ../work-items/persisted-work-plan, ./ready
  */
 import { spawn } from "node:child_process";
@@ -115,12 +118,23 @@ import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/pers
 import { applyLgtmCarryOver, nextLocalReviewRound, pinLocalLgtm } from "./ready.js";
 
 // -- 1/5 HELPER · process and dependency contracts --
+export interface AgentCompletionArtifact {
+  /** Final atomically-renamed artifact path; temporary paths never trigger completion. */
+  path: string;
+  /** Bounded polling cadence while the owned child remains alive. */
+  pollMs: number;
+  /** Validate and synchronously collect the artifact before custody reaps the child. */
+  validateAndCollect: () => boolean;
+}
+
 export interface AgentProcessRequest {
   command: string;
   cwd: string;
   env?: Record<string, string | undefined>;
   /** Wall-clock bound: production custody terminates the child on expiry. */
   timeoutMs?: number;
+  /** Optional artifact-first completion; absent means the child must exit as before. */
+  completionArtifact?: AgentCompletionArtifact;
   /**
    * D1 seat: pty of the role window's pane. The owned child runs its stdio on
    * this tty, so it is visible and interactive in its named tmux window while
@@ -135,9 +149,11 @@ export interface AgentProcessRequest {
   onSpawn?: (facts: { pid: number }) => void;
 }
 
-/** GateProcessResult plus custody's timeout marker for a terminated child. */
+/** GateProcessResult plus custody completion facts for a terminated child. */
 export interface AgentTurnResult extends GateProcessResult {
   timedOut?: boolean;
+  completedBy?: "artifact";
+  reapFailed?: boolean;
 }
 
 export interface CapsuleDeps {
@@ -230,32 +246,85 @@ export function runAgentProcess(request: AgentProcessRequest): Promise<AgentTurn
     if (seatFd !== undefined) closeSync(seatFd);
     if (child.pid !== undefined) request.onSpawn?.({ pid: child.pid });
     let timedOut = false;
+    let completedByArtifact = false;
+    let terminationStarted = false;
+    let settled = false;
     let termTimer: NodeJS.Timeout | undefined;
     let killTimer: NodeJS.Timeout | undefined;
-    if (request.timeoutMs !== undefined) {
-      termTimer = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-        killTimer = setTimeout(() => child.kill("SIGKILL"), agentKillGraceMs(request.env ?? process.env));
-      }, request.timeoutMs);
-    }
+    let artifactTimer: NodeJS.Timeout | undefined;
+    let reapFailureTimer: NodeJS.Timeout | undefined;
     const clearTimers = (): void => {
       if (termTimer !== undefined) clearTimeout(termTimer);
       if (killTimer !== undefined) clearTimeout(killTimer);
+      if (artifactTimer !== undefined) clearTimeout(artifactTimer);
+      if (reapFailureTimer !== undefined) clearTimeout(reapFailureTimer);
     };
+    const finish = (result: AgentTurnResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      resolveResult(result);
+    };
+    const terminate = (timeout: boolean): void => {
+      if (terminationStarted) return;
+      terminationStarted = true;
+      timedOut = timeout;
+      child.kill("SIGTERM");
+      killTimer = setTimeout(
+        () => {
+          child.kill("SIGKILL");
+          if (completedByArtifact) {
+            reapFailureTimer = setTimeout(
+              () =>
+                finish({
+                  exitCode: 1,
+                  stdout: "",
+                  stderr: "owned child did not exit after SIGKILL",
+                  completedBy: "artifact",
+                  reapFailed: true,
+                }),
+              1_000,
+            );
+          }
+        },
+        agentKillGraceMs(request.env ?? process.env),
+      );
+    };
+    if (request.timeoutMs !== undefined) {
+      termTimer = setTimeout(() => terminate(true), request.timeoutMs);
+    }
     child.once("error", (error) => {
       clearTimers();
       reject(error);
     });
     child.once("close", (code, signal) => {
-      clearTimers();
-      resolveResult({
+      finish({
         exitCode: code ?? (signal === null ? 1 : 128),
         stdout: "",
         stderr: "",
         ...(timedOut ? { timedOut: true } : {}),
+        ...(completedByArtifact ? { completedBy: "artifact" } : {}),
       });
     });
+    const pollCompletionArtifact = (): void => {
+      const artifact = request.completionArtifact;
+      if (artifact === undefined || settled || terminationStarted) return;
+      let complete = false;
+      if (existsSync(artifact.path)) {
+        try {
+          complete = artifact.validateAndCollect();
+        } catch {
+          complete = false;
+        }
+      }
+      if (complete) {
+        completedByArtifact = true;
+        terminate(false);
+        return;
+      }
+      artifactTimer = setTimeout(pollCompletionArtifact, artifact.pollMs);
+    };
+    pollCompletionArtifact();
   });
 }
 
@@ -319,11 +388,15 @@ async function runBoundedAgentTurn(
           ? { kind: "seat_error", detail: error.message }
           : { kind: "spawn_error", detail: error instanceof Error ? error.message : String(error) },
     );
-    if (request.timeoutMs === undefined) return await turn;
-    const expiry = new Promise<AgentTurnOutcome>((resolveExpiry) => {
-      raceTimer = setTimeout(() => resolveExpiry({ kind: "timeout" }), request.timeoutMs);
-    });
-    return await Promise.race([turn, expiry]);
+    const races: Array<Promise<AgentTurnOutcome>> = [turn];
+    if (request.timeoutMs !== undefined) {
+      races.push(
+        new Promise<AgentTurnOutcome>((resolveExpiry) => {
+          raceTimer = setTimeout(() => resolveExpiry({ kind: "timeout" }), request.timeoutMs);
+        }),
+      );
+    }
+    return await Promise.race(races);
   } finally {
     if (raceTimer !== undefined) clearTimeout(raceTimer);
   }
@@ -544,6 +617,24 @@ async function waitForVerdictFile(runDir: string, round: number, timeoutMs: numb
   return true;
 }
 
+function verdictAttributionDefects(verdict: VerdictFile, round: number, sha: string): string[] {
+  const missingIds = missingChecklistIds(verdict);
+  return [
+    ...(verdict.round === round ? [] : [`round is ${verdict.round}, expected ${round}`]),
+    ...(verdict.reviewed.sha === sha ? [] : [`reviewed.sha is ${verdict.reviewed.sha}, expected ${sha}`]),
+    ...(missingIds.length === 0 ? [] : [`checklist missing ids: ${missingIds.join(", ")}`]),
+  ];
+}
+
+/** Poll probe: malformed/torn/wrong-attribution files are never routable. */
+function hasCompleteCurrentVerdict(runDir: string, round: number, sha: string): boolean {
+  try {
+    return verdictAttributionDefects(readVerdictFile(runDir, round), round, sha).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 function reviewerIdentity(config: ConfigSnapshot): ProducingIdentity | undefined {
   const reviewer = config.resolvedTeam?.reviewer;
   if (reviewer === undefined) return undefined;
@@ -605,11 +696,21 @@ async function runVerdictRound(
     workPlan,
     ...(identity === undefined ? {} : { identity }),
   });
+  let collected: VerdictRoundOutcome | undefined;
   const turn = await runBoundedAgentTurn(deps, {
     command,
     cwd: combo.worktree,
     env: deps.env,
     timeoutMs: config.reviewerTurnTimeoutMinutes * 60_000,
+    completionArtifact: {
+      path: verdictFilePath(runDir, round),
+      pollMs: Math.min(50, config.reviewVerdictWaitMs),
+      validateAndCollect: () => {
+        if (!hasCompleteCurrentVerdict(runDir, round, sha)) return false;
+        collected = ingestVerdictArtifact(deps, combo, runDir, round, sha);
+        return true;
+      },
+    },
     ...seat,
   });
   if (turn.kind === "seat_error") {
@@ -638,6 +739,24 @@ async function runVerdictRound(
       escalation: escalate(runDir, "local_review_spawn_failed", { round, sha, detail: turn.detail }),
       reason: "local_review_spawn_failed",
     };
+  }
+  if (turn.result.reapFailed === true) {
+    return {
+      escalation: escalate(runDir, "local_review_reap_failed", { round, sha }),
+      reason: "local_review_reap_failed",
+    };
+  }
+  if (turn.result.completedBy === "artifact") {
+    return (
+      collected ?? {
+        escalation: escalate(runDir, "local_review_spawn_failed", {
+          round,
+          sha,
+          detail: "artifact completion resolved without a collected verdict",
+        }),
+        reason: "local_review_spawn_failed",
+      }
+    );
   }
   const reviewer = turn.result;
   const appeared = await waitForVerdictFile(runDir, round, config.reviewVerdictWaitMs);
@@ -676,12 +795,7 @@ function ingestVerdictArtifact(
       reason: "local_verdict_malformed",
     };
   }
-  const missingIds = missingChecklistIds(verdict);
-  const attributionDefects = [
-    ...(verdict.round === round ? [] : [`round is ${verdict.round}, expected ${round}`]),
-    ...(verdict.reviewed.sha === sha ? [] : [`reviewed.sha is ${verdict.reviewed.sha}, expected ${sha}`]),
-    ...(missingIds.length === 0 ? [] : [`checklist missing ids: ${missingIds.join(", ")}`]),
-  ];
+  const attributionDefects = verdictAttributionDefects(verdict, round, sha);
   if (attributionDefects.length > 0) {
     return {
       escalation: escalate(runDir, "local_verdict_malformed", {
@@ -789,6 +903,7 @@ const LOOP_ESCALATION_REASONS = new Set([
   "local_verdict_code_2",
   "local_verdict_code_3",
   "local_review_timeout",
+  "local_review_reap_failed",
   "local_review_spawn_failed",
   "review_no_progress",
   "review_max_rounds",

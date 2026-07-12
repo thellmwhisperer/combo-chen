@@ -18,12 +18,13 @@
  *
  *   INTERNALS
  *   ---------
- *   fixture, events, deps, verdict, gateProcess, seatHarness
+ *   fixture, events, deps, verdictArtifact, verdict, neverExitingReviewer,
+ *   gateProcess, seatHarness
  *
  * @exports none
  * @deps node:{fs,os,path}, vitest, ../../core/{combo,events,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../runtime/sessions, ./capsule
  */
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -114,8 +115,8 @@ function gateProcess(
   };
 }
 
-function verdict(runDir: string, overrides: Partial<VerdictFile> = {}): VerdictFile {
-  const artifact: VerdictFile = {
+function verdictArtifact(overrides: Partial<VerdictFile> = {}): VerdictFile {
+  return {
     schemaVersion: VERDICT_SCHEMA_VERSION,
     round: 1,
     code: 0,
@@ -126,8 +127,32 @@ function verdict(runDir: string, overrides: Partial<VerdictFile> = {}): VerdictF
     followUps: [],
     ...overrides,
   };
+}
+
+function verdict(runDir: string, overrides: Partial<VerdictFile> = {}): VerdictFile {
+  const artifact = verdictArtifact(overrides);
   writeVerdictFile(runDir, artifact);
   return artifact;
+}
+
+/** Fake documented-shape judge: atomic artifact publish, then interactive idle forever. */
+function neverExitingReviewer(
+  runDir: string,
+  artifact: VerdictFile,
+  onSpawn: (pid: number) => void,
+): (request: AgentProcessRequest) => Promise<GateProcessResult> {
+  const source = join(runDir, `complete-verdict-${artifact.round}.json`);
+  const finalPath = join(runDir, `verdict-${artifact.round}.json`);
+  const tempPath = `${finalPath}.tmp`;
+  writeFileSync(source, `${JSON.stringify(artifact)}\n`);
+  return (request) =>
+    runAgentProcess({
+      ...request,
+      // Pin write-then-rename safety: the torn temp is visible first, but only
+      // the complete renamed artifact may route. This process NEVER exits.
+      command: `printf '{' > '${tempPath}'; sleep 0.15; cp '${source}' '${tempPath}'; mv '${tempPath}' '${finalPath}'; exec sleep 30`,
+      onSpawn: ({ pid }) => onSpawn(pid),
+    });
 }
 
 function deps(
@@ -469,6 +494,96 @@ describe("capsule sequencer", () => {
 });
 
 describe("capsule local review round", () => {
+  it("TOMBSTONE: artifact collection never depends on the interactive reviewer exiting", async () => {
+    const f = fixture();
+    const h = deps(f);
+    const tempPath = join(f.runDir, "verdict-1.json.tmp");
+    let reviewerPid: number | undefined;
+    h.setReviewer(neverExitingReviewer(f.runDir, verdictArtifact(), (pid) => (reviewerPid = pid)));
+
+    const run = runCapsule(f.runDir, h.deps);
+    try {
+      const result = await Promise.race([
+        run,
+        new Promise<"reviewer-still-seated">((resolveTimeout) =>
+          setTimeout(() => resolveTimeout("reviewer-still-seated"), 5_000),
+        ),
+      ]);
+      expect(result).toEqual({ status: "validated", exitCode: 0 });
+      expect(events(f.runDir)).toContainEqual(
+        expect.objectContaining({ event: "local_verdict", round: 1, code: 0, sha: "coded" }),
+      );
+      // The fixture freezes the exact documented interactive command shape:
+      // visible Claude session, deliberately no print-and-exit (`-p`) mode.
+      expect(h.agentCommands[1]).toContain("claude --permission-mode auto");
+      expect(h.agentCommands[1]).not.toMatch(/(?:^|\s)-p(?:\s|$)/);
+      expect(h.agentRequests[0]?.completionArtifact).toBeUndefined();
+      expect(h.agentRequests[1]?.completionArtifact?.path).toBe(join(f.runDir, "verdict-1.json"));
+      expect(existsSync(tempPath)).toBe(false);
+      expect(reviewerPid).toBeDefined();
+      expect(() => process.kill(reviewerPid!, 0)).toThrow();
+    } finally {
+      if (reviewerPid !== undefined) {
+        try {
+          process.kill(reviewerPid, "SIGTERM");
+        } catch {
+          // The fixed capsule has already reaped the never-exiting judge.
+        }
+      }
+      await run;
+    }
+  });
+
+  it("TOMBSTONE: a never-exiting code-1 judge is reaped before the fix turn routes", async () => {
+    const f = fixture();
+    writeCoderThreadArtifact(f.runDir);
+    const reviewerPids: number[] = [];
+    const h = deps(f, {
+      heads: ["base", "coded", "coded", "coded", "fixed", "fixed"],
+      agents: [
+        async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        neverExitingReviewer(
+          f.runDir,
+          verdictArtifact({
+            code: 1,
+            findings: [
+              {
+                id: "interactive-finding",
+                severity: "blocker",
+                file: "src/app/x.ts",
+                title: "Route this fix",
+                body: "The coder fix turn must run.",
+              },
+            ],
+          }),
+          (pid) => reviewerPids.push(pid),
+        ),
+        async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+        neverExitingReviewer(f.runDir, verdictArtifact({ round: 2, reviewed: { sha: "fixed" } }), (pid) =>
+          reviewerPids.push(pid),
+        ),
+      ],
+    });
+
+    await expect(runCapsule(f.runDir, h.deps)).resolves.toEqual({ status: "validated", exitCode: 0 });
+    expect(events(f.runDir).slice(2, 8)).toEqual([
+      { event: "local_review_requested", round: 1, sha: "coded" },
+      expect.objectContaining({ event: "local_verdict", round: 1, code: 1 }),
+      { event: "coder_started", round: 1, mode: "review_fix" },
+      { event: "coder_done", round: 1, mode: "review_fix", new_commit_count: 1 },
+      { event: "local_review_requested", round: 2, sha: "fixed" },
+      expect.objectContaining({ event: "local_verdict", round: 2, code: 0, sha: "fixed" }),
+    ]);
+    expect(reviewerPids).toHaveLength(2);
+    for (const pid of reviewerPids) expect(() => process.kill(pid, 0)).toThrow();
+    expect(h.agentRequests.map((request) => request.completionArtifact?.path)).toEqual([
+      undefined,
+      join(f.runDir, "verdict-1.json"),
+      undefined,
+      join(f.runDir, "verdict-2.json"),
+    ]);
+  });
+
   it("runs the reviewer as an owned child with the verdict-file invocation", async () => {
     const f = fixture();
     const h = deps(f);
@@ -1771,6 +1886,35 @@ describe("capsule seat conformance (D1)", () => {
 });
 
 describe("runAgentProcess seating (D1)", () => {
+  it("owns artifact-first completion and reap at the shared custody boundary", async () => {
+    const root = mkdtempSync(join(tmpdir(), "combo-chen-artifact-custody-"));
+    const artifact = join(root, "completion.json");
+    let childPid: number | undefined;
+    let aliveWhenCollected = false;
+
+    const result = await runAgentProcess({
+      command: `printf complete > '${artifact}'; exec sleep 30`,
+      cwd: root,
+      completionArtifact: {
+        path: artifact,
+        pollMs: 10,
+        validateAndCollect: () => {
+          if (readFileSync(artifact, "utf8") !== "complete" || childPid === undefined) return false;
+          aliveWhenCollected = true;
+          process.kill(childPid, 0);
+          return true;
+        },
+      },
+      onSpawn: ({ pid }) => {
+        childPid = pid;
+      },
+    });
+
+    expect(aliveWhenCollected).toBe(true);
+    expect(result).toMatchObject({ completedBy: "artifact" });
+    expect(() => process.kill(childPid!, 0)).toThrow();
+  });
+
   it("attaches the owned child's stdio to the seat instead of the capsule pane", async () => {
     const root = mkdtempSync(join(tmpdir(), "combo-chen-seat-"));
     const seat = join(root, "seat-tty");
