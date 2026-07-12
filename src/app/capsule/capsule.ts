@@ -13,7 +13,8 @@
  *   MAIN FLOW
  *   ---------
  *   runCapsule -> rebase -> runCoderPhase -> runLocalReviewPhase
- *     -> code 0: runInProcessGate (+ bounded retry) -> PR/reviewer outcome
+ *     -> code 0: pinLocalLgtm -> runInProcessGate (+ bounded retry) -> PR/reviewer outcome
+ *                -> validated: applyLgtmCarryOver (D3 patch-id carry or re-review round)
  *     -> code 1/2/3 or defective verdict: needs_human (W5b adds the code-1 loop)
  *   Resume: classifyCapsulePhase derives the entry point from the journal;
  *   startAtGate skips rebase and coder for a run that already has coder_done.
@@ -36,13 +37,13 @@
  *   buildGateFacts
  *
  * @exports AgentProcessRequest, CapsuleDeps, CapsuleResult, CapsulePhase, runAgentProcess, classifyCapsulePhase, runCapsule
- * @deps node:{child_process,fs,path}, ../../core/{events,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../work-items/persisted-work-plan
+ * @deps node:{child_process,fs,path}, ../../core/{events,review-dossier,state,verdict,work-plan}, ../../infra/{config,config-snapshot}, ../../roles/{coder-invocation,gatekeeper,reviewer-invocation}, ../gate/in-process-gate, ../work-items/persisted-work-plan, ./ready
  */
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
-import { appendEvent, sleep, type ComboEvent } from "../../core/events.js";
+import { appendEvent, readEvents, sleep, type ComboEvent } from "../../core/events.js";
 import { renderReviewDossier, reviewDossierPath } from "../../core/review-dossier.js";
 import { readCombo, type ComboRecord } from "../../core/state.js";
 import {
@@ -78,6 +79,7 @@ import {
   type InProcessGateResult,
 } from "../gate/in-process-gate.js";
 import { isGitHubIssueWorkItem, readPersistedWorkPlan } from "../work-items/persisted-work-plan.js";
+import { applyLgtmCarryOver, nextLocalReviewRound, pinLocalLgtm } from "./ready.js";
 
 // -- 1/5 HELPER · process and dependency contracts --
 export interface AgentProcessRequest {
@@ -528,6 +530,20 @@ export async function runCapsule(
 
   const review = await runLocalReviewPhase(deps, combo, runDir, config, baseRef, gateFacts.plan);
   if (review !== undefined) return review;
+  try {
+    await pinLocalLgtm({
+      git: deps.git,
+      cwd: combo.worktree,
+      runDir,
+      baseRef,
+      sha: await gitHead(deps, combo),
+      round: Math.max(1, nextLocalReviewRound(readEvents(runDir)) - 1),
+      env: deps.env,
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    deps.out(`capsule: local lgtm pin unavailable for ${combo.id}: ${detail}`);
+  }
 
   const runGate = deps.runGate ?? runInProcessGate;
   const gateInput: InProcessGateInput = {
@@ -575,6 +591,25 @@ export async function runCapsule(
   }
   if (gate.status === "already_running" && gate.runId !== undefined) {
     await deps.attachGate?.(gate.runId);
+  }
+  if (gate.status === "validated") {
+    // D3 carry-over: the gate may have rebased (or autofixed) the reviewed
+    // changeset before publishing; the lgtm follows the patch-id, and a
+    // changed changeset routes a local re-review round, never needs_human.
+    const carry = await applyLgtmCarryOver({
+      git: deps.git,
+      cwd: combo.worktree,
+      runDir,
+      baseRef,
+      publishedSha: gate.headSha,
+      env: deps.env,
+    });
+    if (carry.outcome === "re_review_requested") {
+      deps.out(
+        `capsule: lgtm did not carry to ${gate.headSha} (${carry.reason}); ` +
+          `local re-review round ${carry.round} requested`,
+      );
+    }
   }
   return { status: gate.status, exitCode: gate.exitCode };
 }
