@@ -1,6 +1,6 @@
 /**
  * @overview Coder responding mode: routes hard review signals into the combo
- *   journal and delivers prompts to the coder tmux window via paste-buffer.
+ *   journal after director-owned inline prompt delivery.
  *   Reads only; never mutates GitHub or the repo. ~310 lines, 10 exports.
  *
  *   READING GUIDE
@@ -16,15 +16,14 @@
  *     → fetchReviewCommentSignals(prUrl, gh)
  *       → readGhArray(gh, endpoint, cache?)
  *         → signalFromComment / signalFromReview
- *     → routeReviewComments({comments, tmuxSession, windowName})
- *       → buildReviewNudgePrompt → nudgeWindowArgs → tmux(paste-buffer)
- *       → appendEvent("review_comment", ...)
+ *     → director creates exec-resume window with inline prompt
+ *     → routeReviewComments({comments}) → appendEvent("review_comment", ...)
  *
  *   ┌─ PUBLIC API ─────────────────────────────────────────────────────┐
- *   │ routeReviewComments           Route new comments → coder window   │
+ *   │ routeReviewComments           Journal delivered comments          │
  *   │ fetchReviewCommentSignals     Pull review signals from GitHub     │
  *   │ buildCoderRespondingResumeCommand Resume coder from thread_id     │
- *   │ buildCoderFixTurnCommand      v1 owned-child resume with a prompt │
+ *   │ buildCoderFixTurnCommand      Noninteractive resume with a prompt │
  *   │ buildReviewNudgePrompt        Render nudge prompt from template   │
  *   │ readCoderThreadArtifact       Load persisted thread_id            │
  *   │ parsePullRequestUrl           Parse PR URL → {owner,repo,number}  │
@@ -50,7 +49,7 @@ import { isRecord } from "../core/guards.js";
 import { parseGitHubPullRequestUrl, type GitHubPullRequestRef } from "../core/pr-url.js";
 import { shellQuote } from "../core/shell-quote.js";
 import { renderCommand } from "../infra/config.js";
-import { nudgeWindowArgs, type TmuxResult } from "../infra/tmux.js";
+import type { TmuxResult } from "../infra/tmux.js";
 import {
   CODER_THREAD_ARTIFACT,
   LEGACY_ROWER_THREAD_ARTIFACT,
@@ -125,10 +124,10 @@ export function buildCoderRespondingResumeCommand(
 }
 
 /**
- * v1 review-loop fix turn: the capsule runs the resumed thread as an owned
- * child, so the prompt travels in the command instead of a tmux paste. A
- * template may declare {prompt}; legacy {thread_id}-only templates get the
- * quoted prompt appended as the trailing positional argument.
+ * Resumed coder turn: the prompt travels in the command instead of a tmux
+ * paste, both for capsule-owned fix turns and director-created post-publish
+ * windows. A template may declare {prompt}; legacy {thread_id}-only templates
+ * get the quoted prompt appended as the trailing positional argument.
  */
 export function buildCoderFixTurnCommand(
   artifact: CoderThreadArtifact,
@@ -143,25 +142,14 @@ export function buildCoderFixTurnCommand(
 
 export function routeReviewComments(input: {
   runDir: string;
-  tmuxSession: string;
   comments: ReviewCommentSignal[];
   headSha?: string;
-  reviewNudgePrompt: string;
-  tmux: (args: string[]) => TmuxResult;
-  windowName: string;
 }): ReviewCommentSignal[] {
   const seen = routedReviewCommentUrls(input.runDir);
   const routed: ReviewCommentSignal[] = [];
 
   for (const comment of input.comments) {
     if (seen.has(comment.url)) continue;
-    const prompt = buildReviewNudgePrompt(comment, input.reviewNudgePrompt);
-    for (const args of nudgeWindowArgs(input.tmuxSession, input.windowName, prompt)) {
-      const result = input.tmux(args);
-      if (result.status !== 0) {
-        throw new Error(`tmux nudge failed: ${result.stderr.trim() || "unknown error"}`);
-      }
-    }
     const payload: Record<string, unknown> = {
       author: comment.author,
       kind: comment.kind,
