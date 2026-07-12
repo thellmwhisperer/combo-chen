@@ -813,6 +813,79 @@ describe("loadConfig", () => {
     expect(isCapsuleEngine({})).toBe(false);
   });
 
+  it("loads the review loop round cap from repo config, env, and defaults", () => {
+    const defaultConfig = loadConfig({
+      repoDir: tempDir(),
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: {},
+    });
+    expect(defaultConfig.reviewMaxRounds).toBe(3);
+
+    const repoDir = tempDir();
+    writeToml(repoDir, "combo-chen.toml", "[review]\nmax_rounds = 5\n");
+
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.reviewMaxRounds).toBe(5);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: { COMBO_CHEN_REVIEW_MAX_ROUNDS: "2" },
+    });
+    expect(envConfig.reviewMaxRounds).toBe(2);
+
+    for (const value of ["0", "-1", "1.5", '"nope"']) {
+      const invalidRepoDir = tempDir();
+      writeToml(invalidRepoDir, "combo-chen.toml", `[review]\nmax_rounds = ${value}\n`);
+      expect(() =>
+        loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+      ).toThrow(/max_rounds/);
+    }
+  });
+
+  it("loads the frozen review turn timeouts and verdict wait from repo config, env, and defaults", () => {
+    const defaults = loadConfig({
+      repoDir: tempDir(),
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: {},
+    });
+    expect(defaults.reviewerTurnTimeoutMinutes).toBe(60);
+    expect(defaults.fixTurnTimeoutMinutes).toBe(120);
+    expect(defaults.reviewVerdictWaitMs).toBe(5000);
+
+    const repoDir = tempDir();
+    writeToml(
+      repoDir,
+      "combo-chen.toml",
+      "[review]\nreviewer_turn_timeout_minutes = 10\nfix_turn_timeout_minutes = 20\nverdict_wait_ms = 100\n",
+    );
+    const repoConfig = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} });
+    expect(repoConfig.reviewerTurnTimeoutMinutes).toBe(10);
+    expect(repoConfig.fixTurnTimeoutMinutes).toBe(20);
+    expect(repoConfig.reviewVerdictWaitMs).toBe(100);
+
+    const envConfig = loadConfig({
+      repoDir,
+      userConfigPath: join(tempDir(), "missing.toml"),
+      env: {
+        COMBO_CHEN_REVIEW_REVIEWER_TURN_TIMEOUT_MINUTES: "1",
+        COMBO_CHEN_REVIEW_FIX_TURN_TIMEOUT_MINUTES: "2",
+        COMBO_CHEN_REVIEW_VERDICT_WAIT_MS: "50",
+      },
+    });
+    expect(envConfig.reviewerTurnTimeoutMinutes).toBe(1);
+    expect(envConfig.fixTurnTimeoutMinutes).toBe(2);
+    expect(envConfig.reviewVerdictWaitMs).toBe(50);
+
+    for (const key of ["reviewer_turn_timeout_minutes", "fix_turn_timeout_minutes", "verdict_wait_ms"]) {
+      const invalidRepoDir = tempDir();
+      writeToml(invalidRepoDir, "combo-chen.toml", `[review]\n${key} = 0\n`);
+      expect(() =>
+        loadConfig({ repoDir: invalidRepoDir, userConfigPath: join(tempDir(), "missing.toml"), env: {} }),
+      ).toThrow(new RegExp(key));
+    }
+  });
+
   it("loads canonical coder timeout while preserving the legacy rower timeout alias", () => {
     const userDir = tempDir();
     const userConfig = writeToml(userDir, "config.toml", "[limits]\nrower_timeout_minutes = 111\n");

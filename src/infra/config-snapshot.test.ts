@@ -60,6 +60,30 @@ describe("config snapshots", () => {
     expect(readConfigSnapshot(runDir).schemaVersion).toBe(1);
   });
 
+  it("backfills review settings missing from pre-W5b snapshots with the documented defaults", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
+    const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
+    const {
+      reviewMaxRounds: _rounds,
+      reviewerTurnTimeoutMinutes: _reviewerTimeout,
+      fixTurnTimeoutMinutes: _fixTimeout,
+      reviewVerdictWaitMs: _wait,
+      ...preW5b
+    } = loadConfig({ repoDir, userConfigPath: join(repoDir, "missing.toml"), env: {} });
+    writeFileSync(
+      join(runDir, CONFIG_SNAPSHOT_FILE),
+      `${JSON.stringify({ schemaVersion: 1, ...preW5b }, null, 2)}\n`,
+    );
+
+    const snapshot = readConfigSnapshot(runDir);
+    // A frozen pre-W5b run must never lose the review loop's bounds: the
+    // round cap and turn timeouts read as the documented defaults.
+    expect(snapshot.reviewMaxRounds).toBe(3);
+    expect(snapshot.reviewerTurnTimeoutMinutes).toBe(60);
+    expect(snapshot.fixTurnTimeoutMinutes).toBe(120);
+    expect(snapshot.reviewVerdictWaitMs).toBe(5000);
+  });
+
   it("preserves the frozen snapshot schema_version when re-persisting", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "combo-chen-repo-"));
     const runDir = mkdtempSync(join(tmpdir(), "combo-chen-run-"));
