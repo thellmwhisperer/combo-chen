@@ -94,6 +94,7 @@ describe("command surface", () => {
         "director-prompt",
         "director-tick",
         "ensure-pr-autoclose",
+        "emit",
         "events",
         "forensics",
         "intent",
