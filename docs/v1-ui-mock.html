@@ -1,0 +1,808 @@
+<!--
+  combo-chen v1 · navigable UI mock (design contract)
+  Spec: docs/v1-prd.md §8 Terminal UI. This mock is the visual reference; the
+  PRD is the implementation contract. Where they differ, the PRD §8 text wins.
+
+  Frozen design rules (session 2026-07-12):
+  - Everything renders by folding fake journal.jsonl events; the renderer holds
+    no state a run dir could not provide. Same substrate rule as the real TUI.
+  - NO progress bars for agent work: it has no known end. Activity is a
+    count-up timer (mm:ss) + braille spinner. Medians appear as text, never
+    as a bar scale.
+  - Steps only where real steps exist (gate: review/test/lint) rendered as
+    per-step checkmarks, not a filling bar.
+  - Numbers never appear bare: every count carries a verb or label
+    ("2 fixes rejected", "1 finding open"). No cryptic trends like 1-1-1.
+  - Fleet REVIEW row = live actor + round, nothing else. Detail lives in the
+    dive-in thread.
+  - Review loop reads as a rally: two stations, travelling dot toward whoever
+    receives the ball; bounded at 3 rounds, then the director escalates.
+  - Spatial navigation: Enter/ArrowRight dives in, ArrowLeft/Escape/q backs out.
+  - Escalation language is cause-and-effect ("3 fixes rejected, X still open"),
+    not reviewer jargon ("survived").
+-->
+<title>combo-chen v1 · UI playground</title>
+<style>
+  :root {
+    --bg: #101218;
+    --panel: #14161d;
+    --line: #262a35;
+    --ink: #c6cbd8;
+    --dim: #5a6070;
+    --faint: #3a3f4d;
+    --violet: #c79fd7;
+    --green: #8fd6a3;
+    --amber: #e8c06a;
+    --red: #ef8585;
+    --sel: #1d2130;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.65;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+  }
+  #app {
+    width: min(980px, 100%);
+    height: min(640px, 92vh);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  }
+  #head {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  #head .l { overflow: hidden; text-overflow: ellipsis; }
+  #body { flex: 1; overflow-y: auto; padding: 12px 18px; }
+  #foot {
+    padding: 9px 18px;
+    border-top: 1px solid var(--line);
+    color: var(--dim);
+    font-size: 12.5px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .v { color: var(--violet); font-weight: 600; }
+  .g { color: var(--green); }
+  .a { color: var(--amber); }
+  .r { color: var(--red); font-weight: 600; }
+  .d { color: var(--dim); }
+  .f { color: var(--faint); }
+  kbd {
+    background: var(--sel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 6px;
+    margin-right: 4px;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .row {
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 2px;
+  }
+  .row:hover { background: var(--sel); }
+  .row.sel { background: var(--sel); outline: 1px solid var(--faint); }
+  .row .top { display: flex; gap: 14px; justify-content: space-between; white-space: nowrap; overflow: hidden; }
+  .row .top .t { overflow: hidden; text-overflow: ellipsis; }
+  .row .det { color: var(--dim); font-size: 12.5px; padding-left: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tabs { display: flex; gap: 16px; margin-bottom: 12px; color: var(--dim); font-size: 12.5px; }
+  .tabs span { cursor: pointer; }
+  .tabs .on { color: var(--violet); font-weight: 600; }
+  .thread .entry { display: flex; gap: 12px; margin-bottom: 10px; }
+  .thread .ts { color: var(--faint); flex: 0 0 44px; }
+  .thread .body-e { flex: 1; min-width: 0; }
+  .finding { padding-left: 14px; font-size: 12.5px; }
+  .crumb { color: var(--dim); font-size: 12.5px; margin-bottom: 14px; }
+  .next { color: var(--dim); padding-left: 56px; margin-top: 4px; font-style: normal; }
+  #modal-bg[hidden] { display: none; }
+  #modal-bg {
+    position: absolute; inset: 0;
+    background: rgba(8,9,12,0.66);
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px;
+  }
+  #modal {
+    width: min(560px, 90%);
+    background: var(--panel);
+    border: 1px solid var(--amber);
+    border-radius: 8px;
+    padding: 18px 22px;
+  }
+  #modal.help-m { border-color: var(--faint); }
+  .verb { cursor: pointer; padding: 3px 0; }
+  .verb:hover .vk { color: var(--violet); }
+  .vk { color: var(--amber); font-weight: 600; }
+  .wrap-rel { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .cursor::after { content: "▋"; color: var(--green); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .cursor::after { animation: none; } }
+  .gauge { letter-spacing: 1px; }
+  .subline { color: var(--dim); font-size: 12px; margin-top: 3px; letter-spacing: 0; }
+  .rally-head { display: flex; justify-content: space-between; gap: 12px; }
+  .rally-lane { display: flex; align-items: center; gap: 12px; margin: 12px 0 8px; white-space: nowrap; }
+  .rally-lane .st { flex: 0 0 auto; }
+  .rally-lane .flight { flex: 1; text-align: center; letter-spacing: 2px; }
+  .ledger { margin-top: 12px; }
+  .ledger .chip { padding: 0 1px; }
+  .bar { letter-spacing: 0; }
+  .spin { display: inline-block; width: 1ch; text-align: center; }
+  .pulse { opacity: .7; }
+  .sum-box { border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; }
+  .dos { font-size: 12.5px; }
+  .dos h4 { color: var(--violet); margin: 14px 0 4px; font-size: 12.5px; }
+  .dos table { border-collapse: collapse; margin: 6px 0; }
+  .dos td, .dos th { border: 1px solid var(--line); padding: 3px 8px; font-size: 12px; text-align: left; color: var(--dim); font-weight: 400; }
+  .dos th { color: var(--ink); }
+  .tmux-pane { white-space: pre-wrap; font-size: 12.5px; }
+  .tmux-status {
+    background: #0c2b1c;
+    color: var(--green);
+    padding: 3px 12px;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .empty { text-align: center; padding: 60px 20px; color: var(--dim); }
+  .empty .big { color: var(--ink); font-size: 15px; margin-bottom: 10px; }
+</style>
+
+<div id="app">
+  <div id="head"></div>
+  <div class="wrap-rel">
+    <div id="body"></div>
+    <div id="modal-bg" hidden><div id="modal"></div></div>
+  </div>
+  <div id="foot"></div>
+</div>
+
+<script>
+"use strict";
+/* ---------- fake journals: the mock renders ONLY by folding these ---------- */
+const now0 = Date.now();
+const min = 60000;
+function ago(m) { return now0 - m * min; }
+function hhmm(t) { const d = new Date(t); return String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); }
+
+const capsules = {
+  "owner-repo-142": {
+    id: "owner-repo-142", item: "#142 Add 2FA to login flow", created: ago(138),
+    journal: [
+      { t: ago(138), k: "launched", note: "overture ✓ · worktree issue-142 · branch combo/issue-142" },
+      { t: ago(107), k: "coder_done", commits: 4, iter: 12, tok: "45K", mins: 31, summary: "TOTP enrollment, verification and recovery codes" },
+      { t: ago(8), k: "verdict", n: 0, code: 1, findings: [
+        { sev: "major", loc: "auth.ts:88", txt: "DRY violation in token check" },
+        { sev: "major", loc: "totp.ts:41", txt: "secret logged at debug level" },
+        { sev: "note",  loc: "enroll.ts:12", txt: "naming" }]},
+      { t: ago(5), k: "coder_turn", n: 1, commits: 1, files: 3, fixed: "2 of 3" },
+      { t: ago(4), k: "verdict", n: 1, code: 1, findings: [
+        { sev: "major", loc: "auth.ts:88", txt: "DRY violation · revised fix requested" }]},
+      { t: ago(3), k: "coder_live", n: 2, on: "auth.ts" },
+    ],
+    script: [
+      { wait: 9,  ev: { k: "coder_turn", n: 2, commits: 1, files: 1, fixed: "1 of 1" } },
+      { wait: 3,  ev: { k: "reviewer_live", n: 2 } },
+      { wait: 9,  ev: { k: "verdict", n: 2, code: 0, findings: [] } },
+      { wait: 2,  ev: { k: "gate_started" } },
+      { wait: 3,  ev: { k: "gate_step", step: "review" } },
+      { wait: 3,  ev: { k: "gate_step", step: "test" } },
+      { wait: 3,  ev: { k: "gate_step", step: "lint" } },
+      { wait: 2,  ev: { k: "gate_done", pr: "#428" } },
+      { wait: 6,  ev: { k: "coderabbit", verdict: "green" } },
+      { wait: 1,  ev: { k: "ready" } },
+    ],
+  },
+  "owner-repo-144": {
+    id: "owner-repo-144", item: "#144 Migrate pagination", created: ago(246),
+    journal: [
+      { t: ago(246), k: "launched", note: "overture ✓ · worktree issue-144" },
+      { t: ago(210), k: "coder_done", commits: 6, iter: 15, tok: "61K", mins: 36, summary: "Cursor-based pagination across list endpoints" },
+      { t: ago(190), k: "verdict", n: 0, code: 1, findings: [
+        { sev: "major", loc: "api/list.ts:44", txt: "cursor contract undefined for deleted rows" },
+        { sev: "note",  loc: "api/list.ts:80", txt: "naming" }]},
+      { t: ago(170), k: "coder_turn", n: 1, commits: 1, files: 2, fixed: "1 of 2" },
+      { t: ago(150), k: "verdict", n: 1, code: 1, findings: [
+        { sev: "major", loc: "api/list.ts:44", txt: "cursor contract still undefined for deleted rows" }]},
+      { t: ago(120), k: "coder_turn", n: 2, commits: 1, files: 1, fixed: "attempted" },
+      { t: ago(95), k: "verdict", n: 2, code: 1, findings: [
+        { sev: "major", loc: "api/list.ts:44", txt: "cursor contract still undefined for deleted rows" }]},
+      { t: ago(41), k: "escalated", reason: "no-progress: 2 fixes rejected, \"cursor contract\" still open",
+        card: { q: "The coder cannot resolve \"cursor contract undefined for deleted rows\" (api/list.ts:44). Two attempts, same finding.",
+                ctx: "Deciding the contract (skip vs tombstone deleted rows) is product intent, not mechanics." } },
+    ],
+    script: [],
+  },
+  "owner-repo-143": {
+    id: "owner-repo-143", item: "#143 Fix N+1 in bookings", created: ago(101),
+    journal: [
+      { t: ago(101), k: "launched", note: "overture ✓ · worktree issue-143" },
+      { t: ago(70), k: "coder_done", commits: 2, iter: 6, tok: "19K", mins: 22, summary: "Eager-load booked units in listings query" },
+      { t: ago(55), k: "verdict", n: 0, code: 1, findings: [
+        { sev: "major", loc: "queries.ts:112", txt: "missing index for the new join" }]},
+      { t: ago(40), k: "coder_turn", n: 1, commits: 1, files: 2, fixed: "1 of 1" },
+      { t: ago(30), k: "verdict", n: 1, code: 0, findings: [] },
+      { t: ago(28), k: "gate_started" },
+      { t: ago(24), k: "gate_step", step: "review" },
+      { t: ago(9), k: "gate_step", step: "test" },
+    ],
+    script: [
+      { wait: 14, ev: { k: "gate_step", step: "lint" } },
+      { wait: 4,  ev: { k: "gate_done", pr: "#431" } },
+      { wait: 8,  ev: { k: "coderabbit", verdict: "green" } },
+      { wait: 1,  ev: { k: "ready" } },
+    ],
+  },
+  "owner-repo-146": {
+    id: "owner-repo-146", item: "#146 Dark mode", created: ago(242),
+    journal: [
+      { t: ago(242), k: "launched", note: "overture ✓ · worktree issue-146" },
+      { t: ago(200), k: "coder_done", commits: 5, iter: 9, tok: "38K", mins: 40, summary: "Theme tokens + toggle + persistence" },
+      { t: ago(185), k: "verdict", n: 0, code: 0, findings: [] },
+      { t: ago(180), k: "gate_started" },
+      { t: ago(150), k: "gate_done", pr: "#430" },
+      { t: ago(140), k: "coderabbit", verdict: "green" },
+      { t: ago(139), k: "ready" },
+    ],
+    script: [],
+  },
+  "owner-repo-145": {
+    id: "owner-repo-145", item: "plan/migrate-storage", created: ago(492),
+    journal: [
+      { t: ago(492), k: "launched", note: "overture ✓ · worktree plan-migrate" },
+      { t: ago(460), k: "coder_done", commits: 3, iter: 8, tok: "29K", mins: 32, summary: "Storage driver interface extraction" },
+      { t: ago(180), k: "parked", note: "parked by you before the weekend" },
+    ],
+    script: [],
+  },
+  "owner-repo-151": {
+    id: "owner-repo-151", item: "#151 Extract payment provider", created: ago(14),
+    journal: [
+      { t: ago(14), k: "launched", note: "overture ✓ · worktree issue-151 · branch combo/issue-151" },
+      { t: ago(13), k: "gnhf_live", maxIter: 24, on: "provider.ts" },
+    ],
+    script: [], loop: "gnhf",
+  },
+  "owner-repo-149": {
+    id: "owner-repo-149", item: "#149 Harden auth route guards", created: ago(70),
+    journal: [
+      { t: ago(70), k: "launched", note: "overture ✓ · worktree issue-149" },
+      { t: ago(58), k: "coder_done", commits: 3, iter: 9, tok: "31K", mins: 24, summary: "Centralize route guard checks" },
+      { t: ago(40), k: "verdict", n: 0, code: 1, findings: [
+        { sev: "major", loc: "guards.ts:52", txt: "scope check bypassable via nested route" }]},
+    ],
+    script: [], loop: "review",
+  },
+  "owner-repo-285": {
+    id: "owner-repo-285", item: "#285 re-split src/cli", created: ago(2600), closed: true,
+    journal: [ { t: ago(140), k: "closed", sum: { rounds: 6, findings: "9 fixed (5 local reviewer, 4 CodeRabbit)", tokens: "1.9M", dur: "18.2h", pr: "#294 merged" } } ],
+    script: [],
+  },
+  "owner-repo-282": {
+    id: "owner-repo-282", item: "#282 hard guardrails", created: ago(4400), closed: true,
+    journal: [ { t: ago(4260), k: "closed", sum: { rounds: 3, findings: "4 fixed (3 local reviewer, 1 CodeRabbit)", tokens: "410K", dur: "1.2h", pr: "#283 merged" } } ],
+    script: [],
+  },
+};
+
+/* ---------- fold functions: state is always derived, never stored ---------- */
+function lastOf(j, k) { for (let i = j.length - 1; i >= 0; i--) if (j[i].k === k) return j[i]; return null; }
+function fold(c) {
+  const j = c.journal;
+  const last = j[j.length - 1];
+  const verdicts = j.filter(e => e.k === "verdict");
+  const findingsTrend = verdicts.map(v => v.findings.length);
+  const train = j.filter(e => ["verdict","coder_turn","coder_live","reviewer_live"].includes(e.k))
+    .map(e => e.k === "verdict" ? "V" + e.n : e.k === "coder_turn" ? "C" + e.n : (e.k === "coder_live" ? "C" + e.n + "◌" : "V" + e.n + "◌"));
+  let phase = "CODER", glyph = "▶", cls = "g", state = "";
+  if (c.closed) { phase = "CLOSED"; glyph = "✓"; cls = "d"; state = lastOf(j,"closed").sum.pr; }
+  else if (last.k === "parked") { phase = "PARKED"; glyph = "■"; cls = "d"; state = "resumable"; }
+  else if (last.k === "escalated") { phase = "NEEDS YOU"; glyph = "⚑"; cls = "r"; state = "escalated"; }
+  else if (last.k === "ready") { phase = "READY"; glyph = "✓"; cls = "g"; state = "merge when ok"; }
+  else if (last.k === "coderabbit" || last.k === "gate_done") { phase = "PR"; glyph = "▶"; cls = "a"; state = last.k === "gate_done" ? "CodeRabbit reviewing" : "checks settling"; }
+  else if (last.k === "gate_started" || last.k === "gate_step") {
+    phase = "GATE"; glyph = "▶"; cls = "a";
+    const steps = j.filter(e => e.k === "gate_step").map(e => e.step);
+    state = ["review","test","lint"].map(s => s + (steps.includes(s) ? " ✓" : steps[steps.length-1] === s ? " ●" : "")).join(" · ");
+    state = "run: " + (steps.length ? steps[steps.length-1] + " ✓, next…" : "starting");
+  }
+  else if (last.k === "coder_live") { phase = "REVIEW"; glyph = "▶"; cls = "a"; state = "coder fixing"; }
+  else if (last.k === "reviewer_live") { phase = "REVIEW"; glyph = "▶"; cls = "a"; state = "reviewer judging"; }
+  else if (last.k === "verdict") { phase = "REVIEW"; glyph = "▶"; cls = "a"; state = "verdict " + (last.code === 0 ? "0 · to gate" : last.code); }
+  else if (last.k === "gnhf_live") { phase = "CODER"; glyph = "▶"; cls = "g"; state = "gnhf loop"; }
+  else if (last.k === "coder_done") { phase = "REVIEW"; glyph = "▶"; cls = "a"; state = "awaiting V0"; }
+  let round = verdicts.length ? verdicts[verdicts.length - 1].n : 0;
+  if ((last.k === "coder_live" || last.k === "reviewer_live") && last.n != null) round = last.n;
+  const needsYou = last.k === "escalated";
+  const ageM = Math.round((Date.now() - c.created) / min);
+  const lastM = Math.round((Date.now() - last.t) / min);
+  return { phase, glyph, cls, state, round, needsYou, findingsTrend, train, last, ageM, lastM };
+}
+function fmtAge(m) { return m >= 60 ? (m/60).toFixed(1) + "h" : m + "m"; }
+function mmss(ms) { const s = Math.max(0, Math.floor(ms/1000)); return String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0"); }
+/* determinate progress bars are banned in this UI: agent work has no known end.
+   activity = count-up timer + spinner · steps (gate) = per-step checkmarks */
+/* travelling dot along a dotted lane; direction = who receives the ball next */
+function dotcontent(f, cells, cls, rtl) {
+  let pos = Math.min(cells - 1, Math.floor(f * cells));
+  if (rtl) pos = cells - 1 - pos;
+  let s = "";
+  for (let i = 0; i < cells; i++) s += i === pos ? `<span class="${cls}">●</span>` : `<span class="f">·</span>`;
+  return s;
+}
+function flightline(startMs, durMs, cells, cls, rtl) {
+  let f = (((Date.now() - startMs) / durMs) % 1 + 1) % 1;
+  return `<span class="livebar" data-mode="dot" data-start="${startMs}" data-dur="${durMs}" data-cells="${cells}" data-cls="${cls}" data-cyc="1" data-dir="${rtl?"rtl":"ltr"}">${dotcontent(f, cells, cls, rtl)}</span>`;
+}
+
+/* ---------- app state (navigation only) ---------- */
+const S = { screen: "fleet", tab: "live", sel: 0, capsule: null, modal: null, decided: {} };
+const $head = document.getElementById("head"), $body = document.getElementById("body"),
+      $foot = document.getElementById("foot"), $mbg = document.getElementById("modal-bg"),
+      $modal = document.getElementById("modal");
+
+function fleetList() {
+  const all = Object.values(capsules);
+  if (S.tab === "parked") return all.filter(c => !c.closed && fold(c).phase === "PARKED");
+  if (S.tab === "closed") return all.filter(c => c.closed);
+  return all.filter(c => !c.closed && fold(c).phase !== "PARKED")
+    .sort((a, b) => {
+      const fa = fold(a), fb = fold(b);
+      const w = f => f.needsYou ? 0 : f.phase === "READY" ? 1 : 2;
+      return w(fa) - w(fb);
+    });
+}
+
+/* ---------- renderers ---------- */
+function esc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+
+function renderFleet() {
+  const list = fleetList();
+  const live = Object.values(capsules).filter(c => !c.closed && fold(c).phase !== "PARKED").length;
+  const needs = Object.values(capsules).filter(c => !c.closed && fold(c).needsYou).length;
+  $head.innerHTML = `<span class="l"><span class="v">combo-chen</span> <span class="d">·</span> fleet ${needs ? '<span class="r">● ' + needs + " needs you</span>" : '<span class="g">● all quiet</span>'}</span><span class="d">${hhmm(Date.now())}</span>`;
+  let h = `<div class="tabs">
+    <span class="${S.tab==="live"?"on":""}" data-tab="live">[1] live</span>
+    <span class="${S.tab==="parked"?"on":""}" data-tab="parked">[2] parked</span>
+    <span class="${S.tab==="closed"?"on":""}" data-tab="closed">[3] closed</span></div>`;
+  if (!list.length) {
+    h += `<div class="empty"><div class="big">Nothing here. Nothing needs you.</div><div>[n] launch a combo · [1] live combos</div></div>`;
+    $body.innerHTML = h; $foot.innerHTML = footFleet(); return;
+  }
+  list.forEach((c, i) => {
+    const f = fold(c);
+    const selCls = i === S.sel ? "row sel" : "row";
+    let det = "";
+    if (c.closed) { const s = lastOf(c.journal,"closed").sum;
+      det = `${s.pr} · ${s.rounds} rounds · ${s.dur} · ${s.findings}`;
+    } else if (f.needsYou) {
+      det = `<span class="r">› ${esc(f.last.reason)}</span> · (v) card`;
+    } else if (f.phase === "CODER") {
+      const g = lastOf(c.journal, "gnhf_live");
+      if (g) { const iterDur = 2600, it = 1 + (Math.floor((Date.now()-g.t)/iterDur) % (g.maxIter-1));
+        det = `gnhf loop <span class="spin g">⠋</span> <span class="d">iter ${it}/${g.maxIter} · ${g.on}</span>`;
+      } else det = "coder working";
+    } else if (f.phase === "REVIEW") {
+      const rev = f.last.k === "reviewer_live", live = rev || f.last.k === "coder_live";
+      const who = live ? `<span class="${rev ? "v" : "g"}">${esc(f.state)}</span> <span class="spin ${rev ? "v" : "g"}">⠋</span>` : esc(f.state);
+      det = `${who} · <span class="d">round ${f.round}</span>`;
+    } else if (f.phase === "GATE") {
+      const order = ["review","test","lint"];
+      const steps = c.journal.filter(e=>e.k==="gate_step").map(e=>e.step);
+      const cur = order.find(s => !steps.includes(s));
+      det = `no-mistakes · ${order.map(s => steps.includes(s) ? `<span class="g">${s} ✓</span>` : s === cur ? `<span class="a">${s} <span class="spin a">⠋</span></span>` : `<span class="f">${s}</span>`).join(" · ")}`;
+    } else if (f.phase === "PR") {
+      const cr = lastOf(c.journal,"coderabbit");
+      det = `PR ${lastOf(c.journal,"gate_done").pr} · CodeRabbit ${cr ? "✓" : 'reviewing <span class="spin a">⠋</span>'}`;
+    } else if (f.phase === "READY") {
+      det = `PR ${lastOf(c.journal,"gate_done").pr} · CI ✓ · CodeRabbit ✓ · local lgtm · waiting for you`;
+    } else if (f.phase === "PARKED") {
+      det = `${esc(lastOf(c.journal,"parked").note)} · [u] resume`;
+    }
+    h += `<div class="${selCls}" data-i="${i}">
+      <div class="top"><span class="t"><span class="${f.cls}">${f.glyph} ${f.phase}</span>  <span>${esc(c.item)}</span></span>
+      <span class="d">${fmtAge(f.lastM)} ago · ${fmtAge(f.ageM)}</span></div>
+      <div class="det">${det}</div></div>`;
+  });
+  $body.innerHTML = h;
+  $foot.innerHTML = footFleet();
+  $body.querySelectorAll(".row").forEach(r => r.onclick = () => { S.sel = +r.dataset.i; enterSel(); });
+  $body.querySelectorAll(".tabs span").forEach(t => t.onclick = () => { S.tab = t.dataset.tab; S.sel = 0; render(); });
+}
+function footFleet() {
+  return `<span><kbd>↑↓</kbd>select <kbd>Enter</kbd>dive <kbd>v</kbd>decision <kbd>1-3</kbd>tabs <kbd>?</kbd>help</span><span class="d">mock · datos falsos · las teclas funcionan</span>`;
+}
+
+/* review loop as a rally: two stations, ball in flight, turn bar fills in REAL seconds */
+function reviewRallyHtml(c, f) {
+  const live = f.last;
+  const rev = live.k === "reviewer_live";
+  const round = live.n != null ? live.n : f.round;
+  const aCls = rev ? "v" : "g";
+  const dur = live.dur || (rev ? 3200 : 4200);
+  const el = Date.now() - live.t;
+  const lastV = [...c.journal].reverse().find(e => e.k === "verdict");
+  const trend = c.journal.filter(e => e.k === "verdict").map(v => v.findings.length);
+
+  const coderSt = !rev
+    ? `<span class="g">● coder</span> <span class="d">C${round} fixing <span class="spin g">⠋</span></span>`
+    : `<span class="f">○ coder</span> <span class="f">reworked</span>`;
+  const revSt = rev
+    ? `<span class="d">judging V${round} <span class="spin v">⠋</span></span> <span class="v">reviewer ●</span>`
+    : `<span class="f">queued</span> <span class="f">reviewer ○</span>`;
+  const flight = flightline(live.t, 1400, 9, aCls, rev);
+  const note = !rev
+    ? `editing guards.ts · fixing “${lastV ? esc(lastV.findings[0].txt) : "open finding"}”`
+    : `re-checking guards.ts · attack surface ${Math.min(4, 1 + Math.floor((el / dur) * 4))}/4`;
+
+  let h = `<div class="sum-box">
+    <div class="rally-head"><span><span class="v">review rally</span> · round <span class="v">${round}</span> · <span class="a">not converging</span></span>
+      <span class="d">this turn <span class="${aCls}">${mmss(el)}</span></span></div>
+    <div class="rally-lane"><span class="st">${coderSt}</span><span class="flight">${flight}</span><span class="st">${revSt}</span></div>
+    <div class="subline">${note}</div>
+  </div>`;
+
+  if (lastV && lastV.findings.length) {
+    h += `<div class="crumb" style="margin:2px 0 4px"><span class="d">still open after V${lastV.n}:</span></div>`;
+    lastV.findings.forEach(fi => {
+      h += `<div class="finding"><span class="${fi.sev === "major" ? "r" : "d"}">${fi.sev}</span>  <span class="d">${fi.loc}</span>  ${esc(fi.txt)}</div>`;
+    });
+  }
+
+  const left = Math.max(0, 3 - round), attempts = Math.max(0, trend.length - 1);
+  const hist = attempts === 0
+    ? "flagged by the reviewer in V0 · first fix attempt in progress"
+    : `the coder tried <span class="a">${attempts} fix${attempts === 1 ? "" : "es"}</span>, the reviewer rejected each one`;
+  h += `<div class="ledger subline">${hist} · ${left > 0 ? left + (left === 1 ? " round" : " rounds") + " left before the director hands it to you" : "final round · if this fix is rejected too, it lands on your desk"}</div>`;
+  h += `<div class="next" style="padding-left:0">next: ${projection(c, f)}</div>`;
+  return h;
+}
+
+function renderDive() {
+  const c = capsules[S.capsule], f = fold(c);
+  $head.innerHTML = `<span class="l"><span class="v">${c.id}</span> <span class="d">·</span> ${esc(c.item)}</span>
+    <span><span class="${f.cls}">${f.phase}${f.phase==="REVIEW" ? " r"+f.round : ""}</span> <span class="d">· ${fmtAge(f.ageM)}</span></span>`;
+  const stages = ["coder","review","gate","pr","merge"];
+  const stageState = st => {
+    const doneMap = { coder: !!lastOf(c.journal,"coder_done"), review: !!(c.journal.some(e=>e.k==="verdict"&&e.code===0)), gate: !!lastOf(c.journal,"gate_done"), pr: !!lastOf(c.journal,"coderabbit"), merge: c.closed };
+    const liveMap = { coder: f.phase==="CODER", review: f.phase==="REVIEW"||f.needsYou, gate: f.phase==="GATE", pr: f.phase==="PR"||f.phase==="READY", merge: false };
+    if (doneMap[st] && !liveMap[st]) return '<span class="g">✓</span>';
+    if (liveMap[st]) return '<span class="a">⚡</span>';
+    return '<span class="f">·</span>';
+  };
+  let h = `<div class="crumb">${stages.map(s => s + " " + stageState(s)).join(" ─ ")}</div>`;
+  if (c.loop === "review" && f.phase === "REVIEW") {
+    h += reviewRallyHtml(c, f);
+    $body.innerHTML = h;
+    $body.scrollTop = 0;
+    $foot.innerHTML = `<span><kbd>Enter</kbd>hands on the live actor <kbd>o</kbd>dossier <kbd>q ←</kbd>back</span><span class="d">${S.capsule}</span>`;
+    return;
+  }
+  h += `<div class="thread">`;
+  c.journal.forEach(e => { h += entryHtml(e, c); });
+  if (f.phase === "GATE") {
+    const order = ["review", "test", "lint"];
+    const steps = c.journal.filter(e => e.k === "gate_step").map(e => e.step);
+    const cur = order.find(s => !steps.includes(s));
+    h += `<div class="entry"><span class="ts">now</span><div class="body-e">`
+      + `<span class="a">▶</span> gate · <span class="a">running ${cur || "finalizing"}</span> <span class="spin a">⠋</span>`
+      + `<div class="subline">${order.map(s => steps.includes(s) ? `<span class="g">${s} ✓</span>` : s === cur ? `<span class="a">${s} <span class="spin a">⠋</span></span>` : `<span class="f">${s} ·</span>`).join('<span class="f"> ── </span>')}   <span class="d">step ${Math.min(steps.length + 1, 3)}/3</span></div>`
+      + `</div></div>`;
+  }
+  const proj = projection(c, f);
+  if (proj) h += `<div class="next">next: ${proj}</div>`;
+  h += "</div>";
+  $body.innerHTML = h;
+  $body.scrollTop = $body.scrollHeight;
+  $foot.innerHTML = `<span><kbd>Enter</kbd>hands on live actor <kbd>o</kbd>dossier <kbd>v</kbd>decision <kbd>q ←</kbd>back</span><span class="d">${S.capsule}</span>`;
+}
+function entryHtml(e, c) {
+  const ts = `<span class="ts">${hhmm(e.t)}</span>`;
+  let b = "";
+  if (e.k === "launched") b = `<span class="d">▸ launched · ${esc(e.note)}</span>`;
+  if (e.k === "coder_done") b = `<span class="g">●</span> coder finished <span class="d">· ${e.mins}m · ${e.commits} commits · ${e.iter} iterations · ${e.tok} tokens</span><div class="finding d">"${esc(e.summary)}"</div>`;
+  if (e.k === "verdict") {
+    const codeCls = e.code === 0 ? "g" : "a";
+    b = `<span class="v">◆</span> reviewer <span class="v">V${e.n}</span> · <span class="${codeCls}">code ${e.code}</span>${e.findings.length ? " · " + e.findings.length + " finding" + (e.findings.length>1?"s":"") : ' · <span class="g">lgtm</span>'}`;
+    e.findings.forEach(fi => {
+      b += `<div class="finding"><span class="${fi.sev==="major"?"r":"d"}">${fi.sev}</span>  <span class="d">${fi.loc}</span>  ${esc(fi.txt)}</div>`;
+    });
+  }
+  if (e.k === "coder_turn") b = `<span class="g">●</span> coder <span class="g">C${e.n}</span> · ${e.commits} commit${e.commits>1?"s":""} · ${e.files} files · fixed ${e.fixed}`;
+  if (e.k === "gnhf_live") {
+    const NOTES = ["reading changed files", "editing provider.ts", "running focused tests", "self-review diff", "addressing stop-when checks", "committing slice"];
+    const iterDur = 2600, el = Date.now() - e.t, steps = Math.floor(el / iterDur);
+    const it = 1 + (steps % (e.maxIter - 1)), note = NOTES[steps % NOTES.length], tok = (it * 1180 / 1000).toFixed(1);
+    b = `<span class="g">●</span> coder loop <span class="d">(gnhf)</span> · <span class="a">live</span> · iteration <span class="g">${it}</span><span class="d">/${e.maxIter}</span> · ${mmss(el)} <span class="spin g">⠋</span>`
+      + `<div class="subline"><span class="d">${note}</span> <span class="spin g">⠋</span></div>`
+      + `<div class="subline"><span class="d">iter ${it}/${e.maxIter} · ${tok}K tokens · stop-when: not yet · --max-iterations ${e.maxIter}</span></div>`;
+  }
+  if (e.k === "coder_live") {
+    const el = Date.now() - e.t;
+    b = `<span class="g">●</span> coder <span class="g">C${e.n}</span> · <span class="a">live</span> · working on ${e.on}  <span class="g">${mmss(el)}</span> <span class="spin g">⠋</span>`
+      + `<div class="subline">no ETA · this combo's median run ~8m</div>`;
+  }
+  if (e.k === "reviewer_live") {
+    const el = Date.now() - e.t;
+    b = `<span class="v">◆</span> reviewer <span class="v">V${e.n}</span> · <span class="a">live</span> · judging changeset  <span class="v">${mmss(el)}</span> <span class="spin v">⠋</span>`
+      + `<div class="subline">executing the attack table · verdict lands when done</div>`;
+  }
+  if (e.k === "gate_started") b = `<span class="a">▶</span> gate started <span class="d">· no-mistakes validating approved changeset</span>`;
+  if (e.k === "gate_step") b = `<span class="d">  gate · ${e.step} ✓</span>`;
+  if (e.k === "gate_done") b = `<span class="g">●</span> gate passed · PR ${e.pr} opened <span class="d">· dossier projected to body</span>`;
+  if (e.k === "coderabbit") b = `<span class="g">●</span> CodeRabbit ${e.verdict} <span class="d">· majors/criticals only · 0 actionable</span>`;
+  if (e.k === "ready") b = `<span class="g">✓ READY</span> · local lgtm + CI + CodeRabbit agree <span class="d">· merge is yours</span>`;
+  if (e.k === "escalated") b = `<span class="r">⚑ needs you</span> · ${esc(e.reason)}<div class="finding d">press <span class="a">v</span> for the decision card</div>`;
+  if (e.k === "decision") b = `<span class="a">◈ you decided</span> · ${esc(e.verb)} <span class="d">· journaled</span>`;
+  if (e.k === "parked") b = `<span class="d">■ parked · ${esc(e.note)}</span>`;
+  if (e.k === "closed") { const s = e.sum;
+    b = `<span class="g">✓ closed</span> · ${s.pr}<div class="finding d">${s.rounds} review rounds · ${s.findings} · ${s.tokens} tokens · ${s.dur}</div>`; }
+  return `<div class="entry">${ts}<div class="body-e">${b}</div></div>`;
+}
+function projection(c, f) {
+  const l = f.last;
+  if (l.k === "gnhf_live") return "coder loop converges → coder_done → first review V0";
+  if (l.k === "coder_live") return c.loop === "review"
+    ? `reviewer re-reviews the fix → verdict V${l.n} · no approval yet in ${f.round} rounds`
+    : `verdict V${l.n} · ~8m by this combo's median`;
+  if (l.k === "reviewer_live") return c.loop === "review"
+    ? "if the reviewer rejects this fix too, the director hands it to you"
+    : `verdict V${l.n} in a few minutes`;
+  if (l.k === "gate_step" || l.k === "gate_started") return "gate finishes · PR opens";
+  if (l.k === "gate_done") return "CodeRabbit auto-review on push";
+  if (l.k === "ready") return "nothing · waiting for your merge";
+  if (l.k === "escalated") return "nothing until you decide (v)";
+  return null;
+}
+
+function renderTmux() {
+  const c = capsules[S.capsule], f = fold(c);
+  const who = f.last.k === "reviewer_live" ? "reviewer" : f.phase === "GATE" ? "gate" : "coder";
+  $head.innerHTML = `<span class="l"><span class="d">tmux ·</span> <span class="v">combo-${c.id}</span><span class="d">:${who}</span></span><span class="d">simulated attach</span>`;
+  const paneTxt = who === "coder"
+    ? `<span class="d">codex · resumed thread · ~/.treehouse/…/repo</span>\n\n• Working on <span class="a">auth.ts</span>\n  └ extracting verifyTotpToken() shared helper\n\n<span class="d">› plan: dedupe token check → run focused tests → commit</span>\n\n<span class="g">✓</span> vitest auth.test.ts <span class="g">12/12</span>\n\n<span class="cursor"></span>`
+    : who === "reviewer"
+    ? `<span class="d">claude · pr-review skill · read-only</span>\n\n<span class="v">Attack table</span> · surface 2/4 <span class="spin v">⠋</span>\n  <span class="a">›</span> runner path guard · traversal inputs\n\n<span class="cursor"></span>`
+    : `<span class="d">no-mistakes · run 01KX…</span>\n\nrun: running <span class="spin a">⠋</span>\n  intent: <span class="g">completed</span>\n  test:   <span class="a">running</span> <span class="d">· vitest · 132 passed so far</span>\n\n<span class="cursor"></span>`;
+  $body.innerHTML = `<div class="tmux-pane">${paneTxt}</div>`;
+  $foot.innerHTML = `<div class="tmux-status" style="flex:1;margin:-9px -18px;padding:6px 18px"><span>[combo-${c.id}] 4:${who}*</span><span>REVIEW r${f.round} · ${f.findingsTrend[f.findingsTrend.length-1] ?? 0} finding${(f.findingsTrend[f.findingsTrend.length-1] ?? 0) === 1 ? "" : "s"} open <span style="opacity:.7">· prefix-B back to home</span></span></div>`;
+}
+
+function renderDossier() {
+  const c = capsules[S.capsule];
+  const v = [...c.journal].reverse().find(e => e.k === "verdict" && e.findings.length);
+  $head.innerHTML = `<span class="l"><span class="v">dossier</span> <span class="d">· review-V${v?v.n:0} · ${esc(c.item)}</span></span><span class="d">markdown render</span>`;
+  $body.innerHTML = `<div class="dos">
+    <div><span class="${v && v.code===0?"g":"a"}">verdict code ${v?v.code:0}</span> <span class="d">· pinned to changeset patch-id 8f3a21c</span></div>
+    <h4>Findings</h4>
+    ${v ? v.findings.map(f => `<div class="finding"><span class="${f.sev==="major"?"r":"d"}">${f.sev}</span>  <span class="d">${f.loc}</span>  ${esc(f.txt)}</div>`).join("") : '<span class="d">none</span>'}
+    <h4>Attack table <span class="d">(references findings, never restates)</span></h4>
+    <table><tr><th>Surface</th><th>Vector</th><th>Method</th><th>Result</th></tr>
+    <tr><td>auth.ts token check</td><td>forged / expired / replayed TOTP</td><td>executed</td><td>see finding #1</td></tr>
+    <tr><td>recovery codes</td><td>reuse, concurrent burn</td><td>executed</td><td>clean · single-use enforced</td></tr>
+    <tr><td>totp secret handling</td><td>grep debug/log sinks</td><td>executed</td><td>see finding #2</td></tr></table>
+    <h4>Javier checklist</h4>
+    <div class="d">8 points resolved · 2 findings (above) · 6 clean (zero visible lines, per dossier style rule)</div>
+    <h4>Not verified</h4>
+    <div class="d">· rate-limit behaviour under concurrent enroll (reasoned, not driven)<br>· e2e on CI (local suite only at this stage)</div>
+  </div>`;
+  $foot.innerHTML = `<span><kbd>q ←</kbd>back to thread</span><span class="d">review-V${v?v.n:0}-8f3a21c.md · tier 2 artifact</span>`;
+}
+
+function renderModal() {
+  if (S.modal === "help") {
+    $modal.className = "help-m";
+    $modal.innerHTML = `<div class="v" style="margin-bottom:10px">combo-chen · keys</div>
+      <div><kbd>↑↓</kbd> or <kbd>j k</kbd> select · <kbd>Enter</kbd>/<kbd>→</kbd> dive / hands on live actor</div>
+      <div><kbd>q</kbd>/<kbd>←</kbd>/<kbd>Esc</kbd> back · <kbd>v</kbd> decision card · <kbd>o</kbd> dossier</div>
+      <div><kbd>1 2 3</kbd> fleet tabs · <kbd>m</kbd> merge (on READY) · <kbd>B</kbd> back from tmux</div>
+      <div class="d" style="margin-top:10px">todo se renderiza plegando journal.jsonl · el mock no guarda estado propio</div>`;
+    $mbg.hidden = false; return;
+  }
+  if (S.modal === "decision") {
+    const c = capsules[S.capsule || "owner-repo-144"];
+    const e = lastOf(c.journal, "escalated");
+    if (!e) { S.modal = null; $mbg.hidden = true; return; }
+    $modal.className = "";
+    $modal.innerHTML = `<div class="r" style="margin-bottom:8px">⚑ decision · ${c.id}</div>
+      <div style="margin-bottom:6px">${esc(e.card.q)}</div>
+      <div class="d" style="margin-bottom:14px">${esc(e.card.ctx)}</div>
+      <div class="verb" data-verb="retry with hint"><span class="vk">[r]</span> retry · give the coder a hint (tombstone deleted rows)</div>
+      <div class="verb" data-verb="skip finding, tombstone filed"><span class="vk">[s]</span> skip finding · file follow-up issue</div>
+      <div class="verb" data-verb="take over"><span class="vk">[t]</span> take over · attach to the coder window</div>
+      <div class="verb" data-verb="stop combo"><span class="vk">[x]</span> stop combo · keep worktree</div>
+      <div class="d" style="margin-top:12px">[Esc] later · your choice is journaled as a decision event</div>`;
+    $mbg.hidden = false;
+    $modal.querySelectorAll(".verb").forEach(v => v.onclick = () => decide(v.dataset.verb));
+  }
+}
+function decide(verb) {
+  const c = capsules[S.capsule || "owner-repo-144"];
+  c.journal.push({ t: Date.now(), k: "decision", verb });
+  if (verb.startsWith("retry")) {
+    c.journal.push({ t: Date.now() + 1000, k: "coder_live", n: 3, on: "api/list.ts" });
+    c.script = [
+      { wait: 10, ev: { k: "coder_turn", n: 3, commits: 1, files: 1, fixed: "1 of 1" } },
+      { wait: 8,  ev: { k: "verdict", n: 3, code: 0, findings: [] } },
+      { wait: 2,  ev: { k: "gate_started" } },
+      { wait: 4,  ev: { k: "gate_step", step: "review" } },
+      { wait: 4,  ev: { k: "gate_step", step: "test" } },
+      { wait: 3,  ev: { k: "gate_done", pr: "#432" } },
+      { wait: 6,  ev: { k: "coderabbit", verdict: "green" } },
+      { wait: 1,  ev: { k: "ready" } },
+    ];
+    armScript(c);
+  }
+  S.modal = null; $mbg.hidden = true; render();
+}
+
+/* ---------- navigation ---------- */
+function enterSel() {
+  const list = fleetList(); const c = list[S.sel]; if (!c) return;
+  S.capsule = c.id; S.screen = "dive"; render();
+}
+function render() {
+  $mbg.hidden = S.modal === null;
+  if (S.modal) { renderModal(); }
+  if (S.screen === "fleet") renderFleet();
+  else if (S.screen === "dive") renderDive();
+  else if (S.screen === "tmux") renderTmux();
+  else if (S.screen === "dossier") renderDossier();
+}
+document.addEventListener("keydown", ev => {
+  const k = ev.key;
+  if (S.modal) {
+    if (k === "Escape" || k === "ArrowLeft") { S.modal = null; $mbg.hidden = true; render(); }
+    if (S.modal === "decision") {
+      if (k === "r") decide("retry with hint");
+      if (k === "s") decide("skip finding, tombstone filed");
+      if (k === "t") { S.modal = null; S.screen = "tmux"; render(); }
+      if (k === "x") decide("stop combo");
+    }
+    return;
+  }
+  if (S.screen === "fleet") {
+    const n = fleetList().length;
+    if (k === "ArrowDown" || k === "j") { S.sel = Math.min(S.sel + 1, n - 1); render(); }
+    if (k === "ArrowUp" || k === "k") { S.sel = Math.max(S.sel - 1, 0); render(); }
+    if (k === "Enter" || k === "ArrowRight") enterSel();
+    if (k === "1") { S.tab = "live"; S.sel = 0; render(); }
+    if (k === "2") { S.tab = "parked"; S.sel = 0; render(); }
+    if (k === "3") { S.tab = "closed"; S.sel = 0; render(); }
+    if (k === "v") { const c = fleetList()[S.sel]; if (c && fold(c).needsYou) { S.capsule = c.id; S.modal = "decision"; render(); } }
+    if (k === "?") { S.modal = "help"; render(); }
+  } else if (S.screen === "dive") {
+    if (k === "q" || k === "Escape" || k === "ArrowLeft") { S.screen = "fleet"; render(); }
+    if (k === "Enter") { S.screen = "tmux"; render(); }
+    if (k === "o") { S.screen = "dossier"; render(); }
+    if (k === "v") { S.modal = "decision"; render(); }
+    if (k === "m") { const c = capsules[S.capsule];
+      if (fold(c).phase === "READY") { c.closed = true;
+        c.journal.push({ t: Date.now(), k: "closed", sum: { rounds: c.journal.filter(e=>e.k==="verdict").length, findings: "fixed locally pre-PR", tokens: "~", dur: fmtAge(Math.round((Date.now()-c.created)/min)), pr: (lastOf(c.journal,"gate_done")||{pr:"PR"}).pr + " merged" } });
+        S.screen = "fleet"; S.sel = 0; render(); } }
+    if (k === "?") { S.modal = "help"; render(); }
+  } else if (S.screen === "tmux") {
+    if (k === "b" || k === "B" || k === "q" || k === "Escape" || k === "ArrowLeft") { S.screen = "dive"; render(); }
+  } else if (S.screen === "dossier") {
+    if (k === "q" || k === "Escape" || k === "ArrowLeft") { S.screen = "dive"; render(); }
+  }
+});
+
+/* ---------- live simulation: scripted events append to journals ---------- */
+function armScript(c) {
+  if (!c.script.length) return;
+  const step = c.script.shift();
+  setTimeout(() => {
+    // replace a live entry with its resolution when the next concrete event lands
+    if (step.ev.k === "coder_turn" || step.ev.k === "verdict") {
+      const li = c.journal.findIndex(e => e.k === "coder_live" || e.k === "reviewer_live");
+      if (li >= 0 && (step.ev.k === "coder_turn" || step.ev.k === "verdict")) c.journal.splice(li, 1);
+    }
+    c.journal.push(Object.assign({ t: Date.now() }, step.ev));
+    if ((S.screen === "fleet") || (S.screen === "dive" && S.capsule === c.id)) render();
+    armScript(c);
+  }, step.wait * 1000);
+}
+Object.values(capsules).forEach(armScript);
+
+/* ---------- review loop: coder ↔ reviewer rally, 3 non-converging rounds → escalate ---------- */
+function renderIfVisible(c) { if (S.screen === "fleet" || (S.screen === "dive" && S.capsule === c.id)) render(); }
+function pruneTrain(c, keep) {
+  const train = c.journal.filter(e => ["verdict","coder_turn"].includes(e.k)).length;
+  let excess = train - keep;
+  if (excess <= 0) return;
+  c.journal = c.journal.filter(e => {
+    if (excess > 0 && (e.k === "verdict" || e.k === "coder_turn") && e.n > 0) { excess--; return false; }
+    return true;
+  });
+}
+function armReviewLoop(c) {
+  const FILE = "guards.ts";
+  const CORE = "scope check bypassable via nested route";
+  const FIND = [
+    [{ sev: "major", loc: "guards.ts:52", txt: CORE + " · still open" }],
+    [{ sev: "major", loc: "guards.ts:52", txt: CORE + " · parent fixed, child route still open" }],
+    [{ sev: "major", loc: "guards.ts:52", txt: CORE + " · reappears on prefetch" }],
+  ];
+  const FIX = ["reworked scope check", "split parent/child guard", "guarded prefetch path"];
+  const MAX = 3;
+  let round = 1;
+  function coderPhase() {
+    c.journal.push({ t: Date.now(), k: "coder_live", n: round, on: FILE, dur: 4200 });
+    renderIfVisible(c);
+    setTimeout(() => {
+      const li = c.journal.findIndex(e => e.k === "coder_live");
+      if (li >= 0) c.journal.splice(li, 1);
+      c.journal.push({ t: Date.now(), k: "coder_turn", n: round, commits: 1, files: 2, fixed: FIX[(round-1) % FIX.length] });
+      renderIfVisible(c);
+      reviewerPhase();
+    }, 4200);
+  }
+  function reviewerPhase() {
+    c.journal.push({ t: Date.now(), k: "reviewer_live", n: round, dur: 3200 });
+    renderIfVisible(c);
+    setTimeout(() => {
+      const li = c.journal.findIndex(e => e.k === "reviewer_live");
+      if (li >= 0) c.journal.splice(li, 1);
+      c.journal.push({ t: Date.now(), k: "verdict", n: round, code: 1, findings: FIND[(round-1) % FIND.length] });
+      pruneTrain(c, 6);
+      renderIfVisible(c);
+      if (round >= MAX) {
+        setTimeout(() => {
+          c.journal.push({ t: Date.now(), k: "escalated",
+            reason: `no-progress: ${MAX} fixes rejected, "${CORE}" still open`,
+            card: { q: `The coder tried ${MAX} fixes for "${CORE}" (guards.ts:52) and the reviewer rejected each one.`,
+                    ctx: "Whether nested child routes inherit the parent guard is an auth-policy call, not a mechanical fix." } });
+          renderIfVisible(c);
+        }, 1400);
+        return;
+      }
+      round++;
+      coderPhase();
+    }, 3200);
+  }
+  coderPhase();
+}
+Object.values(capsules).forEach(c => { if (c.loop === "review") armReviewLoop(c); });
+
+/* ---------- animation: 1s re-render for numbers/bars, 120ms for spinners/pulse ---------- */
+setInterval(() => { if (S.screen !== "dossier" && S.modal !== "help") render(); }, 1000);
+const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+let spinI = 0;
+const reduceM = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (!reduceM) setInterval(() => {
+  spinI = (spinI + 1) % SPIN.length;
+  const ch = SPIN[spinI];
+  document.querySelectorAll(".spin").forEach(el => { el.textContent = ch; });
+  const o = (0.4 + 0.6 * (0.5 + 0.5 * Math.sin(Date.now() / 240))).toFixed(2);
+  document.querySelectorAll(".pulse").forEach(el => { el.style.opacity = o; });
+  document.querySelectorAll(".livebar").forEach(el => {
+    const start = +el.dataset.start, dur = +el.dataset.dur, cells = +el.dataset.cells, cls = el.dataset.cls;
+    const f = (((Date.now() - start) / dur) % 1 + 1) % 1;
+    el.innerHTML = dotcontent(f, cells, cls, el.dataset.dir === "rtl");
+  });
+}, 120);
+render();
+</script>
