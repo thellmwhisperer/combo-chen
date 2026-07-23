@@ -130,8 +130,9 @@ function runScript(
   if (script === "cb-launcher.sh" && existsSync(metaPath)) {
     const meta = JSON.parse(readFileSync(metaPath, "utf8")) as Ownership;
     const paths = meta.runway_kind === "treehouse" ? fixture.treehousePaths : fixture.gitWorktrees;
-    if (!paths.includes(meta.worktree)) paths.push(meta.worktree);
-  } else if (script === "cb-launcher.sh") {
+    if (existsSync(meta.worktree) && !paths.includes(meta.worktree)) paths.push(meta.worktree);
+  }
+  if (script === "cb-launcher.sh") {
     const status = command("treehouse", ["status"], fixture.repo);
     const held = status.stdout
       .split("\n")
@@ -314,35 +315,39 @@ exec ${shellQuote(treehouseBin)} "$@"
     expect(command("treehouse", ["status"], fixture.repo).stdout).toContain(`held by ${run}`);
   }, 30_000);
 
-  it("recovers the holder path and returns a real lease after unusable acquisition output", () => {
-    const fixture = makeFixture({ treehouse: true });
-    const run = "p3-treehouse-polluted";
-    const { runDir } = makeRun(fixture, run);
-    const treehouseBin = command("sh", ["-c", "command -v treehouse"], ROOT).stdout.trim();
-    const fake = fakeTreehouse(
-      fixture,
-      `#!/bin/sh
+  it.each(["single", "dual"])(
+    "recovers the holder after %s wrong absolute output",
+    (shape) => {
+      const fixture = makeFixture({ treehouse: true });
+      const run = `p3-treehouse-${shape}-absolute`;
+      const { runDir } = makeRun(fixture, run);
+      const treehouseBin = command("sh", ["-c", "command -v treehouse"], ROOT).stdout.trim();
+      const fake = fakeTreehouse(
+        fixture,
+        `#!/bin/sh
 if [ "$1" = get ]; then
-  ${shellQuote(treehouseBin)} "$@" >/dev/null
+  actual=$(${shellQuote(treehouseBin)} "$@")
   code=$?
-  [ "$code" -ne 0 ] || printf 'unusable-response\\n'
+  [ "$code" -ne 0 ] || { printf '/wrong-treehouse-path\\n'; [ ${shellQuote(shape)} = dual ] && printf '%s\\n' "$actual"; }
   exit "$code"
 fi
 exec ${shellQuote(treehouseBin)} "$@"
 `,
-    );
+      );
 
-    const launched = runScript(fixture, "cb-launcher.sh", run, {
-      ...process.env,
-      PATH: `${fake.path}:${process.env.PATH}`,
-    });
-    expect(launched.status).not.toBe(0);
-    expect(events(runDir).at(-1)?.payload).toMatchObject({
-      reasons: expect.arrayContaining(["treehouse:invalid_path"]),
-    });
-    expect(existsSync(join(runDir, "agents", "launcher.ownership.json"))).toBe(false);
-    expect(command("treehouse", ["status"], fixture.repo).stdout).not.toContain(`held by ${run}`);
-  }, 30_000);
+      const launched = runScript(fixture, "cb-launcher.sh", run, {
+        ...process.env,
+        PATH: `${fake.path}:${process.env.PATH}`,
+      });
+      expect(launched.status).not.toBe(0);
+      expect(events(runDir).at(-1)?.payload).toMatchObject({
+        reasons: expect.arrayContaining(["treehouse:invalid_response"]),
+      });
+      expect(existsSync(join(runDir, "agents", "launcher.ownership.json"))).toBe(false);
+      expect(command("treehouse", ["status"], fixture.repo).stdout).not.toContain(`held by ${run}`);
+    },
+    30_000,
+  );
 
   it("allows exact cleanup after branch creation fails in a real lease", () => {
     const fixture = makeFixture({ treehouse: true });
@@ -406,7 +411,7 @@ describe("cb-launcher Treehouse refusal", () => {
         .status,
     ).not.toBe(0);
     expect(events(runDir).at(-1)?.payload).toMatchObject({
-      reasons: expect.arrayContaining(["treehouse:invalid_path", "treehouse:rollback_refused"]),
+      reasons: expect.arrayContaining(["treehouse:invalid_response", "treehouse:rollback_refused"]),
     });
     expect(existsSync(gitPath)).toBe(false);
   });
