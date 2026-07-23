@@ -132,7 +132,7 @@ function runScript(
     const paths = meta.runway_kind === "treehouse" ? fixture.treehousePaths : fixture.gitWorktrees;
     if (existsSync(meta.worktree) && !paths.includes(meta.worktree)) paths.push(meta.worktree);
   }
-  if (script === "cb-launcher.sh") {
+  if (script === "cb-launcher.sh" && treehouseAvailable) {
     const status = command("treehouse", ["status"], fixture.repo);
     const held = status.stdout
       .split("\n")
