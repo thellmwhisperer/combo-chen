@@ -36,6 +36,13 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.83](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.82...combo-chen-v0.0.83) (2026-07-23)
+
+
+### Features
+
+* **shell:** add P2 multi-run-safe tmux spawn with atomic agent metadata ([#321](https://github.com/thellmwhisperer/combo-chen/issues/321)) ([39fbf7d](https://github.com/thellmwhisperer/combo-chen/commit/39fbf7dad10fe7a00675a666891092c6d80f99f3))
+
 ## [0.0.82](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.81...combo-chen-v0.0.82) (2026-07-23)
 
 
