@@ -142,38 +142,39 @@ cb_tmux_send_verified() {
 }
 
 cb_tmux_resolve_agent() {
-  # <runId> <agent> [runs_dir] — window_id then name, exact combo-<runId> only.
+  # <runId> <agent> [runs_dir] — exact combo-<runId> only.
+  # Accept recorded window_id only when that id is still the expected
+  # cb-<runId>-<agent> live endpoint (cb_tmux_endpoint_ok). Stale ids that
+  # were reused by another role after a server restart are ignored.
   run=$1 agent=$2
   runs_dir=${3:-${CB_RUNS_DIR:-$HOME/.combo-chen/runs}}
   meta=$runs_dir/$run/agents/$agent.meta
   ses=$(cb_tmux_session_name "$run")
   exact=$(cb_tmux_exact_session "$ses")
+  expected=$(cb_tmux_window_name "$run" "$agent")
   [ -f "$meta" ] || { echo "cb-tmux: no metadata for $run/$agent" >&2; return 1; }
   cb_tmux_has_session_exact "$ses" || { echo "cb-tmux: session missing: $ses" >&2; return 1; }
   meta_run=$(cb_tmux_meta_get "$meta" run 2>/dev/null || true)
   meta_agent=$(cb_tmux_meta_get "$meta" agent 2>/dev/null || true)
   [ -z "$meta_run" ] || [ "$meta_run" = "$run" ] || { echo "cb-tmux: meta run mismatch for $run/$agent" >&2; return 1; }
   [ -z "$meta_agent" ] || [ "$meta_agent" = "$agent" ] || { echo "cb-tmux: meta agent mismatch for $run/$agent" >&2; return 1; }
+
   wid=$(cb_tmux_meta_get "$meta" window_id 2>/dev/null || true)
-  if [ -n "$wid" ] && cb_tmux list-windows -t "$exact" -F '#{window_id}' 2>/dev/null | grep -qx "$wid"; then
+  if [ -n "$wid" ] && cb_tmux_endpoint_ok "$ses" "$expected" "$wid"; then
     printf '%s\n' "$wid"
     return 0
   fi
-  wname=$(cb_tmux_meta_get "$meta" window 2>/dev/null || true)
-  case "$wname" in
-    "$ses":*)
-      short=${wname#"$ses":}
-      if cb_tmux list-windows -t "$exact" -F '#{window_name}' 2>/dev/null | grep -qx "$short"; then
-        printf '%s:%s\n' "$exact" "$short"
-        return 0
-      fi
-      ;;
-  esac
-  expected=$(cb_tmux_window_name "$run" "$agent")
+
+  # Name fallback is only the expected agent window — never a differently named pane.
   if cb_tmux list-windows -t "$exact" -F '#{window_name}' 2>/dev/null | grep -qx "$expected"; then
-    printf '%s:%s\n' "$exact" "$expected"
-    return 0
+    live_wid=$(cb_tmux list-windows -t "$exact" -F '#{window_name} #{window_id}' 2>/dev/null \
+      | awk -v n="$expected" '$1 == n { print $2; exit }')
+    if [ -n "$live_wid" ] && cb_tmux_endpoint_ok "$ses" "$expected" "$live_wid"; then
+      printf '%s\n' "$live_wid"
+      return 0
+    fi
   fi
+
   echo "cb-tmux: unresolved target for $run/$agent inside $ses" >&2
   return 1
 }

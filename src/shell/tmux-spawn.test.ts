@@ -381,6 +381,50 @@ d("cb-tmux + spawn", () => {
     expect(sh("cb-send.sh", ["scope", "launcher", "echo x"], h.env).status).not.toBe(0);
   }, 15_000);
 
+  it("ignores stale window ids reused by another role after server restart", () => {
+    const h = makeHome();
+    const run = "reuse";
+    ensureRun(h, run);
+    const first = spawnAgent(h, run, "coder");
+    expect(first.status, first.stderr).toBe(0);
+    const staleId = first.stdout.trim();
+    expect(staleId).toMatch(/^@\d+$/);
+    expect(readMeta(h, run, "coder").window_id).toBe(staleId);
+
+    // Kill the isolated server; on-disk meta remains. Next spawn may reuse @N.
+    expect(tmux(h, ["kill-server"]).status).toBe(0);
+    sleep(100);
+
+    const launcher = spawnAgent(h, run, "launcher");
+    expect(launcher.status, launcher.stderr).toBe(0);
+    const launcherId = launcher.stdout.trim();
+    // Numeric id reuse is the interesting case; always assert no misroute.
+    expect(readMeta(h, run, "launcher").window_id).toBe(launcherId);
+
+    // Stale coder meta must not resolve to launcher (even if ids match).
+    const coderStatus = sh("cb-status.sh", [run, "coder"], h.env).stdout;
+    expect(coderStatus).toContain("agent.coder.resolved=");
+    expect(coderStatus).not.toContain(`agent.coder.resolved=${launcherId}`);
+    // Empty resolved field: line ends at '=' with no target.
+    expect(coderStatus.split("\n").some((l) => l === "agent.coder.resolved=")).toBe(true);
+    const mis = sh("cb-send.sh", [run, "coder", "echo SHOULD-NOT-LAND"], h.env);
+    expect(mis.status).not.toBe(0);
+    sleep(200);
+    expect(sh("cb-peek.sh", [run, "launcher", "40"], h.env).stdout).not.toContain("SHOULD-NOT-LAND");
+
+    // Missing original role can respawn; custody replaces stale meta only after live endpoint.
+    const again = spawnAgent(h, run, "coder");
+    expect(again.status, again.stderr).toBe(0);
+    const coderId = again.stdout.trim();
+    expect(coderId).toMatch(/^@\d+$/);
+    expect(readMeta(h, run, "coder").window_id).toBe(coderId);
+    expect(readMeta(h, run, "coder").window).toBe(`combo-${run}:cb-${run}-coder`);
+    expect(sh("cb-status.sh", [run, "coder"], h.env).stdout).toContain(`agent.coder.resolved=${coderId}`);
+    expect(sh("cb-status.sh", [run, "launcher"], h.env).stdout).toContain(
+      `agent.launcher.resolved=${launcherId}`,
+    );
+  }, 30_000);
+
   it("guards decision paths and rejects mode=bin without --cmd", () => {
     const h = makeHome();
     ensureRun(h, "meta1");
