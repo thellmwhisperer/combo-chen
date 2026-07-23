@@ -108,17 +108,44 @@ if ! printf '%s' "$payload" | jq -e "$predicate" >/dev/null 2>&1; then
 fi
 
 lock=$run_dir/.journal.lock
+lock_owner=$lock/owner
+lock_token=$$-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 started=$(date +%s)
 lock_timeout=${CB_JOURNAL_LOCK_TIMEOUT_SECONDS:-5}
 stale_after=${CB_JOURNAL_LOCK_STALE_SECONDS:-30}
+reclaim_dead_lock() {
+  owner_pid=''
+  owner_token=''
+  IFS=' ' read -r owner_pid owner_token <"$lock_owner" 2>/dev/null || return 0
+  case "$owner_pid" in ''|*[!0-9]*) return 0 ;; esac
+  case "$owner_token" in ''|*[!0-9a-zA-Z_-]*) return 0 ;; esac
+  kill -0 "$owner_pid" 2>/dev/null && return 0
+  mkdir "$lock/.reap" 2>/dev/null || return 0
+  current=$(cat "$lock_owner" 2>/dev/null || true)
+  if [ "$current" = "$owner_pid $owner_token" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
+    rm -f "$lock_owner"
+  fi
+  rmdir "$lock/.reap" 2>/dev/null || true
+  rmdir "$lock" 2>/dev/null || true
+}
 while ! mkdir "$lock" 2>/dev/null; do
   now=$(date +%s)
   mtime=$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || printf '%s' "$now")
-  if [ $((now - mtime)) -ge "$stale_after" ]; then rmdir "$lock" 2>/dev/null || true; fi
+  if [ $((now - mtime)) -ge "$stale_after" ]; then reclaim_dead_lock; fi
   [ $((now - started)) -lt "$lock_timeout" ] || { echo "cb-emit: journal lock timeout" >&2; exit 75; }
   sleep 0.01
 done
-cleanup() { rmdir "$lock" 2>/dev/null || true; }
+if ! printf '%s %s\n' "$$" "$lock_token" >"$lock_owner"; then
+  rmdir "$lock" 2>/dev/null || true
+  echo "cb-emit: cannot record journal lock owner" >&2
+  exit 73
+fi
+cleanup() {
+  current=$(cat "$lock_owner" 2>/dev/null || true)
+  [ "$current" = "$$ $lock_token" ] || return 0
+  rm -f "$lock_owner"
+  rmdir "$lock" 2>/dev/null || true
+}
 trap cleanup 0
 trap 'exit 130' 1 2 15
 

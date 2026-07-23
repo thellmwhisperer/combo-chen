@@ -11,7 +11,7 @@
  * @deps vitest, node:child_process, node:fs, node:os, node:path
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -172,6 +172,34 @@ describe("cb-emit", () => {
     expect(missingFindings.status).not.toBe(0);
   });
 
+  it("never reclaims a stale lock while its recorded owner is alive", () => {
+    const run = makeRun();
+    const lock = join(run.runDir, ".journal.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), `${process.pid} live-owner-token\n`);
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "chain", "0", "run_created", { work_item: "#311", repo: "/repo" }),
+      { ...run.env, CB_JOURNAL_LOCK_STALE_SECONDS: "0", CB_JOURNAL_LOCK_TIMEOUT_SECONDS: "1" },
+    );
+    expect(result.status).toBe(75);
+    expect(readFileSync(join(lock, "owner"), "utf8")).toBe(`${process.pid} live-owner-token\n`);
+  });
+
+  it("reclaims a stale lock only when its recorded owner is dead", () => {
+    const run = makeRun();
+    const lock = join(run.runDir, ".journal.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), "99999999 abandoned-owner-token\n");
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "chain", "0", "run_created", { work_item: "#311", repo: "/repo" }),
+      { ...run.env, CB_JOURNAL_LOCK_STALE_SECONDS: "0", CB_JOURNAL_LOCK_TIMEOUT_SECONDS: "2" },
+    );
+    expect(result.status).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+  });
+
   it("serializes concurrent appenders without interleaving or duplicate sequence numbers", async () => {
     const run = makeRun();
     const children = Array.from({ length: 24 }, (_, index) => {
@@ -234,6 +262,50 @@ describe("torn final line tolerance", () => {
 });
 
 describe("cb-run-state fixture folds", () => {
+  it.each([
+    [
+      "launcher",
+      [
+        { agent: "launcher", code: 1, event: "launch_not_ready", payload: { reasons: ["not ready"] } },
+        { agent: "launcher", code: 0, event: "launch_ready", payload: {} },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "done",
+    ],
+    [
+      "gate",
+      [
+        { agent: "gate", code: 1, event: "gate_failed", payload: { reason: "pipeline_failed" } },
+        { agent: "gate", code: 0, event: "gate_ok", payload: {} },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "done",
+    ],
+    [
+      "cleaner",
+      [
+        { agent: "cleaner", code: 1, event: "clean_failed", payload: { reasons: ["busy"] } },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "done",
+    ],
+    [
+      "unrelated chain",
+      [
+        { agent: "chain", code: 1, event: "chain_stopped", payload: { reason: "rounds_exhausted" } },
+        { agent: "launcher", code: 0, event: "launch_ready", payload: {} },
+        { agent: "gate", code: 0, event: "gate_ok", payload: {} },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "failed(chain, rounds_exhausted)",
+    ],
+  ])("lets later %s success clear only its own failure", (_name, events, expected) => {
+    const run = makeRun(`superseded-${_name.replace(" ", "-")}`);
+    const lines = events.map((event, index) => JSON.stringify({ seq: index + 1, ...event }));
+    writeFileSync(join(run.runDir, "journal.jsonl"), `${lines.join("\n")}\n`);
+    expect(command("cb-run-state.sh", [run.run], run.env).stdout.trim()).toBe(expected);
+  });
+
   it("replays by sequence rather than physical line order", () => {
     const run = makeRun("out-of-order");
     const lines = readFileSync(join(FIXTURES, "happy-path.jsonl"), "utf8").trim().split("\n").reverse();

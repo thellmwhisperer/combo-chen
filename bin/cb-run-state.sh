@@ -24,7 +24,7 @@ printf '%s' "$rows" | jq -r '
   reduce .[] as $e (
     {phase:"created", round:1, member:"pending", failure_agent:null, failure_reason:null};
     if $e.event=="run_created" then .phase="launching"
-    elif $e.event=="launch_ready" then .phase="coding"
+    elif $e.event=="launch_ready" then .phase="coding" | (if .failure_agent=="launcher" then .failure_agent=null | .failure_reason=null else . end)
     elif $e.event=="launch_not_ready" then .phase="cleaning" | .failure_agent="launcher" | .failure_reason="launch_not_ready"
     elif $e.event=="chain_stopped" then .phase="cleaning" | .failure_agent="chain" | .failure_reason=$e.payload.reason
     elif $e.event=="coder_ready" then .phase="reviewing" | .member="pending"
@@ -33,9 +33,9 @@ printf '%s' "$rows" | jq -r '
     elif $e.event=="needs_change" then .phase="coding" | .round=($e.payload.round+1) | .member="pending"
     elif $e.event=="lgtm" then .phase="gating"
     elif $e.event=="gate_progress" then .
-    elif $e.event=="gate_ok" then .phase="cleaning"
+    elif $e.event=="gate_ok" then .phase="cleaning" | (if .failure_agent=="gate" then .failure_agent=null | .failure_reason=null else . end)
     elif $e.event=="gate_failed" then .phase="cleaning" | .failure_agent="gate" | .failure_reason=$e.payload.reason
-    elif $e.event=="cleaned" then .phase=(if .failure_agent==null then "done" else "failed" end)
+    elif $e.event=="cleaned" then (if .failure_agent=="cleaner" then .failure_agent=null | .failure_reason=null else . end) | .phase=(if .failure_agent==null then "done" else "failed" end)
     elif $e.event=="clean_failed" then .phase="failed" | .failure_agent="cleaner" | .failure_reason="clean_failed"
     else . end
   ) |
