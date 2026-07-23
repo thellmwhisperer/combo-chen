@@ -393,6 +393,27 @@ d("cb-tmux + spawn", () => {
     expect(sent.stderr).toMatch(/dead or missing|failed to send Enter/);
   }, 20_000);
 
+  it("returns nonzero when the pane exits shortly after composer clear", () => {
+    const h = makeHome();
+    const run = "delayexit";
+    ensureRun(h, run);
+    // Accepts the line (composer clear), then exits after a brief delay so the
+    // pane is already dead before cb-send returns — final pre-success live check.
+    expect(
+      spawnAgent(h, run, "reviewer", ["--mode", "tui", "--cmd", "sh -c 'read line; sleep 0.05; exit 0'"])
+        .status,
+    ).toBe(0);
+    sleep(250);
+    const sent = sh("cb-send.sh", [run, "reviewer", "LATER"], {
+      ...h.env,
+      CB_SEND_SLEEP: "0.25",
+      CB_SEND_SETTLE: "0.05",
+      CB_SEND_RETRIES: "2",
+    });
+    expect(sent.status).not.toBe(0);
+    expect(sent.stderr).toMatch(/dead or missing/);
+  }, 20_000);
+
   it("ignores stale window ids reused by another role after server restart", () => {
     const h = makeHome();
     const run = "reuse";
