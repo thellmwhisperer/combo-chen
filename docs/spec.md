@@ -465,26 +465,29 @@ with active no-mistakes runs during parallel waves.
   output never replaces the coder role. After PR open, the reviewer and
   coder-response surfaces are worker prompts routed by the director-watch loop,
   not independent babysitters.
-- The journal is an append-only JSONL spine per combo run. Each combo run
-  directory also contains `combo.json` (combo identity),
-  `runtime-ledger.json` (machine-readable capsule resources, written at launch
-  and updated when PR/reviewer/director resources appear),
-  `config.snapshot.json`
-  (frozen launch-time config), `overture.json` (pre-launch runway check results),
-  generated runner/gate scripts, and work-plan/role artifacts. Each append acquires
-  a per-run directory lock (30 s staleness timeout) that serializes concurrent
-  writers from the runner, director, emit command, and resume/reconcile paths.
-  A stale lock from a dead process is removed before the next writer proceeds;
-  lock contention is bounded to 5 s before the writer fails. The journal
-  tolerates torn lines from crashes (a reader skips unparseable lines) and
-  re-reads pick up complete entries that land after a torn fragment.
-  Duplicate `pr_opened` append attempts for the same PR URL in one combo return
-  the existing event and do not write a second line, preserving one PR-open
-  transition even when retry paths re-emit the same fact.
-  The `combo.json` `id` is an exact directory invariant: it must match the
-  `runs/<combo-id>` directory entry. Readers derive run paths from `combo.id`,
-  so mismatches are corrupt state and list operations fail unless the caller
-  explicitly supplies a corruption handler.
+- The journal is an append-only JSONL spine per combo run. The v1 Bash journal
+  spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`, `bin/cb-run-state.sh`) provides
+  a five-agent event enum (chain, launcher, coder, reviewer, gate, cleaner),
+  strict 0/1 payload validation, ownership-safe append locking via
+  `.journal.lock`, idempotent event deduplication, deterministic per-agent
+  failure folding, and torn-final-line recovery. Each combo run directory also
+  contains `combo.json` (combo identity), `runtime-ledger.json`
+  (machine-readable capsule resources, written at launch and updated when
+  PR/reviewer/director resources appear), `config.snapshot.json` (frozen
+  launch-time config; also sourced as `config.env` by the v1 journal spine),
+  `overture.json` (pre-launch runway check results), generated runner/gate
+  scripts, and work-plan/role artifacts. Each append acquires a per-run
+  directory lock that serializes concurrent writers from the runner, director,
+  emit command, resume/reconcile paths, and the v1 journal scripts. A stale
+  lock from a dead process is removed before the next writer proceeds; lock
+  contention is bounded before the writer fails. The journal tolerates torn
+  lines from crashes (a reader skips unparseable lines) and re-reads pick up
+  complete entries that land after a torn fragment. Duplicate emissions return
+  the existing event and do not write a second line. The `combo.json` `id` is
+  an exact directory invariant: it must match the `runs/<combo-id>` directory
+  entry. Readers derive run paths from `combo.id`, so mismatches are corrupt
+  state and list operations fail unless the caller explicitly supplies a
+  corruption handler.
 - The director-watch polling loop, post-address gates, reviewer activation,
   park/resume, reconcile teardown, `status --deep`, and forensics all read
   runtime config from the launch-time `config.snapshot.json` in the run
@@ -908,8 +911,9 @@ The project also ships with static slop probes under `.slop/rules/`:
   reached zero, so the rule was promoted from warning to error.
 - **no-shell-in-ts** (`error`): tombstone for generated shell embedded as TS
   string literals. Cite: #283 - the ad hoc copies diverged into bug #281. All
-  generated shell lives in `src/shell/templates/*.sh` (shellcheck-gated via
-  `pnpm lint:sh`); TS code only renders placeholders.
+  generated shell lives in `src/shell/templates/*.sh`; the v1 journal spine
+  lives in `bin/cb-*.sh`. Both are shellcheck-gated via `pnpm lint:sh`; TS
+  code only renders placeholders.
 - **no-adhoc-axi-status-scrape** (`error`): tombstone for ad hoc parsing of
   `no-mistakes axi status` output. Cite: #281. Canonical parsers:
   `src/shell/templates/axi-status-lib.sh` for shell,
@@ -1066,6 +1070,13 @@ conversation, nothing else. Lingering processes die with the tmux session.
    coder (codex+gnhf), gatekeeper (no-mistakes), reviewer (incremental
    re-review), director-owned tmux poll loop; promptable director window; ACP,
    counterfactual log, preflight and multi-combo dashboard deferred to v1+.
+4. **P1 journal spine** landed: `bin/cb-emit.sh`, `bin/cb-wait.sh`,
+   `bin/cb-run-state.sh` implement the v1 Bash journal spine with a five-agent
+   event enum (chain, launcher, coder, reviewer, gate, cleaner), ownership-safe
+   append locking, strict 0/1 payload validation, idempotent event identity,
+   deterministic per-agent failure folding, and torn-final-line recovery.
+   See the staged fixtures under `test/fixtures/journal-v1/` and the
+   mechanical contract tests in `src/shell/journal-spine.test.ts`.
 
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the
 contract describes each role directly before the project has external users.

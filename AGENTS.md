@@ -179,6 +179,9 @@ it; otherwise search before adding helpers), reviewer anti-slop guardrails
 (duplicate helper check, config plausibility, surface budget awareness),
 anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
 `pnpm surface`), and `needs-human-report` operational metrics.
+P1 adds the v1 Bash journal spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`,
+`bin/cb-run-state.sh`) with a five-agent event enum, JSONL append locking,
+and deterministic phase folding.
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
