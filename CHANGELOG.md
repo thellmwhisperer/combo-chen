@@ -4,6 +4,8 @@
 
 ### Features
 
+* **journal:** Add v1 Bash journal spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`, `bin/cb-run-state.sh`) with five-agent event enum, ownership-safe append locking, idempotent event identity, strict 0/1 payload validation, deterministic per-agent failure folding, torn-final-line tolerance, and run-local findings-artifact containment. Fixes [#311](https://github.com/thellmwhisperer/combo-chen/issues/311).
+
 * **gate:** Normalize gate status when no-mistakes exits after checks-passed plus context-canceled, treating it as recovered success instead of failure. Fixes [#195](https://github.com/thellmwhisperer/combo-chen/issues/195).
 * **status:** Surface PR head vs local worktree head drift in `status --deep` and forensics reports with an explicit sync or fetch action.
 * **coder:** Explicit coder terminal outcome contract prevents clean gnhf stop-condition completions from being mistaken for dead coder panes. Fixes [#234](https://github.com/thellmwhisperer/combo-chen/issues/234).

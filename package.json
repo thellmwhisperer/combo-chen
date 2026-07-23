@@ -12,7 +12,7 @@
     "dev": "tsdown --watch",
     "release:assets": "pnpm build && node dist/release-assets.mjs",
     "lint": "eslint .",
-    "lint:sh": "shellcheck --severity=warning --exclude=SC2154,SC2034 -s sh src/shell/templates/*.sh",
+    "lint:sh": "shellcheck --severity=warning --exclude=SC2154,SC2034 -s sh src/shell/templates/*.sh bin/cb-*.sh",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "slop:check": "sg scan && jscpd src --format typescript --ignore '**/*.test.ts' --threshold 1.65 --silent --no-colors --no-tips",
