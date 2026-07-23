@@ -186,6 +186,10 @@ P2 adds multi-run-safe tmux spawn (`bin/cb-tmux.sh`, `bin/cb-agent-spawn.sh`,
 `bin/cb-send.sh`, `bin/cb-peek.sh`, `bin/cb-status.sh`) with atomic
 `runs/<runId>/agents/*.meta`, pinned `combo-<runId>` sessions, and
 `cb-<runId>-{launcher,coder,reviewer,gate,cleaner}` windows.
+P3 adds the mechanical `bin/cb-launcher.sh` and `bin/cb-cleaner.sh` ends:
+Treehouse holder/path custody is exact and live-verified, Git fallback is an
+explicit distinct ownership kind, and run-local readiness/custody commands are
+generic P4/P7 input boundaries rather than model or Gate orchestration.
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
