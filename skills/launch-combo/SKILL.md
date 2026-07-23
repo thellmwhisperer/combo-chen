@@ -25,7 +25,7 @@ You are the DIRECTOR of one combo. A combo turns one GitHub issue or work plan i
 3. One capsule, one branch, one worktree, one owner. Never touch the main worktree. Each combo is a capsule in the parallelize-first wave model; the shared gate lease serializes publication across capsules.
 4. Silence is not success. Poll. Every quiet period must be explained by evidence (journal, tmux, GitHub, axi status).
 5. Never trust your session memory after a compaction or restart. Re-read the journal and `combo-chen status`; they are the source of truth.
-6. The ONLY sanctioned way to write the journal is `combo-chen emit`. Never hand-write JSONL lines (`echo >>`, `cat >>`, `printf >>`) into a `journal.jsonl`: that bypasses canonicalization and the runner side-effects, produces events the director cannot trust, and trips the safety classifier as fabricated state.
+6. The ONLY sanctioned ways to write the journal are `combo-chen emit` and `cb-emit.sh`. Never hand-write JSONL lines (`echo >>`, `cat >>`, `printf >>`) into a `journal.jsonl`: that bypasses canonicalization and the runner side-effects, produces events the director cannot trust, and trips the safety classifier as fabricated state.
 7. No em dashes in anything you write (commits, comments, PRs, messages).
 
 Hard rule: `reviewer != coder`. Never let the same agent both write and approve.
@@ -142,7 +142,7 @@ resume auto-handles the common revives, including the most common one (bridging 
 
 ## Reviving a combo with `emit` (the fallback after resume)
 
-In the normal path the runner writes every event. `combo-chen emit -n <comboId> <event> [--field k=v...]` is the recovery lever for when a real-world fact happened but the runner died before journaling it, so the combo is frozen in the wrong phase. Reach for it only after `combo-chen resume` has run and either punted to a salvage state or does not cover the fact you need to record, and only after diagnosis (`combo-chen status`, `combo-chen events`, `gh pr view`, `no-mistakes axi status`) confirms the fact is true and the journal is the only thing out of date. Never emit to fabricate a state that did not happen.
+In the normal path the runner writes every event. `combo-chen emit -n <comboId> <event> [--field k=v...]` is the recovery lever for when a real-world fact happened but the runner died before journaling it, so the combo is frozen in the wrong phase. The v1 journal spine also provides `cb-emit.sh` (validated append), `cb-wait.sh` (poll for events), and `cb-run-state.sh` (deterministic phase folding). Reach for emit only after `combo-chen resume` has run and either punted to a salvage state or does not cover the fact you need to record, and only after diagnosis (`combo-chen status`, `combo-chen events`, `gh pr view`, `no-mistakes axi status`) confirms the fact is true and the journal is the only thing out of date. Never emit to fabricate a state that did not happen.
 
 Each event moves the phase machine that `combo-chen status` and `director-watch` read (`deriveStatus`). That move IS the side-effect: emitting reclassifies the combo and unblocks (or re-gates) the workers keyed on that phase.
 

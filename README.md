@@ -620,8 +620,10 @@ Shared cross-combo state lives under:
   cache; written by normal public CLI commands and reused for 24 hours.
   Set `COMBO_CHEN_DISABLE_PASSIVE_UPDATE_CHECKS=1` to skip it entirely.
 
-Do not hand-edit `journal.jsonl`. Use `combo-chen emit` only when a real-world
-fact happened and the journal missed it.
+Do not hand-edit `journal.jsonl`. Write journal events through
+`combo-chen emit` or the v1 `cb-emit.sh` script; both produce canonical
+validated JSONL lines. Use them only when a real-world fact happened
+and the journal missed it.
 
 ## Why This Matters
 
@@ -665,10 +667,9 @@ autonomous runs:
   trips it must remove duplication or raise the threshold explicitly in the
   same PR with justification, and the threshold only moves down, in the PR
   that removes clones.
-- `pnpm lint:sh` — shellcheck over `src/shell/templates/*.sh`, the home of
-  every generated shell script (templates rendered with `__PLACEHOLDER__`
-  substitution; no shell lives in TS string literals). Run by CI and
-  no-mistakes lint.
+- `pnpm lint:sh` — shellcheck over `src/shell/templates/*.sh` plus
+  `bin/cb-*.sh`, the v1 journal spine scripts. Run by CI and no-mistakes
+  lint.
 - `pnpm slop:report` — verbose jscpd clone listing for non-test source plus
   the same `sg scan`, for reading warning output in full while a cleanup is
   in flight.
@@ -717,7 +718,10 @@ when the target repo exposes it; otherwise search before adding helpers), review
 anti-slop guardrails (duplicate helper check, config plausibility, surface
 budget awareness), and `needs-human-report` operational metrics.
 
-Deferred: issue preflight scoring, counterfactual automerge logs, and ACP role driving.
+P1: v1 Bash journal spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`,
+`bin/cb-run-state.sh`) with a five-agent event enum, JSONL append
+locking, and deterministic phase folding. Deferred: issue preflight
+scoring, counterfactual automerge logs, and ACP role driving.
 
 ## License
 

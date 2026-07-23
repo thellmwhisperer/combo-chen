@@ -1,0 +1,4 @@
+{"seq":1,"ts":"2026-07-23T10:02:01Z","run":"launcher-failure","agent":"chain","code":0,"event":"run_created","payload":{"work_item":"#311","repo":"/repo"}}
+{"seq":2,"ts":"2026-07-23T10:02:02Z","run":"launcher-failure","agent":"launcher","code":1,"event":"launch_not_ready","payload":{"reasons":["missing tool: coderabbit","treehouse lease refused"]}}
+{"seq":3,"ts":"2026-07-23T10:02:03Z","run":"launcher-failure","agent":"chain","code":1,"event":"chain_stopped","payload":{"reason":"launch_not_ready"}}
+{"seq":4,"ts":"2026-07-23T10:02:04Z","run":"launcher-failure","agent":"cleaner","code":0,"event":"cleaned","payload":{}}
