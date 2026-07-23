@@ -34,6 +34,13 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.82](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.81...combo-chen-v0.0.82) (2026-07-23)
+
+
+### Features
+
+* **shell:** add v1 journal spine with cb-emit, cb-wait, and cb-run-state ([#319](https://github.com/thellmwhisperer/combo-chen/issues/319)) ([2325051](https://github.com/thellmwhisperer/combo-chen/commit/2325051b521da064f4b655526863c44755a81981))
+
 ## [0.0.81](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.80...combo-chen-v0.0.81) (2026-07-11)
 
 
