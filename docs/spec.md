@@ -911,9 +911,9 @@ The project also ships with static slop probes under `.slop/rules/`:
   reached zero, so the rule was promoted from warning to error.
 - **no-shell-in-ts** (`error`): tombstone for generated shell embedded as TS
   string literals. Cite: #283 - the ad hoc copies diverged into bug #281. All
-  generated shell lives in `src/shell/templates/*.sh`; the v1 journal spine
-  lives in `bin/cb-*.sh`. Both are shellcheck-gated via `pnpm lint:sh`; TS
-  code only renders placeholders.
+  generated shell lives in `src/shell/templates/*.sh`; the v1 journal spine and
+  P2 tmux spawn scripts live in `bin/cb-*.sh`. Both are shellcheck-gated via
+  `pnpm lint:sh`; TS code only renders placeholders.
 - **no-adhoc-axi-status-scrape** (`error`): tombstone for ad hoc parsing of
   `no-mistakes axi status` output. Cite: #281. Canonical parsers:
   `src/shell/templates/axi-status-lib.sh` for shell,
