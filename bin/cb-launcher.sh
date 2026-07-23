@@ -145,7 +145,8 @@ publish_ownership() {
 }
 rollback_acquisition() {
   if [ "$mode" = treehouse ]; then
-    if treehouse_lease_owned "$worktree" "$run" \
+    case "$worktree" in /*) ;; *) worktree=$(treehouse_path_for_holder || printf '') ;; esac
+    if [ -n "$worktree" ] && treehouse_lease_owned "$worktree" "$run" \
       && (cd "$repo_dir" && treehouse return "$worktree") </dev/null >/dev/null 2>&1; then
       rm -f "$ownership_file"
       acquired=0
@@ -277,13 +278,13 @@ if [ "$mode" = treehouse ]; then
     add_reason "treehouse:acquire_refused"
     emit_not_ready
   fi
+  acquired=1
   path_lines=$(awk 'NF {n++} END {print n+0}' "$treehouse_out")
   [ "$path_lines" -eq 1 ] || add_reason "treehouse:invalid_response"
-  worktree=$(awk 'NF && /^\// {matches++; path=$0} END {if(matches==1) print path}' "$treehouse_out")
-  [ -n "$worktree" ] || worktree=$(treehouse_path_for_holder || printf '')
-  case "$worktree" in /*) ;; *) add_reason "treehouse:invalid_path"; emit_not_ready ;; esac
+  worktree=$(awk 'NF {print; exit}' "$treehouse_out")
+  case "$worktree" in /*) ;; *) add_reason "treehouse:invalid_path"; worktree=$(treehouse_path_for_holder || printf '') ;; esac
+  case "$worktree" in /*) ;; *) emit_not_ready ;; esac
   publish_ownership treehouse "$worktree" "$branch" "$base_sha"
-  acquired=1
 
   treehouse_lease_owned "$worktree" "$run" || add_reason "treehouse:lease_identity_unverified"
   [ -d "$worktree" ] || add_reason "treehouse:path_missing"

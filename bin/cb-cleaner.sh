@@ -214,8 +214,13 @@ has_reasons && emit_clean_failed
 # -- 3/3 CORE · Dispatch exactly one matching release implementation --
 case "$kind" in
   treehouse)
-    if ! (cd "$repo_dir" && treehouse return "$worktree") </dev/null >/dev/null 2>&1; then
-      add_reason "treehouse:release_refused"
+    # Treehouse v2.0 return is path-only, so recheck the recorded holder immediately before it.
+    if treehouse_lease_owned "$worktree" "$run"; then
+      if ! (cd "$repo_dir" && treehouse return "$worktree") </dev/null >/dev/null 2>&1; then
+        add_reason "treehouse:release_refused"
+      fi
+    else
+      add_reason "treehouse:lease_identity_changed"
     fi
     ;;
   git-worktree-explicit)

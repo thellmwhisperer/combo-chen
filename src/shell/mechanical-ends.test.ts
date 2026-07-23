@@ -284,7 +284,37 @@ exit 42
     expect(command("treehouse", ["status"], fixture.repo).stdout).toContain(`held by ${run}`);
   }, 30_000);
 
-  it("returns a real lease when successful acquisition output is polluted", () => {
+  it("rechecks exact live identity immediately before Treehouse return", () => {
+    const fixture = makeFixture({ treehouse: true });
+    const run = "p3-treehouse-identity-race";
+    const { runDir } = makeRun(fixture, run);
+    expect(runScript(fixture, "cb-launcher.sh", run).status).toBe(0);
+    const treehouseBin = command("sh", ["-c", "command -v treehouse"], ROOT).stdout.trim();
+    const fake = fakeTreehouse(
+      fixture,
+      `#!/bin/sh
+if [ "$1" = status ]; then
+  count=$(cat $MARKER 2>/dev/null || printf 0); count=$((count + 1)); printf %s "$count" >$MARKER
+  [ "$count" -eq 1 ] && exec ${shellQuote(treehouseBin)} "$@"
+  exit 42
+fi
+if [ "$1" = return ]; then printf called >$MARKER.return; exit 99; fi
+exec ${shellQuote(treehouseBin)} "$@"
+`,
+    );
+
+    expect(
+      runScript(fixture, "cb-cleaner.sh", run, { ...process.env, PATH: `${fake.path}:${process.env.PATH}` })
+        .status,
+    ).not.toBe(0);
+    expect(events(runDir).at(-1)?.payload).toMatchObject({
+      reasons: expect.arrayContaining(["treehouse:lease_identity_changed"]),
+    });
+    expect(existsSync(`${fake.marker}.return`)).toBe(false);
+    expect(command("treehouse", ["status"], fixture.repo).stdout).toContain(`held by ${run}`);
+  }, 30_000);
+
+  it("recovers the holder path and returns a real lease after unusable acquisition output", () => {
     const fixture = makeFixture({ treehouse: true });
     const run = "p3-treehouse-polluted";
     const { runDir } = makeRun(fixture, run);
@@ -293,9 +323,9 @@ exit 42
       fixture,
       `#!/bin/sh
 if [ "$1" = get ]; then
-  ${shellQuote(treehouseBin)} "$@"
+  ${shellQuote(treehouseBin)} "$@" >/dev/null
   code=$?
-  [ "$code" -ne 0 ] || printf 'polluted-response\\n'
+  [ "$code" -ne 0 ] || printf 'unusable-response\\n'
   exit "$code"
 fi
 exec ${shellQuote(treehouseBin)} "$@"
@@ -308,7 +338,7 @@ exec ${shellQuote(treehouseBin)} "$@"
     });
     expect(launched.status).not.toBe(0);
     expect(events(runDir).at(-1)?.payload).toMatchObject({
-      reasons: expect.arrayContaining(["treehouse:invalid_response"]),
+      reasons: expect.arrayContaining(["treehouse:invalid_path"]),
     });
     expect(existsSync(join(runDir, "agents", "launcher.ownership.json"))).toBe(false);
     expect(command("treehouse", ["status"], fixture.repo).stdout).not.toContain(`held by ${run}`);
@@ -361,6 +391,24 @@ describe("cb-launcher Treehouse refusal", () => {
       event: "launch_not_ready",
       payload: { reasons: expect.arrayContaining(["treehouse:acquire_refused"]) },
     });
+  });
+
+  it("journals rollback refusal when no unique holder path can be recovered", () => {
+    const fixture = makeFixture();
+    const run = "p3-treehouse-unrecoverable";
+    const { runDir, gitPath } = makeRun(fixture, run);
+    const fake = fakeTreehouse(
+      fixture,
+      '#!/bin/sh\nif [ "$1" = get ]; then printf called >$MARKER; printf "unusable\\n"; exit 0; fi\nexit 42\n',
+    );
+    expect(
+      runScript(fixture, "cb-launcher.sh", run, { ...process.env, PATH: `${fake.path}:${process.env.PATH}` })
+        .status,
+    ).not.toBe(0);
+    expect(events(runDir).at(-1)?.payload).toMatchObject({
+      reasons: expect.arrayContaining(["treehouse:invalid_path", "treehouse:rollback_refused"]),
+    });
+    expect(existsSync(gitPath)).toBe(false);
   });
 });
 // -/ 2/4
