@@ -381,6 +381,18 @@ d("cb-tmux + spawn", () => {
     expect(sh("cb-send.sh", ["scope", "launcher", "echo x"], h.env).status).not.toBe(0);
   }, 15_000);
 
+  it("returns nonzero when the pane dies after Enter", () => {
+    const h = makeHome();
+    const run = "deadpane";
+    ensureRun(h, run);
+    // mode=tui endpoint whose process exits as soon as it consumes a line/Enter.
+    expect(spawnAgent(h, run, "coder", ["--mode", "tui", "--cmd", "read line"]).status).toBe(0);
+    sleep(250);
+    const sent = sh("cb-send.sh", [run, "coder", "BYE"], h.env);
+    expect(sent.status).not.toBe(0);
+    expect(sent.stderr).toMatch(/dead or missing|failed to send Enter/);
+  }, 20_000);
+
   it("ignores stale window ids reused by another role after server restart", () => {
     const h = makeHome();
     const run = "reuse";

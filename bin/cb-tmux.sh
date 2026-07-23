@@ -109,9 +109,17 @@ cb_tmux_meta_get() {
   awk -F= -v k="$key" '$1 == k { v=substr($0, length(k) + 2) } END { if (v != "") print v; else exit 1 }' "$meta"
 }
 
+cb_tmux_target_live() {
+  # <target> — pane still addressable and not dead.
+  dead=$(cb_tmux display-message -p -t "$1" '#{pane_dead}' 2>/dev/null) || return 1
+  [ "$dead" != 1 ]
+}
+
 # Positive held-composer only ("> text"); prompt-prefixed shell input is unknown.
+# Requires a live target; capture failure is not "cleared".
 cb_tmux_composer_pending() {
   target=$1 text=$2
+  cb_tmux_target_live "$target" || return 1
   pane=$(cb_tmux_capture "$target" 30 2>/dev/null) || return 1
   last=$(printf '%s\n' "$pane" | sed '/^[[:space:]]*$/d' | tail -n 1)
   [ -n "$last" ] || return 1
@@ -119,21 +127,32 @@ cb_tmux_composer_pending() {
 }
 
 cb_tmux_send_verified() {
-  # Type once; Enter-only retries. Non-zero only on positively held composer.
+  # Type once; Enter-only retries.
+  # live + not pending → success; dead/missing → error; live + pending → retry/fail.
   target=$1 text=$2
   retries=${CB_SEND_RETRIES:-3}
   sleep_s=${CB_SEND_SLEEP:-0.4}
   settle=${CB_SEND_SETTLE:-0.1}
   case "$retries" in ''|*[!0-9]*|0) retries=3 ;; esac
+  cb_tmux_target_live "$target" || { echo "cb-send: target pane dead or missing" >&2; return 1; }
   cb_tmux_send_literal "$target" "$text" || { echo "cb-tmux: failed to type payload" >&2; return 1; }
   sleep "$settle"
+  cb_tmux_target_live "$target" || { echo "cb-send: target pane dead or missing" >&2; return 1; }
   i=0
   while [ "$i" -lt "$retries" ]; do
     i=$((i + 1))
     cb_tmux send-keys -t "$target" Enter || { echo "cb-tmux: failed to send Enter" >&2; return 1; }
     sleep "$sleep_s"
+    if ! cb_tmux_target_live "$target"; then
+      echo "cb-send: target pane dead or missing" >&2
+      return 1
+    fi
     cb_tmux_composer_pending "$target" "$text" || return 0
   done
+  if ! cb_tmux_target_live "$target"; then
+    echo "cb-send: target pane dead or missing" >&2
+    return 1
+  fi
   if cb_tmux_composer_pending "$target" "$text"; then
     echo "cb-send: enter swallowed; composer still holds payload" >&2
     return 1
