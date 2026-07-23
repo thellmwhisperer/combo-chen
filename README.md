@@ -668,8 +668,8 @@ autonomous runs:
   same PR with justification, and the threshold only moves down, in the PR
   that removes clones.
 - `pnpm lint:sh` — shellcheck over `src/shell/templates/*.sh` plus
-  `bin/cb-*.sh`, the v1 journal spine scripts. Run by CI and no-mistakes
-  lint.
+  `bin/cb-*.sh`, the v1 journal spine and tmux spawn scripts. Run by CI and
+  no-mistakes lint.
 - `pnpm slop:report` — verbose jscpd clone listing for non-test source plus
   the same `sg scan`, for reading warning output in full while a cleanup is
   in flight.
@@ -720,8 +720,11 @@ budget awareness), and `needs-human-report` operational metrics.
 
 P1: v1 Bash journal spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`,
 `bin/cb-run-state.sh`) with a five-agent event enum, JSONL append
-locking, and deterministic phase folding. Deferred: issue preflight
-scoring, counterfactual automerge logs, and ACP role driving.
+locking, and deterministic phase folding.
+P2: multi-run-safe tmux spawn (`bin/cb-tmux.sh`, `bin/cb-agent-spawn.sh`,
+`bin/cb-send.sh`, `bin/cb-peek.sh`, `bin/cb-status.sh`) with atomic agent
+meta under `runs/<runId>/agents/`. Deferred: issue preflight scoring,
+counterfactual automerge logs, and ACP role driving.
 
 ## License
 
