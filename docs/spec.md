@@ -1077,6 +1077,14 @@ conversation, nothing else. Lingering processes die with the tmux session.
    deterministic per-agent failure folding, and torn-final-line recovery.
    See the staged fixtures under `test/fixtures/journal-v1/` and the
    mechanical contract tests in `src/shell/journal-spine.test.ts`.
+5. **P2 tmux + spawn** landed: `bin/cb-tmux.sh` (sourceable primitives),
+   `bin/cb-agent-spawn.sh`, `bin/cb-send.sh`, `bin/cb-peek.sh`, and
+   `bin/cb-status.sh` create one `combo-<runId>` session per run with five
+   pinned `cb-<runId>-{launcher,coder,reviewer,gate,cleaner}` windows, write
+   atomic `runs/<runId>/agents/<agent>.meta` (immutable window id + name
+   fallback), and resolve endpoints only inside that session. Journal events
+   remain the sole workflow truth; peek/status pane output is advisory.
+   Real-tmux contract tests live in `src/shell/tmux-spawn.test.ts`.
 
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the
 contract describes each role directly before the project has external users.
