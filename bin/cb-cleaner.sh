@@ -120,7 +120,15 @@ lease_id=''
 ownership_id=''
 
 # -- 1/3 CORE · Validate exact Launcher ownership -- <- START HERE
-if [ ! -f "$ownership_file" ] || [ -L "$ownership_file" ]; then
+if [ ! -e "$ownership_file" ] && [ ! -L "$ownership_file" ]; then
+  kind=none
+  repo_dir=${CB_REPO_DIR:-}
+  publish_cleaner_meta true
+  payload='{"runway_kind":"none","noop":true}'
+  CB_RUNS_DIR=$runs_dir sh "$SCRIPT_DIR/cb-emit.sh" \
+    --run "$run" --agent cleaner --code 0 --event cleaned --payload "$payload"
+  exit 0
+elif [ ! -f "$ownership_file" ] || [ -L "$ownership_file" ]; then
   add_reason "ownership:missing_or_unsafe"
 elif [ "$(realpath "$ownership_file" 2>/dev/null)" != "$run_root/agents/launcher.ownership.json" ]; then
   add_reason "ownership:outside_run"
@@ -182,8 +190,10 @@ else
     worktree_common=$(canonical_git_common "$worktree" || printf '')
     [ -n "$repo_common" ] && [ "$worktree_common" = "$repo_common" ] \
       || add_reason "ownership:git_repo_mismatch"
-    observed_branch=$(git -C "$worktree" branch --show-current 2>/dev/null || printf '')
-    [ "$observed_branch" = "$branch" ] || add_reason "ownership:checked_out_branch_mismatch"
+    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$branch"; then
+      observed_branch=$(git -C "$worktree" branch --show-current 2>/dev/null || printf '')
+      [ "$observed_branch" = "$branch" ] || add_reason "ownership:checked_out_branch_mismatch"
+    fi
     git -C "$repo_dir" cat-file -e "$base_sha^{commit}" 2>/dev/null \
       || add_reason "ownership:base_unresolved"
   fi

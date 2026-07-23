@@ -131,6 +131,14 @@ function runScript(
     const meta = JSON.parse(readFileSync(metaPath, "utf8")) as Ownership;
     const paths = meta.runway_kind === "treehouse" ? fixture.treehousePaths : fixture.gitWorktrees;
     if (!paths.includes(meta.worktree)) paths.push(meta.worktree);
+  } else if (script === "cb-launcher.sh") {
+    const status = command("treehouse", ["status"], fixture.repo);
+    const held = status.stdout
+      .split("\n")
+      .find((line) => line.includes(`(held by ${run})`))
+      ?.match(/\sleased\s+(.+?)\s+\(held by /)?.[1];
+    const path = held?.startsWith("~/") ? join(process.env.HOME ?? "", held.slice(2)) : held;
+    if (path && !fixture.treehousePaths.includes(path)) fixture.treehousePaths.push(path);
   }
   return result;
 }
@@ -152,13 +160,17 @@ function ownership(runDir: string) {
   return JSON.parse(readFileSync(join(runDir, "agents", "launcher.ownership.json"), "utf8")) as Ownership;
 }
 
-function fakeTreehouse(fixture: Fixture, body: string) {
+function fakeCommand(fixture: Fixture, name: string, body: string) {
   const fakeBin = join(fixture.outer, "fake-bin");
   mkdirSync(fakeBin, { recursive: true });
-  const marker = join(fixture.outer, "treehouse-called");
-  const path = join(fakeBin, "treehouse");
+  const marker = join(fixture.outer, `${name}-called`);
+  const path = join(fakeBin, name);
   writeFileSync(path, body.replaceAll("$MARKER", shellQuote(marker)), { mode: 0o755 });
   return { marker, path: fakeBin };
+}
+
+function fakeTreehouse(fixture: Fixture, body: string) {
+  return fakeCommand(fixture, "treehouse", body);
 }
 
 function cleanupFixture(fixture: Fixture) {
@@ -270,6 +282,62 @@ exit 42
       payload: { reasons: expect.arrayContaining(["treehouse:release_refused"]) },
     });
     expect(command("treehouse", ["status"], fixture.repo).stdout).toContain(`held by ${run}`);
+  }, 30_000);
+
+  it("returns a real lease when successful acquisition output is polluted", () => {
+    const fixture = makeFixture({ treehouse: true });
+    const run = "p3-treehouse-polluted";
+    const { runDir } = makeRun(fixture, run);
+    const treehouseBin = command("sh", ["-c", "command -v treehouse"], ROOT).stdout.trim();
+    const fake = fakeTreehouse(
+      fixture,
+      `#!/bin/sh
+if [ "$1" = get ]; then
+  ${shellQuote(treehouseBin)} "$@"
+  code=$?
+  [ "$code" -ne 0 ] || printf 'polluted-response\\n'
+  exit "$code"
+fi
+exec ${shellQuote(treehouseBin)} "$@"
+`,
+    );
+
+    const launched = runScript(fixture, "cb-launcher.sh", run, {
+      ...process.env,
+      PATH: `${fake.path}:${process.env.PATH}`,
+    });
+    expect(launched.status).not.toBe(0);
+    expect(events(runDir).at(-1)?.payload).toMatchObject({
+      reasons: expect.arrayContaining(["treehouse:invalid_response"]),
+    });
+    expect(existsSync(join(runDir, "agents", "launcher.ownership.json"))).toBe(false);
+    expect(command("treehouse", ["status"], fixture.repo).stdout).not.toContain(`held by ${run}`);
+  }, 30_000);
+
+  it("allows exact cleanup after branch creation fails in a real lease", () => {
+    const fixture = makeFixture({ treehouse: true });
+    const run = "p3-treehouse-branch-fail";
+    const { runDir } = makeRun(fixture, run);
+    const gitBin = command("sh", ["-c", "command -v git"], ROOT).stdout.trim();
+    const fake = fakeCommand(
+      fixture,
+      "git",
+      `#!/bin/sh
+if [ "$3" = switch ] && [ "$4" = -c ] && [ "$5" = "combo/${run}" ]; then exit 42; fi
+exec ${shellQuote(gitBin)} "$@"
+`,
+    );
+
+    const launched = runScript(fixture, "cb-launcher.sh", run, {
+      ...process.env,
+      PATH: `${fake.path}:${process.env.PATH}`,
+    });
+    expect(launched.status).not.toBe(0);
+    expect(events(runDir).at(-1)?.payload).toMatchObject({
+      reasons: expect.arrayContaining(["branch:create_failed"]),
+    });
+    expect(runScript(fixture, "cb-cleaner.sh", run).status).toBe(0);
+    expect(command("treehouse", ["status"], fixture.repo).stdout).not.toContain(`held by ${run}`);
   }, 30_000);
 });
 
@@ -395,6 +463,31 @@ describe("explicit Git runway and Cleaner custody", () => {
     });
     expect(runScript(fixture, "cb-cleaner.sh", setupRun).status).toBe(0);
   });
+
+  it("clears failed explicit Git ownership so the same attempt can retry", () => {
+    const fixture = makeFixture();
+    const run = "p3-git-retry";
+    const { runDir } = makeRun(fixture, run, { mode: "git-worktree-explicit" });
+    const gitBin = command("sh", ["-c", "command -v git"], ROOT).stdout.trim();
+    const fake = fakeCommand(
+      fixture,
+      "git",
+      `#!/bin/sh
+if [ "$3" = worktree ] && [ "$4" = add ]; then exit 42; fi
+exec ${shellQuote(gitBin)} "$@"
+`,
+    );
+
+    expect(
+      runScript(fixture, "cb-launcher.sh", run, {
+        ...process.env,
+        PATH: `${fake.path}:${process.env.PATH}`,
+      }).status,
+    ).not.toBe(0);
+    expect(existsSync(join(runDir, "agents", "launcher.ownership.json"))).toBe(false);
+    expect(runScript(fixture, "cb-launcher.sh", run).status).toBe(0);
+    expect(runScript(fixture, "cb-cleaner.sh", run).status).toBe(0);
+  });
 });
 // -/ 3/4
 
@@ -443,6 +536,9 @@ describe("Launcher readiness input", () => {
     expect(result.stdout + result.stderr + readFileSync(join(runDir, "journal.jsonl"), "utf8")).not.toContain(
       "SUPER_SECRET_P3_TOKEN",
     );
+    expect(runScript(fixture, "cb-cleaner.sh", run).status).toBe(0);
+    expect(existsSync(fake.marker)).toBe(false);
+    expect(events(runDir).at(-1)).toMatchObject({ agent: "cleaner", code: 0, event: "cleaned" });
   });
 });
 // -/ 4/4

@@ -19,7 +19,7 @@
 #
 #   INTERNALS
 #   ---------
-#   add_reason, emit_not_ready, publish_ownership, treehouse_lease_owned
+#   add_reason, emit_not_ready, publish_ownership, rollback_acquisition
 #
 # @exports none
 # @deps sh, git, jq, tmux, treehouse (normal runway), cb-emit.sh
@@ -63,6 +63,7 @@ ownership_file=$agents_dir/launcher.ownership.json
 ownership_tmp=$agents_dir/.launcher.ownership.tmp.$$
 config_tmp=$run_dir/.config.env.tmp.$$
 : >"$reasons_file"
+acquired=0
 cleanup() {
   rm -f "$reasons_file" "$seats_file" "$treehouse_out" "$treehouse_err" "$ownership_tmp" "$config_tmp"
 }
@@ -72,6 +73,7 @@ trap 'exit 130' 1 2 15
 add_reason() { printf '%s\n' "$1" >>"$reasons_file"; }
 has_reasons() { [ -s "$reasons_file" ]; }
 emit_not_ready() {
+  [ "$acquired" -eq 0 ] || rollback_acquisition
   reasons=$(jq -Rsc '[split("\n")[] | select(length>0)]' "$reasons_file")
   payload=$(jq -cn --argjson reasons "$reasons" '{reasons:$reasons}')
   CB_RUNS_DIR=$runs_dir sh "$SCRIPT_DIR/cb-emit.sh" \
@@ -107,6 +109,18 @@ treehouse_lease_owned() {
     END { exit !(matches==1) }
   '
 }
+treehouse_path_for_holder() {
+  display=$(cd "$repo_dir" && treehouse status 2>/dev/null | awk -v holder="(held by $run)" '
+    index($0,holder)>0 { matches++; path=$3 }
+    END { if (matches==1) print path }
+  ') || return 1
+  tilde=$(printf '\176')
+  case "$display" in
+    "$tilde"/*) printf '%s/%s\n' "$HOME" "${display#"$tilde"/}" ;;
+    /*) printf '%s\n' "$display" ;;
+    *) return 1 ;;
+  esac
+}
 shell_quote() {
   printf "'"
   printf '%s' "$1" | sed "s/'/'\\\\''/g"
@@ -128,6 +142,28 @@ publish_ownership() {
       >"$ownership_tmp"
   fi
   mv "$ownership_tmp" "$ownership_file"
+}
+rollback_acquisition() {
+  if [ "$mode" = treehouse ]; then
+    if treehouse_lease_owned "$worktree" "$run" \
+      && (cd "$repo_dir" && treehouse return "$worktree") </dev/null >/dev/null 2>&1; then
+      rm -f "$ownership_file"
+      acquired=0
+    else
+      add_reason "treehouse:rollback_refused"
+    fi
+  elif [ ! -e "$worktree" ] \
+    || git -C "$repo_dir" worktree remove "$worktree" >/dev/null 2>&1; then
+    if git -C "$repo_dir" show-ref --verify --quiet "refs/heads/$branch" \
+      && ! git -C "$repo_dir" branch -D "$branch" >/dev/null 2>&1; then
+      add_reason "git-worktree:rollback_refused"
+      return
+    fi
+    rm -f "$ownership_file"
+    acquired=0
+  else
+    add_reason "git-worktree:rollback_refused"
+  fi
 }
 
 # -- 1/4 CORE · Aggregate tool and generic seat readiness -- <- START HERE
@@ -242,13 +278,12 @@ if [ "$mode" = treehouse ]; then
     emit_not_ready
   fi
   path_lines=$(awk 'NF {n++} END {print n+0}' "$treehouse_out")
-  if [ "$path_lines" -ne 1 ]; then
-    add_reason "treehouse:invalid_response"
-    emit_not_ready
-  fi
-  worktree=$(awk 'NF {print; exit}' "$treehouse_out")
+  [ "$path_lines" -eq 1 ] || add_reason "treehouse:invalid_response"
+  worktree=$(awk 'NF && /^\// {matches++; path=$0} END {if(matches==1) print path}' "$treehouse_out")
+  [ -n "$worktree" ] || worktree=$(treehouse_path_for_holder || printf '')
   case "$worktree" in /*) ;; *) add_reason "treehouse:invalid_path"; emit_not_ready ;; esac
   publish_ownership treehouse "$worktree" "$branch" "$base_sha"
+  acquired=1
 
   treehouse_lease_owned "$worktree" "$run" || add_reason "treehouse:lease_identity_unverified"
   [ -d "$worktree" ] || add_reason "treehouse:path_missing"
@@ -277,6 +312,7 @@ if [ "$mode" = git-worktree-explicit ]; then
   has_reasons && emit_not_ready
   mkdir -p "$repo_dir/.worktrees"
   publish_ownership git-worktree-explicit "$worktree" "$branch" "$base_sha"
+  acquired=1
   git -C "$repo_dir" worktree add -b "$branch" "$worktree" "$base_sha" >/dev/null 2>&1 \
     || add_reason "git-worktree:acquire_refused"
 fi
