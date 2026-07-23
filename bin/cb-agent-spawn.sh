@@ -98,20 +98,49 @@ lock_timeout=${CB_SPAWN_LOCK_TIMEOUT_SECONDS:-5}
 stale_after=${CB_SPAWN_LOCK_STALE_SECONDS:-30}
 
 reclaim_dead_lock() {
-  owner_pid='' owner_token=''
-  IFS=' ' read -r owner_pid owner_token <"$lock_owner" 2>/dev/null || return 0
-  case "$owner_pid" in ''|*[!0-9]*) return 0 ;; esac
-  case "$owner_token" in ''|*[!0-9a-zA-Z_-]*) return 0 ;; esac
-  kill -0 "$owner_pid" 2>/dev/null && return 0
-  mkdir "$lock/.reap" 2>/dev/null || return 0
-  current=$(cat "$lock_owner" 2>/dev/null || true)
-  if [ "$current" = "$owner_pid $owner_token" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
-    rm -f "$lock_owner"
-    rmdir "$lock/.reap" 2>/dev/null || true
-    rmdir "$lock" 2>/dev/null || true
-  else
-    rmdir "$lock/.reap" 2>/dev/null || true
+  owner_pid='' owner_token='' owner_extra='' owner_record='' owner_state=absent
+  if [ -r "$lock_owner" ]; then
+    owner_record=$(cat "$lock_owner" 2>/dev/null) || return 0
+    IFS=' ' read -r owner_pid owner_token owner_extra <"$lock_owner" || true
+    owner_state=valid
+    case "$owner_pid" in ''|*[!0-9]*) owner_state=malformed ;; esac
+    case "$owner_token" in ''|*[!0-9a-zA-Z_-]*) owner_state=malformed ;; esac
+    [ -z "$owner_extra" ] || owner_state=malformed
+    case "$owner_record" in
+      *'
+'*) owner_state=malformed ;;
+    esac
   fi
+  [ "$owner_state" != valid ] || ! kill -0 "$owner_pid" 2>/dev/null || return 0
+  mkdir "$lock/.reap" 2>/dev/null || return 0
+  case "$owner_state" in
+    absent)
+      if [ ! -e "$lock_owner" ] && [ ! -L "$lock_owner" ]; then
+        rmdir "$lock/.reap" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || true
+        return 0
+      fi
+      ;;
+    malformed)
+      current=$(cat "$lock_owner" 2>/dev/null || true)
+      if [ "$current" = "$owner_record" ]; then
+        rm -f "$lock_owner"
+        rmdir "$lock/.reap" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || true
+        return 0
+      fi
+      ;;
+    valid)
+      current=$(cat "$lock_owner" 2>/dev/null || true)
+      if [ "$current" = "$owner_record" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
+        rm -f "$lock_owner"
+        rmdir "$lock/.reap" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || true
+        return 0
+      fi
+      ;;
+  esac
+  rmdir "$lock/.reap" 2>/dev/null || true
 }
 
 while ! mkdir "$lock" 2>/dev/null; do
@@ -149,6 +178,7 @@ cb_tmux_endpoint_ok "$ses" "$wname" "$wid" || cb_spawn_fail "endpoint not live b
 
 started_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 tmp=$agents_dir/.$agent.meta.tmp.$$
+set -C
 {
   printf 'run=%s\n' "$run"
   printf 'agent=%s\n' "$agent"
@@ -158,6 +188,7 @@ tmp=$agents_dir/.$agent.meta.tmp.$$
   printf 'bin=%s\n' "$bin_name"
   printf 'started=%s\n' "$started_ts"
 } >"$tmp" || cb_spawn_fail "meta temp write failed" 73
+set +C
 
 tmp_real=$(realpath "$tmp" 2>/dev/null) || cb_spawn_fail "cannot resolve meta temp path" 73
 case "$tmp_real" in "$agents_root"/*) ;; *) cb_spawn_fail "meta temp escapes agents dir" 73 ;; esac

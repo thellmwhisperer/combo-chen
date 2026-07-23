@@ -16,6 +16,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -76,6 +77,20 @@ function tmux(h: Home, args: string[]) {
 
 function spawnAgent(h: Home, run: string, agent: string, extra: string[] = [], env = h.env) {
   return sh("cb-agent-spawn.sh", [run, agent, ...extra], env);
+}
+
+function collectChild(child: ReturnType<typeof spawn>) {
+  return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolveChild) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("close", (status) => resolveChild({ status, stdout, stderr }));
+  });
 }
 
 function spawnFive(h: Home, run: string) {
@@ -249,6 +264,108 @@ d("cb-tmux + spawn", () => {
     expect(coders).toHaveLength(1);
     expect(readMeta(h, "race", "coder").window_id).toBe(winners[0]?.stdout.trim());
   }, 40_000);
+
+  it.each([
+    ["ownerless", null],
+    ["malformed", "not-a-valid-owner\n"],
+  ])("reclaims a stale %s spawn lock without redirect noise", (_kind, ownerRecord) => {
+    const h = makeHome();
+    const runDir = ensureRun(h, `stale-${_kind}`);
+    const lock = join(runDir, ".spawn.lock");
+    mkdirSync(lock);
+    if (ownerRecord !== null) writeFileSync(join(lock, "owner"), ownerRecord);
+    const result = spawnAgent(h, `stale-${_kind}`, "coder", [], {
+      ...h.env,
+      CB_SPAWN_LOCK_STALE_SECONDS: "0",
+      CB_SPAWN_LOCK_TIMEOUT_SECONDS: "2",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).not.toMatch(/No such file or directory/);
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("preserves well-formed dead-owner spawn lock recovery", () => {
+    const h = makeHome();
+    const runDir = ensureRun(h, "stale-dead-owner");
+    const lock = join(runDir, ".spawn.lock");
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner"), "99999999 abandoned-owner-token\n");
+    const result = spawnAgent(h, "stale-dead-owner", "coder", [], {
+      ...h.env,
+      CB_SPAWN_LOCK_STALE_SECONDS: "0",
+      CB_SPAWN_LOCK_TIMEOUT_SECONDS: "2",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("does not steal an ownerless stale spawn lock that gains a live owner during reap", () => {
+    const h = makeHome();
+    const runDir = ensureRun(h, "stale-live-race");
+    const lock = join(runDir, ".spawn.lock");
+    const owner = join(lock, "owner");
+    const fakeBin = join(h.home, "fake-bin");
+    mkdirSync(lock);
+    mkdirSync(fakeBin);
+    writeFake(
+      fakeBin,
+      "mkdir",
+      `#!/bin/sh
+if [ "$1" = "$CB_TEST_REAP" ]; then
+  /bin/mkdir "$@"
+  printf '%s\n' "$CB_TEST_LIVE_OWNER" >"$CB_TEST_OWNER"
+  exit 0
+fi
+exec /bin/mkdir "$@"
+`,
+    );
+    const result = spawnAgent(h, "stale-live-race", "coder", [], {
+      ...h.env,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      CB_TEST_REAP: join(lock, ".reap"),
+      CB_TEST_OWNER: owner,
+      CB_TEST_LIVE_OWNER: `${process.pid} replacement-token`,
+      CB_SPAWN_LOCK_STALE_SECONDS: "0",
+      CB_SPAWN_LOCK_TIMEOUT_SECONDS: "1",
+    });
+    expect(result.status).toBe(75);
+    expect(readFileSync(owner, "utf8")).toBe(`${process.pid} replacement-token\n`);
+    expect(existsSync(lock)).toBe(true);
+  });
+
+  it.each(["existing", "dangling"])(
+    "does not follow a %s symlink at the predictable meta staging path",
+    async (targetKind) => {
+      const h = makeHome();
+      const run = `meta-link-${targetKind}`;
+      const runDir = ensureRun(h, run);
+      const lock = join(runDir, ".spawn.lock");
+      const owner = join(lock, "owner");
+      mkdirSync(lock);
+      writeFileSync(owner, `${process.pid} test-barrier\n`);
+      const child = spawn("sh", [join(BIN, "cb-agent-spawn.sh"), run, "coder"], {
+        env: {
+          ...h.env,
+          CB_SPAWN_LOCK_STALE_SECONDS: "120",
+          CB_SPAWN_LOCK_TIMEOUT_SECONDS: "5",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      expect(child.pid).toBeTypeOf("number");
+      const victim = join(h.home, `${targetKind}-meta-victim`);
+      if (targetKind === "existing") writeFileSync(victim, "PRECIOUS\n");
+      const tmp = join(runDir, "agents", `.coder.meta.tmp.${child.pid}`);
+      symlinkSync(victim, tmp);
+      rmSync(owner);
+      rmdirSync(lock);
+
+      const result = await collectChild(child);
+      expect(result.status).not.toBe(0);
+      if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
+      else expect(existsSync(victim)).toBe(false);
+    },
+    15_000,
+  );
 
   it("rejects agents symlink escape so peer run meta stays intact", () => {
     const h = makeHome();

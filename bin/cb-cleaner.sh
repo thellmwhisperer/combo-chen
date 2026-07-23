@@ -58,14 +58,17 @@ ownership_file=$agents_dir/launcher.ownership.json
 cleaner_file=$agents_dir/cleaner.ownership.json
 cleaner_tmp=$agents_dir/.cleaner.ownership.tmp.$$
 reasons_file=$run_dir/.cleaner-reasons.$$
-: >"$reasons_file"
 cleanup() {
   rm -f "$reasons_file" "$cleaner_tmp"
 }
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
-add_reason() { printf '%s\n' "$1" >>"$reasons_file"; }
+set -C
+exec 3>"$reasons_file"
+set +C
+
+add_reason() { printf '%s\n' "$1" >&3; }
 has_reasons() { [ -s "$reasons_file" ]; }
 canonical_git_common() {
   cwd=$1
@@ -94,11 +97,13 @@ treehouse_lease_owned() {
 publish_cleaner_meta() {
   released=$1
   reasons=$(jq -Rsc '[split("\n")[] | select(length>0)]' "$reasons_file")
+  set -C
   jq -cn \
     --arg run "$run" --arg kind "$kind" --arg repo "$repo_dir" --arg worktree "$worktree" \
     --arg branch "$branch" --arg base "$base_sha" --argjson released "$released" --argjson reasons "$reasons" \
     '{run:$run,runway_kind:$kind,repo_dir:$repo,worktree:$worktree,branch:$branch,base_sha:$base,released:$released,reasons:$reasons}' \
     >"$cleaner_tmp"
+  set +C
   mv "$cleaner_tmp" "$cleaner_file"
 }
 emit_clean_failed() {
