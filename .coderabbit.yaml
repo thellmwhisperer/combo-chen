@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit config for combo-chen — captain order (same posture as Roca Madre).
+#
+# Same fleet posture as Roca Madre: chill + Critical/Major-only; supersedes the old max-recall / no-tone combo config. Historical
+# analysis still justified keeping CodeRabbit in the loop for real bugs the
+# gate and reviewers miss, but captain scope now prefers chill profile plus
+# explicit Critical/Major-only tone so Minor/nit/style/docs/perf-micro noise
+# does not restart implementation loops.
+#
+# auto_review stays off (CLI/manual review only); auto_incremental_review
+# stays false. Cosmetic linters remain disabled; shellcheck/ast-grep stay on.
+language: "en-US"
+
+tone_instructions: "Report only Critical/Major: correctness bugs, security vulns, data loss/corruption, broken contracts, regressions. Suppress: Minor/nit, style, naming, import-order, docs-only, markdown, commit-msg trivia, perf micro-nits, no-concrete-bug suggestions."
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  fail_commit_status: false
+
+  high_level_summary: true
+  collapse_walkthrough: true
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+  poem: false
+  in_progress_fortune: false
+  enable_prompt_for_ai_agents: false
+
+  auto_review:
+    enabled: false
+    drafts: false
+    auto_incremental_review: false
+    ignore_title_keywords:
+      - "chore(main): release"
+
+  tools:
+    shellcheck:
+      enabled: true
+    ast-grep:
+      essential_rules: true
+    markdownlint:
+      enabled: false
+    languagetool:
+      enabled: false
+
+chat:
+  auto_reply: true
