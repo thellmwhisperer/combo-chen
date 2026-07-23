@@ -181,3 +181,10 @@ anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
 `pnpm surface`), and `needs-human-report` operational metrics.
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.
