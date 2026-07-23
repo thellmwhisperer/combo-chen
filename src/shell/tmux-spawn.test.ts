@@ -265,6 +265,20 @@ d("cb-tmux + spawn", () => {
     expect(spawnSync("readlink", [join(aDir, "agents")], { encoding: "utf8" }).status).toBe(0);
   });
 
+  it("rejects symlinked run dir before sourcing side-effecting config.env", () => {
+    const h = makeHome();
+    const marker = join(h.home, "config-side-effect");
+    const outside = join(h.home, "outside-run");
+    mkdirSync(join(outside, "agents"), { recursive: true });
+    writeFileSync(join(outside, "config.env"), `touch '${marker}'\nexport CB_WORKTREE='${outside}'\n`);
+    // runs/<run> is a symlink escape; containment must refuse before source.
+    symlinkSync(outside, join(h.runs, "evilrun"));
+    const bad = spawnAgent(h, "evilrun", "launcher");
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toMatch(/symlink|escapes/);
+    expect(existsSync(marker)).toBe(false);
+  });
+
   it("does not publish meta for invalid shell or missing cwd", () => {
     const h = makeHome();
     const runDir = ensureRun(h, "deadend");

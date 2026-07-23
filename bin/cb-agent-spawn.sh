@@ -64,7 +64,20 @@ cb_spawn_fail() {
   exit "${2:-75}"
 }
 
-if [ -f "$run_dir/config.env" ]; then
+# Containment before any run-local shell content (config.env must not run first).
+agents_root=$(cb_spawn_contain) || { echo "cb-agent-spawn: agents path escapes run or is a symlink" >&2; exit 73; }
+agents_dir=$run_dir/agents
+meta=$agents_dir/$agent.meta
+[ ! -L "$meta" ] || { echo "cb-agent-spawn: meta path must not be a symlink" >&2; exit 73; }
+run_root=$(realpath "$run_dir" 2>/dev/null) || { echo "cb-agent-spawn: cannot resolve run dir" >&2; exit 73; }
+
+if [ -f "$run_dir/config.env" ] || [ -L "$run_dir/config.env" ]; then
+  [ ! -L "$run_dir/config.env" ] || { echo "cb-agent-spawn: config.env must not be a symlink" >&2; exit 73; }
+  cfg_real=$(realpath "$run_dir/config.env" 2>/dev/null) || { echo "cb-agent-spawn: cannot resolve config.env" >&2; exit 73; }
+  case "$cfg_real" in
+    "$run_root"/config.env) ;;
+    *) echo "cb-agent-spawn: config.env escapes run dir" >&2; exit 73 ;;
+  esac
   # shellcheck disable=SC1090
   . "$run_dir/config.env"
 fi
@@ -74,11 +87,6 @@ fi
 [ "$mode" != bin ] || [ -n "$cmd" ] || { echo "cb-agent-spawn: mode=bin requires --cmd" >&2; exit 64; }
 [ -n "$cwd" ] || cwd=${CB_WORKTREE:-$run_dir}
 [ -d "$cwd" ] || { echo "cb-agent-spawn: cwd missing: $cwd" >&2; exit 73; }
-
-agents_root=$(cb_spawn_contain) || { echo "cb-agent-spawn: agents path escapes run or is a symlink" >&2; exit 73; }
-agents_dir=$run_dir/agents
-meta=$agents_dir/$agent.meta
-[ ! -L "$meta" ] || { echo "cb-agent-spawn: meta path must not be a symlink" >&2; exit 73; }
 
 # Run-scoped custody lock (mkdir spinlock + dead-owner reclaim).
 lock=$run_dir/.spawn.lock
