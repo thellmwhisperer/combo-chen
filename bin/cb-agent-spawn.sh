@@ -101,6 +101,7 @@ reclaim_dead_lock() {
   owner_pid='' owner_token=''
   IFS=' ' read -r owner_pid owner_token <"$lock_owner" 2>/dev/null || return 0
   case "$owner_pid" in ''|*[!0-9]*) return 0 ;; esac
+  case "$owner_token" in ''|*[!0-9a-zA-Z_-]*) return 0 ;; esac
   kill -0 "$owner_pid" 2>/dev/null && return 0
   mkdir "$lock/.reap" 2>/dev/null || return 0
   current=$(cat "$lock_owner" 2>/dev/null || true)
