@@ -1,7 +1,9 @@
 #!/bin/sh
 # Inject one line of text into a Combo v1 agent pane via run-local meta resolution.
 # Usage: cb-send <runId> <agent> <text...>
-# Resolution stays inside combo-<runId>; never searches other sessions by name.
+# Types the payload exactly once, then retries Enter only (CB_SEND_RETRIES, default 3)
+# until the composer clears. Exits non-zero on a positively detected swallowed Enter.
+# Resolution stays inside exact combo-<runId>; never searches other sessions by name.
 set -eu
 
 usage() {
@@ -24,6 +26,4 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 . "$SCRIPT_DIR/cb-tmux.sh"
 
 target=$(cb_tmux_resolve_agent "$run" "$agent") || exit 1
-cb_tmux_send_literal "$target" "$text"
-# Enter is a separate key so TUI composers receive literal text then submit.
-cb_tmux send-keys -t "$target" Enter
+cb_tmux_send_verified "$target" "$text"

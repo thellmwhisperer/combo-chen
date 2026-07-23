@@ -1,6 +1,7 @@
 #!/bin/sh
 # Advisory run/agent status. Journal phase is truth; pane command is a hint only.
 # Usage: cb-status <runId> [agent]
+# Session liveness uses exact `=combo-<runId>` matching only.
 set -eu
 
 usage() {
@@ -31,7 +32,7 @@ if [ -x "$SCRIPT_DIR/cb-run-state.sh" ] || [ -f "$SCRIPT_DIR/cb-run-state.sh" ];
 fi
 
 session_live=0
-if cb_tmux has-session -t "$ses" 2>/dev/null; then
+if cb_tmux_has_session_exact "$ses"; then
   session_live=1
 fi
 
