@@ -11,9 +11,18 @@
  * @deps vitest, node:child_process, node:fs, node:os, node:path
  */
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const ROOT = resolve(import.meta.dirname, "../..");
@@ -170,6 +179,49 @@ describe("cb-emit", () => {
       run.env,
     );
     expect(missingFindings.status).not.toBe(0);
+  });
+
+  it("accepts a non-empty needs_change artifact inside the run directory", () => {
+    const run = makeRun();
+    const artifact = "artifacts/findings.md";
+    mkdirSync(join(run.runDir, "artifacts"));
+    writeFileSync(join(run.runDir, artifact), "fix this\n");
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "reviewer", "1", "needs_change", {
+        sha: "a".repeat(40),
+        round: 1,
+        member: "model",
+        artifact,
+      }),
+      run.env,
+    );
+    expect(result.status).toBe(0);
+  });
+
+  it.each(["absolute", "traversal", "symlink"])("rejects a needs_change %s escape", (kind) => {
+    const run = makeRun();
+    const outside = join(dirname(run.runDir), `outside-${kind}.md`);
+    mkdirSync(join(run.runDir, "artifacts"));
+    writeFileSync(outside, "outside\n");
+    let artifact = outside;
+    if (kind === "traversal") artifact = `../${basename(outside)}`;
+    if (kind === "symlink") {
+      artifact = "artifacts/escape.md";
+      symlinkSync(outside, join(run.runDir, artifact));
+    }
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "reviewer", "1", "needs_change", {
+        sha: "a".repeat(40),
+        round: 1,
+        member: "model",
+        artifact,
+      }),
+      run.env,
+    );
+    expect(result.status).toBe(65);
+    expect(result.stderr).toMatch(/non-empty findings artifact/);
   });
 
   it("never reclaims a stale lock while its recorded owner is alive", () => {

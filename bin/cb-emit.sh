@@ -92,8 +92,18 @@ case "$agent:$event" in
     ;;
   reviewer:needs_change)
     artifact=$(printf '%s' "$payload" | jq -r '.artifact // empty')
-    case "$artifact" in /*) artifact_path=$artifact ;; *) artifact_path=$run_dir/$artifact ;; esac
-    [ -s "$artifact_path" ] || { echo "cb-emit: needs_change requires a non-empty findings artifact" >&2; exit 65; }
+    artifact_path=$run_dir/$artifact
+    artifact_ok=1
+    case "$artifact" in /*) artifact_ok=0 ;; esac
+    case "/$artifact/" in */../*) artifact_ok=0 ;; esac
+    if [ "$artifact_ok" -eq 1 ]; then
+      run_root=$(realpath "$run_dir" 2>/dev/null) || artifact_ok=0
+      artifact_root=$(realpath "$artifact_path" 2>/dev/null) || artifact_ok=0
+    fi
+    if [ "$artifact_ok" -eq 1 ]; then
+      case "$artifact_root" in "$run_root"/*) ;; *) artifact_ok=0 ;; esac
+    fi
+    [ "$artifact_ok" -eq 1 ] && [ -s "$artifact_path" ] || { echo "cb-emit: needs_change requires a non-empty findings artifact" >&2; exit 65; }
     ;;
   reviewer:lgtm)
     [ -n "$worktree" ] || { echo "cb-emit: lgtm requires launch worktree" >&2; exit 65; }
