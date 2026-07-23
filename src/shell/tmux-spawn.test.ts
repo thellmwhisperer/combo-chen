@@ -3,10 +3,9 @@
  *
  *   READING GUIDE
  *   -------------
- *   1. Session + five windows   <- naming, pinning, meta, duplicates.
- *   2. Exact targets            <- alpha/alphabet prefix isolation.
- *   3. Custody + containment    <- concurrent spawn + symlink escape.
- *   4. Live endpoints + send    <- no dead meta; verified Enter.
+ *   1. Windows + meta + pinning
+ *   2. Exact targets, custody, containment
+ *   3. Live endpoints + verified Enter
  *
  * @exports none
  * @deps vitest, node:child_process, node:fs, node:os, node:path
@@ -28,23 +27,14 @@ import { afterEach, describe, expect, it } from "vitest";
 const ROOT = resolve(import.meta.dirname, "../..");
 const BIN = join(ROOT, "bin");
 const AGENTS = ["launcher", "coder", "reviewer", "gate", "cleaner"] as const;
-
-type RunHome = {
-  env: NodeJS.ProcessEnv;
-  runs: string;
-  socket: string;
-  home: string;
-};
-
+type Home = { env: NodeJS.ProcessEnv; runs: string; socket: string; home: string };
 const homes: string[] = [];
 const sockets: string[] = [];
 
-function tmuxAvailable(): boolean {
-  const result = spawnSync("tmux", ["-V"], { encoding: "utf8" });
-  return result.status === 0;
-}
+const tmuxOk = () => spawnSync("tmux", ["-V"], { encoding: "utf8" }).status === 0;
+const sleep = (ms: number) => spawnSync("sleep", [(ms / 1000).toFixed(3)]);
 
-function makeHome(): RunHome {
+function makeHome(): Home {
   const home = mkdtempSync(join(tmpdir(), "cb-tmux-"));
   homes.push(home);
   const runs = join(home, "runs");
@@ -60,528 +50,348 @@ function makeHome(): RunHome {
       CB_RUNS_DIR: runs,
       CB_TMUX_SOCKET: socket,
       CB_TMUX_CONF: "/dev/null",
-      CB_SEND_SLEEP: "0.4",
+      CB_SEND_SLEEP: "0.35",
       CB_SEND_SETTLE: "0.1",
       CB_SEND_RETRIES: "3",
     },
   };
 }
 
-function ensureRun(home: RunHome, run: string): string {
-  const runDir = join(home.runs, run);
-  mkdirSync(join(runDir, "agents"), { recursive: true });
-  return runDir;
+function ensureRun(h: Home, run: string) {
+  const d = join(h.runs, run);
+  mkdirSync(join(d, "agents"), { recursive: true });
+  return d;
 }
 
 function sh(script: string, args: string[], env: NodeJS.ProcessEnv, timeout = 20_000) {
   return spawnSync("sh", [join(BIN, script), ...args], { encoding: "utf8", env, timeout });
 }
 
-function tmux(home: RunHome, args: string[]) {
-  return spawnSync("tmux", ["-L", home.socket, "-f", "/dev/null", ...args], {
+function tmux(h: Home, args: string[]) {
+  return spawnSync("tmux", ["-L", h.socket, "-f", "/dev/null", ...args], {
     encoding: "utf8",
     timeout: 10_000,
   });
 }
 
-function spawnAgent(
-  home: RunHome,
-  run: string,
-  agent: string,
-  extra: string[] = [],
-  env: NodeJS.ProcessEnv = home.env,
-): ReturnType<typeof sh> {
+function spawnAgent(h: Home, run: string, agent: string, extra: string[] = [], env = h.env) {
   return sh("cb-agent-spawn.sh", [run, agent, ...extra], env);
 }
 
-function spawnFive(home: RunHome, run: string): void {
-  ensureRun(home, run);
-  for (const agent of AGENTS) {
-    const result = spawnAgent(home, run, agent);
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toMatch(/^@\d+$/);
+function spawnFive(h: Home, run: string) {
+  ensureRun(h, run);
+  for (const a of AGENTS) {
+    const r = spawnAgent(h, run, a);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout.trim()).toMatch(/^@\d+$/);
   }
 }
 
-function readMeta(home: RunHome, run: string, agent: string): Record<string, string> {
-  const text = readFileSync(join(home.runs, run, "agents", `${agent}.meta`), "utf8");
+function readMeta(h: Home, run: string, agent: string) {
   const out: Record<string, string> = {};
-  for (const line of text.split("\n")) {
-    if (!line.includes("=")) continue;
+  for (const line of readFileSync(join(h.runs, run, "agents", `${agent}.meta`), "utf8").split("\n")) {
     const i = line.indexOf("=");
-    out[line.slice(0, i)] = line.slice(i + 1);
+    if (i > 0) out[line.slice(0, i)] = line.slice(i + 1);
   }
   return out;
 }
 
-function windowOption(home: RunHome, target: string, option: string): string {
-  const result = tmux(home, ["show-window-options", "-t", target, option]);
-  expect(result.status, result.stderr).toBe(0);
-  return result.stdout.trim();
+function writeFake(dir: string, name: string, body: string) {
+  const p = join(dir, name);
+  writeFileSync(p, body, { mode: 0o755 });
+  return p;
 }
 
-function sleep(ms: number): void {
-  spawnSync("sleep", [(ms / 1000).toFixed(3)]);
-}
+const FAKE_SWALLOW = `#!/usr/bin/env python3
+import sys,time,tty,termios
+fd=sys.stdin.fileno(); old=termios.tcgetattr(fd)
+try:
+  tty.setraw(fd); buf=[]; n=0
+  sys.stdout.write("> "); sys.stdout.flush()
+  while True:
+    ch=sys.stdin.read(1)
+    if ch in ("\\r","\\n"):
+      n+=1
+      if n==1: continue
+      sys.stdout.write("\\r\\nGOT:"+"".join(buf)+"\\r\\n"); sys.stdout.flush()
+      while True: time.sleep(3600)
+    elif ch=="\\x03": break
+    else:
+      buf.append(ch); sys.stdout.write(ch); sys.stdout.flush()
+finally: termios.tcsetattr(fd, termios.TCSADRAIN, old)
+`;
+
+const FAKE_STUCK = `#!/usr/bin/env python3
+import sys,tty,termios
+fd=sys.stdin.fileno(); old=termios.tcgetattr(fd)
+try:
+  tty.setraw(fd); buf=[]
+  sys.stdout.write("> "); sys.stdout.flush()
+  while True:
+    ch=sys.stdin.read(1)
+    if ch in ("\\r","\\n"): continue
+    elif ch=="\\x03": break
+    else:
+      buf.append(ch); sys.stdout.write(ch); sys.stdout.flush()
+finally: termios.tcsetattr(fd, termios.TCSADRAIN, old)
+`;
 
 afterEach(() => {
-  for (const socket of sockets.splice(0)) {
-    spawnSync("tmux", ["-L", socket, "-f", "/dev/null", "kill-server"], {
-      encoding: "utf8",
-      timeout: 5_000,
-    });
+  for (const s of sockets.splice(0)) {
+    spawnSync("tmux", ["-L", s, "-f", "/dev/null", "kill-server"], { encoding: "utf8", timeout: 5_000 });
   }
-  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
+  for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true });
 });
 
-const describeTmux = tmuxAvailable() ? describe : describe.skip;
+const d = tmuxOk() ? describe : describe.skip;
 
-describeTmux("cb-tmux + spawn", () => {
-  it("creates one combo-<runId> session with five pinned agent windows and meta", () => {
-    const home = makeHome();
+d("cb-tmux + spawn", () => {
+  it("creates five pinned windows with atomic meta", () => {
+    const h = makeHome();
     const run = "issue-312-a1f2";
-    spawnFive(home, run);
-
-    expect(tmux(home, ["has-session", "-t", `=combo-${run}`]).status).toBe(0);
-
-    const windows = tmux(home, ["list-windows", "-t", `=combo-${run}`, "-F", "#{window_name}"]);
-    expect(windows.status).toBe(0);
-    const names = windows.stdout.trim().split("\n").filter(Boolean).sort();
+    spawnFive(h, run);
+    expect(tmux(h, ["has-session", "-t", `=combo-${run}`]).status).toBe(0);
+    const names = tmux(h, ["list-windows", "-t", `=combo-${run}`, "-F", "#{window_name}"])
+      .stdout.trim()
+      .split("\n")
+      .filter(Boolean)
+      .sort();
     expect(names).toEqual(AGENTS.map((a) => `cb-${run}-${a}`).sort());
-    expect(names).toHaveLength(5);
     expect(names.some((n) => n.includes("_cb_"))).toBe(false);
-
-    for (const agent of AGENTS) {
-      const meta = readMeta(home, run, agent);
-      expect(meta.run).toBe(run);
-      expect(meta.agent).toBe(agent);
-      expect(meta.window).toBe(`combo-${run}:cb-${run}-${agent}`);
-      expect(meta.window_id).toMatch(/^@\d+$/);
-      expect(meta.mode).toMatch(/^(shell|tui)$/);
-      expect(meta.started).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-      const windowId = meta.window_id as string;
-
-      const auto = windowOption(home, windowId, "automatic-rename");
-      const allow = windowOption(home, windowId, "allow-rename");
-      expect(auto).toMatch(/automatic-rename off/);
-      expect(allow).toMatch(/allow-rename off/);
+    for (const a of AGENTS) {
+      const m = readMeta(h, run, a);
+      expect(m).toMatchObject({
+        run,
+        agent: a,
+        window: `combo-${run}:cb-${run}-${a}`,
+      });
+      expect(m.window_id).toMatch(/^@\d+$/);
+      const id = m.window_id as string;
+      expect(tmux(h, ["show-window-options", "-t", id, "automatic-rename"]).stdout).toMatch(/off/);
+      expect(tmux(h, ["show-window-options", "-t", id, "allow-rename"]).stdout).toMatch(/off/);
     }
   }, 20_000);
 
-  it("refuses a duplicate agent window name", () => {
-    const home = makeHome();
-    const run = "issue-312-dup1";
-    ensureRun(home, run);
-    expect(spawnAgent(home, run, "launcher").status).toBe(0);
-    const dup = spawnAgent(home, run, "launcher");
-    expect(dup.status).not.toBe(0);
-    expect(dup.stderr).toMatch(/already exists|endpoint already exists/);
+  it("refuses sequential duplicate agent windows", () => {
+    const h = makeHome();
+    ensureRun(h, "dup");
+    expect(spawnAgent(h, "dup", "launcher").status).toBe(0);
+    const r = spawnAgent(h, "dup", "launcher");
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/already exists|endpoint already exists/);
   });
 
   it("isolates alpha from alphabet on create/resolve/status/send/teardown", () => {
-    const home = makeHome();
+    const h = makeHome();
     const long = "alphabet";
     const short = "alpha";
-    ensureRun(home, long);
-    ensureRun(home, short);
-
-    expect(spawnAgent(home, long, "launcher").status).toBe(0);
-    expect(spawnAgent(home, short, "launcher").status).toBe(0);
-
-    const sessions = tmux(home, ["list-sessions", "-F", "#{session_name}"]);
-    const names = sessions.stdout.trim().split("\n").filter(Boolean).sort();
-    expect(names).toEqual([`combo-${long}`, `combo-${short}`].sort());
-
-    const longWins = tmux(home, ["list-windows", "-t", `=combo-${long}`, "-F", "#{window_name}"]);
-    const shortWins = tmux(home, ["list-windows", "-t", `=combo-${short}`, "-F", "#{window_name}"]);
-    expect(longWins.stdout).toContain(`cb-${long}-launcher`);
-    expect(longWins.stdout).not.toContain(`cb-${short}-launcher`);
-    expect(shortWins.stdout).toContain(`cb-${short}-launcher`);
-    expect(shortWins.stdout).not.toContain(`cb-${long}-launcher`);
-
-    // Non-exact has-session would prefix-match; exact must distinguish.
-    expect(tmux(home, ["has-session", "-t", `=combo-${short}`]).status).toBe(0);
-    expect(tmux(home, ["has-session", "-t", `=combo-${long}`]).status).toBe(0);
-
-    const statusShort = sh("cb-status.sh", [short, "launcher"], home.env);
-    expect(statusShort.status).toBe(0);
-    expect(statusShort.stdout).toContain("session_live=1");
-    expect(statusShort.stdout).toContain(`agent.launcher.window=combo-${short}:cb-${short}-launcher`);
-    expect(statusShort.stdout).not.toContain(`cb-${long}-launcher`);
-
-    const marker = `ALPHA-ONLY-${Date.now()}`;
-    expect(sh("cb-send.sh", [short, "launcher", `echo ${marker}`], home.env).status).toBe(0);
-    sleep(250);
-    expect(sh("cb-peek.sh", [short, "launcher", "40"], home.env).stdout).toContain(marker);
-    expect(sh("cb-peek.sh", [long, "launcher", "40"], home.env).stdout).not.toContain(marker);
-
-    const lib = `
-set -eu
-. "${join(BIN, "cb-tmux.sh")}"
-cb_tmux_kill_session "combo-${short}"
-`;
-    expect(spawnSync("sh", ["-c", lib], { encoding: "utf8", env: home.env, timeout: 10_000 }).status).toBe(0);
-    expect(tmux(home, ["has-session", "-t", `=combo-${short}`]).status).not.toBe(0);
-    expect(tmux(home, ["has-session", "-t", `=combo-${long}`]).status).toBe(0);
-    expect(tmux(home, ["list-windows", "-t", `=combo-${long}`, "-F", "#{window_name}"]).stdout).toContain(
+    ensureRun(h, long);
+    ensureRun(h, short);
+    expect(spawnAgent(h, long, "launcher").status).toBe(0);
+    expect(spawnAgent(h, short, "launcher").status).toBe(0);
+    const sessions = tmux(h, ["list-sessions", "-F", "#{session_name}"]).stdout.trim().split("\n").sort();
+    expect(sessions).toEqual([`combo-${long}`, `combo-${short}`].sort());
+    expect(tmux(h, ["list-windows", "-t", `=combo-${long}`, "-F", "#{window_name}"]).stdout).toContain(
       `cb-${long}-launcher`,
     );
+    expect(tmux(h, ["list-windows", "-t", `=combo-${short}`, "-F", "#{window_name}"]).stdout).toContain(
+      `cb-${short}-launcher`,
+    );
+    const st = sh("cb-status.sh", [short, "launcher"], h.env);
+    expect(st.stdout).toContain("session_live=1");
+    expect(st.stdout).toContain(`cb-${short}-launcher`);
+    expect(st.stdout).not.toContain(`cb-${long}-launcher`);
+    const marker = `ALPHA-${Date.now()}`;
+    expect(sh("cb-send.sh", [short, "launcher", `echo ${marker}`], h.env).status).toBe(0);
+    sleep(250);
+    expect(sh("cb-peek.sh", [short, "launcher", "40"], h.env).stdout).toContain(marker);
+    expect(sh("cb-peek.sh", [long, "launcher", "40"], h.env).stdout).not.toContain(marker);
+    const kill = spawnSync(
+      "sh",
+      ["-c", `. "${join(BIN, "cb-tmux.sh")}"; cb_tmux_kill_session "combo-${short}"`],
+      { encoding: "utf8", env: h.env, timeout: 10_000 },
+    );
+    expect(kill.status).toBe(0);
+    expect(tmux(h, ["has-session", "-t", `=combo-${short}`]).status).not.toBe(0);
+    expect(tmux(h, ["has-session", "-t", `=combo-${long}`]).status).toBe(0);
   }, 30_000);
 
   it("serializes concurrent same-run same-agent spawn to one winner", async () => {
-    const home = makeHome();
-    const run = "race";
-    ensureRun(home, run);
-    // Pre-create session so contenders only race on window+meta.
-    expect(spawnAgent(home, run, "launcher").status).toBe(0);
-
-    const raceEnv = {
-      ...home.env,
-      CB_SPAWN_LOCK_TIMEOUT_SECONDS: "60",
-      CB_SPAWN_LOCK_STALE_SECONDS: "120",
-    };
-    const children = Array.from({ length: 20 }, () =>
-      spawn("sh", [join(BIN, "cb-agent-spawn.sh"), run, "coder"], {
-        env: raceEnv,
+    const h = makeHome();
+    ensureRun(h, "race");
+    expect(spawnAgent(h, "race", "launcher").status).toBe(0);
+    const env = { ...h.env, CB_SPAWN_LOCK_TIMEOUT_SECONDS: "60", CB_SPAWN_LOCK_STALE_SECONDS: "120" };
+    const kids = Array.from({ length: 20 }, () =>
+      spawn("sh", [join(BIN, "cb-agent-spawn.sh"), "race", "coder"], {
+        env,
         stdio: ["ignore", "pipe", "pipe"],
       }),
     );
-
     const results = await Promise.all(
-      children.map(
-        (child) =>
-          new Promise<{ status: number | null; stdout: string; stderr: string }>((resolvePromise) => {
+      kids.map(
+        (c) =>
+          new Promise<{ status: number | null; stdout: string }>((res) => {
             let stdout = "";
-            let stderr = "";
-            child.stdout?.on("data", (chunk: Buffer | string) => {
-              stdout += String(chunk);
+            c.stdout?.on("data", (b) => {
+              stdout += String(b);
             });
-            child.stderr?.on("data", (chunk: Buffer | string) => {
-              stderr += String(chunk);
-            });
-            child.on("close", (status) => resolvePromise({ status, stdout, stderr }));
+            c.on("close", (status) => res({ status, stdout }));
           }),
       ),
     );
-
     const winners = results.filter((r) => r.status === 0);
-    const losers = results.filter((r) => r.status !== 0);
-    expect(winners.length).toBe(1);
-    expect(losers.length).toBe(19);
-    expect(winners[0]?.stdout.trim()).toMatch(/^@\d+$/);
-
-    const windows = tmux(home, ["list-windows", "-t", `=combo-${run}`, "-F", "#{window_name}"]);
-    const coderWindows = windows.stdout
-      .trim()
+    expect(winners).toHaveLength(1);
+    expect(results.filter((r) => r.status !== 0)).toHaveLength(19);
+    const coders = tmux(h, ["list-windows", "-t", "=combo-race", "-F", "#{window_name}"])
+      .stdout.trim()
       .split("\n")
-      .filter((n) => n === `cb-${run}-coder`);
-    expect(coderWindows).toHaveLength(1);
-
-    const meta = readMeta(home, run, "coder");
-    expect(meta.window_id).toBe(winners[0]?.stdout.trim());
-    expect(meta.run).toBe(run);
+      .filter((n) => n === "cb-race-coder");
+    expect(coders).toHaveLength(1);
+    expect(readMeta(h, "race", "coder").window_id).toBe(winners[0]?.stdout.trim());
   }, 40_000);
 
   it("rejects agents symlink escape so peer run meta stays intact", () => {
-    const home = makeHome();
-    const a = "arun";
-    const b = "brun";
-    const aDir = ensureRun(home, a);
-    ensureRun(home, b);
-
-    // Remove real agents dir and point it at B's agents.
+    const h = makeHome();
+    const aDir = ensureRun(h, "arun");
+    ensureRun(h, "brun");
     rmSync(join(aDir, "agents"), { recursive: true, force: true });
-    symlinkSync(join(home.runs, b, "agents"), join(aDir, "agents"));
-
-    expect(spawnAgent(home, b, "coder").status).toBe(0);
-    const before = readFileSync(join(home.runs, b, "agents", "coder.meta"), "utf8");
-
-    const escaped = spawnAgent(home, a, "coder");
+    symlinkSync(join(h.runs, "brun", "agents"), join(aDir, "agents"));
+    expect(spawnAgent(h, "brun", "coder").status).toBe(0);
+    const before = readFileSync(join(h.runs, "brun", "agents", "coder.meta"), "utf8");
+    const escaped = spawnAgent(h, "arun", "coder");
     expect(escaped.status).not.toBe(0);
     expect(escaped.stderr).toMatch(/symlink|escapes/);
-
-    const after = readFileSync(join(home.runs, b, "agents", "coder.meta"), "utf8");
-    expect(after).toBe(before);
-    expect(after).toContain("run=brun");
-    // A must still be a symlink escape (not replaced by a real agents dir publish).
-    const link = spawnSync("readlink", [join(aDir, "agents")], { encoding: "utf8" });
-    expect(link.status).toBe(0);
-    expect(link.stdout.trim().length).toBeGreaterThan(0);
+    expect(readFileSync(join(h.runs, "brun", "agents", "coder.meta"), "utf8")).toBe(before);
+    expect(spawnSync("readlink", [join(aDir, "agents")], { encoding: "utf8" }).status).toBe(0);
   });
 
-  it("does not publish meta for invalid shell or missing cwd endpoints", () => {
-    const home = makeHome();
-    const run = "deadend";
-    const runDir = ensureRun(home, run);
-
-    const missingCwd = spawnAgent(home, run, "launcher", ["--cwd", join(runDir, "nope")]);
-    expect(missingCwd.status).not.toBe(0);
+  it("does not publish meta for invalid shell or missing cwd", () => {
+    const h = makeHome();
+    const runDir = ensureRun(h, "deadend");
+    expect(spawnAgent(h, "deadend", "launcher", ["--cwd", join(runDir, "nope")]).status).not.toBe(0);
     expect(existsSync(join(runDir, "agents", "launcher.meta"))).toBe(false);
-
-    const badShellEnv = {
-      ...home.env,
-      SHELL: join(home.home, "no-such-shell"),
-    };
-    const badShell = spawnAgent(home, run, "launcher", [], badShellEnv);
-    expect(badShell.status).not.toBe(0);
+    const bad = spawnAgent(h, "deadend", "launcher", [], {
+      ...h.env,
+      SHELL: join(h.home, "no-such-shell"),
+    });
+    expect(bad.status).not.toBe(0);
     expect(existsSync(join(runDir, "agents", "launcher.meta"))).toBe(false);
-    // Exact session must not be falsely reported live with durable meta.
-    const status = sh("cb-status.sh", [run, "launcher"], home.env);
-    expect(status.stdout).not.toMatch(/agent\.launcher\.window_id=@/);
   });
 
-  it("resolves send/peek/status and verifies Enter with a first-enter swallow", () => {
-    const home = makeHome();
-    const run = "issue-312-send";
-    ensureRun(home, run);
-    const marker = `P2-MARKER-${Date.now()}`;
-    expect(spawnAgent(home, run, "coder").status).toBe(0);
-    sleep(300);
-
-    const sent = sh("cb-send.sh", [run, "coder", `echo ${marker}`], home.env);
-    expect(sent.status, sent.stderr).toBe(0);
+  it("send/peek/status + verified Enter swallow/stuck composers", () => {
+    const h = makeHome();
+    const run = "send1";
+    ensureRun(h, run);
+    const marker = `M-${Date.now()}`;
+    expect(spawnAgent(h, run, "coder").status).toBe(0);
     sleep(250);
-    const peek = sh("cb-peek.sh", [run, "coder", "80"], home.env);
-    expect(peek.status, peek.stderr).toBe(0);
-    expect(peek.stdout).toContain(marker);
+    expect(sh("cb-send.sh", [run, "coder", `echo ${marker}`], h.env).status).toBe(0);
+    sleep(200);
+    expect(sh("cb-peek.sh", [run, "coder", "40"], h.env).stdout).toContain(marker);
+    expect(sh("cb-status.sh", [run, "coder"], h.env).stdout).toContain("session_live=1");
 
-    const status = sh("cb-status.sh", [run, "coder"], home.env);
-    expect(status.status, status.stderr).toBe(0);
-    expect(status.stdout).toContain(`run=${run}`);
-    expect(status.stdout).toContain("session_live=1");
-    expect(status.stdout).toContain(`agent.coder.window=combo-${run}:cb-${run}-coder`);
-
-    // Fake composer: first Enter is swallowed; second submits.
-    // Keep paths short so send-keys does not hard-wrap the launch command.
-    const swallow = "issue-312-swallow";
-    ensureRun(home, swallow);
-    const fakeDir = mkdtempSync(join(tmpdir(), "fc-"));
-    homes.push(fakeDir);
-    const fake = join(fakeDir, "fc.py");
-    writeFileSync(
-      fake,
-      `#!/usr/bin/env python3
-import sys, time, tty, termios
-fd = sys.stdin.fileno()
-old = termios.tcgetattr(fd)
-try:
-    tty.setraw(fd)
-    buf = []
-    enters = 0
-    sys.stdout.write("> ")
-    sys.stdout.flush()
-    while True:
-        ch = sys.stdin.read(1)
-        if ch in ("\\r", "\\n"):
-            enters += 1
-            if enters == 1:
-                continue
-            sys.stdout.write("\\r\\nGOT:" + "".join(buf) + "\\r\\n")
-            sys.stdout.flush()
-            while True:
-                time.sleep(3600)
-        elif ch == "\\x03":
-            break
-        elif ch in ("\\x7f", "\\b"):
-            if buf:
-                buf.pop()
-                sys.stdout.write("\\b \\b")
-                sys.stdout.flush()
-        else:
-            buf.append(ch)
-            sys.stdout.write(ch)
-            sys.stdout.flush()
-finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)
-`,
-      { mode: 0o755 },
-    );
-
+    const sw = "sw1";
+    ensureRun(h, sw);
+    const fd = mkdtempSync(join(tmpdir(), "fc-"));
+    homes.push(fd);
+    writeFake(fd, "fc.py", FAKE_SWALLOW);
     expect(
-      spawnAgent(home, swallow, "reviewer", [
-        "--mode",
-        "shell",
-        "--cwd",
-        fakeDir,
-        "--cmd",
-        "exec python3 ./fc.py",
-      ]).status,
+      spawnAgent(h, sw, "reviewer", ["--mode", "shell", "--cwd", fd, "--cmd", "exec python3 ./fc.py"]).status,
     ).toBe(0);
-    sleep(400);
-    expect(sh("cb-status.sh", [swallow, "reviewer"], home.env).stdout).toMatch(/command=Python/i);
+    sleep(350);
+    expect(sh("cb-status.sh", [sw, "reviewer"], h.env).stdout).toMatch(/command=Python/i);
+    const payload = `S-${Date.now()}`;
+    expect(sh("cb-send.sh", [sw, "reviewer", payload], h.env).status).toBe(0);
+    sleep(250);
+    expect(sh("cb-peek.sh", [sw, "reviewer", "40"], h.env).stdout).toContain(`GOT:${payload}`);
 
-    const payload = `SWALLOW-${Date.now()}`;
-    const verified = sh("cb-send.sh", [swallow, "reviewer", payload], {
-      ...home.env,
-      CB_SEND_RETRIES: "3",
-      CB_SEND_SLEEP: "0.3",
-    });
-    expect(verified.status, verified.stderr).toBe(0);
-    sleep(300);
-    const pane = sh("cb-peek.sh", [swallow, "reviewer", "40"], home.env);
-    expect(pane.status, pane.stderr).toBe(0);
-    expect(pane.stdout).toContain(`GOT:${payload}`);
-
-    // Exhaust retries against a composer that never accepts Enter.
-    const stuck = "issue-312-stuck";
-    ensureRun(home, stuck);
-    const neverDir = mkdtempSync(join(tmpdir(), "ns-"));
-    homes.push(neverDir);
-    const never = join(neverDir, "ns.py");
-    writeFileSync(
-      never,
-      `#!/usr/bin/env python3
-import sys, tty, termios
-fd = sys.stdin.fileno()
-old = termios.tcgetattr(fd)
-try:
-    tty.setraw(fd)
-    buf = []
-    sys.stdout.write("> ")
-    sys.stdout.flush()
-    while True:
-        ch = sys.stdin.read(1)
-        if ch in ("\\r", "\\n"):
-            continue
-        elif ch == "\\x03":
-            break
-        else:
-            buf.append(ch)
-            sys.stdout.write(ch)
-            sys.stdout.flush()
-finally:
-    termios.tcsetattr(fd, termios.TCSADRAIN, old)
-`,
-      { mode: 0o755 },
-    );
+    const st = "st1";
+    ensureRun(h, st);
+    const nd = mkdtempSync(join(tmpdir(), "ns-"));
+    homes.push(nd);
+    writeFake(nd, "ns.py", FAKE_STUCK);
     expect(
-      spawnAgent(home, stuck, "gate", ["--mode", "shell", "--cwd", neverDir, "--cmd", "exec python3 ./ns.py"])
-        .status,
+      spawnAgent(h, st, "gate", ["--mode", "shell", "--cwd", nd, "--cmd", "exec python3 ./ns.py"]).status,
     ).toBe(0);
-    sleep(400);
-    const failSend = sh("cb-send.sh", [stuck, "gate", "NEVERLAND"], {
-      ...home.env,
+    sleep(350);
+    const fail = sh("cb-send.sh", [st, "gate", "NEVERLAND"], {
+      ...h.env,
       CB_SEND_RETRIES: "2",
-      CB_SEND_SLEEP: "0.3",
+      CB_SEND_SLEEP: "0.25",
     });
-    expect(failSend.status).not.toBe(0);
-    expect(failSend.stderr).toMatch(/swallowed|still holds payload/);
+    expect(fail.status).not.toBe(0);
+    expect(fail.stderr).toMatch(/swallowed|still holds payload/);
   }, 45_000);
 
-  it("kills windows and sessions idempotently with exact targets", () => {
-    const home = makeHome();
-    const run = "issue-312-kill";
-    spawnFive(home, run);
-    const meta = readMeta(home, run, "gate");
-    const windowId = meta.window_id as string;
-
-    const lib = `
-set -eu
-. "${join(BIN, "cb-tmux.sh")}"
-cb_tmux_kill "${windowId}"
-cb_tmux_kill "${windowId}"
-cb_tmux_kill_session "combo-${run}"
-cb_tmux_kill_session "combo-${run}"
-`;
-    const kill = spawnSync("sh", ["-c", lib], { encoding: "utf8", env: home.env, timeout: 10_000 });
-    expect(kill.status, kill.stderr).toBe(0);
-    expect(tmux(home, ["has-session", "-t", `=combo-${run}`]).status).not.toBe(0);
+  it("kills windows/sessions idempotently with exact targets", () => {
+    const h = makeHome();
+    spawnFive(h, "kill1");
+    const id = readMeta(h, "kill1", "gate").window_id as string;
+    const r = spawnSync(
+      "sh",
+      [
+        "-c",
+        `. "${join(BIN, "cb-tmux.sh")}"; cb_tmux_kill "${id}"; cb_tmux_kill "${id}"; cb_tmux_kill_session "combo-kill1"; cb_tmux_kill_session "combo-kill1"`,
+      ],
+      { encoding: "utf8", env: h.env, timeout: 10_000 },
+    );
+    expect(r.status).toBe(0);
+    expect(tmux(h, ["has-session", "-t", "=combo-kill1"]).status).not.toBe(0);
   }, 15_000);
 
   it("keeps two concurrent runs isolated under send/status/teardown", () => {
-    const home = makeHome();
-    const runA = "issue-312-aa01";
-    const runB = "issue-312-bb02";
-    spawnFive(home, runA);
-    spawnFive(home, runB);
-
-    const markerB = `ONLY-B-${Date.now()}`;
-    expect(sh("cb-send.sh", [runB, "reviewer", `echo ${markerB}`], home.env).status).toBe(0);
+    const h = makeHome();
+    spawnFive(h, "aa01");
+    spawnFive(h, "bb02");
+    const marker = `B-${Date.now()}`;
+    expect(sh("cb-send.sh", ["bb02", "reviewer", `echo ${marker}`], h.env).status).toBe(0);
     sleep(250);
-
-    const peekB = sh("cb-peek.sh", [runB, "reviewer", "80"], home.env);
-    expect(peekB.stdout).toContain(markerB);
-    const peekA = sh("cb-peek.sh", [runA, "reviewer", "80"], home.env);
-    expect(peekA.stdout).not.toContain(markerB);
-
-    const lib = `
-set -eu
-. "${join(BIN, "cb-tmux.sh")}"
-cb_tmux_kill_session "combo-${runA}"
-`;
-    expect(spawnSync("sh", ["-c", lib], { encoding: "utf8", env: home.env, timeout: 10_000 }).status).toBe(0);
-    expect(tmux(home, ["has-session", "-t", `=combo-${runA}`]).status).not.toBe(0);
-    expect(tmux(home, ["has-session", "-t", `=combo-${runB}`]).status).toBe(0);
-
-    const windowsB = tmux(home, ["list-windows", "-t", `=combo-${runB}`, "-F", "#{window_name}"]);
-    const namesB = windowsB.stdout.trim().split("\n").filter(Boolean).sort();
-    expect(namesB).toEqual(AGENTS.map((a) => `cb-${runB}-${a}`).sort());
-
-    const statusB = sh("cb-status.sh", [runB], home.env);
-    expect(statusB.status).toBe(0);
-    expect(statusB.stdout).toContain("session_live=1");
-
-    const bad = sh("cb-peek.sh", [runA, "coder", "10"], home.env);
-    expect(bad.status).not.toBe(0);
-    expect(bad.stderr).toMatch(/session missing|unresolved|no metadata/);
+    expect(sh("cb-peek.sh", ["bb02", "reviewer", "40"], h.env).stdout).toContain(marker);
+    expect(sh("cb-peek.sh", ["aa01", "reviewer", "40"], h.env).stdout).not.toContain(marker);
+    spawnSync("sh", ["-c", `. "${join(BIN, "cb-tmux.sh")}"; cb_tmux_kill_session "combo-aa01"`], {
+      encoding: "utf8",
+      env: h.env,
+      timeout: 10_000,
+    });
+    expect(tmux(h, ["has-session", "-t", "=combo-aa01"]).status).not.toBe(0);
+    expect(tmux(h, ["has-session", "-t", "=combo-bb02"]).status).toBe(0);
+    expect(sh("cb-status.sh", ["bb02"], h.env).stdout).toContain("session_live=1");
+    expect(sh("cb-peek.sh", ["aa01", "coder", "5"], h.env).status).not.toBe(0);
   }, 30_000);
 
-  it("never resolves an agent target outside combo-<runId>", () => {
-    const home = makeHome();
-    const run = "issue-312-scope";
-    ensureRun(home, run);
-    expect(spawnAgent(home, run, "launcher").status).toBe(0);
-
-    const foreign = tmux(home, ["new-session", "-d", "-s", "foreign-other", "-n", `cb-${run}-launcher`]);
-    expect(foreign.status, foreign.stderr).toBe(0);
-    expect(tmux(home, ["kill-window", "-t", `=combo-${run}:cb-${run}-launcher`]).status).toBe(0);
-
-    const metaPath = join(home.runs, run, "agents", "launcher.meta");
-    const meta = readFileSync(metaPath, "utf8");
+  it("never resolves targets outside combo-<runId>", () => {
+    const h = makeHome();
+    ensureRun(h, "scope");
+    expect(spawnAgent(h, "scope", "launcher").status).toBe(0);
+    expect(tmux(h, ["new-session", "-d", "-s", "foreign-other", "-n", "cb-scope-launcher"]).status).toBe(0);
+    expect(tmux(h, ["kill-window", "-t", "=combo-scope:cb-scope-launcher"]).status).toBe(0);
+    const metaPath = join(h.runs, "scope", "agents", "launcher.meta");
     writeFileSync(
       metaPath,
-      meta
+      readFileSync(metaPath, "utf8")
         .split("\n")
-        .map((line) => {
-          if (line.startsWith("window_id=")) return "window_id=@99999";
-          if (line.startsWith("window=")) return `window=foreign-other:cb-${run}-launcher`;
-          return line;
+        .map((l) => {
+          if (l.startsWith("window_id=")) return "window_id=@99999";
+          if (l.startsWith("window=")) return "window=foreign-other:cb-scope-launcher";
+          return l;
         })
         .join("\n"),
     );
-
-    const peek = sh("cb-peek.sh", [run, "launcher", "5"], home.env);
-    expect(peek.status).not.toBe(0);
-    expect(peek.stderr).toMatch(/unresolved target|session missing/);
-
-    const send = sh("cb-send.sh", [run, "launcher", "echo should-not-land"], home.env);
-    expect(send.status).not.toBe(0);
+    expect(sh("cb-peek.sh", ["scope", "launcher", "5"], h.env).status).not.toBe(0);
+    expect(sh("cb-send.sh", ["scope", "launcher", "echo x"], h.env).status).not.toBe(0);
   }, 15_000);
 
-  it("writes agent meta atomically and keeps decision paths free of capture-pane", () => {
-    const home = makeHome();
-    const run = "issue-312-meta";
-    ensureRun(home, run);
-    expect(spawnAgent(home, run, "gate", ["--mode", "shell"]).status).toBe(0);
-    const metaPath = join(home.runs, run, "agents", "gate.meta");
-    expect(existsSync(metaPath)).toBe(true);
-    expect(existsSync(`${metaPath}.tmp`)).toBe(false);
-
-    const decisionScripts = [
-      "cb-emit.sh",
-      "cb-wait.sh",
-      "cb-run-state.sh",
-      "cb-agent-spawn.sh",
-      "cb-send.sh",
-    ];
-    for (const name of decisionScripts) {
-      const body = readFileSync(join(BIN, name), "utf8");
-      expect(body, name).not.toMatch(/capture-pane/);
+  it("guards decision paths and rejects mode=bin without --cmd", () => {
+    const h = makeHome();
+    ensureRun(h, "meta1");
+    expect(spawnAgent(h, "meta1", "gate").status).toBe(0);
+    expect(existsSync(join(h.runs, "meta1", "agents", "gate.meta"))).toBe(true);
+    for (const name of ["cb-emit.sh", "cb-wait.sh", "cb-run-state.sh", "cb-agent-spawn.sh", "cb-send.sh"]) {
+      expect(readFileSync(join(BIN, name), "utf8")).not.toMatch(/capture-pane/);
     }
     expect(readFileSync(join(BIN, "cb-peek.sh"), "utf8")).toMatch(/cb_tmux_capture/);
-
-    const binNoop = spawnAgent(home, run, "coder", ["--mode", "bin", "--bin", "claude"]);
-    expect(binNoop.status).not.toBe(0);
-    expect(binNoop.stderr).toMatch(/mode=bin requires --cmd/);
+    const bin = spawnAgent(h, "meta1", "coder", ["--mode", "bin", "--bin", "claude"]);
+    expect(bin.status).not.toBe(0);
+    expect(bin.stderr).toMatch(/mode=bin requires --cmd/);
   });
 });

@@ -1,18 +1,11 @@
 #!/bin/sh
-# Advisory run/agent status. Journal phase is truth; pane command is a hint only.
-# Usage: cb-status <runId> [agent]
-# Session liveness uses exact `=combo-<runId>` matching only.
+# Advisory run/agent status. Journal phase is truth; pane command is a hint.
+# Session liveness uses exact =combo-<runId> only.
 set -eu
 
-usage() {
-  echo "usage: cb-status <runId> [agent]" >&2
-  exit 64
-}
-
+usage() { echo "usage: cb-status <runId> [agent]" >&2; exit 64; }
 [ "$#" -ge 1 ] || usage
-run=$1
-only=${2:-}
-
+run=$1 only=${2:-}
 case "$run" in ''|-*|*[!a-z0-9-]*) usage ;; esac
 if [ -n "$only" ]; then
   case "$only" in launcher|coder|reviewer|gate|cleaner) ;; *) usage ;; esac
@@ -25,27 +18,15 @@ SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 runs_dir=${CB_RUNS_DIR:-$HOME/.combo-chen/runs}
 run_dir=$runs_dir/$run
 ses=$(cb_tmux_session_name "$run")
-
 phase=created
-if [ -x "$SCRIPT_DIR/cb-run-state.sh" ] || [ -f "$SCRIPT_DIR/cb-run-state.sh" ]; then
-  phase=$(CB_RUNS_DIR=$runs_dir sh "$SCRIPT_DIR/cb-run-state.sh" "$run" 2>/dev/null || printf 'created')
+if [ -f "$SCRIPT_DIR/cb-run-state.sh" ]; then
+  phase=$(CB_RUNS_DIR=$runs_dir sh "$SCRIPT_DIR/cb-run-state.sh" "$run" 2>/dev/null || printf created)
 fi
-
 session_live=0
-if cb_tmux_has_session_exact "$ses"; then
-  session_live=1
-fi
+cb_tmux_has_session_exact "$ses" && session_live=1
 
-printf 'run=%s\n' "$run"
-printf 'phase=%s\n' "$phase"
-printf 'session=%s\n' "$ses"
-printf 'session_live=%s\n' "$session_live"
-
-agents=$only
-if [ -z "$agents" ]; then
-  agents='launcher coder reviewer gate cleaner'
-fi
-
+printf 'run=%s\nphase=%s\nsession=%s\nsession_live=%s\n' "$run" "$phase" "$ses" "$session_live"
+agents=${only:-launcher coder reviewer gate cleaner}
 for agent in $agents; do
   meta=$run_dir/agents/$agent.meta
   if [ ! -f "$meta" ]; then
@@ -57,12 +38,9 @@ for agent in $agents; do
   mode=$(cb_tmux_meta_get "$meta" mode 2>/dev/null || true)
   bin=$(cb_tmux_meta_get "$meta" bin 2>/dev/null || true)
   started=$(cb_tmux_meta_get "$meta" started 2>/dev/null || true)
-  command=''
-  resolved=''
-  if [ "$session_live" -eq 1 ]; then
-    if resolved=$(cb_tmux_resolve_agent "$run" "$agent" 2>/dev/null); then
-      command=$(cb_tmux_current_command "$resolved" || true)
-    fi
+  command='' resolved=''
+  if [ "$session_live" -eq 1 ] && resolved=$(cb_tmux_resolve_agent "$run" "$agent" 2>/dev/null); then
+    command=$(cb_tmux_current_command "$resolved" || true)
   fi
   printf 'agent.%s.window=%s\n' "$agent" "$window"
   printf 'agent.%s.window_id=%s\n' "$agent" "$wid"
