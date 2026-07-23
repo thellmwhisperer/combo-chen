@@ -182,6 +182,10 @@ anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
 P1 adds the v1 Bash journal spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`,
 `bin/cb-run-state.sh`) with a five-agent event enum, JSONL append locking,
 and deterministic phase folding.
+P2 adds multi-run-safe tmux spawn (`bin/cb-tmux.sh`, `bin/cb-agent-spawn.sh`,
+`bin/cb-send.sh`, `bin/cb-peek.sh`, `bin/cb-status.sh`) with atomic
+`runs/<runId>/agents/*.meta`, pinned `combo-<runId>` sessions, and
+`cb-<runId>-{launcher,coder,reviewer,gate,cleaner}` windows.
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
