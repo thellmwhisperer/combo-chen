@@ -1,0 +1,11 @@
+{"seq":1,"ts":"2026-07-23T10:01:01Z","run":"needs-change-loop","agent":"chain","code":0,"event":"run_created","payload":{"work_item":"#311","repo":"/repo"}}
+{"seq":2,"ts":"2026-07-23T10:01:02Z","run":"needs-change-loop","agent":"launcher","code":0,"event":"launch_ready","payload":{"worktree":"/worktree","branch":"combo/needs-change-loop","base_sha":"0000000000000000000000000000000000000000","runway_kind":"treehouse","lease_id":"lease-loop"}}
+{"seq":3,"ts":"2026-07-23T10:01:03Z","run":"needs-change-loop","agent":"coder","code":0,"event":"coder_ready","payload":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","branch":"combo/needs-change-loop"}}
+{"seq":4,"ts":"2026-07-23T10:01:04Z","run":"needs-change-loop","agent":"reviewer","code":1,"event":"member_result","payload":{"member":"model","round":1,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","artifact":"artifacts/findings-r1-model.md"}}
+{"seq":5,"ts":"2026-07-23T10:01:05Z","run":"needs-change-loop","agent":"reviewer","code":1,"event":"needs_change","payload":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","round":1,"member":"model","artifact":"artifacts/findings-r1-model.md"}}
+{"seq":6,"ts":"2026-07-23T10:01:06Z","run":"needs-change-loop","agent":"coder","code":0,"event":"coder_ready","payload":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","branch":"combo/needs-change-loop"}}
+{"seq":7,"ts":"2026-07-23T10:01:07Z","run":"needs-change-loop","agent":"reviewer","code":0,"event":"member_result","payload":{"member":"model","round":2,"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+{"seq":8,"ts":"2026-07-23T10:01:08Z","run":"needs-change-loop","agent":"reviewer","code":0,"event":"member_result","payload":{"member":"rabbit","round":2,"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+{"seq":9,"ts":"2026-07-23T10:01:09Z","run":"needs-change-loop","agent":"reviewer","code":0,"event":"lgtm","payload":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","round":2,"members":["model","rabbit"]}}
+{"seq":10,"ts":"2026-07-23T10:01:10Z","run":"needs-change-loop","agent":"gate","code":0,"event":"gate_ok","payload":{"outcome":"merged","sha":"cccccccccccccccccccccccccccccccccccccccc"}}
+{"seq":11,"ts":"2026-07-23T10:01:11Z","run":"needs-change-loop","agent":"cleaner","code":0,"event":"cleaned","payload":{}}

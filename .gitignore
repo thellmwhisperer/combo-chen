@@ -1,0 +1,23 @@
+# lavish artifacts are working surfaces, not repo content
+.lavish/
+
+# the user's global gitignore excludes AGENTS.md; this repo ships its charter
+!AGENTS.md
+
+node_modules/
+dist/
+*.log
+.DS_Store
+output/
+# Project-convention scratch plus operator tool state. Kept in the repo
+# .gitignore (not only user-local excludes) so tools that honor .gitignore,
+# prettier included, skip them on every operator's machine.
+.worktrees/
+.tmp/
+.agents/
+.claude/
+.opencode/
+.idea/
+# Local operator config stays out of the repo. The repo-level
+# .no-mistakes.yaml is intentionally tracked to pin validation commands.
+combo-chen.toml
