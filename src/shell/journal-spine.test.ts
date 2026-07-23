@@ -11,7 +11,7 @@
  * @deps vitest, node:child_process, node:fs, node:os, node:path
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -200,6 +200,56 @@ describe("cb-emit", () => {
     expect(existsSync(lock)).toBe(false);
   });
 
+  it("does not remove a replacement lock when the re-read owner mismatches", () => {
+    const run = makeRun();
+    const lock = join(run.runDir, ".journal.lock");
+    const owner = join(lock, "owner");
+    const fakeBin = join(run.runDir, "fake-bin");
+    mkdirSync(lock);
+    mkdirSync(fakeBin);
+    writeFileSync(owner, "99999999 abandoned-owner-token\n");
+    const fakeCat = join(fakeBin, "cat");
+    writeFileSync(
+      fakeCat,
+      '#!/bin/sh\nif [ "$1" = "$CB_TEST_OWNER" ]; then rm -f "$1"; exit 0; fi\nexec /bin/cat "$@"\n',
+    );
+    chmodSync(fakeCat, 0o755);
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "chain", "0", "run_created", { work_item: "#311", repo: "/repo" }),
+      {
+        ...run.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        CB_TEST_OWNER: owner,
+        CB_JOURNAL_LOCK_STALE_SECONDS: "0",
+        CB_JOURNAL_LOCK_TIMEOUT_SECONDS: "1",
+      },
+    );
+    expect(result.status).toBe(75);
+    expect(existsSync(lock)).toBe(true);
+  });
+
+  it("leaves a replacement owner untouched during cleanup", () => {
+    const run = makeRun();
+    const lock = join(run.runDir, ".journal.lock");
+    const owner = join(lock, "owner");
+    const fakeBin = join(run.runDir, "fake-bin");
+    mkdirSync(fakeBin);
+    const fakeCat = join(fakeBin, "cat");
+    writeFileSync(
+      fakeCat,
+      '#!/bin/sh\nif [ "$1" = "$CB_TEST_OWNER" ]; then printf "1 replacement-token\\n" > "$1"; printf "1 replacement-token\\n"; exit 0; fi\nexec /bin/cat "$@"\n',
+    );
+    chmodSync(fakeCat, 0o755);
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "chain", "0", "run_created", { work_item: "#311", repo: "/repo" }),
+      { ...run.env, PATH: `${fakeBin}:${process.env.PATH}`, CB_TEST_OWNER: owner },
+    );
+    expect(result.status).toBe(0);
+    expect(readFileSync(owner, "utf8")).toBe("1 replacement-token\n");
+  });
+
   it("serializes concurrent appenders without interleaving or duplicate sequence numbers", async () => {
     const run = makeRun();
     const children = Array.from({ length: 24 }, (_, index) => {
@@ -290,20 +340,59 @@ describe("cb-run-state fixture folds", () => {
       "done",
     ],
     [
-      "unrelated chain",
+      "gate failure through cleaner recovery",
+      [
+        { agent: "gate", code: 1, event: "gate_failed", payload: { reason: "pipeline_failed" } },
+        { agent: "cleaner", code: 1, event: "clean_failed", payload: { reasons: ["busy"] } },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "failed(gate, pipeline_failed)",
+    ],
+    [
+      "chain failure through cleaner recovery",
       [
         { agent: "chain", code: 1, event: "chain_stopped", payload: { reason: "rounds_exhausted" } },
-        { agent: "launcher", code: 0, event: "launch_ready", payload: {} },
+        { agent: "cleaner", code: 1, event: "clean_failed", payload: { reasons: ["busy"] } },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "failed(chain, rounds_exhausted)",
+    ],
+    [
+      "chain failure through gate recovery",
+      [
+        { agent: "chain", code: 1, event: "chain_stopped", payload: { reason: "rounds_exhausted" } },
+        { agent: "gate", code: 1, event: "gate_failed", payload: { reason: "pipeline_failed" } },
         { agent: "gate", code: 0, event: "gate_ok", payload: {} },
         { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
       ],
       "failed(chain, rounds_exhausted)",
     ],
-  ])("lets later %s success clear only its own failure", (_name, events, expected) => {
-    const run = makeRun(`superseded-${_name.replace(" ", "-")}`);
+    [
+      "chain failure through launcher recovery",
+      [
+        { agent: "chain", code: 1, event: "chain_stopped", payload: { reason: "rounds_exhausted" } },
+        { agent: "launcher", code: 1, event: "launch_not_ready", payload: { reasons: ["not ready"] } },
+        { agent: "launcher", code: 0, event: "launch_ready", payload: {} },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "failed(chain, rounds_exhausted)",
+    ],
+    [
+      "lowest-seq surviving failure",
+      [
+        { agent: "gate", code: 1, event: "gate_failed", payload: { reason: "pipeline_failed" } },
+        { agent: "chain", code: 1, event: "chain_stopped", payload: { reason: "rounds_exhausted" } },
+        { agent: "cleaner", code: 0, event: "cleaned", payload: {} },
+      ],
+      "failed(gate, pipeline_failed)",
+    ],
+  ])("folds %s with agent-scoped failure recovery", (_name, events, expected) => {
+    const run = makeRun(`superseded-${_name.replaceAll(" ", "-")}`);
     const lines = events.map((event, index) => JSON.stringify({ seq: index + 1, ...event }));
     writeFileSync(join(run.runDir, "journal.jsonl"), `${lines.join("\n")}\n`);
-    expect(command("cb-run-state.sh", [run.run], run.env).stdout.trim()).toBe(expected);
+    const result = command("cb-run-state.sh", [run.run], run.env);
+    expect(result.stdout.trim()).toBe(expected);
+    expect(result.stderr).toBe("");
   });
 
   it("replays by sequence rather than physical line order", () => {
@@ -335,7 +424,7 @@ describe("cb-run-state fixture folds", () => {
   it.each([
     ["happy-path.jsonl", "done"],
     ["needs-change-loop.jsonl", "done"],
-    ["launcher-failure.jsonl", "failed(chain, launch_not_ready)"],
+    ["launcher-failure.jsonl", "failed(launcher, launch_not_ready)"],
     ["gate-failure.jsonl", "failed(gate, pipeline_failed)"],
     ["cleaner-failure.jsonl", "failed(cleaner, clean_failed)"],
   ])("folds %s to %s", (fixture, expected) => {

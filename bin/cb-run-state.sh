@@ -14,31 +14,41 @@ rows=$(jq -Rsc '[split("\n")[] | select(length>0) | . as $raw | try {event:($raw
 invalid=$(printf '%s' "$rows" | jq '[.[] | select(.invalid==true)] | length')
 if [ "$invalid" -gt 0 ]; then echo "cb-run-state: warning: ignoring $invalid malformed journal line(s)" >&2; fi
 conflicts=$(printf '%s' "$rows" | jq '
-  [.[] | select(.invalid!=true) | .event] as $e |
-  (["launcher","gate","cleaner"] | map(. as $a | [$e[] | select(.agent==$a and (.event|endswith("ready") or endswith("ok") or endswith("failed") or .=="cleaned")) | .code] | unique | length>1) | any) or
+  [.[] | select(.invalid!=true) | .event] | sort_by(.seq) as $e |
+  (["launcher","gate","cleaner"] | map(. as $a |
+    [$e[] | select(
+      (.agent=="launcher" and (.event=="launch_ready" or .event=="launch_not_ready")) or
+      (.agent=="gate" and (.event=="gate_ok" or .event=="gate_failed")) or
+      (.agent=="cleaner" and (.event=="cleaned" or .event=="clean_failed"))) |
+      select(.agent==$a) | .code] as $codes |
+    ([$codes | to_entries[] | select(.value==0) | .key] | first) as $success |
+    ([$codes | to_entries[] | select(.value==1) | .key] | last) as $failure |
+    ($success!=null and $failure!=null and $success<$failure)) | any) or
   ([$e[] | select(.agent=="reviewer" and (.event=="lgtm" or .event=="needs_change")) | [.payload.sha,.payload.round,.event]] | group_by(.[0:2]) | any(length>1))')
 if [ "$conflicts" = true ]; then echo "cb-run-state: warning: conflicting product events; highest seq wins" >&2; fi
 
 printf '%s' "$rows" | jq -r '
   [.[] | select(.invalid!=true) | .event | select((.seq|type)=="number")] | sort_by(.seq) |
   reduce .[] as $e (
-    {phase:"created", round:1, member:"pending", failure_agent:null, failure_reason:null};
+    {phase:"created", round:1, member:"pending", failures:{}};
     if $e.event=="run_created" then .phase="launching"
-    elif $e.event=="launch_ready" then .phase="coding" | (if .failure_agent=="launcher" then .failure_agent=null | .failure_reason=null else . end)
-    elif $e.event=="launch_not_ready" then .phase="cleaning" | .failure_agent="launcher" | .failure_reason="launch_not_ready"
-    elif $e.event=="chain_stopped" then .phase="cleaning" | .failure_agent="chain" | .failure_reason=$e.payload.reason
+    elif $e.event=="launch_ready" then .phase="coding" | .failures|=del(.launcher)
+    elif $e.event=="launch_not_ready" then .phase="cleaning" | .failures.launcher={reason:"launch_not_ready",seq:$e.seq}
+    elif $e.event=="chain_stopped" then .phase="cleaning" | .failures.chain={reason:$e.payload.reason,seq:$e.seq}
     elif $e.event=="coder_ready" then .phase="reviewing" | .member="pending"
     elif $e.event=="coder_not_ready" then .phase="coding"
     elif $e.event=="member_result" then .round=$e.payload.round | .member=$e.payload.member
     elif $e.event=="needs_change" then .phase="coding" | .round=($e.payload.round+1) | .member="pending"
     elif $e.event=="lgtm" then .phase="gating"
     elif $e.event=="gate_progress" then .
-    elif $e.event=="gate_ok" then .phase="cleaning" | (if .failure_agent=="gate" then .failure_agent=null | .failure_reason=null else . end)
-    elif $e.event=="gate_failed" then .phase="cleaning" | .failure_agent="gate" | .failure_reason=$e.payload.reason
-    elif $e.event=="cleaned" then (if .failure_agent=="cleaner" then .failure_agent=null | .failure_reason=null else . end) | .phase=(if .failure_agent==null then "done" else "failed" end)
-    elif $e.event=="clean_failed" then .phase="failed" | .failure_agent="cleaner" | .failure_reason="clean_failed"
+    elif $e.event=="gate_ok" then .phase="cleaning" | .failures|=del(.gate)
+    elif $e.event=="gate_failed" then .phase="cleaning" | .failures.gate={reason:$e.payload.reason,seq:$e.seq}
+    elif $e.event=="cleaned" then .failures|=del(.cleaner) | .phase=(if (.failures|length)==0 then "done" else "failed" end)
+    elif $e.event=="clean_failed" then .phase="failed" | .failures.cleaner={reason:"clean_failed",seq:$e.seq}
     else . end
   ) |
   if .phase=="reviewing" then "reviewing(round=\(.round), member=\(.member))"
-  elif .phase=="failed" then "failed(\(.failure_agent), \(.failure_reason))"
+  elif .phase=="failed" then
+    ([.failures | to_entries[] | {agent:.key,reason:.value.reason,seq:.value.seq}] | sort_by(.seq) | first) as $failure |
+    "failed(\($failure.agent), \($failure.reason))"
   else .phase end'

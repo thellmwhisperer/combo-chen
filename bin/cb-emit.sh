@@ -124,9 +124,11 @@ reclaim_dead_lock() {
   current=$(cat "$lock_owner" 2>/dev/null || true)
   if [ "$current" = "$owner_pid $owner_token" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
     rm -f "$lock_owner"
+    rmdir "$lock/.reap" 2>/dev/null || true
+    rmdir "$lock" 2>/dev/null || true
+  else
+    rmdir "$lock/.reap" 2>/dev/null || true
   fi
-  rmdir "$lock/.reap" 2>/dev/null || true
-  rmdir "$lock" 2>/dev/null || true
 }
 while ! mkdir "$lock" 2>/dev/null; do
   now=$(date +%s)
