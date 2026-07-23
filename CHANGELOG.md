@@ -36,6 +36,13 @@
 * **release:** Ship self-contained CLI archives that run without sibling dist files or `node_modules`.
 * **update:** Normalize release-please component tags and replace the real executable behind installer-created bin symlinks so future updates remain auto-replaceable.
 
+## [0.0.84](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.83...combo-chen-v0.0.84) (2026-07-23)
+
+
+### Features
+
+* **shell:** add P3 mechanical launcher and cleaner ([#323](https://github.com/thellmwhisperer/combo-chen/issues/323)) ([648a19f](https://github.com/thellmwhisperer/combo-chen/commit/648a19f53aa0e94db7c9c15d162392df163a093e))
+
 ## [0.0.83](https://github.com/thellmwhisperer/combo-chen/compare/combo-chen-v0.0.82...combo-chen-v0.0.83) (2026-07-23)
 
 
