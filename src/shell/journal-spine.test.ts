@@ -58,6 +58,22 @@ function emitArgs(run: string, agent: string, code: string, event: string, paylo
   ];
 }
 
+function makeCandidateRepo(path: string, label: string) {
+  mkdirSync(path);
+  const git = (...args: string[]) => spawnSync("git", ["-C", path, ...args], { encoding: "utf8" });
+  expect(git("init", "-b", "main").status).toBe(0);
+  expect(git("config", "user.name", "Combo Test").status).toBe(0);
+  expect(git("config", "user.email", "combo@example.test").status).toBe(0);
+  writeFileSync(join(path, "file.txt"), `${label} base\n`);
+  expect(git("add", ".").status).toBe(0);
+  expect(git("commit", "-m", `${label} base`).status).toBe(0);
+  const base = git("rev-parse", "HEAD").stdout.trim();
+  writeFileSync(join(path, "file.txt"), `${label} candidate\n`);
+  expect(git("add", ".").status).toBe(0);
+  expect(git("commit", "-m", `${label} candidate`).status).toBe(0);
+  return { base, head: git("rev-parse", "HEAD").stdout.trim() };
+}
+
 afterEach(() => {
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
@@ -181,6 +197,68 @@ describe("cb-emit", () => {
     expect(missingFindings.status).not.toBe(0);
   });
 
+  it("prefers config.env launch facts over the journal and hostile caller environment", () => {
+    const run = makeRun();
+    const trusted = join(run.runDir, "trusted");
+    const decoy = join(run.runDir, "decoy");
+    const trustedGit = makeCandidateRepo(trusted, "trusted");
+    const decoyGit = makeCandidateRepo(decoy, "decoy");
+    expect(
+      command(
+        "cb-emit.sh",
+        emitArgs(run.run, "launcher", "0", "launch_ready", {
+          worktree: decoy,
+          branch: "combo/decoy",
+          base_sha: decoyGit.base,
+          runway_kind: "treehouse",
+          lease_id: "decoy",
+        }),
+        run.env,
+      ).status,
+    ).toBe(0);
+    writeFileSync(
+      join(run.runDir, "config.env"),
+      `CB_WORKTREE='${trusted}'\nCB_BASE_SHA='${trustedGit.base}'\n`,
+    );
+
+    const ready = command("cb-emit.sh", emitArgs(run.run, "coder", "0", "coder_ready", {}), {
+      ...run.env,
+      CB_WORKTREE: decoy,
+      CB_BASE_SHA: decoyGit.base,
+    });
+    expect(ready.status, ready.stderr).toBe(0);
+    expect(JSON.parse(ready.stdout).payload.sha).toBe(trustedGit.head);
+  });
+
+  it("prefers journaled launch facts over hostile caller environment without config.env", () => {
+    const run = makeRun();
+    const trusted = join(run.runDir, "trusted");
+    const decoy = join(run.runDir, "decoy");
+    const trustedGit = makeCandidateRepo(trusted, "trusted");
+    const decoyGit = makeCandidateRepo(decoy, "decoy");
+    expect(
+      command(
+        "cb-emit.sh",
+        emitArgs(run.run, "launcher", "0", "launch_ready", {
+          worktree: trusted,
+          branch: "combo/trusted",
+          base_sha: trustedGit.base,
+          runway_kind: "treehouse",
+          lease_id: "trusted",
+        }),
+        run.env,
+      ).status,
+    ).toBe(0);
+
+    const ready = command("cb-emit.sh", emitArgs(run.run, "coder", "0", "coder_ready", {}), {
+      ...run.env,
+      CB_WORKTREE: decoy,
+      CB_BASE_SHA: decoyGit.base,
+    });
+    expect(ready.status, ready.stderr).toBe(0);
+    expect(JSON.parse(ready.stdout).payload.sha).toBe(trustedGit.head);
+  });
+
   it("accepts a non-empty needs_change artifact inside the run directory", () => {
     const run = makeRun();
     const artifact = "artifacts/findings.md";
@@ -238,6 +316,62 @@ describe("cb-emit", () => {
     expect(readFileSync(join(lock, "owner"), "utf8")).toBe(`${process.pid} live-owner-token\n`);
   });
 
+  it.each([
+    ["ownerless", null],
+    ["malformed", "not-a-valid-owner\n"],
+  ])("reclaims a stale %s journal lock without redirect noise", (_kind, ownerRecord) => {
+    const run = makeRun();
+    const lock = join(run.runDir, ".journal.lock");
+    mkdirSync(lock);
+    if (ownerRecord !== null) writeFileSync(join(lock, "owner"), ownerRecord);
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "chain", "0", "run_created", { work_item: "#325", repo: "/repo" }),
+      { ...run.env, CB_JOURNAL_LOCK_STALE_SECONDS: "0", CB_JOURNAL_LOCK_TIMEOUT_SECONDS: "2" },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).not.toMatch(/No such file or directory/);
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it("does not steal an ownerless stale journal lock that gains a live owner during reap", () => {
+    const run = makeRun();
+    const lock = join(run.runDir, ".journal.lock");
+    const owner = join(lock, "owner");
+    const fakeBin = join(run.runDir, "fake-bin");
+    mkdirSync(lock);
+    mkdirSync(fakeBin);
+    const fakeMkdir = join(fakeBin, "mkdir");
+    writeFileSync(
+      fakeMkdir,
+      `#!/bin/sh
+if [ "$1" = "$CB_TEST_REAP" ]; then
+  /bin/mkdir "$@"
+  printf '%s\n' "$CB_TEST_LIVE_OWNER" >"$CB_TEST_OWNER"
+  exit 0
+fi
+exec /bin/mkdir "$@"
+`,
+    );
+    chmodSync(fakeMkdir, 0o755);
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "chain", "0", "run_created", { work_item: "#325", repo: "/repo" }),
+      {
+        ...run.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        CB_TEST_REAP: join(lock, ".reap"),
+        CB_TEST_OWNER: owner,
+        CB_TEST_LIVE_OWNER: `${process.pid} replacement-token`,
+        CB_JOURNAL_LOCK_STALE_SECONDS: "0",
+        CB_JOURNAL_LOCK_TIMEOUT_SECONDS: "1",
+      },
+    );
+    expect(result.status).toBe(75);
+    expect(readFileSync(owner, "utf8")).toBe(`${process.pid} replacement-token\n`);
+    expect(existsSync(lock)).toBe(true);
+  });
+
   it("reclaims a stale lock only when its recorded owner is dead", () => {
     const run = makeRun();
     const lock = join(run.runDir, ".journal.lock");
@@ -263,7 +397,7 @@ describe("cb-emit", () => {
     const fakeCat = join(fakeBin, "cat");
     writeFileSync(
       fakeCat,
-      '#!/bin/sh\nif [ "$1" = "$CB_TEST_OWNER" ]; then rm -f "$1"; exit 0; fi\nexec /bin/cat "$@"\n',
+      '#!/bin/sh\nif [ "$1" = "$CB_TEST_OWNER" ]; then printf "%s\\n" "$CB_TEST_LIVE_OWNER" >"$1"; printf "%s\\n" "$CB_TEST_LIVE_OWNER"; exit 0; fi\nexec /bin/cat "$@"\n',
     );
     chmodSync(fakeCat, 0o755);
     const result = command(
@@ -273,11 +407,13 @@ describe("cb-emit", () => {
         ...run.env,
         PATH: `${fakeBin}:${process.env.PATH}`,
         CB_TEST_OWNER: owner,
+        CB_TEST_LIVE_OWNER: `${process.pid} replacement-token`,
         CB_JOURNAL_LOCK_STALE_SECONDS: "0",
         CB_JOURNAL_LOCK_TIMEOUT_SECONDS: "1",
       },
     );
     expect(result.status).toBe(75);
+    expect(readFileSync(owner, "utf8")).toBe(`${process.pid} replacement-token\n`);
     expect(existsSync(lock)).toBe(true);
   });
 

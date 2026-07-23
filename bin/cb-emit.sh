@@ -66,20 +66,24 @@ journal=$run_dir/journal.jsonl
 [ -d "$run_dir" ] && [ -w "$run_dir" ] || { echo "cb-emit: run directory is not writable: $run_dir" >&2; exit 73; }
 
 # Mechanical claims are observed here rather than trusted from a caller.
-worktree=${CB_WORKTREE:-}
-base_sha=${CB_BASE_SHA:-}
+caller_worktree=${CB_WORKTREE:-}
+caller_base_sha=${CB_BASE_SHA:-}
+worktree=''
+base_sha=''
 if [ -f "$run_dir/config.env" ]; then
   # config.env is the run's trusted, immutable launch snapshot.
   # shellcheck disable=SC1090
   . "$run_dir/config.env"
-  worktree=${CB_WORKTREE:-$worktree}
-  base_sha=${CB_BASE_SHA:-$base_sha}
+  worktree=${CB_WORKTREE:-}
+  base_sha=${CB_BASE_SHA:-}
 fi
 if [ -f "$journal" ] && { [ -z "$worktree" ] || [ -z "$base_sha" ]; }; then
   launch_payload=$(jq -Rrs '[split("\n")[] | fromjson? | select(.agent=="launcher" and .event=="launch_ready") | .payload] | last // {}' "$journal")
   [ -n "$worktree" ] || worktree=$(printf '%s' "$launch_payload" | jq -r '.worktree // empty')
   [ -n "$base_sha" ] || base_sha=$(printf '%s' "$launch_payload" | jq -r '.base_sha // empty')
 fi
+[ -n "$worktree" ] || worktree=$caller_worktree
+[ -n "$base_sha" ] || base_sha=$caller_base_sha
 case "$agent:$event" in
   coder:coder_ready)
     [ -n "$worktree" ] && [ -n "$base_sha" ] || { echo "cb-emit: coder_ready requires launch worktree and base sha" >&2; exit 65; }
@@ -126,19 +130,51 @@ stale_after=${CB_JOURNAL_LOCK_STALE_SECONDS:-30}
 reclaim_dead_lock() {
   owner_pid=''
   owner_token=''
-  IFS=' ' read -r owner_pid owner_token <"$lock_owner" 2>/dev/null || return 0
-  case "$owner_pid" in ''|*[!0-9]*) return 0 ;; esac
-  case "$owner_token" in ''|*[!0-9a-zA-Z_-]*) return 0 ;; esac
-  kill -0 "$owner_pid" 2>/dev/null && return 0
-  mkdir "$lock/.reap" 2>/dev/null || return 0
-  current=$(cat "$lock_owner" 2>/dev/null || true)
-  if [ "$current" = "$owner_pid $owner_token" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
-    rm -f "$lock_owner"
-    rmdir "$lock/.reap" 2>/dev/null || true
-    rmdir "$lock" 2>/dev/null || true
-  else
-    rmdir "$lock/.reap" 2>/dev/null || true
+  owner_extra=''
+  owner_record=''
+  owner_state=absent
+  if [ -r "$lock_owner" ]; then
+    owner_record=$(cat "$lock_owner" 2>/dev/null) || return 0
+    IFS=' ' read -r owner_pid owner_token owner_extra <"$lock_owner" || true
+    owner_state=valid
+    case "$owner_pid" in ''|*[!0-9]*) owner_state=malformed ;; esac
+    case "$owner_token" in ''|*[!0-9a-zA-Z_-]*) owner_state=malformed ;; esac
+    [ -z "$owner_extra" ] || owner_state=malformed
+    case "$owner_record" in
+      *'
+'*) owner_state=malformed ;;
+    esac
   fi
+  [ "$owner_state" != valid ] || ! kill -0 "$owner_pid" 2>/dev/null || return 0
+  mkdir "$lock/.reap" 2>/dev/null || return 0
+  case "$owner_state" in
+    absent)
+      if [ ! -e "$lock_owner" ] && [ ! -L "$lock_owner" ]; then
+        rmdir "$lock/.reap" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || true
+        return 0
+      fi
+      ;;
+    malformed)
+      current=$(cat "$lock_owner" 2>/dev/null || true)
+      if [ "$current" = "$owner_record" ]; then
+        rm -f "$lock_owner"
+        rmdir "$lock/.reap" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || true
+        return 0
+      fi
+      ;;
+    valid)
+      current=$(cat "$lock_owner" 2>/dev/null || true)
+      if [ "$current" = "$owner_record" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
+        rm -f "$lock_owner"
+        rmdir "$lock/.reap" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || true
+        return 0
+      fi
+      ;;
+  esac
+  rmdir "$lock/.reap" 2>/dev/null || true
 }
 while ! mkdir "$lock" 2>/dev/null; do
   now=$(date +%s)

@@ -62,7 +62,6 @@ treehouse_err=$run_dir/.launcher-treehouse-err.$$
 ownership_file=$agents_dir/launcher.ownership.json
 ownership_tmp=$agents_dir/.launcher.ownership.tmp.$$
 config_tmp=$run_dir/.config.env.tmp.$$
-: >"$reasons_file"
 acquired=0
 cleanup() {
   rm -f "$reasons_file" "$seats_file" "$treehouse_out" "$treehouse_err" "$ownership_tmp" "$config_tmp"
@@ -70,7 +69,14 @@ cleanup() {
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
-add_reason() { printf '%s\n' "$1" >>"$reasons_file"; }
+set -C
+exec 3>"$reasons_file"
+exec 4>"$seats_file"
+exec 5>"$treehouse_out"
+exec 6>"$treehouse_err"
+set +C
+
+add_reason() { printf '%s\n' "$1" >&3; }
 has_reasons() { [ -s "$reasons_file" ]; }
 emit_not_ready() {
   [ "$acquired" -eq 0 ] || rollback_acquisition
@@ -128,6 +134,7 @@ shell_quote() {
 }
 publish_ownership() {
   kind=$1 worktree=$2 branch=$3 base_sha=$4
+  set -C
   if [ "$kind" = treehouse ]; then
     jq -cn \
       --arg run "$run" --arg kind "$kind" --arg repo "$repo_dir" --arg worktree "$worktree" \
@@ -141,6 +148,7 @@ publish_ownership() {
       '{run:$run,runway_kind:$kind,repo_dir:$repo,worktree:$worktree,branch:$branch,base_sha:$base,ownership_id:$owner}' \
       >"$ownership_tmp"
   fi
+  set +C
   mv "$ownership_tmp" "$ownership_file"
 }
 rollback_acquisition() {
@@ -213,7 +221,7 @@ if [ "$readiness_ok" -eq 1 ] && ! jq -e '
 fi
 
 if [ "$readiness_ok" -eq 1 ]; then
-  jq -r '.required_seats[]' "$readiness_file" >"$seats_file"
+  jq -r '.required_seats[]' "$readiness_file" >&4
   while IFS= read -r seat_id; do
     count=$(jq --arg id "$seat_id" '[.seats[] | select(.id==$id)] | length' "$readiness_file")
     if [ "$count" -eq 0 ]; then
@@ -274,7 +282,7 @@ has_reasons && emit_not_ready
 # -- 2/4 CORE · acquire_treehouse --
 worktree=''
 if [ "$mode" = treehouse ]; then
-  if ! (cd "$repo_dir" && treehouse get --lease --lease-holder "$run" >"$treehouse_out" 2>"$treehouse_err"); then
+  if ! (cd "$repo_dir" && treehouse get --lease --lease-holder "$run" >&5 2>&6); then
     add_reason "treehouse:acquire_refused"
     emit_not_ready
   fi
@@ -335,14 +343,18 @@ if [ -n "$setup_cmd" ]; then
 fi
 has_reasons && emit_not_ready
 
-sed '/^CB_WORKTREE=/d;/^CB_BASE_SHA=/d' "$config" >"$config_tmp"
+[ ! -e "$config_tmp" ] && [ ! -L "$config_tmp" ] \
+  || { echo "cb-launcher: config temp path already exists" >&2; exit 73; }
+set -C
 {
+  sed '/^CB_WORKTREE=/d;/^CB_BASE_SHA=/d' "$config"
   printf 'CB_WORKTREE='
   shell_quote "$worktree"
   printf '\nCB_BASE_SHA='
   shell_quote "$base_sha"
   printf '\n'
-} >>"$config_tmp"
+} >"$config_tmp"
+set +C
 mv "$config_tmp" "$config"
 
 if [ "$mode" = treehouse ]; then

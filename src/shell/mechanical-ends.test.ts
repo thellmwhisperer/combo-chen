@@ -11,8 +11,17 @@
  * @exports none
  * @deps vitest, node:child_process, node:fs, node:path
  */
-import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -134,12 +143,62 @@ function runScript(
   }
   if (script === "cb-launcher.sh" && treehouseAvailable) {
     const status = command("treehouse", ["status"], fixture.repo);
-    const held = status.stdout
+    const held = (status.stdout ?? "")
       .split("\n")
       .find((line) => line.includes(`(held by ${run})`))
       ?.match(/\sleased\s+(.+?)\s+\(held by /)?.[1];
     const path = held?.startsWith("~/") ? join(process.env.HOME ?? "", held.slice(2)) : held;
     if (path && !fixture.treehousePaths.includes(path)) fixture.treehousePaths.push(path);
+  }
+  return result;
+}
+
+async function runScriptWithPidPause(
+  fixture: Fixture,
+  script: "cb-launcher.sh" | "cb-cleaner.sh",
+  run: string,
+  plantAttack: (pid: number) => void,
+) {
+  const realpathBin = command("sh", ["-c", "command -v realpath"], ROOT).stdout.trim();
+  const fake = fakeCommand(
+    fixture,
+    "realpath",
+    `#!/bin/sh
+while [ ! -e $MARKER ]; do sleep 0.01; done
+exec ${shellQuote(realpathBin)} "$@"
+`,
+  );
+  const child = spawn("/bin/sh", [join(BIN, script), run], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      CB_RUNS_DIR: fixture.runs,
+      PATH: `${fake.path}:${process.env.PATH}`,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  expect(child.pid).toBeTypeOf("number");
+  plantAttack(child.pid as number);
+  writeFileSync(fake.marker, "continue\n");
+  const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
+    (resolveChild) => {
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.on("data", (chunk) => {
+        stdout += String(chunk);
+      });
+      child.stderr?.on("data", (chunk) => {
+        stderr += String(chunk);
+      });
+      child.on("close", (status) => resolveChild({ status, stdout, stderr }));
+    },
+  );
+  const metaPath = join(fixture.runs, run, "agents", "launcher.ownership.json");
+  if (script === "cb-launcher.sh" && existsSync(metaPath)) {
+    const meta = JSON.parse(readFileSync(metaPath, "utf8")) as Ownership;
+    if (existsSync(meta.worktree) && !fixture.gitWorktrees.includes(meta.worktree)) {
+      fixture.gitWorktrees.push(meta.worktree);
+    }
   }
   return result;
 }
@@ -540,6 +599,62 @@ exec ${shellQuote(gitBin)} "$@"
     expect(existsSync(join(runDir, "agents", "launcher.ownership.json"))).toBe(false);
     expect(runScript(fixture, "cb-launcher.sh", run).status).toBe(0);
     expect(runScript(fixture, "cb-cleaner.sh", run).status).toBe(0);
+  });
+
+  const launcherTemps = [
+    ["reasons", "run", ".launcher-reasons."],
+    ["seats", "run", ".launcher-seats."],
+    ["treehouse stdout", "run", ".launcher-treehouse-out."],
+    ["treehouse stderr", "run", ".launcher-treehouse-err."],
+    ["ownership", "agents", ".launcher.ownership.tmp."],
+    ["config", "run", ".config.env.tmp."],
+  ] as const;
+
+  it.each(
+    launcherTemps.flatMap(([name, location, prefix]) =>
+      (["existing", "dangling"] as const).map((targetKind) => [name, location, prefix, targetKind] as const),
+    ),
+  )(
+    "does not follow a %s temp in %s at %s in Launcher (%s target)",
+    async (_name, location, prefix, targetKind) => {
+      const fixture = makeFixture();
+      const run = `p3-launch-link-${prefix.replaceAll(/[^a-z]/g, "")}-${targetKind}`;
+      const { runDir } = makeRun(fixture, run, { mode: "git-worktree-explicit" });
+      const victim = join(fixture.outer, `${_name.replaceAll(" ", "-")}-${targetKind}-victim`);
+      if (targetKind === "existing") writeFileSync(victim, "PRECIOUS\n");
+
+      const result = await runScriptWithPidPause(fixture, "cb-launcher.sh", run, (pid) => {
+        const parent = location === "agents" ? join(runDir, "agents") : runDir;
+        symlinkSync(victim, join(parent, `${prefix}${pid}`));
+      });
+
+      expect(result.status).not.toBe(0);
+      if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
+      else expect(existsSync(victim)).toBe(false);
+    },
+    30_000,
+  );
+
+  it.each([
+    ["reasons", ".cleaner-reasons.", "existing"],
+    ["reasons", ".cleaner-reasons.", "dangling"],
+    ["ownership", ".cleaner.ownership.tmp.", "existing"],
+    ["ownership", ".cleaner.ownership.tmp.", "dangling"],
+  ])("does not follow a %s temp %s symlink in Cleaner (%s target)", async (_name, prefix, targetKind) => {
+    const fixture = makeFixture();
+    const run = `p3-clean-link-${_name}-${targetKind}`;
+    const { runDir } = makeRun(fixture, run, { mode: "git-worktree-explicit" });
+    expect(runScript(fixture, "cb-launcher.sh", run).status).toBe(0);
+    const victim = join(fixture.outer, `${_name}-${targetKind}-victim`);
+    if (targetKind === "existing") writeFileSync(victim, "PRECIOUS\n");
+
+    const result = await runScriptWithPidPause(fixture, "cb-cleaner.sh", run, (pid) => {
+      symlinkSync(victim, join(runDir, _name === "ownership" ? "agents" : "", `${prefix}${pid}`));
+    });
+
+    expect(result.status).not.toBe(0);
+    if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
+    else expect(existsSync(victim)).toBe(false);
   });
 });
 // -/ 3/4
