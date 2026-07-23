@@ -81,6 +81,39 @@ describe("cb-emit", () => {
     expect(readFileSync(join(run.runDir, "journal.jsonl"), "utf8").trim().split("\n")).toHaveLength(1);
   });
 
+  it("keeps distinct coder_not_ready payloads while deduplicating an exact retry", () => {
+    const run = makeRun();
+    const firstArgs = emitArgs(run.run, "coder", "1", "coder_not_ready", { errors: ["exit=1"] });
+    const secondArgs = emitArgs(run.run, "coder", "1", "coder_not_ready", { errors: ["exit=1, retry"] });
+    const first = command("cb-emit.sh", firstArgs, run.env);
+    const second = command("cb-emit.sh", secondArgs, run.env);
+    const retry = command("cb-emit.sh", firstArgs, run.env);
+    expect([first.status, second.status, retry.status]).toEqual([0, 0, 0]);
+    expect(retry.stdout).toBe(first.stdout);
+    const events = readFileSync(join(run.runDir, "journal.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { payload: { errors: string[] } });
+    expect(events.map(({ payload }) => payload.errors)).toEqual([["exit=1"], ["exit=1, retry"]]);
+  });
+
+  it("keeps member_result records with the same scope but different codes", () => {
+    const run = makeRun();
+    const scope = { member: "model", round: 1, sha: "a".repeat(40) };
+    const passed = command("cb-emit.sh", emitArgs(run.run, "reviewer", "0", "member_result", scope), run.env);
+    const failed = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "reviewer", "1", "member_result", { ...scope, artifact: "findings.md" }),
+      run.env,
+    );
+    expect([passed.status, failed.status]).toEqual([0, 0]);
+    const events = readFileSync(join(run.runDir, "journal.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { code: number });
+    expect(events.map(({ code }) => code)).toEqual([0, 1]);
+  });
+
   it("derives coder facts and verifies Reviewer claims mechanically", () => {
     const run = makeRun();
     const worktree = join(run.runDir, "worktree");

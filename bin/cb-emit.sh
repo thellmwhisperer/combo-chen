@@ -126,8 +126,8 @@ trap 'exit 130' 1 2 15
 rows=$(jq -Rsc '[split("\n")[] | select(length>0) | . as $raw | try {raw:$raw,event:($raw|fromjson)} catch {raw:$raw,invalid:true}]' "$journal")
 invalid=$(printf '%s' "$rows" | jq '[.[] | select(.invalid==true)] | length')
 if [ "$invalid" -gt 0 ]; then echo "cb-emit: warning: ignoring $invalid malformed journal line(s)" >&2; fi
-existing=$(printf '%s' "$rows" | jq -r --arg agent "$agent" --arg event "$event" --argjson payload "$payload" '
-  [.[] | select(.invalid!=true) | select(.event.agent==$agent and .event.event==$event and ((.event.payload.sha // null)==($payload.sha // null)) and ((.event.payload.round // null)==($payload.round // null)) and ((.event.payload.member // null)==($payload.member // null)))] | first | .raw // empty')
+existing=$(printf '%s' "$rows" | jq -r --arg agent "$agent" --argjson code "$code" --arg event "$event" --argjson payload "$payload" '
+  [.[] | select(.invalid!=true) | select(.event.agent==$agent and .event.code==$code and .event.event==$event and ((.event.payload.sha // null)==($payload.sha // null)) and ((.event.payload.round // null)==($payload.round // null)) and ((.event.payload.member // null)==($payload.member // null)) and (if (.event.payload.sha // .event.payload.round // .event.payload.member) == null then .event.payload==$payload else true end))] | first | .raw // empty')
 if [ -n "$existing" ]; then
   printf '%s\n' "$existing"
   exit 0
