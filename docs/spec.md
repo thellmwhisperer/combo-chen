@@ -1085,6 +1085,19 @@ conversation, nothing else. Lingering processes die with the tmux session.
    fallback), and resolve endpoints only inside that session. Journal events
    remain the sole workflow truth; peek/status pane output is advisory.
    Real-tmux contract tests live in `src/shell/tmux-spawn.test.ts`.
+6. **P3 mechanical ends** landed: `bin/cb-launcher.sh` acquires one declared
+   runway (Treehouse or explicit Git worktree), records exact ownership in
+   `launcher.ownership.json`, verifies generic seat readiness, and emits
+   `launch_ready` or `launch_not_ready`. `bin/cb-cleaner.sh` verifies
+   Launcher custody and releases only the exact recorded Treehouse lease
+   path or explicit Git worktree. Both use `set -C` + fd-based ownership
+   for every scratch file, reject symlinks at all staging paths, and
+   enforce `config.env` then `launch_ready` then caller-environment
+   precedence for launch facts in `cb-emit.sh`. `treehouse status` empty
+   stdout is treated as absent in the P3 harness. The journal and spawn
+   lock reapers use a single-owner snapshot with .reap-based TOCTOU
+   correction for absent, malformed, and valid owner states.
+   Mechanical contract tests live in `src/shell/mechanical-ends.test.ts`.
 
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the
 contract describes each role directly before the project has external users.
