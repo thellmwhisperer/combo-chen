@@ -734,7 +734,12 @@ P1: v1 Bash journal spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`,
 locking, and deterministic phase folding.
 P2: multi-run-safe tmux spawn (`bin/cb-tmux.sh`, `bin/cb-agent-spawn.sh`,
 `bin/cb-send.sh`, `bin/cb-peek.sh`, `bin/cb-status.sh`) with atomic agent
-meta under `runs/<runId>/agents/`. Deferred: issue preflight scoring,
+meta under `runs/<runId>/agents/`.
+P3: mechanical `bin/cb-launcher.sh` and `bin/cb-cleaner.sh` ends:
+Treehouse holder/path custody is exact and live-verified, Git fallback
+is an explicit distinct ownership kind, and run-local readiness/custody
+commands are generic P4/P7 input boundaries.
+Deferred: issue preflight scoring,
 counterfactual automerge logs, and ACP role driving.
 
 ## License
