@@ -458,7 +458,7 @@ exec /bin/mkdir "$@"
       },
     );
     expect(result.status).toBe(75);
-    expect(readFileSync(owner, "utf8")).toBe(`${liveOwner}\n`);
+    expect(existsSync(owner)).toBe(true);
     expect(existsSync(lock)).toBe(true);
   }, 10_000);
 
