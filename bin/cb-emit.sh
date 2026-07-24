@@ -72,6 +72,7 @@ worktree=''
 base_sha=''
 if [ -f "$run_dir/config.env" ]; then
   # config.env is the run's trusted, immutable launch snapshot.
+  unset CB_WORKTREE CB_BASE_SHA
   # shellcheck disable=SC1090
   . "$run_dir/config.env"
   worktree=${CB_WORKTREE:-}

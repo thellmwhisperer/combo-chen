@@ -63,17 +63,32 @@ ownership_file=$agents_dir/launcher.ownership.json
 ownership_tmp=$agents_dir/.launcher.ownership.tmp.$$
 config_tmp=$run_dir/.config.env.tmp.$$
 acquired=0
+reasons_file_owned=0
+seats_file_owned=0
+treehouse_out_owned=0
+treehouse_err_owned=0
+ownership_tmp_owned=0
+config_tmp_owned=0
 cleanup() {
-  rm -f "$reasons_file" "$seats_file" "$treehouse_out" "$treehouse_err" "$ownership_tmp" "$config_tmp"
+  [ "$reasons_file_owned" -eq 0 ] || rm -f "$reasons_file"
+  [ "$seats_file_owned" -eq 0 ] || rm -f "$seats_file"
+  [ "$treehouse_out_owned" -eq 0 ] || rm -f "$treehouse_out"
+  [ "$treehouse_err_owned" -eq 0 ] || rm -f "$treehouse_err"
+  [ "$ownership_tmp_owned" -eq 0 ] || rm -f "$ownership_tmp"
+  [ "$config_tmp_owned" -eq 0 ] || rm -f "$config_tmp"
 }
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
 set -C
 exec 3>"$reasons_file"
+reasons_file_owned=1
 exec 4>"$seats_file"
+seats_file_owned=1
 exec 5>"$treehouse_out"
+treehouse_out_owned=1
 exec 6>"$treehouse_err"
+treehouse_err_owned=1
 set +C
 
 add_reason() { printf '%s\n' "$1" >&3; }
@@ -135,21 +150,29 @@ shell_quote() {
 publish_ownership() {
   kind=$1 worktree=$2 branch=$3 base_sha=$4
   set -C
-  if [ "$kind" = treehouse ]; then
-    jq -cn \
-      --arg run "$run" --arg kind "$kind" --arg repo "$repo_dir" --arg worktree "$worktree" \
-      --arg branch "$branch" --arg base "$base_sha" --arg lease "$run" \
-      '{run:$run,runway_kind:$kind,repo_dir:$repo,worktree:$worktree,branch:$branch,base_sha:$base,lease_id:$lease}' \
-      >"$ownership_tmp"
+  if {
+    ownership_tmp_owned=1
+    if [ "$kind" = treehouse ]; then
+      jq -cn \
+        --arg run "$run" --arg kind "$kind" --arg repo "$repo_dir" --arg worktree "$worktree" \
+        --arg branch "$branch" --arg base "$base_sha" --arg lease "$run" \
+        '{run:$run,runway_kind:$kind,repo_dir:$repo,worktree:$worktree,branch:$branch,base_sha:$base,lease_id:$lease}'
+    else
+      jq -cn \
+        --arg run "$run" --arg kind "$kind" --arg repo "$repo_dir" --arg worktree "$worktree" \
+        --arg branch "$branch" --arg base "$base_sha" --arg owner "git-worktree:$run" \
+        '{run:$run,runway_kind:$kind,repo_dir:$repo,worktree:$worktree,branch:$branch,base_sha:$base,ownership_id:$owner}'
+    fi
+  } >"$ownership_tmp"; then
+    :
   else
-    jq -cn \
-      --arg run "$run" --arg kind "$kind" --arg repo "$repo_dir" --arg worktree "$worktree" \
-      --arg branch "$branch" --arg base "$base_sha" --arg owner "git-worktree:$run" \
-      '{run:$run,runway_kind:$kind,repo_dir:$repo,worktree:$worktree,branch:$branch,base_sha:$base,ownership_id:$owner}' \
-      >"$ownership_tmp"
+    write_status=$?
+    set +C
+    return "$write_status"
   fi
   set +C
   mv "$ownership_tmp" "$ownership_file"
+  ownership_tmp_owned=0
 }
 rollback_acquisition() {
   if [ "$mode" = treehouse ]; then
@@ -347,6 +370,7 @@ has_reasons && emit_not_ready
   || { echo "cb-launcher: config temp path already exists" >&2; exit 73; }
 set -C
 {
+  config_tmp_owned=1
   sed '/^CB_WORKTREE=/d;/^CB_BASE_SHA=/d' "$config"
   printf 'CB_WORKTREE='
   shell_quote "$worktree"
@@ -356,6 +380,7 @@ set -C
 } >"$config_tmp"
 set +C
 mv "$config_tmp" "$config"
+config_tmp_owned=0
 
 if [ "$mode" = treehouse ]; then
   payload=$(jq -cn \

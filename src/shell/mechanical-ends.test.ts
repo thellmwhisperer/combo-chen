@@ -18,6 +18,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -612,25 +613,35 @@ exec ${shellQuote(gitBin)} "$@"
 
   it.each(
     launcherTemps.flatMap(([name, location, prefix]) =>
-      (["existing", "dangling"] as const).map((targetKind) => [name, location, prefix, targetKind] as const),
+      (["existing", "dangling", "regular"] as const).map(
+        (targetKind) => [name, location, prefix, targetKind] as const,
+      ),
     ),
   )(
-    "does not follow a %s temp in %s at %s in Launcher (%s target)",
+    "does not replace a %s temp in %s at %s in Launcher (%s target)",
     async (_name, location, prefix, targetKind) => {
       const fixture = makeFixture();
       const run = `p3-launch-link-${prefix.replaceAll(/[^a-z]/g, "")}-${targetKind}`;
       const { runDir } = makeRun(fixture, run, { mode: "git-worktree-explicit" });
       const victim = join(fixture.outer, `${_name.replaceAll(" ", "-")}-${targetKind}-victim`);
       if (targetKind === "existing") writeFileSync(victim, "PRECIOUS\n");
+      let attackPath = "";
 
       const result = await runScriptWithPidPause(fixture, "cb-launcher.sh", run, (pid) => {
         const parent = location === "agents" ? join(runDir, "agents") : runDir;
-        symlinkSync(victim, join(parent, `${prefix}${pid}`));
+        attackPath = join(parent, `${prefix}${pid}`);
+        if (targetKind === "regular") writeFileSync(attackPath, "STAGING OWNER\n");
+        else symlinkSync(victim, attackPath);
       });
 
       expect(result.status).not.toBe(0);
-      if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
-      else expect(existsSync(victim)).toBe(false);
+      if (targetKind === "regular") {
+        expect(readFileSync(attackPath, "utf8")).toBe("STAGING OWNER\n");
+      } else {
+        expect(readlinkSync(attackPath)).toBe(victim);
+        if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
+        else expect(existsSync(victim)).toBe(false);
+      }
     },
     30_000,
   );
@@ -638,23 +649,33 @@ exec ${shellQuote(gitBin)} "$@"
   it.each([
     ["reasons", ".cleaner-reasons.", "existing"],
     ["reasons", ".cleaner-reasons.", "dangling"],
+    ["reasons", ".cleaner-reasons.", "regular"],
     ["ownership", ".cleaner.ownership.tmp.", "existing"],
     ["ownership", ".cleaner.ownership.tmp.", "dangling"],
-  ])("does not follow a %s temp %s symlink in Cleaner (%s target)", async (_name, prefix, targetKind) => {
+    ["ownership", ".cleaner.ownership.tmp.", "regular"],
+  ])("does not replace a %s temp %s path in Cleaner (%s target)", async (_name, prefix, targetKind) => {
     const fixture = makeFixture();
     const run = `p3-clean-link-${_name}-${targetKind}`;
     const { runDir } = makeRun(fixture, run, { mode: "git-worktree-explicit" });
     expect(runScript(fixture, "cb-launcher.sh", run).status).toBe(0);
     const victim = join(fixture.outer, `${_name}-${targetKind}-victim`);
     if (targetKind === "existing") writeFileSync(victim, "PRECIOUS\n");
+    let attackPath = "";
 
     const result = await runScriptWithPidPause(fixture, "cb-cleaner.sh", run, (pid) => {
-      symlinkSync(victim, join(runDir, _name === "ownership" ? "agents" : "", `${prefix}${pid}`));
+      attackPath = join(runDir, _name === "ownership" ? "agents" : "", `${prefix}${pid}`);
+      if (targetKind === "regular") writeFileSync(attackPath, "STAGING OWNER\n");
+      else symlinkSync(victim, attackPath);
     });
 
     expect(result.status).not.toBe(0);
-    if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
-    else expect(existsSync(victim)).toBe(false);
+    if (targetKind === "regular") {
+      expect(readFileSync(attackPath, "utf8")).toBe("STAGING OWNER\n");
+    } else {
+      expect(readlinkSync(attackPath)).toBe(victim);
+      if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
+      else expect(existsSync(victim)).toBe(false);
+    }
   });
 });
 // -/ 3/4

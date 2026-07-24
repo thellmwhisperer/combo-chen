@@ -16,6 +16,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   rmdirSync,
   rmSync,
   symlinkSync,
@@ -333,8 +334,8 @@ exec /bin/mkdir "$@"
     expect(existsSync(lock)).toBe(true);
   });
 
-  it.each(["existing", "dangling"])(
-    "does not follow a %s symlink at the predictable meta staging path",
+  it.each(["existing", "dangling", "regular"])(
+    "does not replace a %s path at the predictable meta staging path",
     async (targetKind) => {
       const h = makeHome();
       const run = `meta-link-${targetKind}`;
@@ -355,14 +356,20 @@ exec /bin/mkdir "$@"
       const victim = join(h.home, `${targetKind}-meta-victim`);
       if (targetKind === "existing") writeFileSync(victim, "PRECIOUS\n");
       const tmp = join(runDir, "agents", `.coder.meta.tmp.${child.pid}`);
-      symlinkSync(victim, tmp);
+      if (targetKind === "regular") writeFileSync(tmp, "STAGING OWNER\n");
+      else symlinkSync(victim, tmp);
       rmSync(owner);
       rmdirSync(lock);
 
       const result = await collectChild(child);
       expect(result.status).not.toBe(0);
-      if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
-      else expect(existsSync(victim)).toBe(false);
+      if (targetKind === "regular") {
+        expect(readFileSync(tmp, "utf8")).toBe("STAGING OWNER\n");
+      } else {
+        expect(readlinkSync(tmp)).toBe(victim);
+        if (targetKind === "existing") expect(readFileSync(victim, "utf8")).toBe("PRECIOUS\n");
+        else expect(existsSync(victim)).toBe(false);
+      }
     },
     15_000,
   );

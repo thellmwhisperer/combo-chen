@@ -259,6 +259,36 @@ describe("cb-emit", () => {
     expect(JSON.parse(ready.stdout).payload.sha).toBe(trustedGit.head);
   }, 10_000);
 
+  it("backfills a partial config.env from journal facts instead of hostile caller environment", () => {
+    const run = makeRun();
+    const trusted = join(run.runDir, "trusted");
+    const decoy = join(run.runDir, "decoy");
+    const trustedGit = makeCandidateRepo(trusted, "trusted");
+    const decoyGit = makeCandidateRepo(decoy, "decoy");
+    expect(
+      command(
+        "cb-emit.sh",
+        emitArgs(run.run, "launcher", "0", "launch_ready", {
+          worktree: trusted,
+          branch: "combo/trusted",
+          base_sha: trustedGit.base,
+          runway_kind: "treehouse",
+          lease_id: "trusted",
+        }),
+        run.env,
+      ).status,
+    ).toBe(0);
+    writeFileSync(join(run.runDir, "config.env"), `CB_WORKTREE='${trusted}'\n`);
+
+    const ready = command("cb-emit.sh", emitArgs(run.run, "coder", "0", "coder_ready", {}), {
+      ...run.env,
+      CB_WORKTREE: decoy,
+      CB_BASE_SHA: decoyGit.base,
+    });
+    expect(ready.status, ready.stderr).toBe(0);
+    expect(JSON.parse(ready.stdout).payload.sha).toBe(trustedGit.head);
+  }, 10_000);
+
   it("accepts a non-empty needs_change artifact inside the run directory", () => {
     const run = makeRun();
     const artifact = "artifacts/findings.md";

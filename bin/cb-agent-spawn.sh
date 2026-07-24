@@ -59,7 +59,7 @@ cb_spawn_contain() {
 cb_spawn_fail() {
   # <msg> [exit] — drop temp/window, keep lock cleanup via trap
   echo "cb-agent-spawn: $1" >&2
-  [ -n "${tmp:-}" ] && [ -f "$tmp" ] && rm -f "$tmp"
+  [ "${tmp_owned:-0}" -eq 0 ] || rm -f "$tmp"
   [ -n "${wid:-}" ] && cb_tmux_kill "$wid" 2>/dev/null || true
   exit "${2:-75}"
 }
@@ -153,9 +153,9 @@ while ! mkdir "$lock" 2>/dev/null; do
 done
 printf '%s %s\n' "$$" "$lock_token" >"$lock_owner" || { rmdir "$lock" 2>/dev/null || true; echo "cb-agent-spawn: cannot record spawn lock owner" >&2; exit 73; }
 
-tmp='' wid=''
+tmp='' tmp_owned=0 wid=''
 cleanup() {
-  [ -n "$tmp" ] && [ -f "$tmp" ] && rm -f "$tmp"
+  [ "$tmp_owned" -eq 0 ] || rm -f "$tmp"
   current=$(cat "$lock_owner" 2>/dev/null || true)
   [ "$current" = "$$ $lock_token" ] || return 0
   rm -f "$lock_owner"
@@ -180,6 +180,7 @@ started_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 tmp=$agents_dir/.$agent.meta.tmp.$$
 set -C
 {
+  tmp_owned=1
   printf 'run=%s\n' "$run"
   printf 'agent=%s\n' "$agent"
   printf 'window=%s\n' "$ses:$wname"
@@ -194,6 +195,7 @@ tmp_real=$(realpath "$tmp" 2>/dev/null) || cb_spawn_fail "cannot resolve meta te
 case "$tmp_real" in "$agents_root"/*) ;; *) cb_spawn_fail "meta temp escapes agents dir" 73 ;; esac
 [ ! -L "$meta" ] || cb_spawn_fail "meta path must not be a symlink" 73
 mv -f "$tmp" "$meta" || cb_spawn_fail "meta publish failed" 73
+tmp_owned=0
 tmp=''
 
 meta_real=$(realpath "$meta" 2>/dev/null) || cb_spawn_fail "cannot resolve published meta" 73
