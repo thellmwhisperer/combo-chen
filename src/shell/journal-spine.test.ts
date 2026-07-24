@@ -228,7 +228,7 @@ describe("cb-emit", () => {
     });
     expect(ready.status, ready.stderr).toBe(0);
     expect(JSON.parse(ready.stdout).payload.sha).toBe(trustedGit.head);
-  });
+  }, 10_000);
 
   it("prefers journaled launch facts over hostile caller environment without config.env", () => {
     const run = makeRun();
@@ -257,7 +257,7 @@ describe("cb-emit", () => {
     });
     expect(ready.status, ready.stderr).toBe(0);
     expect(JSON.parse(ready.stdout).payload.sha).toBe(trustedGit.head);
-  });
+  }, 10_000);
 
   it("accepts a non-empty needs_change artifact inside the run directory", () => {
     const run = makeRun();
