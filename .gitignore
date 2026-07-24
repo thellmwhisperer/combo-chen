@@ -21,3 +21,4 @@ output/
 # Local operator config stays out of the repo. The repo-level
 # .no-mistakes.yaml is intentionally tracked to pin validation commands.
 combo-chen.toml
+pnpm-lock.yaml
