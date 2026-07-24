@@ -101,7 +101,9 @@ reclaim_dead_lock() {
   owner_pid='' owner_token='' owner_extra='' owner_record='' owner_state=absent
   if [ -r "$lock_owner" ]; then
     owner_record=$(cat "$lock_owner" 2>/dev/null) || return 0
-    IFS=' ' read -r owner_pid owner_token owner_extra <"$lock_owner" || true
+    IFS=' ' read -r owner_pid owner_token owner_extra <<EOF
+$owner_record
+EOF
     owner_state=valid
     case "$owner_pid" in ''|*[!0-9]*) owner_state=malformed ;; esac
     case "$owner_token" in ''|*[!0-9a-zA-Z_-]*) owner_state=malformed ;; esac

@@ -402,6 +402,66 @@ exec /bin/mkdir "$@"
     expect(existsSync(lock)).toBe(true);
   });
 
+  it("uses one journal owner snapshot for liveness and the deletion guard", () => {
+    const run = makeRun();
+    const lock = join(run.runDir, ".journal.lock");
+    const owner = join(lock, "owner");
+    const fakeBin = join(run.runDir, "fake-snapshot-bin");
+    const catCount = join(run.runDir, "cat-count");
+    const liveOwner = `${process.pid} stable-live-token`;
+    mkdirSync(lock);
+    mkdirSync(fakeBin);
+    writeFileSync(owner, `${liveOwner}\n`);
+    const fakeCat = join(fakeBin, "cat");
+    writeFileSync(
+      fakeCat,
+      `#!/bin/sh
+count=$(/bin/cat "$CB_TEST_CAT_COUNT" 2>/dev/null || printf 0)
+count=$((count + 1))
+printf '%s' "$count" >"$CB_TEST_CAT_COUNT"
+if [ "$1" = "$CB_TEST_OWNER" ] && [ "$count" -eq 1 ]; then
+  /bin/cat "$@"
+  printf '%s\n' "$CB_TEST_TRANSIENT_OWNER" >"$CB_TEST_OWNER"
+  exit 0
+fi
+exec /bin/cat "$@"
+`,
+    );
+    chmodSync(fakeCat, 0o755);
+    const fakeMkdir = join(fakeBin, "mkdir");
+    writeFileSync(
+      fakeMkdir,
+      `#!/bin/sh
+if [ "$1" = "$CB_TEST_REAP" ]; then
+  /bin/mkdir "$@"
+  printf '%s\n' "$CB_TEST_LIVE_OWNER" >"$CB_TEST_OWNER"
+  exit 0
+fi
+exec /bin/mkdir "$@"
+`,
+    );
+    chmodSync(fakeMkdir, 0o755);
+
+    const result = command(
+      "cb-emit.sh",
+      emitArgs(run.run, "chain", "0", "run_created", { work_item: "#325", repo: "/repo" }),
+      {
+        ...run.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        CB_TEST_CAT_COUNT: catCount,
+        CB_TEST_OWNER: owner,
+        CB_TEST_REAP: join(lock, ".reap"),
+        CB_TEST_LIVE_OWNER: liveOwner,
+        CB_TEST_TRANSIENT_OWNER: "99999999 transient-dead-token",
+        CB_JOURNAL_LOCK_STALE_SECONDS: "0",
+        CB_JOURNAL_LOCK_TIMEOUT_SECONDS: "1",
+      },
+    );
+    expect(result.status).toBe(75);
+    expect(readFileSync(owner, "utf8")).toBe(`${liveOwner}\n`);
+    expect(existsSync(lock)).toBe(true);
+  }, 10_000);
+
   it("reclaims a stale lock only when its recorded owner is dead", () => {
     const run = makeRun();
     const lock = join(run.runDir, ".journal.lock");

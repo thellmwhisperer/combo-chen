@@ -334,6 +334,61 @@ exec /bin/mkdir "$@"
     expect(existsSync(lock)).toBe(true);
   });
 
+  it("uses one spawn owner snapshot for liveness and the deletion guard", () => {
+    const h = makeHome();
+    const runDir = ensureRun(h, "stale-snapshot-race");
+    const lock = join(runDir, ".spawn.lock");
+    const owner = join(lock, "owner");
+    const fakeBin = join(h.home, "fake-snapshot-bin");
+    const catCount = join(h.home, "cat-count");
+    const liveOwner = `${process.pid} stable-live-token`;
+    mkdirSync(lock);
+    mkdirSync(fakeBin);
+    writeFileSync(owner, `${liveOwner}\n`);
+    writeFake(
+      fakeBin,
+      "cat",
+      `#!/bin/sh
+count=$(/bin/cat "$CB_TEST_CAT_COUNT" 2>/dev/null || printf 0)
+count=$((count + 1))
+printf '%s' "$count" >"$CB_TEST_CAT_COUNT"
+if [ "$1" = "$CB_TEST_OWNER" ] && [ "$count" -eq 1 ]; then
+  /bin/cat "$@"
+  printf '%s\n' "$CB_TEST_TRANSIENT_OWNER" >"$CB_TEST_OWNER"
+  exit 0
+fi
+exec /bin/cat "$@"
+`,
+    );
+    writeFake(
+      fakeBin,
+      "mkdir",
+      `#!/bin/sh
+if [ "$1" = "$CB_TEST_REAP" ]; then
+  /bin/mkdir "$@"
+  printf '%s\n' "$CB_TEST_LIVE_OWNER" >"$CB_TEST_OWNER"
+  exit 0
+fi
+exec /bin/mkdir "$@"
+`,
+    );
+
+    const result = spawnAgent(h, "stale-snapshot-race", "coder", [], {
+      ...h.env,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      CB_TEST_CAT_COUNT: catCount,
+      CB_TEST_OWNER: owner,
+      CB_TEST_REAP: join(lock, ".reap"),
+      CB_TEST_LIVE_OWNER: liveOwner,
+      CB_TEST_TRANSIENT_OWNER: "99999999 transient-dead-token",
+      CB_SPAWN_LOCK_STALE_SECONDS: "0",
+      CB_SPAWN_LOCK_TIMEOUT_SECONDS: "1",
+    });
+    expect(result.status).toBe(75);
+    expect(readFileSync(owner, "utf8")).toBe(`${liveOwner}\n`);
+    expect(existsSync(lock)).toBe(true);
+  }, 10_000);
+
   it.each(["existing", "dangling", "regular"])(
     "does not replace a %s path at the predictable meta staging path",
     async (targetKind) => {
