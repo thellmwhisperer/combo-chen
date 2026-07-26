@@ -189,6 +189,13 @@ P3 adds the mechanical `bin/cb-launcher.sh` and `bin/cb-cleaner.sh` ends:
 Treehouse holder/path custody is exact and live-verified, Git fallback is an
 explicit distinct ownership kind, and run-local readiness/custody commands are
 generic P4/P7 input boundaries rather than model or Gate orchestration.
+P4 adds the immutable `combo.config/v1` → `combo.run-plan/v1` compiler
+(`bin/cb-plan.sh`), the provider-neutral `combo.step-input/v1` /
+`combo.step-output/v1` boundary (`bin/cb-step.sh`), and the plan-driven
+Launcher → Coder ↔ Reviewer* → Gate → Cleaner state machine
+(`bin/cb-chain.sh`). Product routing uses only normalized exit classes and
+role-specific 0/1 events; configured adapter argv and opaque config slices are
+the extension boundary for P5-P7.
 Deferred: issue preflight scoring, counterfactual
 automerge log, and ACP role driving.
 
