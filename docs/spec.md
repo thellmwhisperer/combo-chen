@@ -1098,6 +1098,19 @@ conversation, nothing else. Lingering processes die with the tmux session.
    lock reapers use a single-owner snapshot with .reap-based TOCTOU
    correction for absent, malformed, and valid owner states.
    Mechanical contract tests live in `src/shell/mechanical-ends.test.ts`.
+7. **P4 chain, step, and plan** landed: `bin/cb-plan.sh` compiles validated
+   `combo.config/v1` into immutable `combo.run-plan/v1` with an adapter
+   registry and strict role-binding; `bin/cb-step.sh` wraps every configured
+   adapter in a universal `combo.step-input/v1` / `combo.step-output/v1`
+   envelope with closed process stdin, exit-class normalization, and
+   role-specific 0/1 outcome schemas; `bin/cb-chain.sh` executes the
+   plan-driven Launcher → Coder ↔ Reviewer* → Gate → Cleaner state machine
+   with deterministic offline fake scenarios and a Coder-Reviewer correction
+   loop only on `needs_change`. Product routing uses normalized exit classes
+   and role-specific events; adapter argv and opaque config slices are the
+   extension boundary for P5-P7. Contract tests live in
+   `tests/plan-contract.test.sh`, `tests/step-adapter-contract.test.sh`,
+   and `tests/chain-state-machine.test.sh`.
 
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the
 contract describes each role directly before the project has external users.
