@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the P7 No-Mistakes Gate adapter. Proves the
 #   universal P4 envelope reaches a Gate that seals the Launcher-owned exact
-#   branch/head, records the configured Pi/DeepSeek identity plus the observed
-#   No-Mistakes version/AXI help contract, builds documented axi argv, normalizes
-#   terminal outcomes, and replays durable invocation/terminal seals without
-#   starting a duplicate delivery.
+#   branch/head, proves the configured Pi/DeepSeek identity against the effective
+#   No-Mistakes config plus the observed version/AXI help contract, builds
+#   documented axi argv, normalizes terminal outcomes, and replays durable
+#   invocation/terminal seals without starting a duplicate delivery.
 #
 #   READING GUIDE
 #   -------------
@@ -27,7 +27,8 @@
 #
 #   INTERNALS
 #   ---------
-#   write_config, make_run, run_gate, invocation_args, wait_for_path
+#   write_config, write_no_mistakes_identity, make_run, run_gate,
+#   invocation_args, wait_for_path
 #
 # @exports none
 # @deps bash, cksum, date, git, jq, ps, stat, touch, tests/lib.sh, bin/cb-plan.sh,
@@ -43,6 +44,8 @@ cb_tmproot TMP_ROOT cb-gate-no-mistakes
 RUNS_DIR="$TMP_ROOT/runs"
 FAKE_ROLE="$TMP_ROOT/fake-role-adapter"
 FAKE_NM="$TMP_ROOT/fake-no-mistakes"
+FAKE_NM_HOME="$TMP_ROOT/no-mistakes-home"
+FAKE_NM_CONFIG="$FAKE_NM_HOME/.no-mistakes/config.yaml"
 NM_ARGV="$TMP_ROOT/no-mistakes.argv"
 NM_CWD="$TMP_ROOT/no-mistakes.cwd"
 NM_CALLED="$TMP_ROOT/no-mistakes.called"
@@ -55,6 +58,7 @@ NM_SERIAL_ENTERED="$TMP_ROOT/no-mistakes.serial-entered"
 NM_SERIAL_OVERLAP="$TMP_ROOT/no-mistakes.serial-overlap"
 GATE_LEASES_DIR="$TMP_ROOT/gate-leases"
 mkdir -p "$RUNS_DIR"
+mkdir -p "$FAKE_NM_HOME/.no-mistakes"
 export CB_RUNS_DIR="$RUNS_DIR"
 export CB_GATE_LEASES_DIR="$GATE_LEASES_DIR"
 export CB_GATE_TEST_ARGV="$NM_ARGV"
@@ -83,6 +87,10 @@ cb_write_fake "$FAKE_NM" '#!/usr/bin/env bash
 set -u
 if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
   printf "%s\n" "no-mistakes version v-test (fake)"
+  exit 0
+fi
+if [ "$#" -eq 1 ] && [ "$1" = doctor ]; then
+  printf "%s\n" "  gate validation  pi is runnable"
   exit 0
 fi
 if [ "$#" -eq 3 ] && [ "$1" = axi ] && [ "$3" = --help ]; then
@@ -174,6 +182,18 @@ EOF
 [ "$outcome" = passed ] || [ "$outcome" = checks-passed ]
 '
 
+write_no_mistakes_identity() {
+  local model=$1
+  printf '%s\n' \
+    'agent: pi' \
+    'agent_args_override:' \
+    '  pi:' \
+    '    - --model' \
+    "    - $model" >"$FAKE_NM_CONFIG"
+}
+
+write_no_mistakes_identity "deepseek/deepseek-v4-pro"
+
 write_config() {
   local path=$1 outcome=$2 arguments=${3:-}
   if [ -z "$arguments" ]; then
@@ -253,7 +273,7 @@ run_gate() {
   rm -f "$NM_ARGV" "$NM_CWD" "$NM_CALLED"
   export CB_GATE_TEST_BRANCH="$RUN_BRANCH"
   export CB_GATE_TEST_HEAD="$RUN_HEAD"
-  CMD_STDOUT=$(bash "$BIN/cb-step.sh" \
+  CMD_STDOUT=$(HOME="$FAKE_NM_HOME" bash "$BIN/cb-step.sh" \
     "$run" gate "$attempt" --candidate-sha "$candidate" 2>"$errfile") \
     && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
@@ -328,8 +348,24 @@ test_validates_exact_sha() {
 
 # -- 2/8 CORE · test_seals_configured_identity --
 test_seals_configured_identity() {
+  local mismatch=gate-configured-identity-mismatch
   local run=gate-configured-identity result invocation poison
   rm -f "$NM_ACTIVE" "$NM_CALLS" "$NM_STARTS" "$NM_ATTACHES"
+
+  write_no_mistakes_identity "other/model"
+  make_run "$mismatch" passed
+  run_gate "$mismatch" "$RUN_HEAD" 1
+  expect_code 0 "$CMD_STATUS" \
+    "effective identity mismatch${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:73"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "Gate must reject a configured model absent from effective No-Mistakes config"
+  assert_absent "$NM_CALLED" \
+    "identity mismatch must fail before No-Mistakes starts"
+
+  write_no_mistakes_identity "deepseek/deepseek-v4-pro"
   make_run "$run" interrupt-once
 
   run_gate "$run" "$RUN_HEAD" 1
@@ -345,10 +381,12 @@ test_seals_configured_identity() {
     || fail "identity fixture should stop after sealing its in-progress invocation"
 
   invocation="$RUNS_DIR/$run/artifacts/gate/invocation.json"
-  jq -e '
+  jq -e --arg config "$FAKE_NM_CONFIG" '
     .schema=="combo.gate-invocation/v2" and
     .preflight.runtime=="pi" and
     .preflight.model=="deepseek/deepseek-v4-pro" and
+    .preflight.config_path==$config and
+    (.preflight.doctor | contains("gate validation  pi is runnable")) and
     .preflight.version=="no-mistakes version v-test (fake)" and
     (.preflight.axi_run_help | contains("no-mistakes axi run")) and
     (.preflight.axi_run_help | contains("--intent")) and

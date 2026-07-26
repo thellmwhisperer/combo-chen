@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # @overview P7 No-Mistakes Gate adapter for the universal P4 envelope. It
 #   verifies the Launcher-owned exact candidate before and after one documented
-#   axi invocation, records the observed No-Mistakes version/help surface,
-#   seals configured runtime/model plus effective binary/argv before launch,
-#   serializes that invocation through a host-global lease with run-local
-#   evidence, adopts the same invocation after interruption, and seals/replays
-#   the typed terminal outcome without duplicating delivery. Merge authority is
-#   a later P7 slice, so this version accepts manual merge mode only.
+#   axi invocation, verifies configured runtime/model against the effective
+#   No-Mistakes config and doctor surface, seals that identity with the observed
+#   version/help plus effective binary/argv before launch, serializes the
+#   invocation through a host-global lease with run-local evidence, adopts the
+#   same invocation after interruption, and seals/replays the typed terminal
+#   outcome without duplicating delivery. Merge authority is a later P7 slice,
+#   so this version accepts manual merge mode only.
 #
 #   READING GUIDE
 #   -------------
@@ -28,8 +29,9 @@
 #   ---------
 #   usage, fail_contract, publish_result, publish_gate_failed,
 #   verify_candidate, toon_scalar, publish_terminal_result,
-#   capture_no_mistakes_probe, validate_no_mistakes_preflight,
-#   validate_invocation, validate_lease_owner, reclaim_stale_lease
+#   capture_no_mistakes_config_identity, capture_no_mistakes_probe,
+#   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
+#   reclaim_stale_lease
 #
 # @exports none
 # @deps bash, date, git, jq, od, realpath, sleep, stat, touch, tr,
@@ -453,12 +455,14 @@ validate_no_mistakes_preflight() {
         (explode | all(.[]; .==9 or .==10 or (.>=32 and .!=127)));
       type=="object" and
       keys==[
-        "axi_respond_help","axi_run_help","axi_status_help","model",
-        "runtime","version"
+        "axi_respond_help","axi_run_help","axi_status_help","config_path",
+        "doctor","model","runtime","version"
       ] and
       .runtime==$runtime and .model==$model and
       (.runtime|clean) and (.model|clean) and
+      (.config_path|clean and startswith("/")) and
       (.version|clean_multiline) and
+      (.doctor|clean_multiline) and
       (.axi_run_help|clean_multiline) and
       (.axi_status_help|clean_multiline) and
       (.axi_respond_help|clean_multiline) and
@@ -472,7 +476,9 @@ validate_no_mistakes_preflight() {
       (.axi_status_help|contains("--run")) and
       (.axi_respond_help|contains("no-mistakes axi respond")) and
       (.axi_respond_help|contains("--action")) and
-      (.axi_respond_help|contains("--yes"))
+      (.axi_respond_help|contains("--yes")) and
+      (.doctor|contains("gate validation")) and
+      (.doctor|contains($runtime + " is runnable"))
     ' >/dev/null 2>&1
 }
 
@@ -640,6 +646,103 @@ case "$binary" in
     ;;
 esac
 
+capture_no_mistakes_config_identity() {
+  local argument config_path content in_override=0 in_runtime=0 line
+  local model_flag_seen=0 model_pending=0 observed_model=''
+  local observed_runtime='' override_seen=0
+
+  [ -n "${HOME:-}" ] \
+    || fail_contract "HOME is required to verify No-Mistakes identity" 73
+  case "$HOME" in
+    /*) ;;
+    *) fail_contract "HOME must be absolute to verify No-Mistakes identity" 73 ;;
+  esac
+  config_path=$HOME/.no-mistakes/config.yaml
+  [ -f "$config_path" ] && [ ! -L "$config_path" ] \
+    || fail_contract "No-Mistakes effective config is missing or unsafe" 73
+  nm_config_path=$(realpath "$config_path" 2>/dev/null) \
+    || fail_contract "cannot resolve No-Mistakes effective config" 73
+  [ "$nm_config_path" = "$config_path" ] \
+    || fail_contract "No-Mistakes effective config path must be canonical" 73
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    content=${line%%#*}
+    if [[ "$content" =~ ^[[:space:]]*$ ]]; then
+      continue
+    fi
+    if [[ "$content" =~ ^agent:[[:space:]]+([^[:space:]]+)[[:space:]]*$ ]]; then
+      [ -z "$observed_runtime" ] \
+        || fail_contract "No-Mistakes effective config repeats agent" 73
+      observed_runtime=${BASH_REMATCH[1]}
+      in_override=0
+      in_runtime=0
+      continue
+    fi
+    if [[ "$content" =~ ^agent_args_override:[[:space:]]*$ ]]; then
+      [ "$override_seen" -eq 0 ] \
+        || fail_contract "No-Mistakes effective config repeats agent_args_override" 73
+      override_seen=1
+      in_override=1
+      in_runtime=0
+      continue
+    fi
+    if [[ "$content" =~ ^[^[:space:]] ]]; then
+      [ "$model_pending" -eq 0 ] \
+        || fail_contract "No-Mistakes effective model argument is incomplete" 73
+      in_override=0
+      in_runtime=0
+      continue
+    fi
+    if [ "$in_override" -eq 1 ] &&
+      [[ "$content" =~ ^[[:space:]][[:space:]]([^[:space:]:]+):[[:space:]]*$ ]]; then
+      [ "$model_pending" -eq 0 ] \
+        || fail_contract "No-Mistakes effective model argument is incomplete" 73
+      if [ "${BASH_REMATCH[1]}" = "$nm_runtime" ]; then
+        in_runtime=1
+      else
+        in_runtime=0
+      fi
+      continue
+    fi
+    if [ "$in_runtime" -eq 1 ] &&
+      [[ "$content" =~ ^[[:space:]][[:space:]][[:space:]][[:space:]]-[[:space:]]+([^[:space:]]+)[[:space:]]*$ ]]; then
+      argument=${BASH_REMATCH[1]}
+      if [ "$model_pending" -eq 1 ]; then
+        [ "$model_flag_seen" -eq 0 ] && [ -z "$observed_model" ] \
+          || fail_contract "No-Mistakes effective config repeats model" 73
+        observed_model=$argument
+        model_flag_seen=1
+        model_pending=0
+      else
+        case "$argument" in
+          --model)
+            [ "$model_flag_seen" -eq 0 ] \
+              || fail_contract "No-Mistakes effective config repeats model" 73
+            model_pending=1
+            ;;
+          --model=*)
+            [ "$model_flag_seen" -eq 0 ] \
+              || fail_contract "No-Mistakes effective config repeats model" 73
+            observed_model=${argument#*=}
+            [ -n "$observed_model" ] \
+              || fail_contract "No-Mistakes effective model is empty" 73
+            model_flag_seen=1
+            ;;
+        esac
+      fi
+    fi
+  done <"$nm_config_path"
+
+  [ "$model_pending" -eq 0 ] \
+    || fail_contract "No-Mistakes effective model argument is incomplete" 73
+  [ "$observed_runtime" = "$nm_runtime" ] \
+    || fail_contract "No-Mistakes effective runtime disagrees with Gate config" 73
+  [ "$observed_model" = "$nm_model" ] \
+    || fail_contract "No-Mistakes effective model disagrees with Gate config" 73
+  nm_effective_runtime=$observed_runtime
+  nm_effective_model=$observed_model
+}
+
 capture_no_mistakes_probe() {
   local label=$1 value status
   shift
@@ -654,7 +757,9 @@ capture_no_mistakes_probe() {
   printf '%s' "$value"
 }
 
+capture_no_mistakes_config_identity
 nm_version=$(capture_no_mistakes_probe version --version)
+nm_doctor=$(capture_no_mistakes_probe doctor doctor)
 nm_axi_run_help=$(capture_no_mistakes_probe "axi run help" axi run --help)
 nm_axi_status_help=$(capture_no_mistakes_probe "axi status help" axi status --help)
 nm_axi_respond_help=$(capture_no_mistakes_probe \
@@ -662,6 +767,10 @@ nm_axi_respond_help=$(capture_no_mistakes_probe \
 case "$nm_version" in
   *"no-mistakes version"*) ;;
   *) fail_contract "No-Mistakes version evidence is unrecognized" 73 ;;
+esac
+case "$nm_doctor" in
+  *"gate validation"*"$nm_effective_runtime is runnable"*) ;;
+  *) fail_contract "No-Mistakes doctor does not confirm configured runtime" 73 ;;
 esac
 case "$nm_axi_run_help" in
   *"no-mistakes axi run"*"--intent"*"--skip"*"--yes"*) ;;
@@ -682,14 +791,17 @@ case "$nm_axi_respond_help" in
 esac
 
 preflight_json=$(jq -cn \
-  --arg runtime "$nm_runtime" --arg model "$nm_model" \
-  --arg version "$nm_version" --arg run_help "$nm_axi_run_help" \
+  --arg runtime "$nm_effective_runtime" --arg model "$nm_effective_model" \
+  --arg config_path "$nm_config_path" --arg version "$nm_version" \
+  --arg doctor "$nm_doctor" --arg run_help "$nm_axi_run_help" \
   --arg status_help "$nm_axi_status_help" \
   --arg respond_help "$nm_axi_respond_help" '
     {
       runtime:$runtime,
       model:$model,
+      config_path:$config_path,
       version:$version,
+      doctor:$doctor,
       axi_run_help:$run_help,
       axi_status_help:$status_help,
       axi_respond_help:$respond_help
