@@ -2,7 +2,8 @@
 # @overview Contract and deterministic end-to-end tests for the P5 Coder
 #   adapters. Proves plan-selected invocation sequences, direct-agent and GNHF
 #   schema enforcement, git-fact normalization, artifact routing, isolated
-#   environments, mandatory GNHF safety flags, and the no-push boundary.
+#   environments, mandatory GNHF safety flags, and a protected PATH guard for
+#   the no-push boundary.
 #
 #   READING GUIDE
 #   -------------
@@ -129,12 +130,18 @@ cb_write_fake "$DIRECT_FAKE" '#!/usr/bin/env bash
 set -eu
 [ -z "${CB_SHOULD_NOT_LEAK+x}" ] || exit 81
 [ "${COMBO_CODER_ADAPTER_ID:-}" = direct-agent ] || exit 82
+[ -z "${COMBO_CODER_REAL_GIT+x}" ] || exit 87
 input=${COMBO_CODER_STEP_INPUT:?}
 repo=${COMBO_CODER_WORKTREE:?}
 run_dir=$(jq -r ".paths.run_dir" "$input")
 attempt=$(jq -r ".attempt" "$input")
 schema=$(jq -r ".config.schema" "$input")
 [ "$schema" = "combo.coder/direct-agent/v1" ] || exit 83
+guard_dir=${PATH%%:*}
+if rm -f "$guard_dir/git" 2>/dev/null \
+  && printf "#!/bin/sh\nexit 0\n" >"$guard_dir/git" 2>/dev/null; then
+  exit 88
+fi
 if [ "$attempt" -gt 1 ]; then
   finding=$(jq -r ".prior_artifacts[] | select(.id==\"needs-change\") | .path" "$input")
   [ -s "$run_dir/$finding" ] || exit 84
