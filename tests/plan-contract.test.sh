@@ -7,7 +7,7 @@
 #   READING GUIDE
 #   -------------
 #   1. test_compiles_immutable_plan  <- canonical config and exact plan shape.
-#   2. test_accepts_empty_reviewers  <- zero-member Reviewer contract.
+#   2. test_accepts_reviewer_options <- zero members and fail/skip policy.
 #   3. test_rejects_shared_adapter   <- Coder/Reviewer identity separation.
 #   4. test_rejects_invalid_configs  <- registry/binding validation matrix.
 #   5. test_rejects_path_attacks     <- containment and staging cleanup.
@@ -49,9 +49,11 @@ make_run() {
 
 write_config() {
   local path=$1 reviewers=${2:-'[{"id":"review-a","adapter":"review-a","config":{"policy":"strict"}},{"id":"review-b","adapter":"review-b","config":{}}]'}
-  jq -n --argjson reviewers "$reviewers" '
+  local degraded=${3:-fail}
+  jq -n --argjson reviewers "$reviewers" --arg degraded "$degraded" '
     {
       schema: "combo.config/v1",
+      reviewer: {degraded:$degraded},
       adapters: {
         launcher: {argv:["fake-adapter","--mechanical"],roles:["launcher"]},
         coder: {argv:["fake-adapter","literal with spaces"],roles:["coder"]},
@@ -138,8 +140,9 @@ test_compiles_immutable_plan() {
     (.steps[2].adapter_id == "review-a") and
     (.steps[2].argv == ["fake-adapter","literal with spaces"]) and
     (.steps[2].config == {policy:"strict"}) and
+    (.reviewer == {degraded:"fail"}) and
     (.reviewer_count == 2) and
-    (keys == ["paths","reviewer_count","run_id","schema","steps"])
+    (keys == ["paths","reviewer","reviewer_count","run_id","schema","steps"])
   ' "$plan" >/dev/null || fail "compiled plan shape should match the frozen contract"
 
   real_shasum=$(command -v shasum) || fail "shasum is required by the fallback regression"
@@ -164,22 +167,34 @@ exec \"$real_shasum\" \"\$@\"
 }
 # -/ 1/5
 
-# -- 2/5 CORE · test_accepts_empty_reviewers --
-test_accepts_empty_reviewers() {
-  local run=plan-empty run_dir config plan
+# -- 2/5 CORE · test_accepts_reviewer_options --
+test_accepts_reviewer_options() {
+  local run=plan-empty run_dir config plan default_run default_dir default_config
   run_dir=$(make_run "$run")
   config="$TMP_ROOT/config-empty.json"
   plan="$run_dir/plan.json"
-  write_config "$config" '[]'
+  write_config "$config" '[]' skip
 
   run_plan "$run" "$config"
   expect_code 0 "$CMD_STATUS" "empty reviewers${CMD_STDERR:+: $CMD_STDERR}"
   jq -e '
+    .reviewer == {degraded:"skip"} and
     .reviewer_count == 0 and
     ([.steps[].role] == ["launcher","coder","gate","cleaner"]) and
     ([.steps[] | select(.role=="reviewer")] | length == 0)
   ' "$plan" >/dev/null || fail "empty Reviewer array should compile directly from Coder to Gate"
-  pass "cb-plan: accepts zero Reviewer members without a synthetic phase"
+
+  default_run=plan-default-degraded
+  default_dir=$(make_run "$default_run")
+  default_config="$TMP_ROOT/config-default-degraded.json"
+  write_config "$default_config"
+  jq 'del(.reviewer)' "$default_config" >"$TMP_ROOT/config-default-degraded.tmp"
+  mv "$TMP_ROOT/config-default-degraded.tmp" "$default_config"
+  run_plan "$default_run" "$default_config"
+  expect_code 0 "$CMD_STATUS" "default Reviewer policy${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.reviewer == {degraded:"fail"}' "$default_dir/plan.json" >/dev/null \
+    || fail "omitted Reviewer degradation policy should default to fail"
+  pass "cb-plan: validates fail/skip policy and accepts zero Reviewer members"
 }
 # -/ 2/5
 
@@ -229,6 +244,8 @@ test_rejects_invalid_configs() {
 .adapters.coder.roles = ["coder","coder"]
 .roles.reviewers[1].id = "review-a"
 .roles.coder.config = []
+.reviewer.degraded = "ignore"
+.reviewer.extra = true
 .extra = true
 EOF
 
@@ -321,7 +338,7 @@ exec \"$real_jq\" \"\$@\"
 # -/ 5/5
 
 test_compiles_immutable_plan
-test_accepts_empty_reviewers
+test_accepts_reviewer_options
 test_rejects_shared_adapter
 test_rejects_invalid_configs
 test_rejects_path_attacks
