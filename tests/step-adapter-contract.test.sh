@@ -147,7 +147,7 @@ run_step() {
 }
 
 result_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
 file_digest() {
@@ -366,14 +366,26 @@ test_rejects_unsafe_invocations() {
   make_planned_run "$run"
   "$REAL_MKDIR" -p "$fakebin" "$barrier"
   cb_write_fake "$fakebin/mkdir" "#!/usr/bin/env bash
+wait_for_peer() {
+  peer=\$1
+  attempts=200
+  while [ ! -e \"\$peer\" ]; do
+    if [ \"\$attempts\" -eq 0 ]; then
+      echo \"barrier peer did not arrive: \$peer\" >&2
+      exit 75
+    fi
+    attempts=\$((attempts - 1))
+    sleep 0.01
+  done
+}
 target=\${!#}
 if [ \"\$target\" = \"$RUNS_DIR/$run/artifacts\" ]; then
   if \"$REAL_MKDIR\" \"$barrier/first\" 2>/dev/null; then
     touch \"$barrier/first-arrived\"
-    while [ ! -e \"$barrier/second-arrived\" ]; do sleep 0.01; done
+    wait_for_peer \"$barrier/second-arrived\"
   else
     touch \"$barrier/second-arrived\"
-    while [ ! -e \"$barrier/first-arrived\" ]; do sleep 0.01; done
+    wait_for_peer \"$barrier/first-arrived\"
   fi
 fi
 exec \"$REAL_MKDIR\" \"\$@\"

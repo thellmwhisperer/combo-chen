@@ -6,9 +6,10 @@
 #   READING GUIDE
 #   -------------
 #   1. test_runs_success_path          <- canonical plan traversal.
-#   2. test_restarts_review_round      <- sole Coder loop and artifact routing.
-#   3. test_normalizes_terminal_paths  <- technical error and cancellation.
-#   4. test_handles_plan_edges         <- zero reviewers and failed Gate cleanup.
+#   2. test_closes_adapter_stdin        <- adapters cannot consume plan traversal.
+#   3. test_restarts_review_round      <- sole Coder loop and artifact routing.
+#   4. test_normalizes_terminal_paths  <- technical error and cancellation.
+#   5. test_handles_plan_edges         <- zero reviewers and failed Gate cleanup.
 #
 #   MAIN FLOW
 #   ---------
@@ -61,6 +62,9 @@ step=$(jq -r ".step_id" "$input")
 attempt=$(jq -r ".attempt" "$input")
 candidate=$(jq -r ".candidate_sha // empty" "$input")
 mode=$(jq -r ".config.mode" "$input")
+if [ "$mode" = stdin-reader ]; then
+  IFS= read -r _ || true
+fi
 jq -c "{step_id:.step_id,attempt:.attempt,candidate_sha:.candidate_sha,prior_artifacts:.prior_artifacts}" \
   "$input" >>"$run_dir/calls.jsonl"
 
@@ -199,7 +203,7 @@ call_steps() {
   jq -Rrs '[split("\n")[] | fromjson? | .step_id] | join(",")' "$1"
 }
 
-# -- 1/4 CORE · test_runs_success_path -- <- START HERE
+# -- 1/5 CORE · test_runs_success_path -- <- START HERE
 test_runs_success_path() {
   local run=chain-success result calls before_result before_calls
   make_run "$run" success
@@ -228,9 +232,22 @@ test_runs_success_path() {
     || fail "an existing chain result must block before another adapter runs"
   pass "cb-chain: follows Launcher, Coder, every Reviewer, Gate, and Cleaner"
 }
-# -/ 1/4
+# -/ 1/5
 
-# -- 2/4 CORE · test_restarts_review_round --
+# -- 2/5 CORE · test_closes_adapter_stdin --
+test_closes_adapter_stdin() {
+  local run=chain-stdin-reader calls="$RUNS_DIR/chain-stdin-reader/calls.jsonl"
+  make_run "$run" stdin-reader
+  run_chain "$run"
+  expect_code 0 "$CMD_STATUS" "stdin-reading adapter chain${CMD_STDERR:+: $CMD_STDERR}"
+  [ "$(call_steps "$calls")" = \
+    "launcher,coder,reviewer/review-a,reviewer/review-b,gate,cleaner" ] \
+    || fail "adapters must not consume the Reviewer traversal stream"
+  pass "cb-chain: closes stdin for every adapter without skipping Reviewers"
+}
+# -/ 2/5
+
+# -- 3/5 CORE · test_restarts_review_round --
 test_restarts_review_round() {
   local run=chain-correction calls="$RUNS_DIR/chain-correction/calls.jsonl"
   make_run "$run" correction
@@ -253,9 +270,9 @@ test_restarts_review_round() {
   ' "$calls" >/dev/null || fail "Gate should receive only the unanimously approved SHA"
   pass "cb-chain: loops only Reviewer needs-change back through Coder and restarts the full array"
 }
-# -/ 2/4
+# -/ 3/5
 
-# -- 3/4 CORE · test_normalizes_terminal_paths --
+# -- 4/5 CORE · test_normalizes_terminal_paths --
 test_normalizes_terminal_paths() {
   local run result
   run=chain-technical
@@ -285,9 +302,9 @@ test_normalizes_terminal_paths() {
   ' "$result" >/dev/null || fail "cancellation should be preserved independently from cleanup"
   pass "cb-chain: preserves normalized technical and cancelled terminal classes"
 }
-# -/ 3/4
+# -/ 4/5
 
-# -- 4/4 CORE · test_handles_plan_edges --
+# -- 5/5 CORE · test_handles_plan_edges --
 test_handles_plan_edges() {
   local run result
   run=chain-empty-reviewers
@@ -312,9 +329,10 @@ test_handles_plan_edges() {
   ' "$result" >/dev/null || fail "failed Gate and successful cleanup should both remain observable"
   pass "cb-chain: handles zero Reviewers and always cleans after terminal Gate"
 }
-# -/ 4/4
+# -/ 5/5
 
 test_runs_success_path
+test_closes_adapter_stdin
 test_restarts_review_round
 test_normalizes_terminal_paths
 test_handles_plan_edges

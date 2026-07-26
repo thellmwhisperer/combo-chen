@@ -124,7 +124,7 @@ invoke_step() {
   args+=(--prior-artifacts "$prior_artifacts")
 
   set +e
-  output=$(bash "$step_runner" "${args[@]}")
+  output=$(bash "$step_runner" "${args[@]}" </dev/null)
   status=$?
   set -e
   last_step_status=$status
