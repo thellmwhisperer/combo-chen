@@ -184,7 +184,7 @@ test_accepts_reviewer_options() {
     ([.steps[] | select(.role=="reviewer")] | length == 0)
   ' "$plan" >/dev/null || fail "empty Reviewer array should compile directly from Coder to Gate"
 
-  default_run=plan-default-degraded
+  default_run='plan-default-degraded'
   default_dir=$(make_run "$default_run")
   default_config="$TMP_ROOT/config-default-degraded.json"
   write_config "$default_config"
