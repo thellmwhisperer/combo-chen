@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the immutable Combo v1 config-to-plan compiler.
 #   Covers strict provider-neutral bindings, fixed role ordering, empty Reviewer
-#   arrays, run-local publication, and fail-closed collision/path handling.
+#   arrays, run-local publication, producer-failure cleanup, and fail-closed
+#   collision/path handling.
 #
 #   READING GUIDE
 #   -------------
@@ -9,7 +10,7 @@
 #   2. test_accepts_empty_reviewers  <- zero-member Reviewer contract.
 #   3. test_rejects_shared_adapter   <- Coder/Reviewer identity separation.
 #   4. test_rejects_invalid_configs  <- registry/binding validation matrix.
-#   5. test_rejects_path_attacks     <- run/config/plan containment.
+#   5. test_rejects_path_attacks     <- containment and staging cleanup.
 #
 #   MAIN FLOW
 #   ---------
@@ -239,6 +240,7 @@ EOF
 # -- 5/5 CORE · test_rejects_path_attacks --
 test_rejects_path_attacks() {
   local outside="$TMP_ROOT/outside" config="$TMP_ROOT/config-paths.json"
+  local producer_bin real_jq errfile
   mkdir -p "$outside"
   write_config "$config"
 
@@ -270,6 +272,50 @@ test_rejects_path_attacks() {
   expect_code 73 "$CMD_STATUS" "config snapshot no-clobber collision under sh"
   assert_contains "$CMD_STDERR" "config snapshot path already exists" \
     "dash must reach the explicit snapshot-collision fallback"
+
+  run='snapshot-producer-failure'
+  run_dir=$(make_run "$run")
+  producer_bin="$TMP_ROOT/snapshot-producer-bin"
+  mkdir -p "$producer_bin"
+  cb_write_fake "$producer_bin/cat" '#!/bin/sh
+printf partial
+exit 69
+'
+  errfile="$TMP_ROOT/.snapshot-producer.err"
+  CMD_STDOUT=$(env PATH="$producer_bin:$PATH" \
+    sh "$BIN/cb-plan.sh" "$run" --config "$config" 2>"$errfile") \
+    && CMD_STATUS=0 || CMD_STATUS=$?
+  CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
+  expect_code 73 "$CMD_STATUS" "config snapshot producer failure"
+  assert_absent "$run_dir/.config.snapshot.tmp" \
+    "failed config producer must not strand its staging file"
+  run_plan "$run" "$config"
+  expect_code 0 "$CMD_STATUS" "retry after config producer failure"
+
+  run='plan-producer-failure'
+  run_dir=$(make_run "$run")
+  producer_bin="$TMP_ROOT/plan-producer-bin"
+  real_jq=$(command -v jq) || fail "jq is required"
+  mkdir -p "$producer_bin"
+  cb_write_fake "$producer_bin/jq" "#!/bin/sh
+case \" \$* \" in
+  *\" --arg run \"*) printf '{\"partial\":'; exit 69 ;;
+esac
+exec \"$real_jq\" \"\$@\"
+"
+  errfile="$TMP_ROOT/.plan-producer.err"
+  CMD_STDOUT=$(env PATH="$producer_bin:$PATH" \
+    sh "$BIN/cb-plan.sh" "$run" --config "$config" 2>"$errfile") \
+    && CMD_STATUS=0 || CMD_STATUS=$?
+  CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
+  expect_code 73 "$CMD_STATUS" "plan producer failure"
+  assert_absent "$run_dir/.config.snapshot.tmp" \
+    "failed plan producer must clean the config snapshot"
+  if compgen -G "$run_dir/.plan.json.tmp.*" >/dev/null; then
+    fail "failed plan producer must not strand its staging file"
+  fi
+  run_plan "$run" "$config"
+  expect_code 0 "$CMD_STATUS" "retry after plan producer failure"
   pass "cb-plan: contains run-local publication and rejects config/plan symlinks"
 }
 # -/ 5/5

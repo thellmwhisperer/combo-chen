@@ -89,11 +89,13 @@ cleanup() {
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
-if (set -C; cat "$config_real" >"$config_tmp") 2>/dev/null; then
+if (set -C; : >"$config_tmp") 2>/dev/null; then
   config_tmp_owned=1
 else
   fail_io "config snapshot path already exists or cannot be created"
 fi
+cat "$config_real" >"$config_tmp" \
+  || fail_io "cannot build config snapshot"
 # -/ 2/4
 
 # -- 3/4 CORE · validate_config --
@@ -180,7 +182,13 @@ validate_config || fail_config "schema or adapter binding"
 # -/ 3/4
 
 # -- 4/4 CORE · Build fixed-order plan and publish without replacement --
-if (set -C; jq -c \
+if (set -C; : >"$plan_tmp") 2>/dev/null; then
+  plan_tmp_owned=1
+else
+  fail_io "plan staging path already exists or cannot be created"
+fi
+
+if jq -c \
   --arg run "$run" \
   --arg run_dir "$run_root" \
   --arg artifacts_dir "$run_root/artifacts" \
@@ -237,10 +245,10 @@ if (set -C; jq -c \
       reviewer_count: ($cfg.roles.reviewers | length),
       steps: $steps
     }
-  ' "$config_tmp" >"$plan_tmp") 2>/dev/null; then
-  plan_tmp_owned=1
+  ' "$config_tmp" >"$plan_tmp" 2>/dev/null; then
+  :
 else
-  fail_io "plan staging path already exists or cannot be built"
+  fail_io "cannot build staged plan"
 fi
 
 chmod 0444 "$plan_tmp" || fail_io "cannot make plan read-only"
