@@ -1,7 +1,8 @@
 #!/bin/sh
 # @overview Compile one validated Combo config into an immutable per-run plan.
-#   The compiler knows only adapter ids, compatible roles, argv arrays, and
-#   opaque object config slices; it binds no provider, runtime, model, or tool.
+#   The compiler knows only adapter ids, compatible roles, argv arrays, opaque
+#   config slices, and ordered Coder invocations; it binds no provider,
+#   runtime, model, or tool.
 #
 #   READING GUIDE
 #   -------------
@@ -77,7 +78,7 @@ config_real=$(realpath "$config" 2>/dev/null) \
   || fail_io "cannot resolve config"
 [ -f "$config_real" ] || fail_io "config is not a regular file"
 
-config_tmp=$run_dir/.config.snapshot.$$
+config_tmp=$run_dir/.config.snapshot.tmp
 plan_tmp=$run_dir/.plan.json.tmp.$$
 config_tmp_owned=0
 plan_tmp_owned=0
@@ -119,6 +120,20 @@ validate_config() {
       keys == ["adapter","config"] and
       (.adapter | valid_id) and
       (.config | type == "object");
+    def valid_coder:
+      if type == "object" and keys == ["invocations"] then
+        (.invocations |
+          type == "array" and length > 0 and
+          all(.[]; valid_binding))
+      else
+        valid_binding
+      end;
+    def coder_bindings:
+      if type == "object" and keys == ["invocations"] then
+        .invocations
+      else
+        [.]
+      end;
     def valid_reviewer:
       type == "object" and
       keys == ["adapter","config","id"] and
@@ -141,7 +156,7 @@ validate_config() {
         type == "object" and
         keys == ["cleaner","coder","gate","launcher","reviewers"] and
         (.launcher | valid_binding) and
-        (.coder | valid_binding) and
+        (.coder | valid_coder) and
         (.reviewers |
           type == "array" and
           all(.[]; valid_reviewer) and
@@ -149,9 +164,12 @@ validate_config() {
         (.gate | valid_binding) and
         (.cleaner | valid_binding)) and
       compatible($cfg; $cfg.roles.launcher; "launcher") and
-      compatible($cfg; $cfg.roles.coder; "coder") and
+      (($cfg.roles.coder | coder_bindings) as $coders |
+        all($coders[]; compatible($cfg; .; "coder")) and
+        all($cfg.roles.reviewers[];
+          .adapter as $reviewer_adapter |
+          all($coders[]; .adapter != $reviewer_adapter))) and
       all($cfg.roles.reviewers[]; compatible($cfg; .; "reviewer")) and
-      all($cfg.roles.reviewers[]; .adapter != $cfg.roles.coder.adapter) and
       compatible($cfg; $cfg.roles.gate; "gate") and
       compatible($cfg; $cfg.roles.cleaner; "cleaner")
     ) catch false
@@ -176,10 +194,26 @@ if (set -C; jq -c \
         argv: $cfg.adapters[$binding.adapter].argv,
         config: $binding.config
       };
+    def invocation($binding):
+      {
+        adapter_id: $binding.adapter,
+        argv: $cfg.adapters[$binding.adapter].argv,
+        config: $binding.config
+      };
+    def coder_step($binding):
+      if $binding | keys == ["invocations"] then
+        {
+          id: "coder",
+          role: "coder",
+          invocations: [$binding.invocations[] | invocation(.)]
+        }
+      else
+        step("coder"; "coder"; $binding)
+      end;
     (
       [
         step("launcher"; "launcher"; $cfg.roles.launcher),
-        step("coder"; "coder"; $cfg.roles.coder)
+        coder_step($cfg.roles.coder)
       ] +
       [
         $cfg.roles.reviewers[] |
