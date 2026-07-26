@@ -8,6 +8,12 @@
 
 * **tmux:** Add P2 multi-run-safe tmux spawn scripts (`bin/cb-tmux.sh`, `bin/cb-agent-spawn.sh`, `bin/cb-send.sh`, `bin/cb-peek.sh`, `bin/cb-status.sh`) with atomic agent metadata under `runs/<runId>/agents/`, pinned `combo-<runId>` sessions, five `cb-<runId>-` agent windows, and real-tmux contract tests. Fixes [#312](https://github.com/thellmwhisperer/combo-chen/issues/312).
 
+* **plan:** Add P4 config-to-run-plan compiler (`bin/cb-plan.sh`) with strict `combo.config/v1` validation, adapter registry, immutable `combo.run-plan/v1` publication, and role-binding contract tests. Fixes [#314](https://github.com/thellmwhisperer/combo-chen/issues/314).
+
+* **step:** Add P4 provider-neutral step-adapter envelope (`bin/cb-step.sh`) with closed process stdin, `combo.step-input/v1` / `combo.step-output/v1` boundary, exit-class normalization, and role-specific 0/1 outcome schemas. Fixes [#314](https://github.com/thellmwhisperer/combo-chen/issues/314).
+
+* **chain:** Add P4 plan-driven chain state machine (`bin/cb-chain.sh`) executing Launcher → Coder ↔ Reviewer* → Gate → Cleaner with deterministic offline fake scenarios, normalized-event routing, and Coder-Reviewer correction loop only on `needs_change`. Fixes [#314](https://github.com/thellmwhisperer/combo-chen/issues/314).
+
 * **gate:** Normalize gate status when no-mistakes exits after checks-passed plus context-canceled, treating it as recovered success instead of failure. Fixes [#195](https://github.com/thellmwhisperer/combo-chen/issues/195).
 * **status:** Surface PR head vs local worktree head drift in `status --deep` and forensics reports with an explicit sync or fetch action.
 * **coder:** Explicit coder terminal outcome contract prevents clean gnhf stop-condition completions from being mistaken for dead coder panes. Fixes [#234](https://github.com/thellmwhisperer/combo-chen/issues/234).
