@@ -3,19 +3,21 @@
 #   universal P4 envelope reaches a Gate that seals the Launcher-owned exact
 #   branch/head, proves the configured Pi/DeepSeek identity against the effective
 #   No-Mistakes config plus the observed version/AXI help contract, builds
-#   documented axi argv, normalizes terminal outcomes, and replays durable
-#   invocation/terminal seals without starting a duplicate delivery.
+#   documented axi argv, resolves one GitHub PR at that exact branch/head,
+#   normalizes terminal outcomes, and replays durable invocation/terminal seals
+#   without starting a duplicate delivery or PR lookup.
 #
 #   READING GUIDE
 #   -------------
 #   1. test_validates_exact_sha     <- canonical validated-mode invocation.
-#   2. test_seals_configured_identity <- immutable runtime/model + AXI surface.
-#   3. test_rejects_candidate_drift <- no Gate call after the reviewed SHA moves.
-#   4. test_maps_terminal_outcomes  <- passed, failed, and cancelled normalization.
-#   5. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
-#   6. test_replays_terminal_seal   <- idempotent terminal recovery.
-#   7. test_adopts_interrupted_run   <- retry one sealed in-progress invocation.
-#   8. test_serializes_global_gate   <- cross-run exclusion and stale recovery.
+#   2. test_recovers_exact_pr       <- returned URL plus unique branch fallback.
+#   3. test_seals_configured_identity <- immutable runtime/model + AXI surface.
+#   4. test_rejects_candidate_drift <- no Gate call after the reviewed SHA moves.
+#   5. test_maps_terminal_outcomes  <- passed, failed, and cancelled normalization.
+#   6. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
+#   7. test_replays_terminal_seal   <- idempotent terminal recovery.
+#   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
+#   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -31,8 +33,8 @@
 #   invocation_args, wait_for_path
 #
 # @exports none
-# @deps bash, cksum, date, git, jq, ps, stat, touch, tests/lib.sh, bin/cb-plan.sh,
-#   bin/cb-step.sh, bin/cb-gate.sh
+# @deps bash, cksum, date, git, gh-compatible fake, jq, ps, stat, touch,
+#   tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh, bin/cb-gate.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -44,6 +46,8 @@ cb_tmproot TMP_ROOT cb-gate-no-mistakes
 RUNS_DIR="$TMP_ROOT/runs"
 FAKE_ROLE="$TMP_ROOT/fake-role-adapter"
 FAKE_NM="$TMP_ROOT/fake-no-mistakes"
+FAKE_BIN_DIR="$TMP_ROOT/fake-bin"
+FAKE_GH="$FAKE_BIN_DIR/gh"
 FAKE_NM_HOME="$TMP_ROOT/no-mistakes-home"
 FAKE_NM_CONFIG="$FAKE_NM_HOME/.no-mistakes/config.yaml"
 NM_ARGV="$TMP_ROOT/no-mistakes.argv"
@@ -56,8 +60,10 @@ NM_ATTACHES="$TMP_ROOT/no-mistakes.attaches"
 NM_SERIAL_ACTIVE="$TMP_ROOT/no-mistakes.serial-active"
 NM_SERIAL_ENTERED="$TMP_ROOT/no-mistakes.serial-entered"
 NM_SERIAL_OVERLAP="$TMP_ROOT/no-mistakes.serial-overlap"
+GH_CALLS="$TMP_ROOT/gh.calls"
 GATE_LEASES_DIR="$TMP_ROOT/gate-leases"
 mkdir -p "$RUNS_DIR"
+mkdir -p "$FAKE_BIN_DIR"
 mkdir -p "$FAKE_NM_HOME/.no-mistakes"
 export CB_RUNS_DIR="$RUNS_DIR"
 export CB_GATE_LEASES_DIR="$GATE_LEASES_DIR"
@@ -71,6 +77,9 @@ export CB_GATE_TEST_ATTACHES="$NM_ATTACHES"
 export CB_GATE_TEST_SERIAL_ACTIVE="$NM_SERIAL_ACTIVE"
 export CB_GATE_TEST_SERIAL_ENTERED="$NM_SERIAL_ENTERED"
 export CB_GATE_TEST_SERIAL_OVERLAP="$NM_SERIAL_OVERLAP"
+export CB_GATE_TEST_GH_CALLS="$GH_CALLS"
+export CB_GATE_TEST_GH_MODE=exact
+export PATH="$FAKE_BIN_DIR:$PATH"
 
 CMD_STATUS=
 CMD_STDOUT=
@@ -150,6 +159,11 @@ for argument in "$@"; do
   esac
 done
 [ -n "$outcome" ] || outcome=passed
+pr=https://example.test/pull/7
+if [ "$outcome" = passed-no-pr ]; then
+  outcome=passed
+  pr=
+fi
 if [ "$outcome" = interrupt-once ]; then
   if [ ! -f "$CB_GATE_TEST_ACTIVE" ]; then
     printf "fake-gate-run\n" >"$CB_GATE_TEST_ACTIVE"
@@ -175,11 +189,68 @@ run:
   branch: $CB_GATE_TEST_BRANCH
   status: $status
   head: ${CB_GATE_TEST_HEAD:0:8}
-  pr: "https://example.test/pull/7"
+  pr: "$pr"
   findings: none
 outcome: $outcome
 EOF
 [ "$outcome" = passed ] || [ "$outcome" = checks-passed ]
+'
+
+cb_write_fake "$FAKE_GH" '#!/usr/bin/env bash
+set -eu
+{
+  separator=
+  for argument in "$@"; do
+    printf "%s%s" "$separator" "$argument"
+    separator="	"
+  done
+  printf "\n"
+} >>"$CB_GATE_TEST_GH_CALLS"
+
+[ "$#" -ge 3 ] && [ "$1" = pr ] || exit 64
+mode=${CB_GATE_TEST_GH_MODE:-exact}
+url=https://example.test/pull/7
+branch=$CB_GATE_TEST_BRANCH
+head=$CB_GATE_TEST_HEAD
+case "$mode" in
+  wrong-branch) branch=combo/wrong-branch ;;
+  wrong-head) head=0000000000000000000000000000000000000000 ;;
+esac
+
+case "$2" in
+  view)
+    [ "$#" -eq 5 ] && [ "$3" = "$url" ] &&
+      [ "$4" = --json ] &&
+      [ "$5" = url,headRefName,headRefOid ] || exit 64
+    jq -cn --arg url "$url" --arg branch "$branch" --arg head "$head" \
+      "{url:\$url,headRefName:\$branch,headRefOid:\$head}"
+    ;;
+  list)
+    [ "$#" -eq 10 ] && [ "$3" = --head ] &&
+      [ "$4" = "$CB_GATE_TEST_BRANCH" ] &&
+      [ "$5" = --state ] && [ "$6" = open ] &&
+      [ "$7" = --limit ] && [ "$8" = 2 ] &&
+      [ "$9" = --json ] &&
+      [ "${10}" = url,headRefName,headRefOid ] || exit 64
+    case "$mode" in
+      zero)
+        printf "[]\n"
+        ;;
+      multiple)
+        jq -cn --arg branch "$branch" --arg head "$head" \
+          "[
+            {url:\"https://example.test/pull/7\",headRefName:\$branch,headRefOid:\$head},
+            {url:\"https://example.test/pull/8\",headRefName:\$branch,headRefOid:\$head}
+          ]"
+        ;;
+      *)
+        jq -cn --arg url "$url" --arg branch "$branch" --arg head "$head" \
+          "[{url:\$url,headRefName:\$branch,headRefOid:\$head}]"
+        ;;
+    esac
+    ;;
+  *) exit 64 ;;
+esac
 '
 
 write_no_mistakes_identity() {
@@ -292,7 +363,7 @@ wait_for_path() {
   done
 }
 
-# -- 1/8 CORE · test_validates_exact_sha -- <- START HERE
+# -- 1/9 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -344,9 +415,132 @@ test_validates_exact_sha() {
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/8
+# -/ 1/9
 
-# -- 2/8 CORE · test_seals_configured_identity --
+# -- 2/9 CORE · test_recovers_exact_pr --
+test_recovers_exact_pr() {
+  local run result terminal calls
+
+  rm -f "$GH_CALLS" "$NM_CALLS"
+  export CB_GATE_TEST_GH_MODE=exact
+  run=gate-pr-from-receipt
+  make_run "$run" passed
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "returned PR verification${CMD_STDERR:+: $CMD_STDERR}"
+  result=$CMD_STDOUT
+  jq -e --arg sha "$RUN_HEAD" '
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"validated",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }]
+  ' "$result" >/dev/null \
+    || fail "Gate should accept a returned PR only at the exact branch and head"
+  calls=$(cat "$GH_CALLS")
+  [ "$calls" = \
+    $'pr\tview\thttps://example.test/pull/7\t--json\turl,headRefName,headRefOid' ] \
+    || fail "Gate should verify the No-Mistakes PR URL directly: $calls"
+
+  terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
+  jq -e '
+    .no_mistakes.pr=="https://example.test/pull/7" and
+    .result.events[0].payload.pr=="https://example.test/pull/7"
+  ' "$terminal" >/dev/null \
+    || fail "terminal recovery should seal the exact verified PR URL"
+  run_gate "$run" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "verified PR terminal replay${CMD_STDERR:+: $CMD_STDERR}"
+  [ "$(wc -l <"$GH_CALLS" | tr -d ' ')" = 1 ] \
+    || fail "terminal replay must not query or select another PR"
+  [ "$(wc -l <"$NM_CALLS" | tr -d ' ')" = 1 ] \
+    || fail "terminal replay must not start another delivery after PR recovery"
+
+  rm -f "$GH_CALLS"
+  run=gate-pr-branch-recovery
+  make_run "$run" passed-no-pr
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "missing URL branch recovery${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e --arg sha "$RUN_HEAD" '
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"validated",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "Gate should recover one exact open PR when the receipt omits its URL"
+  calls=$(cat "$GH_CALLS")
+  [ "$calls" = \
+    $'pr\tlist\t--head\tcombo/gate-pr-branch-recovery\t--state\topen\t--limit\t2\t--json\turl,headRefName,headRefOid' ] \
+    || fail "Gate should use one bounded branch lookup for URL recovery: $calls"
+
+  export CB_GATE_TEST_GH_MODE=zero
+  run=gate-pr-recovery-zero
+  make_run "$run" passed-no-pr
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "zero PR recovery rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="completed" and
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_pr_not_found"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "zero branch matches must fail Gate without guessing a PR"
+
+  export CB_GATE_TEST_GH_MODE=multiple
+  run=gate-pr-recovery-multiple
+  make_run "$run" passed-no-pr
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "ambiguous PR recovery rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="completed" and
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_pr_ambiguous"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "multiple branch matches must fail Gate without choosing a PR"
+
+  export CB_GATE_TEST_GH_MODE=wrong-branch
+  run=gate-pr-wrong-branch
+  make_run "$run" passed
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "wrong PR branch rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].payload.reason=="github_pr_identity_mismatch"' \
+    "$CMD_STDOUT" >/dev/null \
+    || fail "a returned PR for another branch must fail Gate"
+
+  export CB_GATE_TEST_GH_MODE=wrong-head
+  run=gate-pr-wrong-head
+  make_run "$run" passed
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "wrong PR head rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].payload.reason=="github_pr_identity_mismatch"' \
+    "$CMD_STDOUT" >/dev/null \
+    || fail "a returned PR for another head must fail Gate"
+
+  export CB_GATE_TEST_GH_MODE=exact
+  pass "Gate recovers and seals one exact PR without duplicate delivery or lookup"
+}
+# -/ 2/9
+
+# -- 3/9 CORE · test_seals_configured_identity --
 test_seals_configured_identity() {
   local mismatch=gate-configured-identity-mismatch
   local run=gate-configured-identity result invocation poison
@@ -415,9 +609,9 @@ test_seals_configured_identity() {
     || fail "identity mismatch must not start or attach another No-Mistakes run"
   pass "Gate seals configured runtime/model identity and the supported AXI surface"
 }
-# -/ 2/8
+# -/ 3/9
 
-# -- 3/8 CORE · test_rejects_candidate_drift --
+# -- 4/9 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -439,9 +633,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 3/8
+# -/ 4/9
 
-# -- 4/8 CORE · test_maps_terminal_outcomes --
+# -- 5/9 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -478,9 +672,9 @@ test_maps_terminal_outcomes() {
   ' "$result" >/dev/null || fail "cancelled should remain a universal cancelled exit"
   pass "Gate maps documented passed, failed, and cancelled outcomes"
 }
-# -/ 4/8
+# -/ 5/9
 
-# -- 5/8 CORE · test_guards_argument_edges --
+# -- 6/9 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -514,9 +708,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 5/8
+# -/ 6/9
 
-# -- 6/8 CORE · test_replays_terminal_seal --
+# -- 7/9 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -582,9 +776,9 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 6/8
+# -/ 7/9
 
-# -- 7/8 CORE · test_adopts_interrupted_run --
+# -- 8/9 CORE · test_adopts_interrupted_run --
 test_adopts_interrupted_run() {
   local run=gate-interrupted-recovery first_result second_result invocation
   local invocation_before invocation_after invocation_mode terminal
@@ -665,9 +859,9 @@ test_adopts_interrupted_run() {
     || fail "recovered terminal seal should bind the adopted run and its receipt"
   pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
 }
-# -/ 7/8
+# -/ 8/9
 
-# -- 8/8 CORE · test_serializes_global_gate --
+# -- 9/9 CORE · test_serializes_global_gate --
 test_serializes_global_gate() {
   local first=gate-serial-first second=gate-serial-second stale=gate-serial-stale
   local first_repo first_head first_branch second_repo second_head second_branch
@@ -771,9 +965,10 @@ test_serializes_global_gate() {
     || fail "serialization fixture must use independently isolated worktrees"
   pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
 }
-# -/ 8/8
+# -/ 9/9
 
 test_validates_exact_sha
+test_recovers_exact_pr
 test_seals_configured_identity
 test_rejects_candidate_drift
 test_maps_terminal_outcomes

@@ -6,8 +6,9 @@
 #   version/help plus effective binary/argv before launch, serializes the
 #   invocation through a host-global lease with run-local evidence, adopts the
 #   same invocation after interruption, and seals/replays the typed terminal
-#   outcome without duplicating delivery. Merge authority is a later P7 slice,
-#   so this version accepts manual merge mode only.
+#   outcome plus one GitHub-verified exact PR without duplicating delivery or
+#   PR selection. Merge authority is a later P7 slice, so this version accepts
+#   manual merge mode only.
 #
 #   READING GUIDE
 #   -------------
@@ -15,7 +16,7 @@
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
 #   3. Invocation/terminal replay <- freeze identity and one documented axi run.
 #   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
-#   5. Terminal normalization     <- exact identity plus passed/failed/cancelled.
+#   5. Terminal normalization     <- exact PR plus passed/failed/cancelled.
 #
 #   MAIN FLOW
 #   ---------
@@ -31,10 +32,10 @@
 #   verify_candidate, toon_scalar, publish_terminal_result,
 #   capture_no_mistakes_config_identity, capture_no_mistakes_probe,
 #   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
-#   reclaim_stale_lease
+#   reclaim_stale_lease, validate_github_pr_object, resolve_exact_github_pr
 #
 # @exports none
-# @deps bash, date, git, jq, od, realpath, sleep, stat, touch, tr,
+# @deps bash, date, gh, git, jq, od, realpath, sleep, stat, touch, tr,
 #   no-mistakes-compatible configured binary
 set -euo pipefail
 
@@ -534,6 +535,7 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       if .normalized_outcome=="validated" then
         (.no_mistakes.outcome=="passed" or
           .no_mistakes.outcome=="checks-passed") and
+        ($terminal.no_mistakes.pr|clean) and
         .result=={
           exit_class:"completed",
           events:[{
@@ -1244,6 +1246,103 @@ nm_branch=$(toon_scalar "  branch:" "$receipt" 2>/dev/null || true)
 nm_head=$(toon_scalar "  head:" "$receipt" 2>/dev/null || true)
 nm_pr=$(toon_scalar "  pr:" "$receipt" 2>/dev/null || true)
 
+validate_github_pr_object() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e '
+    def sha:
+      type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    type=="object" and
+    keys==["headRefName","headRefOid","url"] and
+    (.url|clean and startswith("https://")) and
+    (.headRefName|clean) and (.headRefOid|sha)
+  ' >/dev/null 2>&1
+}
+
+resolve_exact_github_pr() {
+  local returned_url=$1 github_binary github_evidence github_status match_count
+  github_binary=$(command -v gh 2>/dev/null) \
+    || fail_contract "gh is required to verify the Gate PR" 73
+
+  if [ -n "$returned_url" ] && ! jq -en --arg url "$returned_url" '
+    $url |
+    type=="string" and length>0 and startswith("https://") and
+    (explode | all(.[]; .>=32 and .!=127))
+  ' >/dev/null 2>&1; then
+    publish_gate_failed github_pr_url_invalid "$artifacts"
+    exit 0
+  fi
+
+  set +e
+  if [ -n "$returned_url" ]; then
+    github_evidence=$(
+      cd "$worktree" || exit 73
+      "$github_binary" pr view "$returned_url" \
+        --json url,headRefName,headRefOid </dev/null
+    )
+    github_status=$?
+  else
+    github_evidence=$(
+      cd "$worktree" || exit 73
+      "$github_binary" pr list --head "$branch" --state open --limit 2 \
+        --json url,headRefName,headRefOid </dev/null
+    )
+    github_status=$?
+  fi
+  set -e
+  [ "$github_status" -eq 0 ] \
+    || fail_contract "GitHub PR lookup failed" 73
+
+  if [ -n "$returned_url" ]; then
+    validate_github_pr_object "$github_evidence" \
+      || fail_contract "invalid GitHub PR evidence" 73
+    github_pr_json=$(printf '%s\n' "$github_evidence" | jq -c '.') \
+      || fail_contract "cannot normalize GitHub PR evidence" 73
+    if ! printf '%s\n' "$github_pr_json" | jq -e \
+      --arg url "$returned_url" --arg branch "$branch" \
+      --arg sha "$candidate_sha" '
+        .url==$url and .headRefName==$branch and .headRefOid==$sha
+      ' >/dev/null 2>&1; then
+      publish_gate_failed github_pr_identity_mismatch "$artifacts"
+      exit 0
+    fi
+  else
+    if ! printf '%s\n' "$github_evidence" |
+      jq -e 'type=="array"' >/dev/null 2>&1; then
+      fail_contract "invalid GitHub PR recovery evidence" 73
+    fi
+    match_count=$(printf '%s\n' "$github_evidence" | jq -r 'length') \
+      || fail_contract "cannot count GitHub PR recovery evidence" 73
+    case "$match_count" in
+      0)
+        publish_gate_failed github_pr_not_found "$artifacts"
+        exit 0
+        ;;
+      1) ;;
+      *)
+        publish_gate_failed github_pr_ambiguous "$artifacts"
+        exit 0
+        ;;
+    esac
+    github_pr_json=$(printf '%s\n' "$github_evidence" | jq -c '.[0]') \
+      || fail_contract "cannot normalize recovered GitHub PR" 73
+    validate_github_pr_object "$github_pr_json" \
+      || fail_contract "invalid recovered GitHub PR evidence" 73
+    if ! printf '%s\n' "$github_pr_json" | jq -e \
+      --arg branch "$branch" --arg sha "$candidate_sha" '
+        .headRefName==$branch and .headRefOid==$sha
+      ' >/dev/null 2>&1; then
+      publish_gate_failed github_pr_identity_mismatch "$artifacts"
+      exit 0
+    fi
+  fi
+
+  github_pr=$(printf '%s\n' "$github_pr_json" | jq -r '.url') \
+    || fail_contract "cannot read exact GitHub PR URL" 73
+}
+
 if ! verify_candidate; then
   publish_gate_failed candidate_head_changed "$artifacts"
   exit 0
@@ -1272,9 +1371,15 @@ case "$nm_outcome" in
   passed|checks-passed)
     [ "$nm_status" -eq 0 ] \
       || { publish_gate_failed no_mistakes_exit_mismatch "$artifacts"; exit 0; }
+    github_pr=
+    resolve_exact_github_pr "$nm_pr"
+    nm_pr=$github_pr
+    if ! verify_candidate; then
+      publish_gate_failed candidate_head_changed "$artifacts"
+      exit 0
+    fi
     payload=$(jq -cn --arg sha "$candidate_sha" --arg pr "$nm_pr" '
-      {outcome:"validated",sha:$sha} +
-      if $pr=="" then {} else {pr:$pr} end
+      {outcome:"validated",sha:$sha,pr:$pr}
     ')
     normalized_outcome=validated
     normalized_result=$(jq -cn --argjson payload "$payload" '
