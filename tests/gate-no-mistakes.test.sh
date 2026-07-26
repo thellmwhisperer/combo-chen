@@ -2,7 +2,8 @@
 # @overview Contract tests for the P7 No-Mistakes Gate adapter. Proves the
 #   universal P4 envelope reaches a Gate that seals the Launcher-owned exact
 #   branch/head, builds documented axi argv, normalizes terminal outcomes, and
-#   replays a durable terminal seal without starting a duplicate delivery.
+#   replays durable invocation/terminal seals without starting a duplicate
+#   delivery.
 #
 #   READING GUIDE
 #   -------------
@@ -11,6 +12,7 @@
 #   3. test_maps_terminal_outcomes  <- passed, failed, and cancelled normalization.
 #   4. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
 #   5. test_replays_terminal_seal   <- idempotent terminal recovery.
+#   6. test_adopts_interrupted_run   <- retry one sealed in-progress invocation.
 #
 #   MAIN FLOW
 #   ---------
@@ -25,7 +27,8 @@
 #   write_config, make_run, run_gate, invocation_args
 #
 # @exports none
-# @deps bash, git, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh, bin/cb-gate.sh
+# @deps bash, cksum, git, jq, ps, stat, tests/lib.sh, bin/cb-plan.sh,
+#   bin/cb-step.sh, bin/cb-gate.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -41,12 +44,18 @@ NM_ARGV="$TMP_ROOT/no-mistakes.argv"
 NM_CWD="$TMP_ROOT/no-mistakes.cwd"
 NM_CALLED="$TMP_ROOT/no-mistakes.called"
 NM_CALLS="$TMP_ROOT/no-mistakes.calls"
+NM_ACTIVE="$TMP_ROOT/no-mistakes.active"
+NM_STARTS="$TMP_ROOT/no-mistakes.starts"
+NM_ATTACHES="$TMP_ROOT/no-mistakes.attaches"
 mkdir -p "$RUNS_DIR"
 export CB_RUNS_DIR="$RUNS_DIR"
 export CB_GATE_TEST_ARGV="$NM_ARGV"
 export CB_GATE_TEST_CWD="$NM_CWD"
 export CB_GATE_TEST_CALLED="$NM_CALLED"
 export CB_GATE_TEST_CALLS="$NM_CALLS"
+export CB_GATE_TEST_ACTIVE="$NM_ACTIVE"
+export CB_GATE_TEST_STARTS="$NM_STARTS"
+export CB_GATE_TEST_ATTACHES="$NM_ATTACHES"
 
 CMD_STATUS=
 CMD_STDOUT=
@@ -76,6 +85,17 @@ for argument in "$@"; do
   esac
 done
 [ -n "$outcome" ] || outcome=passed
+if [ "$outcome" = interrupt-once ]; then
+  if [ ! -f "$CB_GATE_TEST_ACTIVE" ]; then
+    printf "fake-gate-run\n" >"$CB_GATE_TEST_ACTIVE"
+    printf "started\n" >>"$CB_GATE_TEST_STARTS"
+    gate_pid=$(ps -o ppid= -p "$PPID" | tr -d " ")
+    kill -TERM "$gate_pid"
+    exit 75
+  fi
+  printf "attached\n" >>"$CB_GATE_TEST_ATTACHES"
+  outcome=passed
+fi
 status=completed
 [ "$outcome" != failed ] || status=failed
 [ "$outcome" != cancelled ] || status=cancelled
@@ -180,7 +200,7 @@ invocation_args() {
   jq -Rsc 'split("\n") | map(select(length>0))' "$NM_ARGV"
 }
 
-# -- 1/5 CORE · test_validates_exact_sha -- <- START HERE
+# -- 1/6 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -200,6 +220,10 @@ test_validates_exact_sha() {
       }
     }] and
     .artifacts==[
+      {
+        id:"gate-invocation",
+        path:"artifacts/gate/invocation.json"
+      },
       {
         id:"no-mistakes-outcome",
         path:"artifacts/gate/no-mistakes-attempt-1.toon"
@@ -224,9 +248,9 @@ test_validates_exact_sha() {
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/5
+# -/ 1/6
 
-# -- 2/5 CORE · test_rejects_candidate_drift --
+# -- 2/6 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -248,9 +272,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 2/5
+# -/ 2/6
 
-# -- 3/5 CORE · test_maps_terminal_outcomes --
+# -- 3/6 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -287,9 +311,9 @@ test_maps_terminal_outcomes() {
   ' "$result" >/dev/null || fail "cancelled should remain a universal cancelled exit"
   pass "Gate maps documented passed, failed, and cancelled outcomes"
 }
-# -/ 3/5
+# -/ 3/6
 
-# -- 4/5 CORE · test_guards_argument_edges --
+# -- 4/6 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -323,9 +347,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 4/5
+# -/ 4/6
 
-# -- 5/5 CORE · test_replays_terminal_seal --
+# -- 5/6 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -390,10 +414,92 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 5/5
+# -/ 5/6
+
+# -- 6/6 CORE · test_adopts_interrupted_run --
+test_adopts_interrupted_run() {
+  local run=gate-interrupted-recovery first_result second_result invocation
+  local invocation_before invocation_after invocation_mode terminal
+  rm -f "$NM_ACTIVE" "$NM_STARTS" "$NM_ATTACHES" "$NM_CALLS"
+  make_run "$run" interrupt-once
+
+  run_gate "$run" "$RUN_HEAD" 1
+  expect_code 0 "$CMD_STATUS" "interrupted Gate normalization${CMD_STDERR:+: $CMD_STDERR}"
+  first_result=$CMD_STDOUT
+  if ! jq -e '
+    (.exit_class=="cancelled" and .events==[] and .errors==[] and
+      (.reasons==["adapter_exit:130"] or .reasons==["adapter_exit:143"])) or
+    (.exit_class=="technical_error" and .events==[] and .reasons==[] and
+      (.errors[0] | test("^adapter_exit:[1-9][0-9]*$")))
+  ' "$first_result" >/dev/null; then
+    fail "an interrupted Gate should remain retryable through the universal envelope: $(cat "$first_result")"
+  fi
+
+  invocation="$RUNS_DIR/$run/artifacts/gate/invocation.json"
+  assert_present "$invocation" \
+    "Gate must seal the exact invocation before starting No-Mistakes"
+  invocation_mode=$(stat -c '%a' "$invocation" 2>/dev/null ||
+    stat -f '%Lp' "$invocation")
+  [ "$invocation_mode" = 444 ] \
+    || fail "Gate invocation seal should be read-only"
+  jq -e \
+    --arg sha "$RUN_HEAD" --arg branch "$RUN_BRANCH" \
+    --arg worktree "$RUN_REPO" --arg binary "$FAKE_NM" '
+      .schema=="combo.gate-invocation/v1" and
+      .run_id=="gate-interrupted-recovery" and
+      .branch==$branch and .worktree==$worktree and .candidate_sha==$sha and
+      .initial_attempt==1 and .binary==$binary and
+      .argv==[
+        "axi","run","--intent","validate exact candidate",
+        "--fake-outcome=interrupt-once","--yes"
+      ]
+    ' "$invocation" >/dev/null \
+    || fail "in-progress seal should retain the exact run, head, binary, and argv"
+  invocation_before=$(cksum <"$invocation")
+  assert_absent "$RUNS_DIR/$run/artifacts/gate/no-mistakes-attempt-1.toon" \
+    "interruption before a terminal return must not invent a receipt"
+  assert_absent "$RUNS_DIR/$run/artifacts/gate/terminal.json" \
+    "interruption before a terminal return must not invent a terminal seal"
+
+  run_gate "$run" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" "interrupted Gate recovery${CMD_STDERR:+: $CMD_STDERR}"
+  second_result=$CMD_STDOUT
+  jq -e --arg sha "$RUN_HEAD" '
+    .attempt==2 and .exit_class=="completed" and
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"validated",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }]
+  ' "$second_result" >/dev/null \
+    || fail "retry should adopt and finish the exact sealed invocation"
+
+  invocation_after=$(cksum <"$invocation")
+  [ "$invocation_after" = "$invocation_before" ] \
+    || fail "retry must not replace or mutate the in-progress invocation seal"
+  [ "$(wc -l <"$NM_STARTS" | tr -d ' ')" = 1 ] \
+    || fail "interrupted recovery must start only one No-Mistakes run"
+  [ "$(wc -l <"$NM_ATTACHES" | tr -d ' ')" = 1 ] \
+    || fail "interrupted recovery must attach to the existing No-Mistakes run"
+
+  terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
+  jq -e '
+    .no_mistakes.run_id=="fake-gate-run" and
+    .no_mistakes.receipt=="artifacts/gate/no-mistakes-attempt-2.toon" and
+    .normalized_outcome=="validated"
+  ' "$terminal" >/dev/null \
+    || fail "recovered terminal seal should bind the adopted run and its receipt"
+  pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
+}
+# -/ 6/6
 
 test_validates_exact_sha
 test_rejects_candidate_drift
 test_maps_terminal_outcomes
 test_guards_argument_edges
 test_replays_terminal_seal
+test_adopts_interrupted_run

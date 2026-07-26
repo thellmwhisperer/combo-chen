@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # @overview P7 No-Mistakes Gate adapter for the universal P4 envelope. It
 #   verifies the Launcher-owned exact candidate before and after one documented
-#   axi invocation, seals the typed terminal outcome with run/PR/head identity,
-#   and replays that durable seal without duplicating delivery. In-progress
-#   recovery and merge authority are later P7 slices, so this version accepts
-#   manual merge mode only.
+#   axi invocation, seals its effective binary/argv before launch, adopts that
+#   same invocation after interruption, and seals/replays the typed terminal
+#   outcome without duplicating delivery. Merge authority is a later P7 slice,
+#   so this version accepts manual merge mode only.
 #
 #   READING GUIDE
 #   -------------
 #   1. Universal input validation <- contain paths and freeze adapter config.
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
-#   3. Terminal replay/invocation <- reuse a seal or build documented axi argv.
+#   3. Invocation/terminal replay <- seal or adopt one documented axi run.
 #   4. Terminal normalization     <- exact identity plus passed/failed/cancelled.
 #
 #   MAIN FLOW
 #   ---------
-#   step input -> exact custody -> terminal replay | axi run -> sealed result
+#   step input -> exact custody -> terminal replay | sealed axi run -> result
 #
 #   PUBLIC API
 #   ----------
@@ -24,7 +24,8 @@
 #   INTERNALS
 #   ---------
 #   usage, fail_contract, publish_result, publish_gate_failed,
-#   verify_candidate, toon_scalar, publish_terminal_result
+#   verify_candidate, toon_scalar, publish_terminal_result,
+#   validate_invocation
 #
 # @exports none
 # @deps bash, git, jq, realpath, no-mistakes-compatible configured binary
@@ -69,10 +70,13 @@ receipt_tmp=
 receipt_tmp_owned=0
 terminal_tmp=
 terminal_tmp_owned=0
+invocation_tmp=
+invocation_tmp_owned=0
 cleanup() {
   [ "$output_tmp_owned" -eq 0 ] || rm -f -- "$output_tmp"
   [ "$receipt_tmp_owned" -eq 0 ] || rm -f -- "$receipt_tmp"
   [ "$terminal_tmp_owned" -eq 0 ] || rm -f -- "$terminal_tmp"
+  [ "$invocation_tmp_owned" -eq 0 ] || rm -f -- "$invocation_tmp"
 }
 trap cleanup 0
 trap 'exit 130' 1 2 15
@@ -229,8 +233,10 @@ publish_terminal_result() {
     jq -r '.no_mistakes.receipt')
   terminal_result=$(printf '%s\n' "$terminal_json" | jq -c '.result')
   terminal_artifacts=$(jq -cn \
+    --arg invocation "$invocation_rel" \
     --arg receipt "$terminal_receipt" --arg terminal "$terminal_rel" '
       [
+        {id:"gate-invocation",path:$invocation},
         {id:"no-mistakes-outcome",path:$receipt},
         {id:"gate-terminal",path:$terminal}
       ]
@@ -328,6 +334,9 @@ fi
 [ "$(realpath "$gate_artifacts" 2>/dev/null)" = "$gate_artifacts" ] \
   || fail_contract "Gate artifacts directory path must be canonical" 73
 
+invocation_rel=artifacts/gate/invocation.json
+invocation=$run_root/$invocation_rel
+invocation_tmp=$gate_artifacts/.invocation.json.tmp.$$
 terminal_rel=artifacts/gate/terminal.json
 terminal=$run_root/$terminal_rel
 terminal_tmp=$gate_artifacts/.terminal.json.tmp.$$
@@ -340,7 +349,7 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
     || fail_contract "invalid Gate terminal seal" 73
   if ! printf '%s\n' "$terminal_json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
-    --arg sha "$candidate_sha" '
+    --arg sha "$candidate_sha" --arg invocation "$invocation_rel" '
       def clean:
         type=="string" and length>0 and
         (explode | all(.[]; .>=32 and .!=127));
@@ -350,12 +359,12 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       . as $terminal |
       type=="object" and
       keys==[
-        "branch","candidate_sha","no_mistakes","normalized_outcome",
-        "result","run_id","schema","worktree"
+        "branch","candidate_sha","invocation","no_mistakes",
+        "normalized_outcome","result","run_id","schema","worktree"
       ] and
       .schema=="combo.gate-terminal/v1" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
-      .candidate_sha==$sha and
+      .candidate_sha==$sha and .invocation==$invocation and
       (.normalized_outcome |
         .=="validated" or .=="failed" or .=="cancelled") and
       (.no_mistakes |
@@ -414,6 +423,31 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       end
     ' >/dev/null 2>&1; then
     fail_contract "invalid Gate terminal seal" 73
+  fi
+  [ -f "$invocation" ] && [ ! -L "$invocation" ] \
+    || fail_contract "Gate invocation seal is missing or unsafe" 73
+  [ "$(realpath "$invocation" 2>/dev/null)" = "$invocation" ] \
+    || fail_contract "Gate invocation seal path must be canonical" 73
+  if ! jq -e \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" --argjson attempt "$attempt" '
+      def clean:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      type=="object" and
+      keys==[
+        "argv","binary","branch","candidate_sha","initial_attempt",
+        "run_id","schema","worktree"
+      ] and
+      .schema=="combo.gate-invocation/v1" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and
+      (.initial_attempt |
+        type=="number" and floor==. and .>0 and .<=$attempt) and
+      (.binary|clean) and
+      (.argv|type=="array" and length>0 and all(.[]; clean))
+    ' "$invocation" >/dev/null 2>&1; then
+    fail_contract "invalid Gate invocation seal" 73
   fi
   terminal_receipt_rel=$(printf '%s\n' "$terminal_json" |
     jq -r '.no_mistakes.receipt')
@@ -499,6 +533,95 @@ if [ "$approval" = auto ]; then
   nm_args+=(--yes)
 fi
 
+nm_args_json=$(
+  printf '%s\0' "${nm_args[@]}" |
+    jq -Rs 'split("\u0000") | .[:-1]'
+) || fail_contract "cannot freeze No-Mistakes argv" 73
+
+validate_invocation() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" --arg binary "$binary_path" \
+    --argjson attempt "$attempt" --argjson argv "$nm_args_json" '
+      def clean:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      type=="object" and
+      keys==[
+        "argv","binary","branch","candidate_sha","initial_attempt",
+        "run_id","schema","worktree"
+      ] and
+      .schema=="combo.gate-invocation/v1" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and .binary==$binary and .argv==$argv and
+      (.initial_attempt |
+        type=="number" and floor==. and .>0 and .<=$attempt) and
+      (.binary|clean) and
+      (.argv|type=="array" and length>0 and all(.[]; clean))
+    ' >/dev/null 2>&1
+}
+
+if [ -e "$invocation" ] || [ -L "$invocation" ]; then
+  [ -f "$invocation" ] && [ ! -L "$invocation" ] \
+    || fail_contract "Gate invocation seal is unsafe" 73
+else
+  [ ! -e "$invocation_tmp" ] && [ ! -L "$invocation_tmp" ] \
+    || fail_contract "Gate invocation staging path already exists" 73
+  invocation_json=$(jq -cn \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" --arg binary "$binary_path" \
+    --argjson attempt "$attempt" --argjson argv "$nm_args_json" '
+      {
+        schema:"combo.gate-invocation/v1",
+        run_id:$run,
+        branch:$branch,
+        worktree:$worktree,
+        candidate_sha:$sha,
+        initial_attempt:$attempt,
+        binary:$binary,
+        argv:$argv
+      }
+    ')
+  set -C
+  if exec 6>"$invocation_tmp"; then
+    invocation_tmp_owned=1
+  else
+    set +C
+    fail_contract "cannot reserve Gate invocation staging path" 73
+  fi
+  set +C
+  printf '%s\n' "$invocation_json" >&6
+  exec 6>&-
+  chmod 0444 "$invocation_tmp" \
+    || fail_contract "cannot make Gate invocation read-only" 73
+  if ln "$invocation_tmp" "$invocation" 2>/dev/null; then
+    rm -f -- "$invocation_tmp"
+    invocation_tmp_owned=0
+  else
+    rm -f -- "$invocation_tmp"
+    invocation_tmp_owned=0
+    [ -f "$invocation" ] && [ ! -L "$invocation" ] \
+      || fail_contract "Gate invocation publication collision" 73
+  fi
+fi
+[ "$(realpath "$invocation" 2>/dev/null)" = "$invocation" ] \
+  || fail_contract "Gate invocation seal path must be canonical" 73
+invocation_json=$(jq -c '.' "$invocation" 2>/dev/null) \
+  || fail_contract "invalid Gate invocation seal" 73
+validate_invocation "$invocation_json" \
+  || fail_contract "Gate invocation seal disagrees with this retry" 73
+
+sealed_binary=$(printf '%s\n' "$invocation_json" | jq -r '.binary')
+sealed_args=()
+while IFS= read -r -d '' argument; do
+  sealed_args+=("$argument")
+done < <(printf '%s\n' "$invocation_json" |
+  jq -j '.argv[] | . + "\u0000"')
+sealed_expected=$(printf '%s\n' "$invocation_json" | jq -r '.argv | length')
+[ "${#sealed_args[@]}" -eq "$sealed_expected" ] \
+  || fail_contract "sealed No-Mistakes argv was truncated" 73
+
 receipt_rel=artifacts/gate/no-mistakes-attempt-$attempt.toon
 receipt=$run_root/$receipt_rel
 receipt_tmp=$gate_artifacts/.no-mistakes-attempt-$attempt.toon.tmp.$$
@@ -518,7 +641,7 @@ set +C
 set +e
 (
   cd "$worktree" || exit 73
-  "$binary_path" "${nm_args[@]}"
+  "$sealed_binary" "${sealed_args[@]}"
 ) </dev/null >&4
 nm_status=$?
 set -e
@@ -529,8 +652,13 @@ if ! ln "$receipt_tmp" "$receipt" 2>/dev/null; then
 fi
 rm -f -- "$receipt_tmp"
 receipt_tmp_owned=0
-artifacts=$(jq -cn --arg path "$receipt_rel" \
-  '[{id:"no-mistakes-outcome",path:$path}]')
+artifacts=$(jq -cn \
+  --arg invocation "$invocation_rel" --arg receipt "$receipt_rel" '
+    [
+      {id:"gate-invocation",path:$invocation},
+      {id:"no-mistakes-outcome",path:$receipt}
+    ]
+  ')
 # -/ 3/4
 
 # -- 4/4 CORE · Validate typed identity and normalize terminal outcome --
@@ -617,7 +745,8 @@ terminal_json=$(jq -cn \
   --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
   --arg sha "$candidate_sha" --arg nm_run "$nm_run_id" \
   --arg nm_outcome "$nm_outcome" --arg pr "$nm_pr" \
-  --arg receipt "$receipt_rel" --arg normalized "$normalized_outcome" \
+  --arg invocation "$invocation_rel" --arg receipt "$receipt_rel" \
+  --arg normalized "$normalized_outcome" \
   --argjson result "$normalized_result" '
     {
       schema:"combo.gate-terminal/v1",
@@ -625,6 +754,7 @@ terminal_json=$(jq -cn \
       branch:$branch,
       worktree:$worktree,
       candidate_sha:$sha,
+      invocation:$invocation,
       no_mistakes:{
         run_id:$nm_run,
         outcome:$nm_outcome,
