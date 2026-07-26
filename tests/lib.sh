@@ -39,8 +39,8 @@ pass() {
 
 # --- self-cleaning temp root ------------------------------------------------
 #
-# cb_tmproot <prefix> echoes a fresh temp dir and registers it for removal on
-# EXIT. The first call installs the cleanup trap.
+# cb_tmproot <variable> [prefix]: assign a project-local temp dir to <variable>
+# and register it for removal on EXIT. The first call installs the cleanup trap.
 
 CB_CLEANUP_DIRS=()
 
@@ -52,13 +52,19 @@ cb_cleanup() {
 }
 
 cb_tmproot() {
-  local prefix=${1:-cb-test} root
-  root=$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX")
-  if [ "${#CB_CLEANUP_DIRS[@]}" -eq 0 ]; then
+  local __cb_tmp_out=${1:-} __cb_tmp_prefix=${2:-cb-test} __cb_tmp_allocated
+  case "$__cb_tmp_out" in
+    [a-zA-Z_][a-zA-Z0-9_]*) ;;
+    *) fail "cb_tmproot requires a valid destination variable" ;;
+  esac
+  mkdir -p "$ROOT/.tmp" || fail "cb_tmproot could not create $ROOT/.tmp"
+  __cb_tmp_allocated=$(mktemp -d "$ROOT/.tmp/${__cb_tmp_prefix}.XXXXXX") \
+    || fail "cb_tmproot could not allocate $__cb_tmp_prefix under $ROOT/.tmp"
+  if [ "${#CB_CLEANUP_DIRS[@]}" -eq 0 ] && [ -z "$(trap -p EXIT)" ]; then
     trap cb_cleanup EXIT
   fi
-  CB_CLEANUP_DIRS+=("$root")
-  printf '%s\n' "$root"
+  CB_CLEANUP_DIRS+=("$__cb_tmp_allocated")
+  printf -v "$__cb_tmp_out" '%s' "$__cb_tmp_allocated"
 }
 
 # --- fakebin / PATH shims ---------------------------------------------------

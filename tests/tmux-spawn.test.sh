@@ -48,7 +48,7 @@ trap 'cleanup_tmux; cb_cleanup' EXIT
 # Kills the previous test's server first so only one is live at a time.
 setup_home() {
   cleanup_tmux
-  TMUX_HOME=$(cb_tmproot cb-tmux)
+  cb_tmproot TMUX_HOME cb-tmux
   TMUX_RUNS="$TMUX_HOME/runs"
   mkdir -p "$TMUX_RUNS"
   TMUX_SOCKET="cbtest-$$-$(date +%s 2>/dev/null || echo 0)-$RANDOM"
@@ -80,6 +80,14 @@ meta_val() {
 }
 
 write_fake() { cat >"$1"; chmod +x "$1"; }
+
+# This suite must allocate every scratch directory through the shared
+# project-local helper.
+test_no_system_temp_allocations() {
+  local forbidden; forbidden=$(printf '%s%s' 'mktemp -d "${TMPDIR:-/' 'tmp}')
+  assert_no_grep "$forbidden" "$0" "tmux tests must stay under project .tmp"
+  pass "tmux harness: no system temp allocations"
+}
 
 # spawn_five <run>: spawn all five agents, assert each gets a @N window id.
 spawn_five() {
@@ -292,17 +300,22 @@ test_one_owner_snapshot_liveness_and_deletion() {
   local run=stale-snapshot-race; ensure_run "$run"; local rd="$TMUX_RUNS/$run"
   local lock="$rd/.spawn.lock"; local owner="$lock/owner"
   local fakebin; fakebin=$(cb_fakebin "$TMUX_HOME"); local cat_count="$TMUX_HOME/cat-count"
+  local injected="$TMUX_HOME/owner-injected"
   local live_owner="$$ stable-live-token"
   mkdir -p "$lock" "$fakebin"
   printf '%s\n' "$live_owner" >"$owner"
   write_fake "$fakebin/cat" <<EOF
 #!/bin/sh
+if [ "\$1" != "\$CB_TEST_OWNER" ]; then
+  exec $REAL_CAT "\$@"
+fi
 count=\$($REAL_CAT "\$CB_TEST_CAT_COUNT" 2>/dev/null || printf 0)
 count=\$((count + 1))
 printf '%s' "\$count" >"\$CB_TEST_CAT_COUNT"
-if [ "\$1" = "\$CB_TEST_OWNER" ] && [ "\$count" -eq 1 ]; then
+if [ "\$count" -eq 1 ]; then
   $REAL_CAT "\$@"
   printf '%s\n' "\$CB_TEST_TRANSIENT_OWNER" >"\$CB_TEST_OWNER"
+  printf injected >"\$CB_TEST_INJECTED"
   exit 0
 fi
 exec $REAL_CAT "\$@"
@@ -319,11 +332,14 @@ EOF
   CB_RUNS_DIR="$TMUX_RUNS" CB_TMUX_SOCKET="$TMUX_SOCKET" CB_TMUX_CONF=/dev/null \
     PATH="$fakebin:$PATH" \
     CB_TEST_CAT_COUNT="$cat_count" CB_TEST_OWNER="$owner" CB_TEST_REAP="$lock/.reap" \
+    CB_TEST_INJECTED="$injected" CB_TEST_NON_OWNER="$TMUX_HOME/not-owner" \
     CB_TEST_LIVE_OWNER="$live_owner" CB_TEST_TRANSIENT_OWNER="99999999 transient-dead-token" \
     CB_SPAWN_LOCK_STALE_SECONDS=0 CB_SPAWN_LOCK_TIMEOUT_SECONDS=1 \
-    sh "$BIN/cb-agent-spawn.sh" "$run" coder 2>"$TMUX_HOME/.cmd.err" && CMD_STATUS=0 || CMD_STATUS=$?
+    sh -c 'cat "$CB_TEST_NON_OWNER" >/dev/null 2>&1 || true; exec "$@"' sh \
+    "$BIN/cb-agent-spawn.sh" "$run" coder 2>"$TMUX_HOME/.cmd.err" && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$TMUX_HOME/.cmd.err")
   expect_code 75 "$CMD_STATUS" "snapshot liveness guard should exit 75"
+  assert_present "$injected" "owner-read race injection must execute"
   assert_present "$owner" "owner file should still exist"
   assert_present "$lock" "lock should still exist"
   pass "cb-agent-spawn: uses one spawn owner snapshot for liveness and the deletion guard"
@@ -434,8 +450,7 @@ test_send_peek_status_and_verified_enter() {
 
   # swallow composer
   local sw=sw1; ensure_run "$sw"
-  local fd; fd=$(mktemp -d "${TMPDIR:-/tmp}/fc.XXXXXX")
-  CB_CLEANUP_DIRS+=("$fd")
+  local fd; cb_tmproot fd cb-fake-composer
   printf '%s' "$FAKE_SWALLOW" >"$fd/fc.py"; chmod +x "$fd/fc.py"
   run_sh cb-agent-spawn.sh "$sw" reviewer --mode shell --cwd "$fd" --cmd "exec python3 ./fc.py"
   expect_code 0 "$CMD_STATUS" "spawn swallow reviewer"
@@ -450,8 +465,7 @@ test_send_peek_status_and_verified_enter() {
 
   # stuck composer
   local st=st1; ensure_run "$st"
-  local nd; nd=$(mktemp -d "${TMPDIR:-/tmp}/ns.XXXXXX")
-  CB_CLEANUP_DIRS+=("$nd")
+  local nd; cb_tmproot nd cb-stuck-composer
   printf '%s' "$FAKE_STUCK" >"$nd/ns.py"; chmod +x "$nd/ns.py"
   run_sh cb-agent-spawn.sh "$st" gate --mode shell --cwd "$nd" --cmd "exec python3 ./ns.py"
   expect_code 0 "$CMD_STATUS" "spawn stuck gate"
@@ -596,6 +610,7 @@ test_guards_decision_paths_rejects_bin_without_cmd() {
 
 # ============ run all tests ================================================
 
+test_no_system_temp_allocations
 test_creates_five_pinned_windows
 test_refuses_sequential_duplicate
 test_isolates_alpha_from_alphabet

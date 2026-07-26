@@ -28,12 +28,16 @@ CB_CLEANUP_DIRS=(_TRAP_GUARD)
 # release_all_fixtures: release tracked treehouse leases and git worktrees on
 # any exit (including mid-test fail), then remove temp dirs.
 release_all_fixtures() {
-  local p
-  for p in "${FIX_GW_PATHS[@]:-}"; do
-    [ -n "$p" ] && [ -n "${FIX_REPO:-}" ] && git -C "$FIX_REPO" worktree remove --force "$p" 2>/dev/null || true
+  local entry repo p
+  for entry in "${FIX_GW_PATHS[@]:-}"; do
+    [ -n "$entry" ] || continue
+    repo=${entry%%|*}; p=${entry#*|}
+    git -C "$repo" worktree remove --force "$p" 2>/dev/null || true
   done
-  for p in "${FIX_TH_PATHS[@]:-}"; do
-    [ -n "$p" ] && release_treehouse "$p"
+  for entry in "${FIX_TH_PATHS[@]:-}"; do
+    [ -n "$entry" ] || continue
+    repo=${entry%%|*}; p=${entry#*|}
+    release_treehouse "$repo" "$p"
   done
   cb_cleanup
 }
@@ -54,13 +58,47 @@ FIX_RUNS=
 FIX_TH_PATHS=()
 FIX_GW_PATHS=()
 
+track_treehouse_fixture() {
+  FIX_TH_PATHS+=("$1|$2")
+}
+
+track_git_fixture() {
+  FIX_GW_PATHS+=("$1|$2")
+}
+
+forget_fixture() {
+  local kind=$1 target="$2|$3" entry kept=()
+  if [ "$kind" = treehouse ]; then
+    for entry in "${FIX_TH_PATHS[@]:-}"; do
+      [ "$entry" = "$target" ] || kept+=("$entry")
+    done
+    FIX_TH_PATHS=()
+    for entry in "${kept[@]:-}"; do
+      [ -n "$entry" ] && FIX_TH_PATHS+=("$entry")
+    done
+  else
+    for entry in "${FIX_GW_PATHS[@]:-}"; do
+      [ "$entry" = "$target" ] || kept+=("$entry")
+    done
+    FIX_GW_PATHS=()
+    for entry in "${kept[@]:-}"; do
+      [ -n "$entry" ] && FIX_GW_PATHS+=("$entry")
+    done
+  fi
+}
+
+remove_git_fixture() {
+  local repo=$1 path=$2
+  if git -C "$repo" worktree remove --force "$path" 2>/dev/null; then
+    forget_fixture git "$repo" "$path"
+  fi
+}
+
 make_fixture() {
-  FIX_OUTER=$(cb_tmproot cb-p3)
+  cb_tmproot FIX_OUTER cb-p3
   mkdir -p "$FIX_OUTER/repo" "$FIX_OUTER/runs"
   FIX_REPO=$(cd "$FIX_OUTER/repo" && pwd -P)
   FIX_RUNS=$(cd "$FIX_OUTER/runs" && pwd -P)
-  FIX_TH_PATHS=()
-  FIX_GW_PATHS=()
   git -C "$FIX_REPO" init -q -b main
   git -C "$FIX_REPO" config user.name "Combo P3 Test"
   git -C "$FIX_REPO" config user.email "combo-p3@example.test"
@@ -69,6 +107,29 @@ make_fixture() {
   [ -z "${2:-}" ] || printf 'checks:\n  test: true\n' >"$FIX_REPO/.no-mistakes.yaml"
   git -C "$FIX_REPO" add .
   git -C "$FIX_REPO" commit -qm "fixture base"
+}
+
+# Fixture ownership must survive later fixture setup so the EXIT trap can
+# release resources that an earlier test deliberately leaves held.
+test_fixture_registry_survives_fixture_reset() {
+  make_fixture
+  local first_repo=$FIX_REPO first_path="$FIX_REPO/.worktrees/held"
+  local first_treehouse_path="$FIX_REPO/.worktrees/treehouse-held"
+  track_git_fixture "$first_repo" "$first_path"
+  track_treehouse_fixture "$first_repo" "$first_treehouse_path"
+  make_fixture
+  local found=0 treehouse_found=0 entry
+  for entry in "${FIX_GW_PATHS[@]:-}"; do
+    [ "$entry" = "$first_repo|$first_path" ] && found=1
+  done
+  for entry in "${FIX_TH_PATHS[@]:-}"; do
+    [ "$entry" = "$first_repo|$first_treehouse_path" ] && treehouse_found=1
+  done
+  [ "$found" = "1" ] || fail "make_fixture orphaned an earlier owned worktree"
+  [ "$treehouse_found" = "1" ] || fail "make_fixture orphaned an earlier Treehouse lease"
+  forget_fixture git "$first_repo" "$first_path"
+  forget_fixture treehouse "$first_repo" "$first_treehouse_path"
+  pass "mechanical fixtures: ownership registry survives fixture reset"
 }
 
 # make_run <run> [mode] [setup] [custody] [readiness_file]
@@ -114,12 +175,13 @@ last_field() {
   tail -1 "$journal" | jq -r "$2"
 }
 
-# release_treehouse <path>: return and destroy a treehouse lease.
+# release_treehouse <repo> <path>: return and destroy a treehouse lease.
 release_treehouse() {
   [ "$HAS_TREEHOUSE" = "1" ] || return 0
-  local p=$1
-  th return "$p" >/dev/null 2>&1 || th return --force "$p" >/dev/null 2>&1 || true
-  th destroy "$p" --include-unlanded --yes >/dev/null 2>&1 || true
+  local repo=$1 p=$2
+  (cd "$repo" && treehouse return "$p") >/dev/null 2>&1 \
+    || (cd "$repo" && treehouse return --force "$p") >/dev/null 2>&1 || true
+  (cd "$repo" && treehouse destroy "$p" --include-unlanded --yes) >/dev/null 2>&1 || true
 }
 
 # write_fake <path>: read body from stdin, write executable.
@@ -157,7 +219,7 @@ test_th_persists_exact_lease_and_releases() {
   [ "${wt:0:1}" = "/" ] || fail "worktree should be absolute"
   [ "$(git -C "$wt" branch --show-current)" = "combo/$run" ] || fail "worktree branch mismatch"
   assert_contains "$(cat "$wt/.no-mistakes.yaml")" "test: true" "no-mistakes not propagated"
-  FIX_TH_PATHS+=("$wt")
+  track_treehouse_fixture "$FIX_REPO" "$wt"
   local last; last=$(tail -1 "$FIX_RUNS/$run/journal.jsonl")
   printf '%s' "$last" | jq -e '.agent=="launcher" and .code==0 and .event=="launch_ready"' >/dev/null || fail "launch_ready event mismatch"
   printf '%s' "$last" | jq -e --arg wt "$wt" --arg b "$base_sha" --arg r "$run" \
@@ -173,7 +235,7 @@ test_th_persists_exact_lease_and_releases() {
   assert_not_contains "$(th status)" "held by $run" "lease should not be held"
   local cm; cm=$(cat "$FIX_RUNS/$run/agents/cleaner.ownership.json")
   printf '%s' "$cm" | jq -e --arg wt "$wt" '.run=="'"$run"'" and .runway_kind=="treehouse" and .worktree==$wt and .released==true' >/dev/null || fail "cleaner meta mismatch"
-  FIX_TH_PATHS=()
+  forget_fixture treehouse "$FIX_REPO" "$wt"
   pass "cb-launcher/cleaner: persists exact real lease and releases same path"
 }
 
@@ -183,7 +245,7 @@ test_th_journals_refused_return_and_leaves_held() {
   make_run "$run"
   run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "launcher"
   local wt; wt=$(jq -r '.worktree' "$FIX_RUNS/$run/agents/launcher.ownership.json")
-  FIX_TH_PATHS+=("$wt")
+  track_treehouse_fixture "$FIX_REPO" "$wt"
   local fb; fb=$(fake_th "#!/bin/sh
 if [ \"\$1\" = status ]; then exec $(command -v treehouse) \"\$@\"; fi
 exit 42
@@ -201,7 +263,7 @@ test_th_rechecks_identity_before_return() {
   make_run "$run"
   run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "launcher"
   local wt; wt=$(jq -r '.worktree' "$FIX_RUNS/$run/agents/launcher.ownership.json")
-  FIX_TH_PATHS+=("$wt")
+  track_treehouse_fixture "$FIX_REPO" "$wt"
   local marker="$FIX_OUTER/th-count"
   local fb; fb=$(fake_th "#!/bin/sh
 if [ \"\$1\" = status ]; then
@@ -320,13 +382,13 @@ exit 99
   local last; last=$(tail -1 "$FIX_RUNS/$run/journal.jsonl")
   printf '%s' "$last" | jq -e '.payload.runway_kind=="git-worktree-explicit" and .payload.ownership_id=="git-worktree:'"$run"'" and .payload.lease_id=="not-applicable"' >/dev/null || fail "launch_ready payload mismatch"
   assert_absent "$FIX_OUTER/th-called" "treehouse should never be called"
-  FIX_GW_PATHS+=("$git_path")
+  track_git_fixture "$FIX_REPO" "$git_path"
 
   CB_RUNS_DIR="$FIX_RUNS" PATH="$fb:$PATH" sh "$BIN/cb-cleaner.sh" "$run" 2>/dev/null && CMD_STATUS=0 || CMD_STATUS=$?
   expect_code 0 "$CMD_STATUS" "git cleaner should succeed${CMD_STDERR:+: $CMD_STDERR}"
   assert_absent "$git_path" "git worktree should be removed"
   assert_absent "$FIX_OUTER/th-called" "treehouse should still not be called"
-  FIX_GW_PATHS=()
+  forget_fixture git "$FIX_REPO" "$git_path"
   pass "cb-launcher/cleaner: records distinct Git owner, never calls Treehouse, removes exact path"
 }
 
@@ -336,7 +398,7 @@ test_git_refuses_copied_ownership_metadata() {
   make_run "$run" git-worktree-explicit
   local git_path="$FIX_REPO/.worktrees/$run"
   run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "launcher"
-  FIX_GW_PATHS+=("$git_path")
+  track_git_fixture "$FIX_REPO" "$git_path"
   local meta; meta=$(cat "$FIX_RUNS/$run/agents/launcher.ownership.json")
   printf '%s' "$meta" | jq -c '.run="another-run" | .ownership_id="git-worktree:another-run"' >"$FIX_RUNS/$run/agents/launcher.ownership.json"
 
@@ -344,8 +406,7 @@ test_git_refuses_copied_ownership_metadata() {
   [ "$CMD_STATUS" -ne 0 ] || fail "mismatched ownership should fail"
   assert_present "$git_path" "worktree should still exist"
   assert_last_event "$run" cleaner 1 clean_failed "ownership:run_mismatch"
-  git -C "$FIX_REPO" worktree remove --force "$git_path" 2>/dev/null || true
-  FIX_GW_PATHS=()
+  remove_git_fixture "$FIX_REPO" "$git_path"
   pass "cb-cleaner: refuses copied ownership metadata from another run"
 }
 
@@ -355,7 +416,8 @@ test_git_fails_on_custody_active_and_release_refused() {
   local run1=p3-custody-active
   make_run "$run1" git-worktree-explicit "" "exit 1"
   run_cb cb-launcher.sh "$run1"; expect_code 0 "$CMD_STATUS" "launcher custody"
-  FIX_GW_PATHS+=("$FIX_REPO/.worktrees/$run1")
+  local git_path1="$FIX_REPO/.worktrees/$run1"
+  track_git_fixture "$FIX_REPO" "$git_path1"
   run_cb cb-cleaner.sh "$run1"
   [ "$CMD_STATUS" -ne 0 ] || fail "custody active should fail"
   assert_present "$FIX_REPO/.worktrees/$run1" "worktree should exist (custody)"
@@ -365,14 +427,15 @@ test_git_fails_on_custody_active_and_release_refused() {
   local run2=p3-release-refused
   make_run "$run2" git-worktree-explicit
   run_cb cb-launcher.sh "$run2"; expect_code 0 "$CMD_STATUS" "launcher dirty"
-  FIX_GW_PATHS+=("$FIX_REPO/.worktrees/$run2")
+  local git_path2="$FIX_REPO/.worktrees/$run2"
+  track_git_fixture "$FIX_REPO" "$git_path2"
   printf 'do not force\n' >"$FIX_REPO/.worktrees/$run2/dirty.txt"
   run_cb cb-cleaner.sh "$run2"
   [ "$CMD_STATUS" -ne 0 ] || fail "dirty release should fail"
   assert_present "$FIX_REPO/.worktrees/$run2" "worktree should exist (dirty)"
   assert_last_event "$run2" cleaner 1 clean_failed "git-worktree:release_refused"
-  for p in "${FIX_GW_PATHS[@]}"; do git -C "$FIX_REPO" worktree remove --force "$p" 2>/dev/null || true; done
-  FIX_GW_PATHS=()
+  remove_git_fixture "$FIX_REPO" "$git_path1"
+  remove_git_fixture "$FIX_REPO" "$git_path2"
   pass "cb-cleaner: fails safely while Gate custody active or exact Git release refused"
 }
 
@@ -411,9 +474,10 @@ EOF
   [ "$CMD_STATUS" -ne 0 ] || fail "first attempt (fake git add fail) should fail"
   assert_absent "$FIX_RUNS/$run/agents/launcher.ownership.json" "no ownership after failed attempt"
   run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "retry should succeed"
-  FIX_GW_PATHS+=("$FIX_REPO/.worktrees/$run")
+  local git_path="$FIX_REPO/.worktrees/$run"
+  track_git_fixture "$FIX_REPO" "$git_path"
   run_cb cb-cleaner.sh "$run"; expect_code 0 "$CMD_STATUS" "cleanup"
-  FIX_GW_PATHS=()
+  forget_fixture git "$FIX_REPO" "$git_path"
   pass "cb-launcher: clears failed explicit Git ownership so the same attempt can retry"
 }
 
@@ -545,6 +609,7 @@ exit 99
 }
 
 # ============ run all tests ================================================
+test_fixture_registry_survives_fixture_reset
 if [ "$HAS_TREEHOUSE" = "1" ]; then
   test_th_persists_exact_lease_and_releases
   test_th_journals_refused_return_and_leaves_held

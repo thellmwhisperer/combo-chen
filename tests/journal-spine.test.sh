@@ -15,7 +15,8 @@ FIXTURES="$ROOT/test/fixtures/journal-v1"
 REAL_MKDIR=$(command -v mkdir)
 REAL_CAT=$(command -v cat)
 
-TMP_ROOT=$(cb_tmproot cb-journal)
+TMP_ROOT=
+cb_tmproot TMP_ROOT cb-journal
 RUNS_DIR="$TMP_ROOT/runs"
 mkdir -p "$RUNS_DIR"
 export CB_RUNS_DIR="$RUNS_DIR"
@@ -52,6 +53,57 @@ write_fake() {
 # journal_is_empty <path>: succeed if file is absent or zero-length.
 journal_is_empty() {
   { [ ! -f "$1" ] || [ ! -s "$1" ]; }
+}
+
+# Shared harness regression: temp roots must be assigned and registered in this
+# shell, and must stay beneath the project-local scratch directory.
+test_tmproot_persists_project_local_registration() {
+  local root=
+  cb_tmproot root cb-lib-contract
+  [ -n "$root" ] || fail "cb_tmproot should assign the caller variable"
+  case "$root" in
+    "$ROOT/.tmp/"*) : ;;
+    *) fail "cb_tmproot escaped project .tmp: $root" ;;
+  esac
+  local tracked=0 d
+  for d in "${CB_CLEANUP_DIRS[@]:-}"; do
+    [ "$d" = "$root" ] && tracked=1
+  done
+  [ "$tracked" = "1" ] || fail "cb_tmproot registration did not persist in caller shell"
+  pass "test library: temp roots persist under project .tmp"
+}
+
+test_tmproot_fails_when_mktemp_fails() {
+  local fakebin="$TMP_ROOT/mktemp-failure-bin"
+  mkdir -p "$fakebin"
+  write_fake "$fakebin/mktemp" <<'EOF'
+#!/bin/sh
+exit 42
+EOF
+  PATH="$fakebin:$PATH" bash -c '. "$1"; cb_tmproot allocated cb-must-fail' \
+    sh "$ROOT/tests/lib.sh" >"$TMP_ROOT/mktemp-failure.out" 2>&1 \
+    && fail "cb_tmproot should fail when mktemp fails"
+  assert_contains "$(cat "$TMP_ROOT/mktemp-failure.out")" \
+    "cb_tmproot could not allocate cb-must-fail" "mktemp failure diagnostic"
+  pass "test library: temp allocation fails closed"
+}
+
+test_tmproot_preserves_existing_exit_trap() {
+  local marker="$TMP_ROOT/existing-trap-ran"
+  CB_TEST_TRAP_MARKER="$marker" bash -c '
+    . "$1"
+    trap '"'"'cb_cleanup; printf preserved >"$CB_TEST_TRAP_MARKER"'"'"' EXIT
+    cb_tmproot allocated cb-trap-contract
+  ' sh "$ROOT/tests/lib.sh"
+  assert_contains "$(cat "$marker")" "preserved" "existing EXIT trap should survive"
+  pass "test library: temp registration preserves suite EXIT trap"
+}
+
+# PATH fakes must respect the real-tool path captured by this suite.
+test_cat_fakes_do_not_hardcode_bin_path() {
+  local forbidden; forbidden=$(printf '%s%s' 'exec /bin/' 'cat')
+  assert_no_grep "$forbidden" "$0" "cat fakes must use REAL_CAT"
+  pass "journal fakes: use the captured cat path"
 }
 
 # ============ cb-emit: validation + dedup ==================================
@@ -353,10 +405,13 @@ test_one_owner_snapshot_for_liveness_and_deletion() {
   printf '%s\n' "$live_owner" >"$owner"
   write_fake "$fakebin/cat" <<EOF
 #!/bin/sh
+if [ "\$1" != "\$CB_TEST_OWNER" ]; then
+  exec $REAL_CAT "\$@"
+fi
 count=\$($REAL_CAT "\$CB_TEST_CAT_COUNT" 2>/dev/null || printf 0)
 count=\$((count + 1))
 printf '%s' "\$count" >"\$CB_TEST_CAT_COUNT"
-if [ "\$1" = "\$CB_TEST_OWNER" ] && [ "\$count" -eq 1 ]; then
+if [ "\$count" -eq 1 ]; then
   $REAL_CAT "\$@"
   printf '%s\n' "\$CB_TEST_TRANSIENT_OWNER" >"\$CB_TEST_OWNER"
   exit 0
@@ -399,25 +454,41 @@ test_reclaims_stale_lock_when_owner_dead() {
 }
 
 test_no_remove_replacement_lock_on_reread_mismatch() {
-  local run_dir lock owner fakebin
+  local run_dir lock owner fakebin cat_values
   run_dir=$(make_run reread-mismatch); lock="$run_dir/.journal.lock"; owner="$lock/owner"
-  fakebin=$(cb_fakebin "$run_dir")
+  fakebin=$(cb_fakebin "$run_dir"); cat_values="$run_dir/cat-values"
   mkdir -p "$lock" "$fakebin"
   printf '99999999 abandoned-owner-token\n' >"$owner"
-  write_fake "$fakebin/cat" <<'EOF'
+  local cat_count="$run_dir/cat-count"
+  write_fake "$fakebin/cat" <<EOF
 #!/bin/sh
-if [ "$1" = "$CB_TEST_OWNER" ]; then
-  printf '%s\n' "$CB_TEST_LIVE_OWNER" >"$1"
-  printf '%s\n' "$CB_TEST_LIVE_OWNER"
+if [ "\$1" != "\$CB_TEST_OWNER" ]; then
+  exec $REAL_CAT "\$@"
+fi
+count=\$($REAL_CAT "\$CB_TEST_CAT_COUNT" 2>/dev/null || printf 0)
+count=\$((count + 1))
+printf '%s' "\$count" >"\$CB_TEST_CAT_COUNT"
+if [ "\$count" -eq 1 ]; then
+  value=\$($REAL_CAT "\$@")
+  printf '%s\n' "\$value" >>"\$CB_TEST_CAT_VALUES"
+  printf '%s\n' "\$value"
   exit 0
 fi
-exec /bin/cat "$@"
+printf '%s\n' "\$CB_TEST_LIVE_OWNER" >>"\$CB_TEST_CAT_VALUES"
+printf '%s\n' "\$CB_TEST_LIVE_OWNER" >"\$CB_TEST_OWNER"
+printf '%s\n' "\$CB_TEST_LIVE_OWNER"
 EOF
-  PATH="$fakebin:$PATH" CB_TEST_OWNER="$owner" CB_TEST_LIVE_OWNER="$$ replacement-token" \
+  PATH="$fakebin:$PATH" CB_TEST_OWNER="$owner" CB_TEST_CAT_COUNT="$cat_count" \
+  CB_TEST_CAT_VALUES="$cat_values" \
+  CB_TEST_LIVE_OWNER="$$ replacement-token" \
   CB_JOURNAL_LOCK_STALE_SECONDS=0 CB_JOURNAL_LOCK_TIMEOUT_SECONDS=1 \
     run_cmd cb-emit.sh --run reread-mismatch --agent chain --code 0 --event run_created \
     --payload '{"work_item":"#311","repo":"/repo"}'
   expect_code 75 "$CMD_STATUS" "should exit 75 (re-read mismatch)"
+  [ "$(sed -n '1p' "$cat_values")" = "99999999 abandoned-owner-token" ] \
+    || fail "first owner read must observe the stale snapshot"
+  [ "$(sed -n '2p' "$cat_values")" = "$$ replacement-token" ] \
+    || fail "second owner read must observe the replacement"
   local content; content=$(cat "$owner")
   [ "$content" = "$$ replacement-token" ] || fail "owner should show replacement token"
   assert_present "$lock" "lock dir should still exist"
@@ -429,14 +500,14 @@ test_leaves_replacement_owner_untouched_during_cleanup() {
   run_dir=$(make_run cleanup-owner); owner="$run_dir/.journal.lock/owner"
   fakebin=$(cb_fakebin "$run_dir")
   mkdir -p "$fakebin"
-  write_fake "$fakebin/cat" <<'EOF'
+  write_fake "$fakebin/cat" <<EOF
 #!/bin/sh
-if [ "$1" = "$CB_TEST_OWNER" ]; then
-  printf '1 replacement-token\n' > "$1"
+if [ "\$1" = "\$CB_TEST_OWNER" ]; then
+  printf '1 replacement-token\n' > "\$1"
   printf '1 replacement-token\n'
   exit 0
 fi
-exec /bin/cat "$@"
+exec $REAL_CAT "\$@"
 EOF
   PATH="$fakebin:$PATH" CB_TEST_OWNER="$owner" \
     run_cmd cb-emit.sh --run cleanup-owner --agent chain --code 0 --event run_created \
@@ -620,6 +691,10 @@ test_fold_fixtures() {
 
 # ============ run all tests ================================================
 
+test_tmproot_persists_project_local_registration
+test_tmproot_fails_when_mktemp_fails
+test_tmproot_preserves_existing_exit_trap
+test_cat_fakes_do_not_hardcode_bin_path
 test_rejects_invalid_enum_code_event_payload
 test_deduplicates_by_identity_key
 test_keeps_distinct_payloads_while_deduplicating_retry
