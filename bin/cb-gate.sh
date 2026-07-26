@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# @overview Initial P7 No-Mistakes Gate adapter for the universal P4 envelope.
-#   It verifies the Launcher-owned exact candidate before and after one
-#   documented axi invocation, preserves the typed outcome, and normalizes only
-#   terminal validated-mode facts. Recovery and merge authority are later P7
-#   slices, so this version accepts manual merge mode only.
+# @overview P7 No-Mistakes Gate adapter for the universal P4 envelope. It
+#   verifies the Launcher-owned exact candidate before and after one documented
+#   axi invocation, seals the typed terminal outcome with run/PR/head identity,
+#   and replays that durable seal without duplicating delivery. In-progress
+#   recovery and merge authority are later P7 slices, so this version accepts
+#   manual merge mode only.
 #
 #   READING GUIDE
 #   -------------
 #   1. Universal input validation <- contain paths and freeze adapter config.
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
-#   3. invoke_no_mistakes         <- build axi argv and preserve typed output.
+#   3. Terminal replay/invocation <- reuse a seal or build documented axi argv.
 #   4. Terminal normalization     <- exact identity plus passed/failed/cancelled.
 #
 #   MAIN FLOW
 #   ---------
-#   step input -> exact custody -> axi run -> typed receipt -> step output
+#   step input -> exact custody -> terminal replay | axi run -> sealed result
 #
 #   PUBLIC API
 #   ----------
@@ -23,7 +24,7 @@
 #   INTERNALS
 #   ---------
 #   usage, fail_contract, publish_result, publish_gate_failed,
-#   verify_candidate, toon_scalar
+#   verify_candidate, toon_scalar, publish_terminal_result
 #
 # @exports none
 # @deps bash, git, jq, realpath, no-mistakes-compatible configured binary
@@ -66,9 +67,12 @@ output_tmp=
 output_tmp_owned=0
 receipt_tmp=
 receipt_tmp_owned=0
+terminal_tmp=
+terminal_tmp_owned=0
 cleanup() {
   [ "$output_tmp_owned" -eq 0 ] || rm -f -- "$output_tmp"
   [ "$receipt_tmp_owned" -eq 0 ] || rm -f -- "$receipt_tmp"
+  [ "$terminal_tmp_owned" -eq 0 ] || rm -f -- "$terminal_tmp"
 }
 trap cleanup 0
 trap 'exit 130' 1 2 15
@@ -199,6 +203,59 @@ publish_gate_failed() {
   )"
 }
 
+toon_scalar() {
+  local prefix=$1 path=$2
+  awk -v prefix="$prefix" '
+    index($0, prefix)==1 {
+      value=substr($0, length(prefix)+1)
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      if (value ~ /^".*"$/) {
+        value=substr(value, 2, length(value)-2)
+      }
+      count++
+      result=value
+    }
+    END {
+      if (count==1 && length(result)>0) print result
+      else exit 1
+    }
+  ' "$path"
+}
+
+publish_terminal_result() {
+  local terminal_json=$1 terminal_receipt terminal_result terminal_artifacts
+  terminal_receipt=$(printf '%s\n' "$terminal_json" |
+    jq -r '.no_mistakes.receipt')
+  terminal_result=$(printf '%s\n' "$terminal_json" | jq -c '.result')
+  terminal_artifacts=$(jq -cn \
+    --arg receipt "$terminal_receipt" --arg terminal "$terminal_rel" '
+      [
+        {id:"no-mistakes-outcome",path:$receipt},
+        {id:"gate-terminal",path:$terminal}
+      ]
+    ')
+  publish_result "$(
+    jq -cn \
+      --arg run "$run" --argjson attempt "$attempt" \
+      --argjson result "$terminal_result" \
+      --argjson artifacts "$terminal_artifacts" '
+        {
+          schema:"combo.step-output/v1",
+          run_id:$run,
+          step_id:"gate",
+          role:"gate",
+          attempt:$attempt,
+          exit_class:$result.exit_class,
+          events:$result.events,
+          artifacts:$artifacts,
+          reasons:$result.reasons,
+          errors:$result.errors
+        }
+      '
+  )"
+}
+
 # -- 2/4 CORE · Verify Launcher custody and the exact reviewed candidate --
 ownership=$run_root/agents/launcher.ownership.json
 [ -f "$ownership" ] && [ ! -L "$ownership" ] \
@@ -255,7 +312,122 @@ if ! verify_candidate; then
 fi
 # -/ 2/4
 
-# -- 3/4 CORE · Build and invoke documented No-Mistakes axi argv --
+# -- 3/4 CORE · Replay a terminal seal or invoke documented No-Mistakes argv --
+artifacts_dir=$run_root/artifacts
+[ -d "$artifacts_dir" ] && [ ! -L "$artifacts_dir" ] \
+  || fail_contract "artifacts directory is missing or unsafe" 73
+[ "$(realpath "$artifacts_dir" 2>/dev/null)" = "$artifacts_dir" ] \
+  || fail_contract "artifacts directory path must be canonical" 73
+gate_artifacts=$artifacts_dir/gate
+if ! mkdir "$gate_artifacts" 2>/dev/null; then
+  [ -d "$gate_artifacts" ] && [ ! -L "$gate_artifacts" ] \
+    || fail_contract "cannot create Gate artifacts directory" 73
+fi
+[ -d "$gate_artifacts" ] && [ ! -L "$gate_artifacts" ] \
+  || fail_contract "Gate artifacts directory is unsafe" 73
+[ "$(realpath "$gate_artifacts" 2>/dev/null)" = "$gate_artifacts" ] \
+  || fail_contract "Gate artifacts directory path must be canonical" 73
+
+terminal_rel=artifacts/gate/terminal.json
+terminal=$run_root/$terminal_rel
+terminal_tmp=$gate_artifacts/.terminal.json.tmp.$$
+if [ -e "$terminal" ] || [ -L "$terminal" ]; then
+  [ -f "$terminal" ] && [ ! -L "$terminal" ] \
+    || fail_contract "Gate terminal seal is unsafe" 73
+  [ "$(realpath "$terminal" 2>/dev/null)" = "$terminal" ] \
+    || fail_contract "Gate terminal seal path must be canonical" 73
+  terminal_json=$(jq -c '.' "$terminal" 2>/dev/null) \
+    || fail_contract "invalid Gate terminal seal" 73
+  if ! printf '%s\n' "$terminal_json" | jq -e \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" '
+      def clean:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      def clean_or_empty:
+        type=="string" and
+        (length==0 or (explode | all(.[]; .>=32 and .!=127)));
+      . as $terminal |
+      type=="object" and
+      keys==[
+        "branch","candidate_sha","no_mistakes","normalized_outcome",
+        "result","run_id","schema","worktree"
+      ] and
+      .schema=="combo.gate-terminal/v1" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and
+      (.normalized_outcome |
+        .=="validated" or .=="failed" or .=="cancelled") and
+      (.no_mistakes |
+        type=="object" and keys==["outcome","pr","receipt","run_id"] and
+        (.run_id|clean) and
+        (.outcome |
+          .=="passed" or .=="checks-passed" or
+          .=="failed" or .=="cancelled") and
+        (.pr|clean_or_empty) and
+        (.receipt |
+          type=="string" and
+          test("^artifacts/gate/no-mistakes-attempt-[1-9][0-9]*\\.toon$"))) and
+      (.result |
+        type=="object" and
+        keys==["errors","events","exit_class","reasons"]) and
+      if .normalized_outcome=="validated" then
+        (.no_mistakes.outcome=="passed" or
+          .no_mistakes.outcome=="checks-passed") and
+        .result=={
+          exit_class:"completed",
+          events:[{
+            code:0,
+            event:"gate_ok",
+            payload:(
+              {outcome:"validated",sha:$sha} +
+              if $terminal.no_mistakes.pr=="" then
+                {}
+              else
+                {pr:$terminal.no_mistakes.pr}
+              end
+            )
+          }],
+          reasons:[],
+          errors:[]
+        }
+      elif .normalized_outcome=="failed" then
+        .no_mistakes.outcome=="failed" and
+        .result=={
+          exit_class:"completed",
+          events:[{
+            code:1,
+            event:"gate_failed",
+            payload:{reason:"no_mistakes_failed"}
+          }],
+          reasons:[],
+          errors:[]
+        }
+      else
+        .no_mistakes.outcome=="cancelled" and
+        .result=={
+          exit_class:"cancelled",
+          events:[],
+          reasons:["no_mistakes_cancelled"],
+          errors:[]
+        }
+      end
+    ' >/dev/null 2>&1; then
+    fail_contract "invalid Gate terminal seal" 73
+  fi
+  terminal_receipt_rel=$(printf '%s\n' "$terminal_json" |
+    jq -r '.no_mistakes.receipt')
+  terminal_receipt=$run_root/$terminal_receipt_rel
+  [ -f "$terminal_receipt" ] && [ ! -L "$terminal_receipt" ] \
+    || fail_contract "Gate terminal receipt is missing or unsafe" 73
+  [ "$(realpath "$terminal_receipt" 2>/dev/null)" = "$terminal_receipt" ] \
+    || fail_contract "Gate terminal receipt path must be canonical" 73
+  publish_terminal_result "$terminal_json"
+  exit 0
+fi
+[ ! -e "$terminal_tmp" ] && [ ! -L "$terminal_tmp" ] \
+  || fail_contract "Gate terminal staging path already exists" 73
+
 binary=$(jq -r '.config.binary' "$input")
 case "$binary" in
   */*)
@@ -327,20 +499,6 @@ if [ "$approval" = auto ]; then
   nm_args+=(--yes)
 fi
 
-artifacts_dir=$run_root/artifacts
-[ -d "$artifacts_dir" ] && [ ! -L "$artifacts_dir" ] \
-  || fail_contract "artifacts directory is missing or unsafe" 73
-[ "$(realpath "$artifacts_dir" 2>/dev/null)" = "$artifacts_dir" ] \
-  || fail_contract "artifacts directory path must be canonical" 73
-gate_artifacts=$artifacts_dir/gate
-if [ ! -e "$gate_artifacts" ]; then
-  mkdir "$gate_artifacts" || fail_contract "cannot create Gate artifacts directory" 73
-fi
-[ -d "$gate_artifacts" ] && [ ! -L "$gate_artifacts" ] \
-  || fail_contract "Gate artifacts directory is unsafe" 73
-[ "$(realpath "$gate_artifacts" 2>/dev/null)" = "$gate_artifacts" ] \
-  || fail_contract "Gate artifacts directory path must be canonical" 73
-
 receipt_rel=artifacts/gate/no-mistakes-attempt-$attempt.toon
 receipt=$run_root/$receipt_rel
 receipt_tmp=$gate_artifacts/.no-mistakes-attempt-$attempt.toon.tmp.$$
@@ -376,27 +534,8 @@ artifacts=$(jq -cn --arg path "$receipt_rel" \
 # -/ 3/4
 
 # -- 4/4 CORE · Validate typed identity and normalize terminal outcome --
-toon_scalar() {
-  local prefix=$1 path=$2
-  awk -v prefix="$prefix" '
-    index($0, prefix)==1 {
-      value=substr($0, length(prefix)+1)
-      sub(/^[[:space:]]+/, "", value)
-      sub(/[[:space:]]+$/, "", value)
-      if (value ~ /^".*"$/) {
-        value=substr(value, 2, length(value)-2)
-      }
-      count++
-      result=value
-    }
-    END {
-      if (count==1 && length(result)>0) print result
-      else exit 1
-    }
-  ' "$path"
-}
-
 nm_outcome=$(toon_scalar "outcome:" "$receipt" 2>/dev/null || true)
+nm_run_id=$(toon_scalar "  id:" "$receipt" 2>/dev/null || true)
 nm_branch=$(toon_scalar "  branch:" "$receipt" 2>/dev/null || true)
 nm_head=$(toon_scalar "  head:" "$receipt" 2>/dev/null || true)
 nm_pr=$(toon_scalar "  pr:" "$receipt" 2>/dev/null || true)
@@ -409,6 +548,12 @@ if [ "$nm_branch" != "$branch" ]; then
   publish_gate_failed no_mistakes_branch_mismatch "$artifacts"
   exit 0
 fi
+case "$nm_run_id" in
+  ''|*[!A-Za-z0-9_-]*)
+    publish_gate_failed no_mistakes_run_id_invalid "$artifacts"
+    exit 0
+    ;;
+esac
 case "$nm_head" in
   ''|*[!0-9a-f]*) publish_gate_failed no_mistakes_head_mismatch "$artifacts"; exit 0 ;;
 esac
@@ -427,50 +572,84 @@ case "$nm_outcome" in
       {outcome:"validated",sha:$sha} +
       if $pr=="" then {} else {pr:$pr} end
     ')
-    publish_result "$(
-      jq -cn \
-        --arg run "$run" --argjson attempt "$attempt" \
-        --argjson payload "$payload" --argjson artifacts "$artifacts" '
-          {
-            schema:"combo.step-output/v1",
-            run_id:$run,
-            step_id:"gate",
-            role:"gate",
-            attempt:$attempt,
-            exit_class:"completed",
-            events:[{code:0,event:"gate_ok",payload:$payload}],
-            artifacts:$artifacts,
-            reasons:[],
-            errors:[]
-          }
-        '
-    )"
+    normalized_outcome=validated
+    normalized_result=$(jq -cn --argjson payload "$payload" '
+      {
+        exit_class:"completed",
+        events:[{code:0,event:"gate_ok",payload:$payload}],
+        reasons:[],
+        errors:[]
+      }
+    ')
     ;;
   failed)
-    publish_gate_failed no_mistakes_failed "$artifacts"
+    normalized_outcome=failed
+    normalized_result=$(jq -cn '
+      {
+        exit_class:"completed",
+        events:[{
+          code:1,
+          event:"gate_failed",
+          payload:{reason:"no_mistakes_failed"}
+        }],
+        reasons:[],
+        errors:[]
+      }
+    ')
     ;;
   cancelled)
-    publish_result "$(
-      jq -cn \
-        --arg run "$run" --argjson attempt "$attempt" \
-        --argjson artifacts "$artifacts" '
-          {
-            schema:"combo.step-output/v1",
-            run_id:$run,
-            step_id:"gate",
-            role:"gate",
-            attempt:$attempt,
-            exit_class:"cancelled",
-            events:[],
-            artifacts:$artifacts,
-            reasons:["no_mistakes_cancelled"],
-            errors:[]
-          }
-        '
-    )"
+    normalized_outcome=cancelled
+    normalized_result=$(jq -cn '
+      {
+        exit_class:"cancelled",
+        events:[],
+        reasons:["no_mistakes_cancelled"],
+        errors:[]
+      }
+    ')
     ;;
   *)
     fail_contract "unrecognized No-Mistakes outcome (${nm_outcome:-missing}, exit $nm_status)" 70
     ;;
 esac
+
+terminal_json=$(jq -cn \
+  --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+  --arg sha "$candidate_sha" --arg nm_run "$nm_run_id" \
+  --arg nm_outcome "$nm_outcome" --arg pr "$nm_pr" \
+  --arg receipt "$receipt_rel" --arg normalized "$normalized_outcome" \
+  --argjson result "$normalized_result" '
+    {
+      schema:"combo.gate-terminal/v1",
+      run_id:$run,
+      branch:$branch,
+      worktree:$worktree,
+      candidate_sha:$sha,
+      no_mistakes:{
+        run_id:$nm_run,
+        outcome:$nm_outcome,
+        pr:$pr,
+        receipt:$receipt
+      },
+      normalized_outcome:$normalized,
+      result:$result
+    }
+  ')
+set -C
+if exec 5>"$terminal_tmp"; then
+  terminal_tmp_owned=1
+else
+  set +C
+  fail_contract "cannot reserve Gate terminal staging path" 73
+fi
+set +C
+printf '%s\n' "$terminal_json" >&5
+exec 5>&-
+chmod 0444 "$terminal_tmp" || fail_contract "cannot make Gate terminal seal read-only" 73
+if ! ln "$terminal_tmp" "$terminal" 2>/dev/null; then
+  fail_contract "Gate terminal publication collision" 73
+fi
+rm -f -- "$terminal_tmp"
+terminal_tmp_owned=0
+publish_terminal_result "$terminal_json"
 # -/ 4/4
