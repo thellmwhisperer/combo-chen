@@ -6,7 +6,7 @@
 #   READING GUIDE
 #   -------------
 #   1. Plan validation and publication guard <- freeze the traversal boundary.
-#   2. invoke_step and artifact helpers       <- universal adapter interaction.
+#   2. invoke_step and fold helpers           <- universal adapter interaction.
 #   3. Coder/Reviewer loop                    <- same-input full-round fold.
 #   4. Gate, Cleaner, and result publication  <- preserve terminal + cleanup.
 #
@@ -21,8 +21,8 @@
 #   INTERNALS
 #   ---------
 #   usage, fail_contract, invoke_step, merge_result_artifacts,
-#   add_findings_artifact, set_terminal_from_result, set_invocation_failure,
-#   cleanup
+#   add_findings_artifact, record_reviewer_failure, set_terminal_from_result,
+#   set_invocation_failure, cleanup
 #
 # @exports none
 # @deps bash, jq, realpath, bin/cb-step.sh
@@ -64,13 +64,15 @@ case "$run_root" in "$runs_root"/"$run") ;; *) fail_contract "run directory esca
 
 if ! jq -e --arg run "$run" --arg root "$run_root" '
   type=="object" and
-  keys==["paths","reviewer_count","run_id","schema","steps"] and
+  keys==["paths","reviewer","reviewer_count","run_id","schema","steps"] and
   .schema=="combo.run-plan/v1" and .run_id==$run and
   .paths=={
     run_dir:$root,
     artifacts_dir:($root+"/artifacts"),
     steps_dir:($root+"/steps")
   } and
+  (.reviewer|type=="object" and keys==["degraded"] and
+    (.degraded=="fail" or .degraded=="skip")) and
   (.reviewer_count|type=="number" and floor==. and .>=0) and
   (.steps|type=="array") and
   ([.steps[] | select(.role=="reviewer")] | length)==.reviewer_count and
@@ -111,6 +113,8 @@ prior_artifacts='[]'
 candidate_sha=null
 last_result=
 last_step_status=0
+reviewer_degraded=$(jq -r '.reviewer.degraded' "$plan")
+reviewer_member_failures='[]'
 # -/ 1/4
 
 # -- 2/4 HELPER · Invoke universal steps and carry artifact references --
@@ -172,6 +176,29 @@ add_findings_artifact() {
   prior_artifacts=$(jq -cn \
     --argjson prior "$prior_artifacts" --arg id "$id" --arg path "$path" '
       ($prior + [{id:$id,path:$path}]) | sort_by(.id)
+    ')
+}
+
+record_reviewer_failure() {
+  local member=$1 round=$2 skipped errors
+  errors=$(jq -c '.errors' "$last_result")
+  if [ "$reviewer_degraded" = skip ]; then
+    skipped=true
+  else
+    skipped=false
+  fi
+  reviewer_member_failures=$(jq -cn \
+    --argjson failures "$reviewer_member_failures" \
+    --arg member "$member" --argjson round "$round" \
+    --arg sha "$candidate_sha" --argjson skipped "$skipped" \
+    --argjson errors "$errors" '
+      $failures + [{
+        member:$member,
+        round:$round,
+        sha:$sha,
+        skipped:$skipped,
+        errors:$errors
+      }]
     ')
 }
 
@@ -256,6 +283,7 @@ while [ "$terminal_set" -eq 0 ]; do
 
   review_round=$((review_round + 1))
   needs_change=0
+  review_hard_failure=0
   review_input_artifacts=$prior_artifacts
   review_aggregate_artifacts=$prior_artifacts
   while IFS= read -r reviewer_step; do
@@ -268,6 +296,13 @@ while [ "$terminal_set" -eq 0 ]; do
       reviewer_class=$(jq -r '.exit_class' "$last_result")
       if [ "$reviewer_class" != completed ]; then
         review_aggregate_artifacts=$prior_artifacts
+        if [ "$reviewer_class" = technical_error ]; then
+          record_reviewer_failure "$member" "$review_round"
+          if [ "$reviewer_degraded" = fail ]; then
+            review_hard_failure=1
+          fi
+          continue
+        fi
         set_terminal_from_result reviewer
         terminal_set=1
         break
@@ -290,6 +325,24 @@ while [ "$terminal_set" -eq 0 ]; do
   done < <(jq -r '.steps[] | select(.role=="reviewer") | .id' "$plan")
   prior_artifacts=$review_aggregate_artifacts
   [ "$terminal_set" -eq 0 ] || break
+  if [ "$review_hard_failure" -eq 1 ]; then
+    terminal_exit_class=technical_error
+    terminal_role=reviewer
+    terminal_code=null
+    terminal_event=null
+    terminal_reasons='[]'
+    terminal_errors=$(jq -c '
+      [
+        .[] |
+        select(.skipped==false) |
+        .member as $member |
+        .errors[] |
+        $member + ":" + .
+      ]
+    ' <<<"$reviewer_member_failures")
+    terminal_set=1
+    break
+  fi
   [ "$needs_change" -eq 1 ] || break
   if [ "$review_round" -ge "$max_rounds" ]; then
     terminal_exit_class=technical_error
@@ -355,6 +408,8 @@ if ! jq -cn \
   --argjson code "$terminal_code" \
   --argjson event "$terminal_event" \
   --argjson artifacts "$prior_artifacts" \
+  --arg reviewer_degraded "$reviewer_degraded" \
+  --argjson reviewer_failures "$reviewer_member_failures" \
   --argjson reasons "$terminal_reasons" \
   --argjson errors "$terminal_errors" \
   --arg cleanup_exit "$cleanup_exit_class" \
@@ -369,6 +424,10 @@ if ! jq -cn \
       candidate_sha:$candidate,
       terminal:{role:$role,code:$code,event:$event},
       artifacts:$artifacts,
+      reviewer:{
+        degraded:$reviewer_degraded,
+        member_failures:$reviewer_failures
+      },
       reasons:$reasons,
       errors:$errors,
       cleanup:{
