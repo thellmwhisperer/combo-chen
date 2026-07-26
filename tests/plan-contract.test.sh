@@ -25,7 +25,7 @@
 #   make_run, write_config, run_plan, plan_mode, file_sha256
 #
 # @exports none
-# @deps bash, dash, jq, tests/lib.sh, bin/cb-plan.sh
+# @deps bash, dash, jq, sha256sum/shasum, tests/lib.sh, bin/cb-plan.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -111,6 +111,21 @@ plan_mode() {
   fi
   [ -n "$mode" ] || fail "stat mode probe returned an empty value"
   printf '%s\n' "$mode"
+}
+
+file_sha256() {
+  local digest output
+  digest=
+  if command -v sha256sum >/dev/null 2>&1 \
+    && output=$(sha256sum "$1" 2>/dev/null); then
+    digest=${output%% *}
+  fi
+  if [ -z "$digest" ] && command -v shasum >/dev/null 2>&1 \
+    && output=$(shasum -a 256 "$1" 2>/dev/null); then
+    digest=${output%% *}
+  fi
+  [ -n "$digest" ] || fail "no working SHA-256 digest tool"
+  printf '%s\n' "$digest"
 }
 
 file_sha256() {
