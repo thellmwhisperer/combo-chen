@@ -87,7 +87,7 @@ case "$role" in
     }" >"$output"
     ;;
   reviewer)
-    if [ "$attempt" -eq 1 ]; then
+    if [ "$attempt" -le 2 ]; then
       finding="artifacts/needs-change.md"
       printf "change requested by configured reviewer\n" >"$run_dir/$finding"
       jq -n --arg sha "$candidate" --arg finding "$finding" "$base + {
@@ -267,7 +267,8 @@ make_run() {
 }
 
 run_chain() {
-  local run=$1 errfile="$TMP_ROOT/$run.chain.err"
+  local run=$1
+  local errfile="$TMP_ROOT/$run.chain.err"
   CMD_STDOUT=$(CB_SHOULD_NOT_LEAK=secret bash "$BIN/cb-chain.sh" "$run" 2>"$errfile") \
     && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
@@ -286,11 +287,11 @@ run_step() {
 assert_coder_sequence() {
   local run=$1 first=$2 second=$3
   jq -e --arg first "$first" \
-    '.adapter_id==$first and .config.schema|startswith("combo.coder/")' \
+    '.adapter_id==$first and (.config.schema|startswith("combo.coder/"))' \
     "$RUNS_DIR/$run/steps/02-coder/attempt-1/input.json" >/dev/null \
     || fail "attempt one must receive its configured adapter id and config"
   jq -e --arg second "$second" \
-    '.adapter_id==$second and .config.schema|startswith("combo.coder/")' \
+    '.adapter_id==$second and (.config.schema|startswith("combo.coder/"))' \
     "$RUNS_DIR/$run/steps/02-coder/attempt-2/input.json" >/dev/null \
     || fail "attempt two must receive its configured adapter id and config"
 }
@@ -345,7 +346,8 @@ test_runs_gnhf_then_direct() {
   expect_code 0 "$CMD_STATUS" "GNHF-to-direct chain${CMD_STDERR:+: $CMD_STDERR}"
   result=$CMD_STDOUT
   commits=$(git -C "$repo" rev-list --count "$base..HEAD")
-  [ "$commits" -eq 2 ] || fail "GNHF and direct invocations must each create a commit"
+  [ "$commits" -eq 3 ] \
+    || fail "GNHF, direct correction, and repeated correction must create commits"
   jq -e --arg sha "$(git -C "$repo" rev-parse HEAD)" '
     .exit_class=="completed" and .candidate_sha==$sha and
     .terminal=={role:"gate",code:0,event:"gate_ok"}
@@ -356,6 +358,8 @@ test_runs_gnhf_then_direct() {
   assert_grep "gnhf|1|" "$RUNS_DIR/$run/tool-calls" "GNHF fake should execute first"
   assert_grep "direct|2|implement configured work" "$RUNS_DIR/$run/tool-calls" \
     "direct fake should receive the configured prompt"
+  assert_grep "direct|3|implement configured work" "$RUNS_DIR/$run/tool-calls" \
+    "the final configured correction adapter must repeat on later findings"
   remote_head=$(git --git-dir="$remote" rev-parse refs/heads/main)
   [ "$remote_head" = "$base" ] || fail "Coder adapters must never push candidate commits"
   ! git --git-dir="$remote" show-ref --verify --quiet refs/heads/forbidden \
@@ -374,8 +378,8 @@ test_runs_gnhf_then_direct() {
   make_run "$run" "$config"
   run_chain "$run"
   expect_code 0 "$CMD_STATUS" "config-switched direct-to-GNHF chain${CMD_STDERR:+: $CMD_STDERR}"
-  [ "$(git -C "$repo" rev-list --count "$base..HEAD")" -eq 2 ] \
-    || fail "switching adapter order through config must still create two candidates"
+  [ "$(git -C "$repo" rev-list --count "$base..HEAD")" -eq 3 ] \
+    || fail "switching adapter order through config must retain correction retries"
   assert_coder_sequence "$run" direct-agent gnhf
   pass "cb-agent-run: GNHF candidate and direct correction use only configured adapters"
 }
@@ -438,6 +442,22 @@ test_normalizes_not_ready() {
     .events[0].event=="coder_not_ready" and
     .events[0].payload.errors==["candidate:head_mismatch"]
   ' "$CMD_STDOUT" >/dev/null || fail "candidate mismatch must have a stable reason"
+
+  run=5p5-dirty-worktree
+  config="$TMP_ROOT/dirty-worktree.config.json"
+  direct=$(direct_binding "$repo" "$base" main "$NOOP_FAKE")
+  sequence=$(jq -cn --argjson direct "$direct" '[$direct]')
+  write_config "$config" "$sequence"
+  make_run "$run" "$config"
+  printf 'uncommitted\n' >>"$repo/work.txt"
+  rm -f "$EXECUTED_MARKER"
+  run_step "$run" 1
+  expect_code 0 "$CMD_STATUS" "dirty worktree normalization${CMD_STDERR:+: $CMD_STDERR}"
+  assert_absent "$EXECUTED_MARKER" "dirty worktree must fail before execution"
+  jq -e '
+    .events[0].event=="coder_not_ready" and
+    .events[0].payload.errors==["candidate:dirty_worktree"]
+  ' "$CMD_STDOUT" >/dev/null || fail "dirty worktree must have a stable reason"
   pass "cb-agent-run: invalid config and unverifiable candidates fail closed"
 }
 # -/ 4/4

@@ -239,8 +239,6 @@ EOF
 # -- 5/5 CORE · test_rejects_path_attacks --
 test_rejects_path_attacks() {
   local outside="$TMP_ROOT/outside" config="$TMP_ROOT/config-paths.json"
-  local collision_bin="$TMP_ROOT/collision-bin"
-  local real_realpath
   mkdir -p "$outside"
   write_config "$config"
 
@@ -267,13 +265,8 @@ test_rejects_path_attacks() {
 
   run='snapshot-collision'
   run_dir=$(make_run "$run")
-  real_realpath=$(command -v realpath) || fail "realpath is required"
-  mkdir -p "$collision_bin"
-  cb_write_fake "$collision_bin/realpath" "#!/bin/sh
-: >\"$run_dir/.config.snapshot.\$PPID\"
-exec \"$real_realpath\" \"\$@\"
-"
-  PATH="$collision_bin:$PATH" run_plan "$run" "$config"
+  printf 'existing\n' >"$run_dir/.config.snapshot.tmp"
+  run_plan "$run" "$config"
   expect_code 73 "$CMD_STATUS" "config snapshot no-clobber collision under sh"
   assert_contains "$CMD_STDERR" "config snapshot path already exists" \
     "dash must reach the explicit snapshot-collision fallback"
