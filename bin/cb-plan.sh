@@ -159,6 +159,7 @@ validate_config() {
       compatible($cfg; $cfg.roles.launcher; "launcher") and
       compatible($cfg; $cfg.roles.coder; "coder") and
       all($cfg.roles.reviewers[]; compatible($cfg; .; "reviewer")) and
+      all($cfg.roles.reviewers[]; .adapter != $cfg.roles.coder.adapter) and
       compatible($cfg; $cfg.roles.gate; "gate") and
       compatible($cfg; $cfg.roles.cleaner; "cleaner")
     ) catch false

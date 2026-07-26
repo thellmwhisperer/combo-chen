@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # @overview Invoke one configured Combo adapter through the universal step
 #   envelope, then publish only a validated normalized result. The boundary
-#   never interprets adapter stdout/stderr and binds no tool or provider.
+#   owns process I/O, never interprets adapter stdout/stderr, and binds no tool
+#   or provider.
 #
 #   READING GUIDE
 #   -------------
@@ -276,7 +277,7 @@ argv_expected=$(jq -r '.argv | length' <<<"$step_json") \
 set +e
 timeout -k "$kill_after" "$step_timeout" \
   "${adapter_argv[@]}" --input "$input_path" --output "$adapter_output" \
-  >"$stdout_log" 2>"$stderr_log"
+  </dev/null >"$stdout_log" 2>"$stderr_log"
 adapter_status=$?
 set -e
 chmod 0444 "$stdout_log" "$stderr_log" 2>/dev/null || true

@@ -5,11 +5,11 @@
 #
 #   READING GUIDE
 #   -------------
-#   1. test_runs_success_path          <- canonical plan traversal.
-#   2. test_closes_adapter_stdin        <- adapters cannot consume plan traversal.
-#   3. test_restarts_review_round      <- sole Coder loop and artifact routing.
-#   4. test_normalizes_terminal_paths  <- technical error and cancellation.
-#   5. test_handles_plan_edges         <- zero reviewers and failed Gate cleanup.
+#   1. test_runs_success_path        <- canonical plan traversal.
+#   2. test_preserves_reviewers      <- isolated stdin cannot consume traversal.
+#   3. test_restarts_review_round    <- sole Coder loop and artifact routing.
+#   4. test_normalizes_terminal_paths <- technical error and cancellation.
+#   5. test_handles_plan_edges       <- zero reviewers and failed Gate cleanup.
 #
 #   MAIN FLOW
 #   ---------
@@ -164,19 +164,20 @@ write_config() {
     {
       schema:"combo.config/v1",
       adapters:{
-        fake:{
-          argv:[$fake],
-          roles:["launcher","coder","reviewer","gate","cleaner"]
-        }
+        launcher:{argv:[$fake],roles:["launcher"]},
+        coder:{argv:[$fake],roles:["coder"]},
+        reviewer:{argv:[$fake],roles:["reviewer"]},
+        gate:{argv:[$fake],roles:["gate"]},
+        cleaner:{argv:[$fake],roles:["cleaner"]}
       },
       roles:{
-        launcher:{adapter:"fake",config:{mode:$mode}},
-        coder:{adapter:"fake",config:{mode:$mode}},
+        launcher:{adapter:"launcher",config:{mode:$mode}},
+        coder:{adapter:"coder",config:{mode:$mode}},
         reviewers:[$reviewers[] | {
-          id:.,adapter:"fake",config:{mode:$mode}
+          id:.,adapter:"reviewer",config:{mode:$mode}
         }],
-        gate:{adapter:"fake",config:{mode:$mode}},
-        cleaner:{adapter:"fake",config:{mode:$mode}}
+        gate:{adapter:"gate",config:{mode:$mode}},
+        cleaner:{adapter:"cleaner",config:{mode:$mode}}
       }
     }
   ' >"$path"
@@ -234,8 +235,8 @@ test_runs_success_path() {
 }
 # -/ 1/5
 
-# -- 2/5 CORE · test_closes_adapter_stdin --
-test_closes_adapter_stdin() {
+# -- 2/5 CORE · test_preserves_reviewers --
+test_preserves_reviewers() {
   local run=chain-stdin-reader calls="$RUNS_DIR/chain-stdin-reader/calls.jsonl"
   make_run "$run" stdin-reader
   run_chain "$run"
@@ -243,7 +244,7 @@ test_closes_adapter_stdin() {
   [ "$(call_steps "$calls")" = \
     "launcher,coder,reviewer/review-a,reviewer/review-b,gate,cleaner" ] \
     || fail "adapters must not consume the Reviewer traversal stream"
-  pass "cb-chain: closes stdin for every adapter without skipping Reviewers"
+  pass "cb-chain: preserves every Reviewer when adapters attempt to read stdin"
 }
 # -/ 2/5
 
@@ -332,7 +333,7 @@ test_handles_plan_edges() {
 # -/ 5/5
 
 test_runs_success_path
-test_closes_adapter_stdin
+test_preserves_reviewers
 test_restarts_review_round
 test_normalizes_terminal_paths
 test_handles_plan_edges

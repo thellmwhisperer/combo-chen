@@ -7,8 +7,9 @@
 #   -------------
 #   1. test_compiles_immutable_plan  <- canonical config and exact plan shape.
 #   2. test_accepts_empty_reviewers  <- zero-member Reviewer contract.
-#   3. test_rejects_invalid_configs  <- registry/binding validation matrix.
-#   4. test_rejects_path_attacks     <- run/config/plan containment.
+#   3. test_rejects_shared_adapter   <- Coder/Reviewer identity separation.
+#   4. test_rejects_invalid_configs  <- registry/binding validation matrix.
+#   5. test_rejects_path_attacks     <- run/config/plan containment.
 #
 #   MAIN FLOW
 #   ---------
@@ -46,20 +47,21 @@ make_run() {
 }
 
 write_config() {
-  local path=$1 reviewers=${2:-'[{"id":"review-a","adapter":"shared","config":{"policy":"strict"}},{"id":"review-b","adapter":"review-b","config":{}}]'}
+  local path=$1 reviewers=${2:-'[{"id":"review-a","adapter":"review-a","config":{"policy":"strict"}},{"id":"review-b","adapter":"review-b","config":{}}]'}
   jq -n --argjson reviewers "$reviewers" '
     {
       schema: "combo.config/v1",
       adapters: {
         launcher: {argv:["fake-adapter","--mechanical"],roles:["launcher"]},
-        shared: {argv:["fake-adapter","literal with spaces"],roles:["coder","reviewer"]},
+        coder: {argv:["fake-adapter","literal with spaces"],roles:["coder"]},
+        "review-a": {argv:["fake-adapter","literal with spaces"],roles:["reviewer"]},
         "review-b": {argv:["other-adapter"],roles:["reviewer"]},
         gate: {argv:["fake-adapter","--gate"],roles:["gate"]},
         cleaner: {argv:["fake-adapter","--mechanical"],roles:["cleaner"]}
       },
       roles: {
         launcher: {adapter:"launcher",config:{runway:"fake"}},
-        coder: {adapter:"shared",config:{strategy:"candidate"}},
+        coder: {adapter:"coder",config:{strategy:"candidate"}},
         reviewers: $reviewers,
         gate: {adapter:"gate",config:{terminal_only:true}},
         cleaner: {adapter:"cleaner",config:{}}
@@ -76,10 +78,10 @@ run_plan() {
 }
 
 plan_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
 
-# -- 1/4 CORE · test_compiles_immutable_plan -- <- START HERE
+# -- 1/5 CORE · test_compiles_immutable_plan -- <- START HERE
 test_compiles_immutable_plan() {
   local run=plan-success run_dir config plan before
   run_dir=$(make_run "$run")
@@ -103,9 +105,11 @@ test_compiles_immutable_plan() {
     } and
     ([.steps[].role] == ["launcher","coder","reviewer","reviewer","gate","cleaner"]) and
     ([.steps[] | select(.role=="reviewer") | .member_id] == ["review-a","review-b"]) and
-    (.steps[1].adapter_id == "shared") and
+    (.steps[1].adapter_id == "coder") and
     (.steps[1].argv == ["fake-adapter","literal with spaces"]) and
     (.steps[1].config == {strategy:"candidate"}) and
+    (.steps[2].adapter_id == "review-a") and
+    (.steps[2].argv == ["fake-adapter","literal with spaces"]) and
     (.steps[2].config == {policy:"strict"}) and
     (.reviewer_count == 2) and
     (keys == ["paths","reviewer_count","run_id","schema","steps"])
@@ -122,9 +126,9 @@ test_compiles_immutable_plan() {
     || fail "existing plan must remain byte-identical"
   pass "cb-plan: publishes one immutable, collision-safe provider-neutral run plan"
 }
-# -/ 1/4
+# -/ 1/5
 
-# -- 2/4 CORE · test_accepts_empty_reviewers --
+# -- 2/5 CORE · test_accepts_empty_reviewers --
 test_accepts_empty_reviewers() {
   local run=plan-empty run_dir config plan
   run_dir=$(make_run "$run")
@@ -141,9 +145,29 @@ test_accepts_empty_reviewers() {
   ' "$plan" >/dev/null || fail "empty Reviewer array should compile directly from Coder to Gate"
   pass "cb-plan: accepts zero Reviewer members without a synthetic phase"
 }
-# -/ 2/4
+# -/ 2/5
 
-# -- 3/4 CORE · test_rejects_invalid_configs --
+# -- 3/5 CORE · test_rejects_shared_adapter --
+test_rejects_shared_adapter() {
+  local run=plan-shared-adapter run_dir config
+  run_dir=$(make_run "$run")
+  config="$TMP_ROOT/config-shared-adapter.json"
+  write_config "$config"
+  jq '
+    .adapters.coder.roles = ["coder","reviewer"] |
+    .roles.reviewers[0].adapter = "coder"
+  ' "$config" >"$TMP_ROOT/config-shared-adapter.tmp"
+  mv "$TMP_ROOT/config-shared-adapter.tmp" "$config"
+
+  run_plan "$run" "$config"
+  expect_code 64 "$CMD_STATUS" "shared Coder/Reviewer adapter"
+  assert_absent "$run_dir/plan.json" \
+    "a Reviewer sharing the Coder adapter ID must not publish a plan"
+  pass "cb-plan: rejects a Reviewer configured with the Coder adapter ID"
+}
+# -/ 3/5
+
+# -- 4/5 CORE · test_rejects_invalid_configs --
 test_rejects_invalid_configs() {
   local base="$TMP_ROOT/config-invalid-base.json" index=0 mutation run run_dir config marker
   write_config "$base"
@@ -164,9 +188,9 @@ test_rejects_invalid_configs() {
     assert_absent "$run_dir/plan.json" "invalid config must not publish a plan (case $index)"
   done <<'EOF'
 .roles.coder.adapter = "missing"
-.roles.gate.adapter = "shared"
-.adapters.shared.argv = "fake-adapter"
-.adapters.shared.roles = ["coder","coder"]
+.roles.gate.adapter = "coder"
+.adapters.coder.argv = "fake-adapter"
+.adapters.coder.roles = ["coder","coder"]
 .roles.reviewers[1].id = "review-a"
 .roles.coder.config = []
 .extra = true
@@ -175,9 +199,9 @@ EOF
   assert_absent "$marker" "config validation must never execute an adapter"
   pass "cb-plan: rejects malformed registries, incompatible bindings, and duplicate members"
 }
-# -/ 3/4
+# -/ 4/5
 
-# -- 4/4 CORE · test_rejects_path_attacks --
+# -- 5/5 CORE · test_rejects_path_attacks --
 test_rejects_path_attacks() {
   local outside="$TMP_ROOT/outside" config="$TMP_ROOT/config-paths.json"
   mkdir -p "$outside"
@@ -205,10 +229,11 @@ test_rejects_path_attacks() {
   [ "$(cat "$victim")" = "precious" ] || fail "plan symlink victim must remain unchanged"
   pass "cb-plan: contains run-local publication and rejects config/plan symlinks"
 }
-# -/ 4/4
+# -/ 5/5
 
 test_compiles_immutable_plan
 test_accepts_empty_reviewers
+test_rejects_shared_adapter
 test_rejects_invalid_configs
 test_rejects_path_attacks
 

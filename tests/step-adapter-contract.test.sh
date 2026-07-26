@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the universal Combo step-adapter boundary.
 #   Proves immutable run-local inputs/results, argv-safe configured execution,
-#   role-specific 0/1 outcomes, normalized failures, and pre-execution guards.
+#   closed adapter stdin, role-specific 0/1 outcomes, normalized failures, and
+#   pre-execution guards.
 #
 #   READING GUIDE
 #   -------------
 #   1. test_invokes_with_universal_envelope <- canonical input/output contract.
-#   2. test_accepts_role_outcomes            <- allowed 0/1 product matrix.
-#   3. test_normalizes_non_product_exits     <- technical/cancelled classes.
-#   4. test_rejects_unsafe_invocations       <- artifacts, paths, collisions.
+#   2. test_closes_adapter_stdin             <- process I/O ownership boundary.
+#   3. test_accepts_role_outcomes            <- allowed 0/1 product matrix.
+#   4. test_normalizes_non_product_exits     <- technical/cancelled classes.
+#   5. test_rejects_unsafe_invocations       <- artifacts, paths, collisions.
 #
 #   MAIN FLOW
 #   ---------
@@ -20,7 +22,8 @@
 #
 #   INTERNALS
 #   ---------
-#   write_config, make_planned_run, run_step, result_mode, file_digest
+#   write_config, make_planned_run, run_step, run_step_with_stdin,
+#   result_mode, file_digest
 #
 # @exports none
 # @deps bash, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh
@@ -37,11 +40,13 @@ FAKE="$TMP_ROOT/fake-step-adapter"
 CAPTURE="$TMP_ROOT/captured-input.json"
 MARKER="$TMP_ROOT/adapter-ran"
 VICTIM="$TMP_ROOT/result-temp-victim"
+STDIN_CAPTURE="$TMP_ROOT/stdin-capture"
 mkdir -p "$RUNS_DIR"
 export CB_RUNS_DIR="$RUNS_DIR"
 export CB_STEP_TEST_CAPTURE="$CAPTURE"
 export CB_STEP_TEST_MARKER="$MARKER"
 export CB_STEP_TEST_VICTIM="$VICTIM"
+export CB_STEP_TEST_STDIN_CAPTURE="$STDIN_CAPTURE"
 
 SHA_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 REAL_MKDIR=$(command -v mkdir)
@@ -66,6 +71,13 @@ while [ "$#" -gt 0 ]; do
 done
 touch "$CB_STEP_TEST_MARKER"
 cp "$input" "$CB_STEP_TEST_CAPTURE"
+if [ "$(jq -r ".config.read_stdin // false" "$input")" = true ]; then
+  if IFS= read -r caller_input; then
+    printf "consumed:%s\n" "$caller_input" >"$CB_STEP_TEST_STDIN_CAPTURE"
+  else
+    printf "closed\n" >"$CB_STEP_TEST_STDIN_CAPTURE"
+  fi
+fi
 adapter_sleep=$(jq -r ".config.adapter_sleep // 0" "$input")
 [ "$adapter_sleep" -eq 0 ] || sleep "$adapter_sleep"
 adapter_exit=$(jq -r ".config.adapter_exit // 0" "$input")
@@ -106,23 +118,27 @@ write_config() {
     {
       schema:"combo.config/v1",
       adapters:{
-        fake:{argv:[$fake,"literal argument with spaces"],roles:["launcher","coder","reviewer","gate","cleaner"]}
+        launcher:{argv:[$fake,"literal argument with spaces"],roles:["launcher"]},
+        coder:{argv:[$fake,"literal argument with spaces"],roles:["coder"]},
+        reviewer:{argv:[$fake,"literal argument with spaces"],roles:["reviewer"]},
+        gate:{argv:[$fake,"literal argument with spaces"],roles:["gate"]},
+        cleaner:{argv:[$fake,"literal argument with spaces"],roles:["cleaner"]}
       },
       roles:{
-        launcher:{adapter:"fake",config:outcome("launch_ready";0;{
+        launcher:{adapter:"launcher",config:outcome("launch_ready";0;{
           worktree:"/worktree",branch:"combo/test",base_sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           runway_kind:"treehouse",lease_id:"test"
         })},
-        coder:{adapter:"fake",config:outcome("coder_ready";0;{
+        coder:{adapter:"coder",config:outcome("coder_ready";0;{
           sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",branch:"combo/test"
         })},
-        reviewers:[{id:"review-a",adapter:"fake",config:outcome("lgtm";0;{
+        reviewers:[{id:"review-a",adapter:"reviewer",config:outcome("lgtm";0;{
           sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         })}],
-        gate:{adapter:"fake",config:outcome("gate_ok";0;{
+        gate:{adapter:"gate",config:outcome("gate_ok";0;{
           outcome:"validated",sha:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         })},
-        cleaner:{adapter:"fake",config:outcome("cleaned";0;{})}
+        cleaner:{adapter:"cleaner",config:outcome("cleaned";0;{})}
       }
     }
   ' >"$path"
@@ -146,6 +162,16 @@ run_step() {
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
 }
 
+run_step_with_stdin() {
+  local stdin_value=$1 run=$2 step=$3 attempt=$4
+  shift 4
+  local errfile="$TMP_ROOT/.step.err"
+  CMD_STDOUT=$(printf '%s\n' "$stdin_value" \
+    | bash "$BIN/cb-step.sh" "$run" "$step" "$attempt" "$@" 2>"$errfile") \
+    && CMD_STATUS=0 || CMD_STATUS=$?
+  CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
+}
+
 result_mode() {
   stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
 }
@@ -158,7 +184,7 @@ file_digest() {
   fi
 }
 
-# -- 1/4 CORE · test_invokes_with_universal_envelope -- <- START HERE
+# -- 1/5 CORE · test_invokes_with_universal_envelope -- <- START HERE
 test_invokes_with_universal_envelope() {
   local run=step-envelope prior result input
   make_planned_run "$run"
@@ -179,7 +205,7 @@ test_invokes_with_universal_envelope() {
 
   jq -e --arg run "$run" --arg root "$RUNS_DIR/$run" --arg sha "$SHA_A" '
     .schema=="combo.step-input/v1" and
-    .run_id==$run and .step_id=="coder" and .adapter_id=="fake" and
+    .run_id==$run and .step_id=="coder" and .adapter_id=="coder" and
     .role=="coder" and .attempt==1 and .candidate_sha==$sha and
     .config.outcome.events[0].event=="coder_ready" and
     .prior_artifacts==[{id:"findings",path:"artifacts/findings.md"}] and
@@ -201,9 +227,27 @@ test_invokes_with_universal_envelope() {
   ' "$result" >/dev/null || fail "validated result should preserve normalized adapter output"
   pass "cb-step: invokes configured argv with an immutable universal envelope"
 }
-# -/ 1/4
+# -/ 1/5
 
-# -- 2/4 CORE · test_accepts_role_outcomes --
+# -- 2/5 CORE · test_closes_adapter_stdin --
+test_closes_adapter_stdin() {
+  local run=step-stdin-closed
+  make_planned_run "$run"
+  chmod u+w "$RUNS_DIR/$run/plan.json"
+  jq '(.steps[] | select(.id=="coder") | .config.read_stdin) = true' \
+    "$RUNS_DIR/$run/plan.json" >"$RUNS_DIR/$run/.plan.tmp"
+  mv "$RUNS_DIR/$run/.plan.tmp" "$RUNS_DIR/$run/plan.json"
+  chmod 0444 "$RUNS_DIR/$run/plan.json"
+
+  run_step_with_stdin caller-secret "$run" coder 1
+  expect_code 0 "$CMD_STATUS" "stdin-closing adapter invocation${CMD_STDERR:+: $CMD_STDERR}"
+  [ "$(cat "$STDIN_CAPTURE")" = closed ] \
+    || fail "cb-step must prevent adapters from consuming caller stdin"
+  pass "cb-step: closes adapter stdin at the universal process boundary"
+}
+# -/ 2/5
+
+# -- 3/5 CORE · test_accepts_role_outcomes --
 test_accepts_role_outcomes() {
   local run=step-role-outcomes spec step args result
   make_planned_run "$run"
@@ -265,9 +309,9 @@ cleaner|clean_failed|--candidate-sha $SHA_A
 EOF
   pass "cb-step: accepts only the role-specific 0/1 product outcome matrix"
 }
-# -/ 2/4
+# -/ 3/5
 
-# -- 3/4 CORE · test_normalizes_non_product_exits --
+# -- 4/5 CORE · test_normalizes_non_product_exits --
 test_normalizes_non_product_exits() {
   local run=step-technical result
   make_planned_run "$run"
@@ -354,9 +398,9 @@ test_normalizes_non_product_exits() {
   ' "$CMD_STDOUT" >/dev/null || fail "timeout should become a normalized cancellation"
   pass "cb-step: normalizes process errors, invalid outputs, cancellation, and timeout"
 }
-# -/ 3/4
+# -/ 4/5
 
-# -- 4/4 CORE · test_rejects_unsafe_invocations --
+# -- 5/5 CORE · test_rejects_unsafe_invocations --
 test_rejects_unsafe_invocations() {
   local run='step-directory-race' outside="$TMP_ROOT/outside"
   local fakebin="$TMP_ROOT/race-bin" barrier="$TMP_ROOT/mkdir-barrier"
@@ -477,9 +521,10 @@ exec \"$REAL_JQ\" \"\$@\"
     || fail "temp-path poisoning must still publish only the validated result"
   pass "cb-step: rejects unsafe artifacts, paths, attempts, collisions, and result poisoning"
 }
-# -/ 4/4
+# -/ 5/5
 
 test_invokes_with_universal_envelope
+test_closes_adapter_stdin
 test_accepts_role_outcomes
 test_normalizes_non_product_exits
 test_rejects_unsafe_invocations
