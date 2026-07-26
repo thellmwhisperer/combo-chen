@@ -7,7 +7,7 @@
 #   -------------
 #   1. Plan validation and publication guard <- freeze the traversal boundary.
 #   2. invoke_step and artifact helpers       <- universal adapter interaction.
-#   3. Coder/Reviewer loop                    <- sole backward transition.
+#   3. Coder/Reviewer loop                    <- same-input full-round fold.
 #   4. Gate, Cleaner, and result publication  <- preserve terminal + cleanup.
 #
 #   MAIN FLOW
@@ -256,13 +256,18 @@ while [ "$terminal_set" -eq 0 ]; do
 
   review_round=$((review_round + 1))
   needs_change=0
+  review_input_artifacts=$prior_artifacts
+  review_aggregate_artifacts=$prior_artifacts
   while IFS= read -r reviewer_step; do
     [ -n "$reviewer_step" ] || continue
     member=${reviewer_step#reviewer/}
+    prior_artifacts=$review_input_artifacts
     if invoke_step "$reviewer_step" "$review_round" "$candidate_sha"; then
+      prior_artifacts=$review_aggregate_artifacts
       merge_result_artifacts
       reviewer_class=$(jq -r '.exit_class' "$last_result")
       if [ "$reviewer_class" != completed ]; then
+        review_aggregate_artifacts=$prior_artifacts
         set_terminal_from_result reviewer
         terminal_set=1
         break
@@ -275,12 +280,15 @@ while [ "$terminal_set" -eq 0 ]; do
           add_findings_artifact "$member" "$review_round"
           ;;
       esac
+      review_aggregate_artifacts=$prior_artifacts
     else
+      prior_artifacts=$review_aggregate_artifacts
       set_invocation_failure reviewer
       terminal_set=1
       break
     fi
   done < <(jq -r '.steps[] | select(.role=="reviewer") | .id' "$plan")
+  prior_artifacts=$review_aggregate_artifacts
   [ "$terminal_set" -eq 0 ] || break
   [ "$needs_change" -eq 1 ] || break
   if [ "$review_round" -ge "$max_rounds" ]; then
