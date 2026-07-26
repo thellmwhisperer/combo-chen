@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # @overview Invoke one configured Combo adapter through the universal step
-#   envelope, then publish only a validated normalized result. The boundary
-#   owns process I/O, never interprets adapter stdout/stderr, and binds no tool
-#   or provider.
+#   envelope, selecting the Coder invocation for this attempt and reusing the
+#   final configured invocation for later corrections, then publish only a
+#   validated normalized result. The boundary owns process I/O, never
+#   interprets adapter stdout/stderr, and binds no tool or provider.
 #
 #   READING GUIDE
 #   -------------
-#   1. Plan and argument validation <- select one immutable configured step.
+#   1. Plan and argument validation <- select one immutable invocation.
 #   2. Artifact/path validation     <- contain every caller-controlled path.
 #   3. Input and argv execution     <- publish input, execute array without eval.
 #   4. Output normalization         <- enforce exit class and role outcome.
 #
 #   MAIN FLOW
 #   ---------
-#   run plan -> immutable input.json -> configured argv -> immutable result.json
+#   run plan -> selected invocation -> input.json -> argv -> result.json
 #
 #   PUBLIC API
 #   ----------
@@ -108,6 +109,23 @@ step_json=$(jq -c --arg id "$step_id" '
   if length==1 then .[0] else empty end
 ' "$plan")
 [ -n "$step_json" ] || fail_contract "step is not present in plan"
+if [ "$step_id" = coder ] \
+  && jq -e 'type=="object" and has("invocations")' \
+    <<<"$step_json" >/dev/null 2>&1; then
+  step_json=$(jq -c --argjson attempt "$attempt" '
+    . as $step |
+    if (.invocations | type=="array" and length>0) then
+      (.invocations | length) as $length |
+      ([($attempt - 1), ($length - 1)] | min) as $index |
+      .invocations[$index] as $invocation |
+      {id:$step.id,role:$step.role} + $invocation
+    else
+      empty
+    end
+  ' <<<"$step_json")
+  [ -n "$step_json" ] \
+    || fail_contract "Coder invocation list is invalid"
+fi
 if ! jq -e '
   def valid_id: type=="string" and test("^[a-z][a-z0-9._-]*$");
   def valid_role:
