@@ -142,6 +142,10 @@ validate_config() {
       (.id | valid_id) and
       (.adapter | valid_id) and
       (.config | type == "object");
+    def valid_reviewer_policy:
+      type == "object" and
+      keys == ["degraded"] and
+      (.degraded == "fail" or .degraded == "skip");
     def compatible($cfg; $binding; $role):
       ($cfg.adapters[$binding.adapter] != null) and
       (($cfg.adapters[$binding.adapter].roles | index($role)) != null);
@@ -149,8 +153,10 @@ validate_config() {
     try (
       . as $cfg |
       type == "object" and
-      keys == ["adapters","roles","schema"] and
+      (keys == ["adapters","roles","schema"] or
+       keys == ["adapters","reviewer","roles","schema"]) and
       .schema == "combo.config/v1" and
+      ((has("reviewer") | not) or (.reviewer | valid_reviewer_policy)) and
       (.adapters |
         type == "object" and length > 0 and
         all(to_entries[]; (.key | valid_id) and (.value | valid_adapter))) and
@@ -241,6 +247,9 @@ if jq -c \
         run_dir: $run_dir,
         artifacts_dir: $artifacts_dir,
         steps_dir: $steps_dir
+      },
+      reviewer: {
+        degraded: ($cfg.reviewer.degraded // "fail")
       },
       reviewer_count: ($cfg.roles.reviewers | length),
       steps: $steps

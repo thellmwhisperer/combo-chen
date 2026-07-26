@@ -9,7 +9,8 @@
 #   2. test_preserves_reviewers      <- isolated stdin cannot consume traversal.
 #   3. test_restarts_review_round    <- sole Coder loop and artifact routing.
 #   4. test_normalizes_terminal_paths <- technical error and cancellation.
-#   5. test_handles_plan_edges       <- zero reviewers and failed Gate cleanup.
+#   5. test_folds_reviewer_failures  <- configured hard-fail versus visible skip.
+#   6. test_handles_plan_edges       <- zero reviewers and failed Gate cleanup.
 #
 #   MAIN FLOW
 #   ---------
@@ -129,6 +130,15 @@ case "$role:$mode" in
       }" >"$output"
     fi
     ;;
+  reviewer:reviewer-technical)
+    if [ "$step" = reviewer/review-a ]; then
+      exit 42
+    fi
+    jq -n --arg sha "$candidate" "$base + {
+      exit_class:\"completed\",
+      events:[{code:0,event:\"lgtm\",payload:{sha:\$sha}}]
+    }" >"$output"
+    ;;
   reviewer:*)
     jq -n --arg sha "$candidate" "$base + {
       exit_class:\"completed\",
@@ -170,9 +180,13 @@ esac
 
 write_config() {
   local path=$1 mode=$2 reviewers=${3:-'["review-a","review-b"]'}
-  jq -n --arg fake "$FAKE" --arg mode "$mode" --argjson reviewers "$reviewers" '
+  local degraded=${4:-fail}
+  jq -n \
+    --arg fake "$FAKE" --arg mode "$mode" \
+    --argjson reviewers "$reviewers" --arg degraded "$degraded" '
     {
       schema:"combo.config/v1",
+      reviewer:{degraded:$degraded},
       adapters:{
         launcher:{argv:[$fake],roles:["launcher"]},
         coder:{argv:[$fake],roles:["coder"]},
@@ -195,9 +209,10 @@ write_config() {
 
 make_run() {
   local run=$1 mode=$2 reviewers=${3:-'["review-a","review-b"]'}
+  local degraded=${4:-fail}
   local run_dir="$RUNS_DIR/$run" config="$TMP_ROOT/$run.config.json"
   mkdir -p "$run_dir"
-  write_config "$config" "$mode" "$reviewers"
+  write_config "$config" "$mode" "$reviewers" "$degraded"
   bash "$BIN/cb-plan.sh" "$run" --config "$config" >/dev/null \
     || fail "could not compile fixture plan for $run"
 }
@@ -214,7 +229,7 @@ call_steps() {
   jq -Rrs '[split("\n")[] | fromjson? | .step_id] | join(",")' "$1"
 }
 
-# -- 1/5 CORE · test_runs_success_path -- <- START HERE
+# -- 1/6 CORE · test_runs_success_path -- <- START HERE
 test_runs_success_path() {
   local run=chain-success result calls before_result before_calls
   make_run "$run" success
@@ -231,6 +246,7 @@ test_runs_success_path() {
     .schema=="combo.chain-result/v1" and .run_id=="chain-success" and
     .exit_class=="completed" and .candidate_sha==$sha and
     .terminal=={role:"gate",code:0,event:"gate_ok"} and
+    .reviewer=={degraded:"fail",member_failures:[]} and
     .cleanup=={exit_class:"completed",code:0,event:"cleaned",reasons:[],errors:[]}
   ' "$result" >/dev/null || fail "success should publish the normalized Gate and Cleaner outcome"
   before_result=$(cat "$result")
@@ -243,9 +259,9 @@ test_runs_success_path() {
     || fail "an existing chain result must block before another adapter runs"
   pass "cb-chain: follows Launcher, Coder, every Reviewer, Gate, and Cleaner"
 }
-# -/ 1/5
+# -/ 1/6
 
-# -- 2/5 CORE · test_preserves_reviewers --
+# -- 2/6 CORE · test_preserves_reviewers --
 test_preserves_reviewers() {
   local run=chain-stdin-reader calls="$RUNS_DIR/chain-stdin-reader/calls.jsonl"
   make_run "$run" stdin-reader
@@ -256,9 +272,9 @@ test_preserves_reviewers() {
     || fail "adapters must not consume the Reviewer traversal stream"
   pass "cb-chain: preserves every Reviewer when adapters attempt to read stdin"
 }
-# -/ 2/5
+# -/ 2/6
 
-# -- 3/5 CORE · test_restarts_review_round --
+# -- 3/6 CORE · test_restarts_review_round --
 test_restarts_review_round() {
   local run=chain-correction calls="$RUNS_DIR/chain-correction/calls.jsonl"
   make_run "$run" correction
@@ -305,9 +321,9 @@ test_restarts_review_round() {
   ' "$calls" >/dev/null || fail "Gate should receive only the unanimously approved SHA"
   pass "cb-chain: loops only Reviewer needs-change back through Coder and restarts the full array"
 }
-# -/ 3/5
+# -/ 3/6
 
-# -- 4/5 CORE · test_normalizes_terminal_paths --
+# -- 4/6 CORE · test_normalizes_terminal_paths --
 test_normalizes_terminal_paths() {
   local run result
   run=chain-technical
@@ -357,9 +373,59 @@ test_normalizes_terminal_paths() {
     || fail "cancelled terminal and incomplete cleanup should both remain observable"
   pass "cb-chain: preserves normalized technical and cancelled terminal classes"
 }
-# -/ 4/5
+# -/ 4/6
 
-# -- 5/5 CORE · test_handles_plan_edges --
+# -- 5/6 CORE · test_folds_reviewer_failures --
+test_folds_reviewer_failures() {
+  local run result calls
+
+  run=chain-reviewer-fail
+  make_run "$run" reviewer-technical
+  run_chain "$run"
+  expect_code 70 "$CMD_STATUS" "default Reviewer technical failure"
+  result=$CMD_STDOUT
+  calls="$RUNS_DIR/$run/calls.jsonl"
+  [ "$(call_steps "$calls")" = \
+    "launcher,coder,reviewer/review-a,reviewer/review-b,cleaner" ] \
+    || fail "default failure policy should finish the Reviewer array before Cleaner"
+  jq -e --arg sha "$SHA_A" '
+    .exit_class=="technical_error" and
+    .terminal=={role:"reviewer",code:null,event:null} and
+    .errors==["review-a:adapter_exit:42"] and
+    .reviewer=={
+      degraded:"fail",
+      member_failures:[{
+        member:"review-a",round:1,sha:$sha,
+        skipped:false,errors:["adapter_exit:42"]
+      }]
+    } and .cleanup.event=="cleaned"
+  ' "$result" >/dev/null || fail "default policy should preserve the failed member and error"
+
+  run=chain-reviewer-skip
+  make_run "$run" reviewer-technical '["review-a","review-b"]' skip
+  run_chain "$run"
+  expect_code 0 "$CMD_STATUS" "configured Reviewer skip${CMD_STDERR:+: $CMD_STDERR}"
+  result=$CMD_STDOUT
+  calls="$RUNS_DIR/$run/calls.jsonl"
+  [ "$(call_steps "$calls")" = \
+    "launcher,coder,reviewer/review-a,reviewer/review-b,gate,cleaner" ] \
+    || fail "skip policy should keep the failed member visible and finish the array"
+  jq -e --arg sha "$SHA_A" '
+    .exit_class=="completed" and
+    .terminal=={role:"gate",code:0,event:"gate_ok"} and
+    .reviewer=={
+      degraded:"skip",
+      member_failures:[{
+        member:"review-a",round:1,sha:$sha,
+        skipped:true,errors:["adapter_exit:42"]
+      }]
+    }
+  ' "$result" >/dev/null || fail "skip policy should publish an explicit non-LGTM member failure"
+  pass "cb-chain: folds Reviewer technical failures through validated fail/skip policy"
+}
+# -/ 5/6
+
+# -- 6/6 CORE · test_handles_plan_edges --
 test_handles_plan_edges() {
   local run result
   run=chain-empty-reviewers
@@ -384,12 +450,13 @@ test_handles_plan_edges() {
   ' "$result" >/dev/null || fail "failed Gate and successful cleanup should both remain observable"
   pass "cb-chain: handles zero Reviewers and always cleans after terminal Gate"
 }
-# -/ 5/5
+# -/ 6/6
 
 test_runs_success_path
 test_preserves_reviewers
 test_restarts_review_round
 test_normalizes_terminal_paths
+test_folds_reviewer_failures
 test_handles_plan_edges
 
 printf '\nchain-state-machine: all tests passed\n'
