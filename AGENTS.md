@@ -118,11 +118,10 @@ the shared validation commands intentionally change.
 - Keep operational values configurable through env, TOML, then fallback.
 - Use focused tests for orchestration contracts and broaden only when shared
   behavior changes.
-- Validate with `pnpm test`, `pnpm typecheck`, `pnpm lint`, `pnpm lint:sh`,
-  `pnpm format:check`, `pnpm build`, `pnpm slop:check`, and
+- Validate with `tests/run.sh`, `shellcheck` (per `.no-mistakes.yaml` lint), and
   `git diff --check` before committing.
-- eslint exceptions live in `eslint.config.mjs`, never as inline
-  `eslint-disable` comments; prefer a compliant rewrite over any exception.
+- The Bash chain is tested with Bash: `tests/run.sh` runs `tests/*.test.sh`
+  serially. No Node/TypeScript/Vitest toolchain remains on this line.
 - Use short conventional commits. No co-authors.
 
 ## Sherpa Navigation
