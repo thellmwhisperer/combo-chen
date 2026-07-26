@@ -289,19 +289,21 @@ build_environment() {
 
 install_git_guard() {
   local guard=$invocation_root/git-guard
+  local real_git real_git_quoted
   real_git=$(command -v git)
+  printf -v real_git_quoted '%q' "$real_git"
   mkdir "$guard" 2>/dev/null || fail_contract "cannot create git guard" 73
+  git_guard=$guard
   (set -C; printf '%s\n' \
-    '#!/bin/sh' \
+    '#!/usr/bin/env bash' \
     'for argument do' \
     '  [ "$argument" != push ] || exit 1' \
     'done' \
-    'exec "$COMBO_CODER_REAL_GIT" "$@"' \
+    "exec $real_git_quoted \"\$@\"" \
     >"$guard/git") 2>/dev/null \
     || fail_contract "cannot install git guard" 73
-  chmod 0555 "$guard/git" \
+  chmod 0555 "$guard/git" "$guard" \
     || fail_contract "cannot protect git guard" 73
-  git_guard=$guard
 }
 
 tool_argv=()
@@ -329,7 +331,6 @@ tool_environment+=(
   "COMBO_CODER_ADAPTER_ID=$adapter"
   "COMBO_CODER_STEP_INPUT=$input"
   "COMBO_CODER_WORKTREE=$worktree"
-  "COMBO_CODER_REAL_GIT=$real_git"
 )
 
 set +e
