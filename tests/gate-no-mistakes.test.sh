@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the P7 No-Mistakes Gate adapter. Proves the
 #   universal P4 envelope reaches a Gate that seals the Launcher-owned exact
-#   branch/head, builds documented axi argv, normalizes terminal outcomes, and
-#   replays durable invocation/terminal seals without starting a duplicate
-#   delivery.
+#   branch/head, records the configured Pi/DeepSeek identity plus the observed
+#   No-Mistakes version/AXI help contract, builds documented axi argv, normalizes
+#   terminal outcomes, and replays durable invocation/terminal seals without
+#   starting a duplicate delivery.
 #
 #   READING GUIDE
 #   -------------
 #   1. test_validates_exact_sha     <- canonical validated-mode invocation.
-#   2. test_rejects_candidate_drift <- no Gate call after the reviewed SHA moves.
-#   3. test_maps_terminal_outcomes  <- passed, failed, and cancelled normalization.
-#   4. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
-#   5. test_replays_terminal_seal   <- idempotent terminal recovery.
-#   6. test_adopts_interrupted_run   <- retry one sealed in-progress invocation.
-#   7. test_serializes_global_gate   <- cross-run exclusion and stale recovery.
+#   2. test_seals_configured_identity <- immutable runtime/model + AXI surface.
+#   3. test_rejects_candidate_drift <- no Gate call after the reviewed SHA moves.
+#   4. test_maps_terminal_outcomes  <- passed, failed, and cancelled normalization.
+#   5. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
+#   6. test_replays_terminal_seal   <- idempotent terminal recovery.
+#   7. test_adopts_interrupted_run   <- retry one sealed in-progress invocation.
+#   8. test_serializes_global_gate   <- cross-run exclusion and stale recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -79,6 +81,40 @@ exit 99
 
 cb_write_fake "$FAKE_NM" '#!/usr/bin/env bash
 set -u
+if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
+  printf "%s\n" "no-mistakes version v-test (fake)"
+  exit 0
+fi
+if [ "$#" -eq 3 ] && [ "$1" = axi ] && [ "$3" = --help ]; then
+  case "$2" in
+    run)
+      cat <<EOF
+Usage:
+  no-mistakes axi run [flags]
+      --intent string
+      --skip string
+  -y, --yes
+EOF
+      ;;
+    status)
+      cat <<EOF
+Usage:
+  no-mistakes axi status [flags]
+      --run string
+EOF
+      ;;
+    respond)
+      cat <<EOF
+Usage:
+  no-mistakes axi respond [flags]
+      --action string
+  -y, --yes
+EOF
+      ;;
+    *) exit 64 ;;
+  esac
+  exit 0
+fi
 : >"$CB_GATE_TEST_ARGV"
 for argument in "$@"; do
   printf "%s\n" "$argument" >>"$CB_GATE_TEST_ARGV"
@@ -164,8 +200,10 @@ write_config() {
           gate:{
             adapter:"gate",
             config:{
-              schema:"combo.gate.no-mistakes/v0",
+              schema:"combo.gate.no-mistakes/v1",
               binary:$nm,
+              runtime:"pi",
+              model:"deepseek/deepseek-v4-pro",
               arguments:$arguments,
               intent:"validate exact candidate",
               approval:"auto",
@@ -234,7 +272,7 @@ wait_for_path() {
   done
 }
 
-# -- 1/7 CORE · test_validates_exact_sha -- <- START HERE
+# -- 1/8 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -286,9 +324,62 @@ test_validates_exact_sha() {
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/7
+# -/ 1/8
 
-# -- 2/7 CORE · test_rejects_candidate_drift --
+# -- 2/8 CORE · test_seals_configured_identity --
+test_seals_configured_identity() {
+  local run=gate-configured-identity result invocation poison
+  rm -f "$NM_ACTIVE" "$NM_CALLS" "$NM_STARTS" "$NM_ATTACHES"
+  make_run "$run" interrupt-once
+
+  run_gate "$run" "$RUN_HEAD" 1
+  expect_code 0 "$CMD_STATUS" \
+    "configured identity interruption${CMD_STDERR:+: $CMD_STDERR}"
+  result=$CMD_STDOUT
+  jq -e '
+    (.exit_class=="cancelled" and
+      (.reasons==["adapter_exit:130"] or .reasons==["adapter_exit:143"])) or
+    (.exit_class=="technical_error" and
+      (.errors[0] | test("^adapter_exit:[1-9][0-9]*$")))
+  ' "$result" >/dev/null \
+    || fail "identity fixture should stop after sealing its in-progress invocation"
+
+  invocation="$RUNS_DIR/$run/artifacts/gate/invocation.json"
+  jq -e '
+    .schema=="combo.gate-invocation/v2" and
+    .preflight.runtime=="pi" and
+    .preflight.model=="deepseek/deepseek-v4-pro" and
+    .preflight.version=="no-mistakes version v-test (fake)" and
+    (.preflight.axi_run_help | contains("no-mistakes axi run")) and
+    (.preflight.axi_run_help | contains("--intent")) and
+    (.preflight.axi_run_help | contains("--yes")) and
+    (.preflight.axi_run_help | contains("--auto-merge") | not) and
+    (.preflight.axi_status_help | contains("no-mistakes axi status")) and
+    (.preflight.axi_respond_help | contains("no-mistakes axi respond")) and
+    (.argv | index("--model") | not) and
+    (.argv | index("deepseek/deepseek-v4-pro") | not)
+  ' "$invocation" >/dev/null \
+    || fail "invocation seal should bind configured identity and observed AXI surface"
+
+  poison="$invocation.poison"
+  jq '.preflight.model="other/model"' "$invocation" >"$poison"
+  chmod 0444 "$poison"
+  mv -f "$poison" "$invocation"
+  run_gate "$run" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "poisoned configured identity${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:73"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "a changed runtime/model seal must fail closed before reattachment"
+  [ "$(wc -l <"$NM_CALLS" | tr -d ' ')" = 1 ] \
+    || fail "identity mismatch must not start or attach another No-Mistakes run"
+  pass "Gate seals configured runtime/model identity and the supported AXI surface"
+}
+# -/ 2/8
+
+# -- 3/8 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -310,9 +401,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 2/7
+# -/ 3/8
 
-# -- 3/7 CORE · test_maps_terminal_outcomes --
+# -- 4/8 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -349,9 +440,9 @@ test_maps_terminal_outcomes() {
   ' "$result" >/dev/null || fail "cancelled should remain a universal cancelled exit"
   pass "Gate maps documented passed, failed, and cancelled outcomes"
 }
-# -/ 3/7
+# -/ 4/8
 
-# -- 4/7 CORE · test_guards_argument_edges --
+# -- 5/8 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -385,9 +476,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 4/7
+# -/ 5/8
 
-# -- 5/7 CORE · test_replays_terminal_seal --
+# -- 6/8 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -453,9 +544,9 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 5/7
+# -/ 6/8
 
-# -- 6/7 CORE · test_adopts_interrupted_run --
+# -- 7/8 CORE · test_adopts_interrupted_run --
 test_adopts_interrupted_run() {
   local run=gate-interrupted-recovery first_result second_result invocation
   local invocation_before invocation_after invocation_mode terminal
@@ -484,10 +575,12 @@ test_adopts_interrupted_run() {
   jq -e \
     --arg sha "$RUN_HEAD" --arg branch "$RUN_BRANCH" \
     --arg worktree "$RUN_REPO" --arg binary "$FAKE_NM" '
-      .schema=="combo.gate-invocation/v1" and
+      .schema=="combo.gate-invocation/v2" and
       .run_id=="gate-interrupted-recovery" and
       .branch==$branch and .worktree==$worktree and .candidate_sha==$sha and
       .initial_attempt==1 and .binary==$binary and
+      .preflight.runtime=="pi" and
+      .preflight.model=="deepseek/deepseek-v4-pro" and
       .argv==[
         "axi","run","--intent","validate exact candidate",
         "--fake-outcome=interrupt-once","--yes"
@@ -534,9 +627,9 @@ test_adopts_interrupted_run() {
     || fail "recovered terminal seal should bind the adopted run and its receipt"
   pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
 }
-# -/ 6/7
+# -/ 7/8
 
-# -- 7/7 CORE · test_serializes_global_gate --
+# -- 8/8 CORE · test_serializes_global_gate --
 test_serializes_global_gate() {
   local first=gate-serial-first second=gate-serial-second stale=gate-serial-stale
   local first_repo first_head first_branch second_repo second_head second_branch
@@ -640,9 +733,10 @@ test_serializes_global_gate() {
     || fail "serialization fixture must use independently isolated worktrees"
   pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
 }
-# -/ 7/7
+# -/ 8/8
 
 test_validates_exact_sha
+test_seals_configured_identity
 test_rejects_candidate_drift
 test_maps_terminal_outcomes
 test_guards_argument_edges

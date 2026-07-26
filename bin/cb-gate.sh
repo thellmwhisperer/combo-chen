@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 # @overview P7 No-Mistakes Gate adapter for the universal P4 envelope. It
 #   verifies the Launcher-owned exact candidate before and after one documented
-#   axi invocation, seals its effective binary/argv before launch, serializes
-#   that invocation through a host-global lease with run-local evidence, adopts
-#   the same invocation after interruption, and seals/replays the typed terminal
-#   outcome without duplicating delivery. Merge authority is a later P7 slice,
-#   so this version accepts manual merge mode only.
+#   axi invocation, records the observed No-Mistakes version/help surface,
+#   seals configured runtime/model plus effective binary/argv before launch,
+#   serializes that invocation through a host-global lease with run-local
+#   evidence, adopts the same invocation after interruption, and seals/replays
+#   the typed terminal outcome without duplicating delivery. Merge authority is
+#   a later P7 slice, so this version accepts manual merge mode only.
 #
 #   READING GUIDE
 #   -------------
 #   1. Universal input validation <- contain paths and freeze adapter config.
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
-#   3. Invocation/terminal replay <- seal or adopt one documented axi run.
+#   3. Invocation/terminal replay <- freeze identity and one documented axi run.
 #   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
 #   5. Terminal normalization     <- exact identity plus passed/failed/cancelled.
 #
 #   MAIN FLOW
 #   ---------
-#   input -> exact custody -> replay | sealed axi -> global lease -> result
+#   input -> exact custody -> replay | identity + sealed axi -> lease -> result
 #
 #   PUBLIC API
 #   ----------
@@ -27,6 +28,7 @@
 #   ---------
 #   usage, fail_contract, publish_result, publish_gate_failed,
 #   verify_candidate, toon_scalar, publish_terminal_result,
+#   capture_no_mistakes_probe, validate_no_mistakes_preflight,
 #   validate_invocation, validate_lease_owner, reclaim_stale_lease
 #
 # @exports none
@@ -138,10 +140,13 @@ if ! jq -e '
   (.config |
     type=="object" and
     keys==[
-      "approval","arguments","binary","intent","merge","review","schema"
+      "approval","arguments","binary","intent","merge","model","review",
+      "runtime","schema"
     ] and
-    .schema=="combo.gate.no-mistakes/v0" and
+    .schema=="combo.gate.no-mistakes/v1" and
     (.binary|clean_string) and
+    (.runtime|clean_string) and
+    (.model|clean_string) and
     (.arguments|clean_strings) and
     (.intent|clean_string) and
     (.approval=="auto" or .approval=="manual") and
@@ -154,6 +159,8 @@ fi
 run=$(jq -r '.run_id' "$input")
 attempt=$(jq -r '.attempt' "$input")
 candidate_sha=$(jq -r '.candidate_sha' "$input")
+nm_runtime=$(jq -r '.config.runtime' "$input")
+nm_model=$(jq -r '.config.model' "$input")
 run_dir=$(jq -r '.paths.run_dir' "$input")
 invocation_dir=$(jq -r '.paths.invocation_dir' "$input")
 declared_input=$(jq -r '.paths.input_path' "$input")
@@ -434,6 +441,41 @@ validate_lease_evidence() {
     ' "$path" >/dev/null 2>&1
 }
 
+validate_no_mistakes_preflight() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e \
+    --arg runtime "$nm_runtime" --arg model "$nm_model" '
+      def clean:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      def clean_multiline:
+        type=="string" and length>0 and
+        (explode | all(.[]; .==9 or .==10 or (.>=32 and .!=127)));
+      type=="object" and
+      keys==[
+        "axi_respond_help","axi_run_help","axi_status_help","model",
+        "runtime","version"
+      ] and
+      .runtime==$runtime and .model==$model and
+      (.runtime|clean) and (.model|clean) and
+      (.version|clean_multiline) and
+      (.axi_run_help|clean_multiline) and
+      (.axi_status_help|clean_multiline) and
+      (.axi_respond_help|clean_multiline) and
+      (.version|contains("no-mistakes version")) and
+      (.axi_run_help|contains("no-mistakes axi run")) and
+      (.axi_run_help|contains("--intent")) and
+      (.axi_run_help|contains("--skip")) and
+      (.axi_run_help|contains("--yes")) and
+      ((.axi_run_help|contains("--auto-merge"))|not) and
+      (.axi_status_help|contains("no-mistakes axi status")) and
+      (.axi_status_help|contains("--run")) and
+      (.axi_respond_help|contains("no-mistakes axi respond")) and
+      (.axi_respond_help|contains("--action")) and
+      (.axi_respond_help|contains("--yes"))
+    ' >/dev/null 2>&1
+}
+
 invocation_rel=artifacts/gate/invocation.json
 invocation=$run_root/$invocation_rel
 invocation_tmp=$gate_artifacts/.invocation.json.tmp.$$
@@ -531,7 +573,9 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
     || fail_contract "Gate invocation seal is missing or unsafe" 73
   [ "$(realpath "$invocation" 2>/dev/null)" = "$invocation" ] \
     || fail_contract "Gate invocation seal path must be canonical" 73
-  if ! jq -e \
+  terminal_invocation_json=$(jq -c '.' "$invocation" 2>/dev/null) \
+    || fail_contract "invalid Gate invocation seal" 73
+  if ! printf '%s\n' "$terminal_invocation_json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --argjson attempt "$attempt" '
       def clean:
@@ -539,19 +583,25 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         (explode | all(.[]; .>=32 and .!=127));
       type=="object" and
       keys==[
-        "argv","binary","branch","candidate_sha","initial_attempt",
+        "argv","binary","branch","candidate_sha","initial_attempt","preflight",
         "run_id","schema","worktree"
       ] and
-      .schema=="combo.gate-invocation/v1" and
+      .schema=="combo.gate-invocation/v2" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and
       (.initial_attempt |
         type=="number" and floor==. and .>0 and .<=$attempt) and
       (.binary|clean) and
-      (.argv|type=="array" and length>0 and all(.[]; clean))
-    ' "$invocation" >/dev/null 2>&1; then
+      (.argv|type=="array" and length>0 and all(.[]; clean)) and
+      (.preflight|type=="object")
+    ' >/dev/null 2>&1; then
     fail_contract "invalid Gate invocation seal" 73
   fi
+  terminal_preflight_json=$(printf '%s\n' "$terminal_invocation_json" |
+    jq -c '.preflight') \
+    || fail_contract "invalid Gate invocation preflight" 73
+  validate_no_mistakes_preflight "$terminal_preflight_json" \
+    || fail_contract "invalid Gate invocation preflight" 73
   terminal_lease_rel=$(printf '%s\n' "$terminal_json" | jq -r '.lease')
   terminal_lease=$run_root/$terminal_lease_rel
   [ -f "$terminal_lease" ] && [ ! -L "$terminal_lease" ] \
@@ -589,6 +639,64 @@ case "$binary" in
       || fail_contract "No-Mistakes binary is unavailable" 73
     ;;
 esac
+
+capture_no_mistakes_probe() {
+  local label=$1 value status
+  shift
+  set +e
+  value=$("$binary_path" "$@")
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] \
+    || fail_contract "No-Mistakes $label probe failed" 73
+  [ -n "$value" ] \
+    || fail_contract "No-Mistakes $label probe returned no evidence" 73
+  printf '%s' "$value"
+}
+
+nm_version=$(capture_no_mistakes_probe version --version)
+nm_axi_run_help=$(capture_no_mistakes_probe "axi run help" axi run --help)
+nm_axi_status_help=$(capture_no_mistakes_probe "axi status help" axi status --help)
+nm_axi_respond_help=$(capture_no_mistakes_probe \
+  "axi respond help" axi respond --help)
+case "$nm_version" in
+  *"no-mistakes version"*) ;;
+  *) fail_contract "No-Mistakes version evidence is unrecognized" 73 ;;
+esac
+case "$nm_axi_run_help" in
+  *"no-mistakes axi run"*"--intent"*"--skip"*"--yes"*) ;;
+  *) fail_contract "No-Mistakes axi run surface is unsupported" 73 ;;
+esac
+case "$nm_axi_run_help" in
+  *"--auto-merge"*)
+    fail_contract "No-Mistakes axi run unexpectedly exposes --auto-merge" 73
+    ;;
+esac
+case "$nm_axi_status_help" in
+  *"no-mistakes axi status"*"--run"*) ;;
+  *) fail_contract "No-Mistakes axi status surface is unsupported" 73 ;;
+esac
+case "$nm_axi_respond_help" in
+  *"no-mistakes axi respond"*"--action"*"--yes"*) ;;
+  *) fail_contract "No-Mistakes axi respond surface is unsupported" 73 ;;
+esac
+
+preflight_json=$(jq -cn \
+  --arg runtime "$nm_runtime" --arg model "$nm_model" \
+  --arg version "$nm_version" --arg run_help "$nm_axi_run_help" \
+  --arg status_help "$nm_axi_status_help" \
+  --arg respond_help "$nm_axi_respond_help" '
+    {
+      runtime:$runtime,
+      model:$model,
+      version:$version,
+      axi_run_help:$run_help,
+      axi_status_help:$status_help,
+      axi_respond_help:$respond_help
+    }
+  ') || fail_contract "cannot freeze No-Mistakes preflight" 73
+validate_no_mistakes_preflight "$preflight_json" \
+  || fail_contract "invalid No-Mistakes preflight evidence" 73
 
 approval=$(jq -r '.config.approval' "$input")
 review=$(jq -r '.config.review' "$input")
@@ -654,18 +762,20 @@ validate_invocation() {
   printf '%s\n' "$json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --arg binary "$binary_path" \
-    --argjson attempt "$attempt" --argjson argv "$nm_args_json" '
+    --argjson attempt "$attempt" --argjson argv "$nm_args_json" \
+    --argjson preflight "$preflight_json" '
       def clean:
         type=="string" and length>0 and
         (explode | all(.[]; .>=32 and .!=127));
       type=="object" and
       keys==[
-        "argv","binary","branch","candidate_sha","initial_attempt",
+        "argv","binary","branch","candidate_sha","initial_attempt","preflight",
         "run_id","schema","worktree"
       ] and
-      .schema=="combo.gate-invocation/v1" and
+      .schema=="combo.gate-invocation/v2" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .binary==$binary and .argv==$argv and
+      .preflight==$preflight and
       (.initial_attempt |
         type=="number" and floor==. and .>0 and .<=$attempt) and
       (.binary|clean) and
@@ -682,16 +792,18 @@ else
   invocation_json=$(jq -cn \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --arg binary "$binary_path" \
-    --argjson attempt "$attempt" --argjson argv "$nm_args_json" '
+    --argjson attempt "$attempt" --argjson argv "$nm_args_json" \
+    --argjson preflight "$preflight_json" '
       {
-        schema:"combo.gate-invocation/v1",
+        schema:"combo.gate-invocation/v2",
         run_id:$run,
         branch:$branch,
         worktree:$worktree,
         candidate_sha:$sha,
         initial_attempt:$attempt,
         binary:$binary,
-        argv:$argv
+        argv:$argv,
+        preflight:$preflight
       }
     ')
   set -C
