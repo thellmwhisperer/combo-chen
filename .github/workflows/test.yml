@@ -1,0 +1,37 @@
+name: test
+
+on:
+  push:
+    branches: [main-combo-v1]
+  pull_request:
+    branches: [main-combo-v1]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    # Hang tripwire — not a per-test budget. The healthy suite runs in ~48s
+    # locally; 10x that is ~8 min. Rounded up to absorb CI runner variance and
+    # tmux-real timing so a genuine hang fails loudly instead of riding GitHub's
+    # 360-minute default. No per-test or per-suite timeout constants exist in
+    # the test code.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify required tools
+        run: |
+          command -v tmux >/dev/null || { echo "::error::tmux is required"; exit 1; }
+          command -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }
+          command -v shellcheck >/dev/null || { echo "::error::shellcheck is required"; exit 1; }
+          tmux -V
+          jq --version
+          shellcheck --version
+      - name: Run ShellCheck
+        run: shellcheck --severity=warning --exclude=SC2154,SC2034 bin/cb-*.sh tests/run.sh tests/lib.sh tests/*.test.sh
+      - run: tests/run.sh
