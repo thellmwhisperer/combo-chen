@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # @overview P7 No-Mistakes Gate adapter for the universal P4 envelope. It
 #   verifies the Launcher-owned exact candidate before and after one documented
-#   axi invocation, seals its effective binary/argv before launch, adopts that
-#   same invocation after interruption, and seals/replays the typed terminal
+#   axi invocation, seals its effective binary/argv before launch, serializes
+#   that invocation through a host-global lease with run-local evidence, adopts
+#   the same invocation after interruption, and seals/replays the typed terminal
 #   outcome without duplicating delivery. Merge authority is a later P7 slice,
 #   so this version accepts manual merge mode only.
 #
@@ -11,11 +12,12 @@
 #   1. Universal input validation <- contain paths and freeze adapter config.
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
 #   3. Invocation/terminal replay <- seal or adopt one documented axi run.
-#   4. Terminal normalization     <- exact identity plus passed/failed/cancelled.
+#   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
+#   5. Terminal normalization     <- exact identity plus passed/failed/cancelled.
 #
 #   MAIN FLOW
 #   ---------
-#   step input -> exact custody -> terminal replay | sealed axi run -> result
+#   input -> exact custody -> replay | sealed axi -> global lease -> result
 #
 #   PUBLIC API
 #   ----------
@@ -25,10 +27,11 @@
 #   ---------
 #   usage, fail_contract, publish_result, publish_gate_failed,
 #   verify_candidate, toon_scalar, publish_terminal_result,
-#   validate_invocation
+#   validate_invocation, validate_lease_owner, reclaim_stale_lease
 #
 # @exports none
-# @deps bash, git, jq, realpath, no-mistakes-compatible configured binary
+# @deps bash, date, git, jq, od, realpath, sleep, stat, touch, tr,
+#   no-mistakes-compatible configured binary
 set -euo pipefail
 
 usage() {
@@ -72,16 +75,37 @@ terminal_tmp=
 terminal_tmp_owned=0
 invocation_tmp=
 invocation_tmp_owned=0
+lease_tmp=
+lease_tmp_owned=0
+gate_lease_lock=
+gate_lease_owner=
+gate_lease_owner_json=
+gate_lease_owned=0
+gate_lease_heartbeat_pid=
 cleanup() {
+  local current_owner
   [ "$output_tmp_owned" -eq 0 ] || rm -f -- "$output_tmp"
   [ "$receipt_tmp_owned" -eq 0 ] || rm -f -- "$receipt_tmp"
   [ "$terminal_tmp_owned" -eq 0 ] || rm -f -- "$terminal_tmp"
   [ "$invocation_tmp_owned" -eq 0 ] || rm -f -- "$invocation_tmp"
+  [ "$lease_tmp_owned" -eq 0 ] || rm -f -- "$lease_tmp"
+  if [ -n "$gate_lease_heartbeat_pid" ]; then
+    kill "$gate_lease_heartbeat_pid" 2>/dev/null || true
+    wait "$gate_lease_heartbeat_pid" 2>/dev/null || true
+    gate_lease_heartbeat_pid=
+  fi
+  if [ "$gate_lease_owned" -eq 1 ]; then
+    current_owner=$(cat "$gate_lease_owner" 2>/dev/null || true)
+    if [ "$current_owner" = "$gate_lease_owner_json" ]; then
+      rm -f -- "$gate_lease_owner"
+      rmdir "$gate_lease_lock" 2>/dev/null || true
+    fi
+  fi
 }
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
-# -- 1/4 CORE · Validate universal input and contained output -- <- START HERE
+# -- 1/5 CORE · Validate universal input and contained output -- <- START HERE
 [ -f "$input" ] && [ ! -L "$input" ] \
   || fail_contract "input is missing or unsafe" 73
 input_real=$(realpath "$input" 2>/dev/null) \
@@ -159,7 +183,7 @@ case "$invocation_dir" in "$run_root"/steps/*/attempt-"$attempt") ;; *) fail_con
 output_tmp=$invocation_dir/.adapter-output.json.tmp.$$
 [ ! -e "$output_tmp" ] && [ ! -L "$output_tmp" ] \
   || fail_contract "output staging path already exists" 73
-# -/ 1/4
+# -/ 1/5
 
 publish_result() {
   local json=$1
@@ -228,15 +252,18 @@ toon_scalar() {
 }
 
 publish_terminal_result() {
-  local terminal_json=$1 terminal_receipt terminal_result terminal_artifacts
+  local terminal_json=$1 terminal_lease terminal_receipt terminal_result
+  local terminal_artifacts
+  terminal_lease=$(printf '%s\n' "$terminal_json" | jq -r '.lease')
   terminal_receipt=$(printf '%s\n' "$terminal_json" |
     jq -r '.no_mistakes.receipt')
   terminal_result=$(printf '%s\n' "$terminal_json" | jq -c '.result')
   terminal_artifacts=$(jq -cn \
-    --arg invocation "$invocation_rel" \
+    --arg invocation "$invocation_rel" --arg lease "$terminal_lease" \
     --arg receipt "$terminal_receipt" --arg terminal "$terminal_rel" '
       [
         {id:"gate-invocation",path:$invocation},
+        {id:"gate-lease",path:$lease},
         {id:"no-mistakes-outcome",path:$receipt},
         {id:"gate-terminal",path:$terminal}
       ]
@@ -262,7 +289,7 @@ publish_terminal_result() {
   )"
 }
 
-# -- 2/4 CORE · Verify Launcher custody and the exact reviewed candidate --
+# -- 2/5 CORE · Verify Launcher custody and the exact reviewed candidate --
 ownership=$run_root/agents/launcher.ownership.json
 [ -f "$ownership" ] && [ ! -L "$ownership" ] \
   || fail_contract "Launcher ownership is missing or unsafe" 73
@@ -316,9 +343,9 @@ if ! verify_candidate; then
   publish_gate_failed candidate_head_changed
   exit 0
 fi
-# -/ 2/4
+# -/ 2/5
 
-# -- 3/4 CORE · Replay a terminal seal or invoke documented No-Mistakes argv --
+# -- 3/5 CORE · Replay terminal state or seal one No-Mistakes invocation --
 artifacts_dir=$run_root/artifacts
 [ -d "$artifacts_dir" ] && [ ! -L "$artifacts_dir" ] \
   || fail_contract "artifacts directory is missing or unsafe" 73
@@ -333,6 +360,79 @@ fi
   || fail_contract "Gate artifacts directory is unsafe" 73
 [ "$(realpath "$gate_artifacts" 2>/dev/null)" = "$gate_artifacts" ] \
   || fail_contract "Gate artifacts directory path must be canonical" 73
+
+validate_lease_owner() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e '
+    def sha:
+      type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    type=="object" and
+    keys==[
+      "acquired_at","adapter","attempt","branch","candidate_sha","pid",
+      "run_id","schema","scope","token","worktree"
+    ] and
+    .schema=="combo.gate-lease-owner/v1" and
+    .scope=="host-global" and .adapter=="no-mistakes" and
+    (.run_id|type=="string" and test("^[a-z0-9-]+$")) and
+    (.branch|clean) and (.worktree|clean) and (.candidate_sha|sha) and
+    (.attempt|type=="number" and floor==. and .>0) and
+    (.pid|type=="number" and floor==. and .>0) and
+    (.token|type=="string" and test("^[A-Za-z0-9_-]+$")) and
+    (.acquired_at|type=="number" and floor==. and .>=0)
+  ' >/dev/null 2>&1
+}
+
+validate_lease_evidence() {
+  local path=$1 maximum_attempt=$2
+  jq -e \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" --argjson maximum "$maximum_attempt" '
+      def sha:
+        type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+      def clean:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      def owner:
+        type=="object" and
+        keys==[
+          "acquired_at","adapter","attempt","branch","candidate_sha","pid",
+          "run_id","schema","scope","token","worktree"
+        ] and
+        .schema=="combo.gate-lease-owner/v1" and
+        .scope=="host-global" and .adapter=="no-mistakes" and
+        (.run_id|type=="string" and test("^[a-z0-9-]+$")) and
+        (.branch|clean) and (.worktree|clean) and (.candidate_sha|sha) and
+        (.attempt|type=="number" and floor==. and .>0) and
+        (.pid|type=="number" and floor==. and .>0) and
+        (.token|type=="string" and test("^[A-Za-z0-9_-]+$")) and
+        (.acquired_at|type=="number" and floor==. and .>=0);
+      type=="object" and
+      keys==[
+        "acquired_at","adapter","attempt","branch","candidate_sha","pid",
+        "recovered_from","run_id","schema","scope","state","token","worktree"
+      ] and
+      .schema=="combo.gate-lease/v1" and
+      .scope=="host-global" and .adapter=="no-mistakes" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and
+      (.attempt |
+        type=="number" and floor==. and .>0 and .<=$maximum) and
+      (.pid|type=="number" and floor==. and .>0) and
+      (.token|type=="string" and test("^[A-Za-z0-9_-]+$")) and
+      (.acquired_at|type=="number" and floor==. and .>=0) and
+      if .state=="acquired" then
+        .recovered_from==null
+      elif .state=="recovered" then
+        (.recovered_from|owner) or
+        (.recovered_from |
+          type=="object" and keys==["state"] and
+          (.state=="ownerless" or .state=="malformed"))
+      else false end
+    ' "$path" >/dev/null 2>&1
+}
 
 invocation_rel=artifacts/gate/invocation.json
 invocation=$run_root/$invocation_rel
@@ -359,12 +459,15 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       . as $terminal |
       type=="object" and
       keys==[
-        "branch","candidate_sha","invocation","no_mistakes",
+        "branch","candidate_sha","invocation","lease","no_mistakes",
         "normalized_outcome","result","run_id","schema","worktree"
       ] and
       .schema=="combo.gate-terminal/v1" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .invocation==$invocation and
+      (.lease |
+        type=="string" and
+        test("^artifacts/gate/no-mistakes-lease-attempt-[1-9][0-9]*\\.json$")) and
       (.normalized_outcome |
         .=="validated" or .=="failed" or .=="cancelled") and
       (.no_mistakes |
@@ -449,6 +552,14 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
     ' "$invocation" >/dev/null 2>&1; then
     fail_contract "invalid Gate invocation seal" 73
   fi
+  terminal_lease_rel=$(printf '%s\n' "$terminal_json" | jq -r '.lease')
+  terminal_lease=$run_root/$terminal_lease_rel
+  [ -f "$terminal_lease" ] && [ ! -L "$terminal_lease" ] \
+    || fail_contract "Gate terminal lease evidence is missing or unsafe" 73
+  [ "$(realpath "$terminal_lease" 2>/dev/null)" = "$terminal_lease" ] \
+    || fail_contract "Gate terminal lease evidence path must be canonical" 73
+  validate_lease_evidence "$terminal_lease" "$attempt" \
+    || fail_contract "invalid Gate terminal lease evidence" 73
   terminal_receipt_rel=$(printf '%s\n' "$terminal_json" |
     jq -r '.no_mistakes.receipt')
   terminal_receipt=$run_root/$terminal_receipt_rel
@@ -622,6 +733,245 @@ sealed_expected=$(printf '%s\n' "$invocation_json" | jq -r '.argv | length')
 [ "${#sealed_args[@]}" -eq "$sealed_expected" ] \
   || fail_contract "sealed No-Mistakes argv was truncated" 73
 
+# -/ 3/5
+
+# -- 4/5 CORE · Serialize the shared No-Mistakes runtime and invoke it --
+gate_leases_dir=${CB_GATE_LEASES_DIR:-"$HOME/.combo-chen/gate-v1-leases"}
+case "$gate_leases_dir" in
+  /*) ;;
+  *) fail_contract "Gate leases directory must be absolute" ;;
+esac
+if ! mkdir -p "$gate_leases_dir" 2>/dev/null; then
+  fail_contract "cannot create Gate leases directory" 73
+fi
+[ -d "$gate_leases_dir" ] && [ ! -L "$gate_leases_dir" ] \
+  || fail_contract "Gate leases directory is unsafe" 73
+[ "$(realpath "$gate_leases_dir" 2>/dev/null)" = "$gate_leases_dir" ] \
+  || fail_contract "Gate leases directory path must be canonical" 73
+
+lease_wait_seconds=${CB_GATE_LEASE_WAIT_SECONDS:-300}
+lease_stale_seconds=${CB_GATE_LEASE_STALE_SECONDS:-1800}
+lease_heartbeat_seconds=${CB_GATE_LEASE_HEARTBEAT_SECONDS:-30}
+case "$lease_wait_seconds" in
+  ''|*[!0-9]*) fail_contract "invalid Gate lease wait duration" ;;
+esac
+case "$lease_stale_seconds" in
+  ''|*[!0-9]*) fail_contract "invalid Gate lease stale duration" ;;
+esac
+case "$lease_heartbeat_seconds" in
+  ''|*[!0-9]*) fail_contract "invalid Gate lease heartbeat duration" ;;
+esac
+[ "$lease_wait_seconds" -gt 0 ] \
+  || fail_contract "Gate lease wait duration must be positive"
+[ "$lease_stale_seconds" -gt 0 ] \
+  || fail_contract "Gate lease stale duration must be positive"
+[ "$lease_heartbeat_seconds" -gt 0 ] \
+  || fail_contract "Gate lease heartbeat duration must be positive"
+
+gate_lease_lock=$gate_leases_dir/no-mistakes.lock
+gate_lease_owner=$gate_lease_lock/owner.json
+lease_token=$$-$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+[ -n "$lease_token" ] || lease_token=$$-$(date +%s)
+lease_started=$(date +%s)
+recovered_from=null
+
+reclaim_stale_lease() {
+  local owner_state=$1 owner_snapshot=$2 owner_pid=${3:-}
+  local current_snapshot='' removed=0
+  mkdir "$gate_lease_lock/.reap" 2>/dev/null || return 1
+  case "$owner_state" in
+    valid)
+      if [ -f "$gate_lease_owner" ] && [ ! -L "$gate_lease_owner" ]; then
+        current_snapshot=$(jq -c '.' "$gate_lease_owner" 2>/dev/null || true)
+      fi
+      if [ "$current_snapshot" = "$owner_snapshot" ] \
+        && ! kill -0 "$owner_pid" 2>/dev/null; then
+        rm -f -- "$gate_lease_owner"
+        removed=1
+      fi
+      ;;
+    malformed)
+      current_snapshot=$(cat "$gate_lease_owner" 2>/dev/null || true)
+      if [ "$current_snapshot" = "$owner_snapshot" ]; then
+        rm -f -- "$gate_lease_owner" 2>/dev/null || true
+        [ ! -e "$gate_lease_owner" ] && [ ! -L "$gate_lease_owner" ] \
+          && removed=1
+      fi
+      ;;
+    absent)
+      if [ ! -e "$gate_lease_owner" ] && [ ! -L "$gate_lease_owner" ]; then
+        removed=1
+      fi
+      ;;
+  esac
+  rmdir "$gate_lease_lock/.reap" 2>/dev/null || true
+  if [ "$removed" -eq 1 ] && rmdir "$gate_lease_lock" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+while ! mkdir "$gate_lease_lock" 2>/dev/null; do
+  recovered_from=null
+  [ -d "$gate_lease_lock" ] && [ ! -L "$gate_lease_lock" ] \
+    || fail_contract "global Gate lease path is unsafe" 73
+  owner_state=absent
+  owner_snapshot=
+  owner_pid=
+  if [ -f "$gate_lease_owner" ] && [ ! -L "$gate_lease_owner" ]; then
+    owner_snapshot=$(jq -c '.' "$gate_lease_owner" 2>/dev/null || true)
+    if [ -n "$owner_snapshot" ] && validate_lease_owner "$owner_snapshot"; then
+      owner_state=valid
+      owner_pid=$(printf '%s\n' "$owner_snapshot" | jq -r '.pid')
+    else
+      owner_state=malformed
+      owner_snapshot=$(cat "$gate_lease_owner" 2>/dev/null || true)
+    fi
+  elif [ -e "$gate_lease_owner" ] || [ -L "$gate_lease_owner" ]; then
+    owner_state=malformed
+  fi
+
+  now=$(date +%s)
+  should_reclaim=0
+  recovery_evidence=null
+  case "$owner_state" in
+    valid)
+      owner_same_identity=0
+      if printf '%s\n' "$owner_snapshot" | jq -e \
+        --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+        --arg sha "$candidate_sha" '
+          .run_id==$run and .branch==$branch and .worktree==$worktree and
+          .candidate_sha==$sha
+        ' >/dev/null 2>&1; then
+        owner_same_identity=1
+      fi
+      lock_mtime=$(stat -c %Y "$gate_lease_lock" 2>/dev/null \
+        || stat -f %m "$gate_lease_lock" 2>/dev/null \
+        || printf '%s' "$now")
+      case "$lock_mtime" in *[!0-9]*) lock_mtime=$now ;; esac
+      if ! kill -0 "$owner_pid" 2>/dev/null \
+        && { [ "$owner_same_identity" -eq 1 ] \
+          || [ $((now - lock_mtime)) -ge "$lease_stale_seconds" ]; }; then
+        should_reclaim=1
+        recovery_evidence=$owner_snapshot
+      fi
+      ;;
+    absent|malformed)
+      lock_mtime=$(stat -c %Y "$gate_lease_lock" 2>/dev/null \
+        || stat -f %m "$gate_lease_lock" 2>/dev/null \
+        || printf '%s' "$now")
+      case "$lock_mtime" in *[!0-9]*) lock_mtime=$now ;; esac
+      if [ $((now - lock_mtime)) -ge "$lease_stale_seconds" ]; then
+        should_reclaim=1
+        recovery_evidence=$(jq -cn --arg state "$owner_state" '{state:$state}')
+      fi
+      ;;
+  esac
+  if [ "$should_reclaim" -eq 1 ] \
+    && reclaim_stale_lease "$owner_state" "$owner_snapshot" "$owner_pid"; then
+    recovered_from=$recovery_evidence
+    continue
+  fi
+  [ $((now - lease_started)) -lt "$lease_wait_seconds" ] \
+    || fail_contract "global No-Mistakes Gate lease timeout" 75
+  sleep 0.05
+done
+
+[ "$(realpath "$gate_lease_lock" 2>/dev/null)" = "$gate_lease_lock" ] \
+  || fail_contract "global Gate lease path must be canonical" 73
+lease_acquired=$(date +%s)
+gate_lease_owner_json=$(jq -cn \
+  --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+  --arg sha "$candidate_sha" --arg token "$lease_token" \
+  --argjson attempt "$attempt" --argjson pid "$$" \
+  --argjson acquired "$lease_acquired" '
+    {
+      schema:"combo.gate-lease-owner/v1",
+      scope:"host-global",
+      adapter:"no-mistakes",
+      run_id:$run,
+      branch:$branch,
+      worktree:$worktree,
+      candidate_sha:$sha,
+      attempt:$attempt,
+      pid:$pid,
+      token:$token,
+      acquired_at:$acquired
+    }
+  ')
+validate_lease_owner "$gate_lease_owner_json" \
+  || fail_contract "cannot build global Gate lease owner" 73
+set -C
+if exec 7>"$gate_lease_owner"; then
+  :
+else
+  set +C
+  rmdir "$gate_lease_lock" 2>/dev/null || true
+  fail_contract "cannot reserve global Gate lease owner" 73
+fi
+set +C
+if ! printf '%s\n' "$gate_lease_owner_json" >&7; then
+  exec 7>&-
+  rm -f -- "$gate_lease_owner"
+  rmdir "$gate_lease_lock" 2>/dev/null || true
+  fail_contract "cannot record global Gate lease owner" 73
+fi
+exec 7>&-
+gate_lease_owned=1
+chmod 0444 "$gate_lease_owner" \
+  || fail_contract "cannot make global Gate lease owner read-only" 73
+
+lease_rel=artifacts/gate/no-mistakes-lease-attempt-$attempt.json
+lease=$run_root/$lease_rel
+lease_tmp=$gate_artifacts/.no-mistakes-lease-attempt-$attempt.json.tmp.$$
+[ ! -e "$lease" ] && [ ! -L "$lease" ] \
+  || fail_contract "Gate lease evidence already exists" 73
+[ ! -e "$lease_tmp" ] && [ ! -L "$lease_tmp" ] \
+  || fail_contract "Gate lease evidence staging path already exists" 73
+if [ "$recovered_from" = null ]; then
+  lease_state=acquired
+else
+  lease_state=recovered
+fi
+lease_json=$(printf '%s\n' "$gate_lease_owner_json" | jq -c \
+  --arg state "$lease_state" --argjson recovered "$recovered_from" '
+    .schema="combo.gate-lease/v1" |
+    .state=$state |
+    .recovered_from=$recovered
+  ')
+set -C
+if exec 8>"$lease_tmp"; then
+  lease_tmp_owned=1
+else
+  set +C
+  fail_contract "cannot reserve Gate lease evidence staging path" 73
+fi
+set +C
+printf '%s\n' "$lease_json" >&8
+exec 8>&-
+chmod 0444 "$lease_tmp" \
+  || fail_contract "cannot make Gate lease evidence read-only" 73
+if ! ln "$lease_tmp" "$lease" 2>/dev/null; then
+  fail_contract "Gate lease evidence publication collision" 73
+fi
+rm -f -- "$lease_tmp"
+lease_tmp_owned=0
+validate_lease_evidence "$lease" "$attempt" \
+  || fail_contract "invalid published Gate lease evidence" 73
+
+gate_lease_parent_pid=$$
+(
+  trap - 0 1 2 15
+  while :; do
+    sleep "$lease_heartbeat_seconds" || exit 0
+    kill -0 "$gate_lease_parent_pid" 2>/dev/null || exit 0
+    current_owner=$(cat "$gate_lease_owner" 2>/dev/null || true)
+    [ "$current_owner" = "$gate_lease_owner_json" ] || exit 0
+    touch "$gate_lease_lock" 2>/dev/null || exit 0
+  done
+) &
+gate_lease_heartbeat_pid=$!
+
 receipt_rel=artifacts/gate/no-mistakes-attempt-$attempt.toon
 receipt=$run_root/$receipt_rel
 receipt_tmp=$gate_artifacts/.no-mistakes-attempt-$attempt.toon.tmp.$$
@@ -653,15 +1003,17 @@ fi
 rm -f -- "$receipt_tmp"
 receipt_tmp_owned=0
 artifacts=$(jq -cn \
-  --arg invocation "$invocation_rel" --arg receipt "$receipt_rel" '
+  --arg invocation "$invocation_rel" --arg lease "$lease_rel" \
+  --arg receipt "$receipt_rel" '
     [
       {id:"gate-invocation",path:$invocation},
+      {id:"gate-lease",path:$lease},
       {id:"no-mistakes-outcome",path:$receipt}
     ]
   ')
-# -/ 3/4
+# -/ 4/5
 
-# -- 4/4 CORE · Validate typed identity and normalize terminal outcome --
+# -- 5/5 CORE · Validate typed identity and normalize terminal outcome --
 nm_outcome=$(toon_scalar "outcome:" "$receipt" 2>/dev/null || true)
 nm_run_id=$(toon_scalar "  id:" "$receipt" 2>/dev/null || true)
 nm_branch=$(toon_scalar "  branch:" "$receipt" 2>/dev/null || true)
@@ -745,7 +1097,8 @@ terminal_json=$(jq -cn \
   --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
   --arg sha "$candidate_sha" --arg nm_run "$nm_run_id" \
   --arg nm_outcome "$nm_outcome" --arg pr "$nm_pr" \
-  --arg invocation "$invocation_rel" --arg receipt "$receipt_rel" \
+  --arg invocation "$invocation_rel" --arg lease "$lease_rel" \
+  --arg receipt "$receipt_rel" \
   --arg normalized "$normalized_outcome" \
   --argjson result "$normalized_result" '
     {
@@ -755,6 +1108,7 @@ terminal_json=$(jq -cn \
       worktree:$worktree,
       candidate_sha:$sha,
       invocation:$invocation,
+      lease:$lease,
       no_mistakes:{
         run_id:$nm_run,
         outcome:$nm_outcome,
@@ -782,4 +1136,4 @@ fi
 rm -f -- "$terminal_tmp"
 terminal_tmp_owned=0
 publish_terminal_result "$terminal_json"
-# -/ 4/4
+# -/ 5/5

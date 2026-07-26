@@ -13,6 +13,7 @@
 #   4. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
 #   5. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   6. test_adopts_interrupted_run   <- retry one sealed in-progress invocation.
+#   7. test_serializes_global_gate   <- cross-run exclusion and stale recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -24,10 +25,10 @@
 #
 #   INTERNALS
 #   ---------
-#   write_config, make_run, run_gate, invocation_args
+#   write_config, make_run, run_gate, invocation_args, wait_for_path
 #
 # @exports none
-# @deps bash, cksum, git, jq, ps, stat, tests/lib.sh, bin/cb-plan.sh,
+# @deps bash, cksum, date, git, jq, ps, stat, touch, tests/lib.sh, bin/cb-plan.sh,
 #   bin/cb-step.sh, bin/cb-gate.sh
 set -u
 
@@ -47,8 +48,13 @@ NM_CALLS="$TMP_ROOT/no-mistakes.calls"
 NM_ACTIVE="$TMP_ROOT/no-mistakes.active"
 NM_STARTS="$TMP_ROOT/no-mistakes.starts"
 NM_ATTACHES="$TMP_ROOT/no-mistakes.attaches"
+NM_SERIAL_ACTIVE="$TMP_ROOT/no-mistakes.serial-active"
+NM_SERIAL_ENTERED="$TMP_ROOT/no-mistakes.serial-entered"
+NM_SERIAL_OVERLAP="$TMP_ROOT/no-mistakes.serial-overlap"
+GATE_LEASES_DIR="$TMP_ROOT/gate-leases"
 mkdir -p "$RUNS_DIR"
 export CB_RUNS_DIR="$RUNS_DIR"
+export CB_GATE_LEASES_DIR="$GATE_LEASES_DIR"
 export CB_GATE_TEST_ARGV="$NM_ARGV"
 export CB_GATE_TEST_CWD="$NM_CWD"
 export CB_GATE_TEST_CALLED="$NM_CALLED"
@@ -56,6 +62,9 @@ export CB_GATE_TEST_CALLS="$NM_CALLS"
 export CB_GATE_TEST_ACTIVE="$NM_ACTIVE"
 export CB_GATE_TEST_STARTS="$NM_STARTS"
 export CB_GATE_TEST_ATTACHES="$NM_ATTACHES"
+export CB_GATE_TEST_SERIAL_ACTIVE="$NM_SERIAL_ACTIVE"
+export CB_GATE_TEST_SERIAL_ENTERED="$NM_SERIAL_ENTERED"
+export CB_GATE_TEST_SERIAL_OVERLAP="$NM_SERIAL_OVERLAP"
 
 CMD_STATUS=
 CMD_STDOUT=
@@ -78,6 +87,18 @@ pwd -P >"$CB_GATE_TEST_CWD"
 printf "called\n" >"$CB_GATE_TEST_CALLED"
 printf "called\n" >>"$CB_GATE_TEST_CALLS"
 
+serial_owned=0
+if mkdir "$CB_GATE_TEST_SERIAL_ACTIVE" 2>/dev/null; then
+  serial_owned=1
+else
+  : >"$CB_GATE_TEST_SERIAL_OVERLAP"
+fi
+cleanup_serial() {
+  [ "$serial_owned" -eq 0 ] || rmdir "$CB_GATE_TEST_SERIAL_ACTIVE" 2>/dev/null || true
+}
+trap cleanup_serial EXIT
+printf "%s\n" "$CB_GATE_TEST_BRANCH" >>"$CB_GATE_TEST_SERIAL_ENTERED"
+
 outcome=
 for argument in "$@"; do
   case "$argument" in
@@ -94,6 +115,10 @@ if [ "$outcome" = interrupt-once ]; then
     exit 75
   fi
   printf "attached\n" >>"$CB_GATE_TEST_ATTACHES"
+  outcome=passed
+fi
+if [ "$outcome" = slow-passed ]; then
+  sleep 0.4
   outcome=passed
 fi
 status=completed
@@ -200,7 +225,16 @@ invocation_args() {
   jq -Rsc 'split("\n") | map(select(length>0))' "$NM_ARGV"
 }
 
-# -- 1/6 CORE · test_validates_exact_sha -- <- START HERE
+wait_for_path() {
+  local path=$1 deadline
+  deadline=$(( $(date +%s) + 5 ))
+  while [ ! -e "$path" ]; do
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+    sleep 0.01
+  done
+}
+
+# -- 1/7 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -223,6 +257,10 @@ test_validates_exact_sha() {
       {
         id:"gate-invocation",
         path:"artifacts/gate/invocation.json"
+      },
+      {
+        id:"gate-lease",
+        path:"artifacts/gate/no-mistakes-lease-attempt-1.json"
       },
       {
         id:"no-mistakes-outcome",
@@ -248,9 +286,9 @@ test_validates_exact_sha() {
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/6
+# -/ 1/7
 
-# -- 2/6 CORE · test_rejects_candidate_drift --
+# -- 2/7 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -272,9 +310,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 2/6
+# -/ 2/7
 
-# -- 3/6 CORE · test_maps_terminal_outcomes --
+# -- 3/7 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -311,9 +349,9 @@ test_maps_terminal_outcomes() {
   ' "$result" >/dev/null || fail "cancelled should remain a universal cancelled exit"
   pass "Gate maps documented passed, failed, and cancelled outcomes"
 }
-# -/ 3/6
+# -/ 3/7
 
-# -- 4/6 CORE · test_guards_argument_edges --
+# -- 4/7 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -347,9 +385,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 4/6
+# -/ 4/7
 
-# -- 5/6 CORE · test_replays_terminal_seal --
+# -- 5/7 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -366,6 +404,7 @@ test_replays_terminal_seal() {
       .schema=="combo.gate-terminal/v1" and
       .run_id=="gate-terminal-replay" and
       .branch==$branch and .worktree==$worktree and .candidate_sha==$sha and
+      .lease=="artifacts/gate/no-mistakes-lease-attempt-1.json" and
       .no_mistakes=={
         run_id:"fake-gate-run",
         outcome:"passed",
@@ -414,9 +453,9 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 5/6
+# -/ 5/7
 
-# -- 6/6 CORE · test_adopts_interrupted_run --
+# -- 6/7 CORE · test_adopts_interrupted_run --
 test_adopts_interrupted_run() {
   local run=gate-interrupted-recovery first_result second_result invocation
   local invocation_before invocation_after invocation_mode terminal
@@ -495,7 +534,113 @@ test_adopts_interrupted_run() {
     || fail "recovered terminal seal should bind the adopted run and its receipt"
   pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
 }
-# -/ 6/6
+# -/ 6/7
+
+# -- 7/7 CORE · test_serializes_global_gate --
+test_serializes_global_gate() {
+  local first=gate-serial-first second=gate-serial-second stale=gate-serial-stale
+  local first_repo first_head first_branch second_repo second_head second_branch
+  local first_out first_err second_out second_err first_pid second_pid
+  local first_status second_status first_result second_result lease lock owner
+  rm -rf "$GATE_LEASES_DIR" "$NM_SERIAL_ACTIVE"
+  rm -f "$NM_SERIAL_ENTERED" "$NM_SERIAL_OVERLAP" "$NM_CALLS"
+
+  make_run "$first" slow-passed
+  first_repo=$RUN_REPO
+  first_head=$RUN_HEAD
+  first_branch=$RUN_BRANCH
+  make_run "$second" passed
+  second_repo=$RUN_REPO
+  second_head=$RUN_HEAD
+  second_branch=$RUN_BRANCH
+
+  first_out="$TMP_ROOT/$first.out"
+  first_err="$TMP_ROOT/$first.background.err"
+  CB_GATE_TEST_BRANCH=$first_branch CB_GATE_TEST_HEAD=$first_head \
+    bash "$BIN/cb-step.sh" \
+      "$first" gate 1 --candidate-sha "$first_head" \
+      >"$first_out" 2>"$first_err" &
+  first_pid=$!
+  if ! wait_for_path "$NM_SERIAL_ACTIVE"; then
+    wait "$first_pid" 2>/dev/null || true
+    fail "first Gate did not enter the serialized fake No-Mistakes runtime"
+  fi
+
+  second_out="$TMP_ROOT/$second.out"
+  second_err="$TMP_ROOT/$second.background.err"
+  CB_GATE_TEST_BRANCH=$second_branch CB_GATE_TEST_HEAD=$second_head \
+    bash "$BIN/cb-step.sh" \
+      "$second" gate 1 --candidate-sha "$second_head" \
+      >"$second_out" 2>"$second_err" &
+  second_pid=$!
+
+  wait "$first_pid" && first_status=0 || first_status=$?
+  wait "$second_pid" && second_status=0 || second_status=$?
+  expect_code 0 "$first_status" \
+    "first serialized Gate$(test ! -s "$first_err" || printf ': %s' "$(cat "$first_err")")"
+  expect_code 0 "$second_status" \
+    "second serialized Gate$(test ! -s "$second_err" || printf ': %s' "$(cat "$second_err")")"
+  first_result=$(cat "$first_out")
+  second_result=$(cat "$second_out")
+  jq -e '.events[0].event=="gate_ok"' "$first_result" >/dev/null \
+    || fail "first serialized Gate should validate"
+  jq -e '.events[0].event=="gate_ok"' "$second_result" >/dev/null \
+    || fail "second serialized Gate should validate"
+  assert_absent "$NM_SERIAL_OVERLAP" \
+    "two Combo runs must never overlap in a host-global No-Mistakes Gate"
+  [ "$(wc -l <"$NM_SERIAL_ENTERED" | tr -d ' ')" = 2 ] \
+    || fail "both serialized Gate runs should eventually enter No-Mistakes"
+
+  for lease in \
+    "$RUNS_DIR/$first/artifacts/gate/no-mistakes-lease-attempt-1.json" \
+    "$RUNS_DIR/$second/artifacts/gate/no-mistakes-lease-attempt-1.json"; do
+    jq -e '
+      .schema=="combo.gate-lease/v1" and
+      .scope=="host-global" and .adapter=="no-mistakes" and
+      .state=="acquired" and .recovered_from==null
+    ' "$lease" >/dev/null \
+      || fail "each Gate run should retain immutable host-global lease evidence"
+  done
+  assert_absent "$GATE_LEASES_DIR/no-mistakes.lock" \
+    "the global Gate lease should be released after both terminal outcomes"
+
+  make_run "$stale" passed
+  lock="$GATE_LEASES_DIR/no-mistakes.lock"
+  owner="$lock/owner.json"
+  mkdir -p "$lock"
+  jq -n '
+    {
+      schema:"combo.gate-lease-owner/v1",
+      scope:"host-global",
+      adapter:"no-mistakes",
+      run_id:"dead-gate",
+      branch:"combo/dead-gate",
+      worktree:"/dead/worktree",
+      candidate_sha:"0000000000000000000000000000000000000000",
+      attempt:1,
+      pid:99999999,
+      token:"dead-owner",
+      acquired_at:1
+    }
+  ' >"$owner"
+  touch -t 200001010000 "$lock"
+  run_gate "$stale" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" "stale Gate lease recovery${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].event=="gate_ok"' "$CMD_STDOUT" >/dev/null \
+    || fail "a dead global Gate owner should be recoverable"
+  lease="$RUNS_DIR/$stale/artifacts/gate/no-mistakes-lease-attempt-1.json"
+  jq -e '
+    .schema=="combo.gate-lease/v1" and .state=="recovered" and
+    .recovered_from.run_id=="dead-gate" and
+    .recovered_from.token=="dead-owner"
+  ' "$lease" >/dev/null \
+    || fail "stale recovery should remain visible in immutable run-local evidence"
+  assert_absent "$lock" "recovered global Gate lease should be released on exit"
+  [ "$first_repo" != "$second_repo" ] \
+    || fail "serialization fixture must use independently isolated worktrees"
+  pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
+}
+# -/ 7/7
 
 test_validates_exact_sha
 test_rejects_candidate_drift
@@ -503,3 +648,4 @@ test_maps_terminal_outcomes
 test_guards_argument_edges
 test_replays_terminal_seal
 test_adopts_interrupted_run
+test_serializes_global_gate
