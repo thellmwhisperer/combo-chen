@@ -25,7 +25,7 @@
 #   make_run, write_config, run_plan, plan_mode, file_sha256
 #
 # @exports none
-# @deps bash, jq, tests/lib.sh, bin/cb-plan.sh
+# @deps bash, dash, jq, tests/lib.sh, bin/cb-plan.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -41,6 +41,7 @@ export CB_RUNS_DIR="$RUNS_DIR"
 CMD_STATUS=
 CMD_STDOUT=
 CMD_STDERR=
+COLLISION_PATH=
 
 make_run() {
   mkdir -p "$RUNS_DIR/$1"
@@ -78,6 +79,25 @@ run_plan() {
   CMD_STDOUT=$(sh "$BIN/cb-plan.sh" "$run" --config "$config" 2>"$errfile") \
     && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
+}
+
+run_plan_with_staging_collision() {
+  local run=$1 config=$2 stem=$3
+  local dash_bin errfile="$TMP_ROOT/.${run}.err" pathfile="$TMP_ROOT/.${run}.path"
+  dash_bin=$(command -v dash) || fail "dash is required for staging-collision coverage"
+
+  CMD_STDOUT=$(
+    "$dash_bin" -c '
+      collision=$CB_RUNS_DIR/$1/$2.$$
+      printf "existing\n" >"$collision"
+      printf "%s\n" "$collision" >"$3"
+      exec "$4" "$5" "$1" --config "$6"
+    ' cb-plan-collision \
+      "$run" "$stem" "$pathfile" "$dash_bin" "$BIN/cb-plan.sh" "$config" \
+      2>"$errfile"
+  ) && CMD_STATUS=0 || CMD_STATUS=$?
+  CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
+  COLLISION_PATH=$(cat "$pathfile" 2>/dev/null || true)
 }
 
 plan_mode() {
