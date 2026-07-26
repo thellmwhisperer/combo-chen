@@ -388,12 +388,12 @@ if [ "$cleanup_exit_class" = cancelled ]; then
   exit 130
 elif [ "$cleanup_exit_class" = technical_error ]; then
   exit 70
-elif [ "$cleanup_code" = 1 ]; then
-  exit 1
 elif [ "$terminal_exit_class" = cancelled ]; then
   exit 130
 elif [ "$terminal_exit_class" = technical_error ]; then
   exit 70
+elif [ "$cleanup_code" = 1 ]; then
+  exit 1
 elif [ "$terminal_code" = 1 ]; then
   exit 1
 fi

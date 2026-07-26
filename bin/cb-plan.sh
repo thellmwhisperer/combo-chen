@@ -88,19 +88,11 @@ cleanup() {
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
-set -C
-if exec 3>"$config_tmp"; then
+if (set -C; cat "$config_real" >"$config_tmp") 2>/dev/null; then
   config_tmp_owned=1
 else
-  set +C
-  fail_io "config snapshot path already exists"
+  fail_io "config snapshot path already exists or cannot be created"
 fi
-set +C
-if ! cat "$config_real" >&3; then
-  exec 3>&-
-  fail_io "cannot snapshot config"
-fi
-exec 3>&-
 # -/ 2/4
 
 # -- 3/4 CORE · validate_config --
@@ -170,16 +162,7 @@ validate_config || fail_config "schema or adapter binding"
 # -/ 3/4
 
 # -- 4/4 CORE · Build fixed-order plan and publish without replacement --
-set -C
-if exec 4>"$plan_tmp"; then
-  plan_tmp_owned=1
-else
-  set +C
-  fail_io "plan staging path already exists"
-fi
-set +C
-
-if ! jq -c \
+if (set -C; jq -c \
   --arg run "$run" \
   --arg run_dir "$run_root" \
   --arg artifacts_dir "$run_root/artifacts" \
@@ -220,11 +203,11 @@ if ! jq -c \
       reviewer_count: ($cfg.roles.reviewers | length),
       steps: $steps
     }
-  ' "$config_tmp" >&4; then
-  exec 4>&-
-  fail_io "cannot build plan"
+  ' "$config_tmp" >"$plan_tmp") 2>/dev/null; then
+  plan_tmp_owned=1
+else
+  fail_io "plan staging path already exists or cannot be built"
 fi
-exec 4>&-
 
 chmod 0444 "$plan_tmp" || fail_io "cannot make plan read-only"
 if ! ln "$plan_tmp" "$plan" 2>/dev/null; then
