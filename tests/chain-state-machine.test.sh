@@ -89,10 +89,10 @@ case "$role:$mode" in
       }}]
     }" >"$output"
     ;;
-  coder:technical)
+  coder:technical|coder:technical-clean-failure)
     exit 42
     ;;
-  coder:cancelled)
+  coder:cancelled|coder:cancelled-clean-failure)
     jq -n "$base + {
       exit_class:\"cancelled\",events:[],
       reasons:[\"operator_cancelled\"]
@@ -146,6 +146,14 @@ case "$role:$mode" in
       exit_class:\"completed\",
       events:[{code:0,event:\"gate_ok\",payload:{
         outcome:\"validated\",sha:\$sha
+      }}]
+    }" >"$output"
+    ;;
+  cleaner:technical-clean-failure|cleaner:cancelled-clean-failure)
+    jq -n "$base + {
+      exit_class:\"completed\",
+      events:[{code:1,event:\"clean_failed\",payload:{
+        reasons:[\"cleanup_incomplete\"]
       }}]
     }" >"$output"
     ;;
@@ -301,6 +309,26 @@ test_normalizes_terminal_paths() {
     .terminal=={role:"coder",code:null,event:null} and
     .reasons==["operator_cancelled"] and .cleanup.event=="cleaned"
   ' "$result" >/dev/null || fail "cancellation should be preserved independently from cleanup"
+
+  run=chain-technical-clean-failure
+  make_run "$run" technical-clean-failure
+  run_chain "$run"
+  expect_code 70 "$CMD_STATUS" "terminal technical error must outrank incomplete cleanup"
+  jq -e '
+    .exit_class=="technical_error" and .terminal.role=="coder" and
+    .cleanup.code==1 and .cleanup.event=="clean_failed"
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "technical terminal and incomplete cleanup should both remain observable"
+
+  run=chain-cancelled-clean-failure
+  make_run "$run" cancelled-clean-failure
+  run_chain "$run"
+  expect_code 130 "$CMD_STATUS" "terminal cancellation must outrank incomplete cleanup"
+  jq -e '
+    .exit_class=="cancelled" and .terminal.role=="coder" and
+    .cleanup.code==1 and .cleanup.event=="clean_failed"
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "cancelled terminal and incomplete cleanup should both remain observable"
   pass "cb-chain: preserves normalized technical and cancelled terminal classes"
 }
 # -/ 4/5
