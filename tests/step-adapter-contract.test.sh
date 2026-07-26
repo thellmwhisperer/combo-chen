@@ -23,7 +23,7 @@
 #   INTERNALS
 #   ---------
 #   write_config, make_planned_run, run_step, run_step_with_stdin,
-#   result_mode, file_digest
+#   result_mode
 #
 # @exports none
 # @deps bash, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh
@@ -174,14 +174,6 @@ run_step_with_stdin() {
 
 result_mode() {
   stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
-}
-
-file_digest() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    shasum -a 256 "$1" | awk '{print $1}'
-  fi
 }
 
 # -- 1/5 CORE · test_invokes_with_universal_envelope -- <- START HERE
@@ -487,11 +479,11 @@ exec \"$REAL_JQ\" \"\$@\"
   run_step "$run" coder 1
   expect_code 0 "$CMD_STATUS" "first attempt"
   local result=$CMD_STDOUT before
-  before=$(file_digest "$result")
+  before=$(cb_file_sha256 "$result")
   [ -n "$before" ] || fail "could not digest the published result"
   run_step "$run" coder 1
   [ "$CMD_STATUS" -ne 0 ] || fail "attempt collision should fail"
-  [ "$before" = "$(file_digest "$result")" ] \
+  [ "$before" = "$(cb_file_sha256 "$result")" ] \
     || fail "attempt collision must preserve the existing result"
 
   run='step-result-poison'

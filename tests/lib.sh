@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
-# tests/lib.sh - shared primitives for combo-chen Bash v1 chain tests.
+# @overview Shared primitives for the Combo v1 Bash contract tests.
+#   Provides reporting, project-local temp cleanup, tool/file helpers,
+#   deterministic Git fixtures, and common assertions.
 #
-# Source this from a test file:
-#   # shellcheck source=tests/lib.sh
-#   . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+#   READING GUIDE
+#   -------------
+#   1. cb_tmproot             <- shared lifecycle and cleanup contract.
+#   2. cb_fakebin             <- tool shims and stable file digests.
+#   3. cb_candidate_repo      <- deterministic Git fixtures.
+#   4. assert_contains        <- common contract assertions.
 #
-# It provides only the boilerplate every test file needs: pass/fail reporters,
-# a self-cleaning temp root, a fakebin/PATH-shim helper, deterministic git
-# identity, a candidate-repo builder, and the common string/exit-code/file
-# assertions. It deliberately does NOT bundle chain-specific fakes: those encode
-# assumptions that differ per suite and belong with the tests that own them.
+#   MAIN FLOW
+#   ---------
+#   source library -> allocate fixture state -> drive product -> assert contract
 #
-# ROOT is exported as the combo-chen repo root (this file lives in tests/), so a
-# sourcing test can use "$ROOT/bin/..." without recomputing it.
+#   PUBLIC API
+#   ----------
+#   fail, pass                         Test result reporters.
+#   cb_tmproot                         Allocate a self-cleaning project temp root.
+#   cb_fakebin, cb_write_fake          Build deterministic PATH shims.
+#   cb_file_sha256                     Compute a fail-closed SHA-256 file digest.
+#   cb_git_identity, cb_candidate_repo Build deterministic Git fixtures.
+#   assert_*, expect_code              Assert strings, files, and exit codes.
 #
-# @overview Minimal firstmate-pattern test primitives for the Bash chain.
+#   INTERNALS
+#   ---------
+#   cb_cleanup
+#
+# @exports fail, pass, cb_tmproot, cb_fakebin, cb_write_fake, cb_file_sha256,
+#   cb_git_identity, cb_candidate_repo, assert_contains, assert_not_contains,
+#   expect_code, assert_grep, assert_no_grep, assert_match, assert_not_match,
+#   assert_absent, assert_present, assert_symlink
+# @deps bash, git, mktemp, sha256sum/shasum
 
 # Idempotent guard: a test file may source this library plus its own helpers.
 if [ -n "${CB_TEST_LIB_SOURCED:-}" ]; then
@@ -26,7 +43,7 @@ CB_TEST_LIB_SOURCED=1
 # shellcheck disable=SC2034
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# --- reporters --------------------------------------------------------------
+# -- 1/5 HELPER · fail and pass --
 
 fail() {
   printf 'not ok - %s\n' "$1" >&2
@@ -36,8 +53,9 @@ fail() {
 pass() {
   printf 'ok - %s\n' "$1"
 }
+# -/ 1/5
 
-# --- self-cleaning temp root ------------------------------------------------
+# -- 2/5 CORE · cb_tmproot -- <- START HERE
 #
 # cb_tmproot <variable> [prefix]: assign a project-local temp dir to <variable>
 # and register it for removal on EXIT. The first call installs the cleanup trap.
@@ -66,8 +84,9 @@ cb_tmproot() {
   CB_CLEANUP_DIRS+=("$__cb_tmp_allocated")
   printf -v "$__cb_tmp_out" '%s' "$__cb_tmp_allocated"
 }
+# -/ 2/5
 
-# --- fakebin / PATH shims ---------------------------------------------------
+# -- 3/5 HELPER · cb_fakebin, cb_write_fake, and cb_file_sha256 --
 #
 # cb_fakebin <dir> creates <dir>/fakebin and echoes it; prepend it to PATH to
 # shadow real tools with stubs.
@@ -84,7 +103,24 @@ cb_write_fake() {
   chmod +x "$1"
 }
 
-# --- deterministic git identity and fixtures --------------------------------
+# cb_file_sha256 <path>: print a SHA-256 digest or fail when no digest tool works.
+cb_file_sha256() {
+  local digest output
+  digest=
+  if command -v sha256sum >/dev/null 2>&1 \
+    && output=$(sha256sum "$1" 2>/dev/null); then
+    digest=${output%% *}
+  fi
+  if [ -z "$digest" ] && command -v shasum >/dev/null 2>&1 \
+    && output=$(shasum -a 256 "$1" 2>/dev/null); then
+    digest=${output%% *}
+  fi
+  [ -n "$digest" ] || fail "no working SHA-256 digest tool"
+  printf '%s\n' "$digest"
+}
+# -/ 3/5
+
+# -- 4/5 HELPER · cb_git_identity and cb_candidate_repo --
 
 # cb_git_identity: export a fixed author/committer identity so fixture commits
 # never depend on the host git config.
@@ -113,8 +149,9 @@ cb_candidate_repo() {
   git -C "$path" commit -qm "${label} candidate"
   printf '%s %s\n' "$base" "$(git -C "$path" rev-parse HEAD)"
 }
+# -/ 4/5
 
-# --- common assertions ------------------------------------------------------
+# -- 5/5 HELPER · assert_* and expect_code --
 
 # assert_contains <haystack> <needle> [msg]
 assert_contains() {
@@ -171,3 +208,4 @@ assert_present() {
 assert_symlink() {
   [ -L "$1" ] || fail "$2"
 }
+# -/ 5/5

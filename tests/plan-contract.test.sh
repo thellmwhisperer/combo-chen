@@ -128,21 +128,6 @@ file_sha256() {
   printf '%s\n' "$digest"
 }
 
-file_sha256() {
-  local digest output
-  digest=
-  if command -v sha256sum >/dev/null 2>&1 \
-    && output=$(sha256sum "$1" 2>/dev/null); then
-    digest=${output%% *}
-  fi
-  if [ -z "$digest" ] && command -v shasum >/dev/null 2>&1 \
-    && output=$(shasum -a 256 "$1" 2>/dev/null); then
-    digest=${output%% *}
-  fi
-  [ -n "$digest" ] || fail "no working SHA-256 digest tool"
-  printf '%s\n' "$digest"
-}
-
 # -- 1/5 CORE · test_compiles_immutable_plan -- <- START HERE
 test_compiles_immutable_plan() {
   local run=plan-success run_dir config plan before
@@ -188,7 +173,7 @@ exit 69
   cb_write_fake "$fallback_bin/shasum" "#!/bin/sh
 exec \"$real_shasum\" \"\$@\"
 "
-  before=$(PATH="$fallback_bin:$PATH" file_sha256 "$plan")
+  before=$(PATH="$fallback_bin:$PATH" cb_file_sha256 "$plan")
   [ -n "$before" ] || fail "digest fallback must produce a non-empty hash"
   printf '{"schema":"mutated"}\n' >"$config"
   [ "$(jq -r '.schema' "$plan")" = "combo.run-plan/v1" ] \
@@ -196,7 +181,7 @@ exec \"$real_shasum\" \"\$@\"
 
   run_plan "$run" "$config"
   expect_code 73 "$CMD_STATUS" "existing plan collision"
-  [ "$before" = "$(PATH="$fallback_bin:$PATH" file_sha256 "$plan")" ] \
+  [ "$before" = "$(PATH="$fallback_bin:$PATH" cb_file_sha256 "$plan")" ] \
     || fail "existing plan must remain byte-identical"
   pass "cb-plan: publishes one immutable, collision-safe provider-neutral run plan"
 }
