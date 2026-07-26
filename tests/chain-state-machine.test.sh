@@ -109,16 +109,18 @@ case "$role:$mode" in
     }" >"$output"
     ;;
   reviewer:correction)
-    if [ "$candidate" = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ] \
-      && [ "$step" = reviewer/review-a ]; then
-      finding="artifacts/review-a-round-1.md"
-      printf "change requested\n" >"$run_dir/$finding"
-      jq -n --arg sha "$candidate" --arg finding "$finding" "$base + {
+    if [ "$candidate" = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ]; then
+      member=${step#reviewer/}
+      finding="artifacts/$member-round-1.md"
+      printf "change requested by %s\n" "$member" >"$run_dir/$finding"
+      jq -n \
+        --arg sha "$candidate" --arg finding "$finding" \
+        --arg artifact_id "$member-findings" "$base + {
         exit_class:\"completed\",
         events:[{code:1,event:\"needs_change\",payload:{
           sha:\$sha,artifact:\$finding
         }}],
-        artifacts:[{id:\"review-a-findings\",path:\$finding}]
+        artifacts:[{id:\$artifact_id,path:\$finding}]
       }" >"$output"
     else
       jq -n --arg sha "$candidate" "$base + {
@@ -265,15 +267,39 @@ test_restarts_review_round() {
   [ "$(call_steps "$calls")" = \
     "launcher,coder,reviewer/review-a,reviewer/review-b,coder,reviewer/review-a,reviewer/review-b,gate,cleaner" ] \
     || fail "needs-change should finish the round, then restart all reviewers after Coder"
-  jq -e --arg a "$SHA_A" --arg b "$SHA_B" '
+  jq -e --arg a "$SHA_A" '
+    select(.step_id=="reviewer/review-a" and .attempt==1) |
+    .candidate_sha==$a and .prior_artifacts==[]
+  ' "$calls" >/dev/null || fail "member one should inspect candidate A from the round input snapshot"
+  jq -e --arg a "$SHA_A" '
+    select(.step_id=="reviewer/review-b" and .attempt==1) |
+    .candidate_sha==$a and .prior_artifacts==[]
+  ' "$calls" >/dev/null \
+    || fail "member two should inspect the same candidate and artifacts even after member one rejects"
+  jq -e --arg a "$SHA_A" '
     select(.step_id=="coder" and .attempt==2) |
     .candidate_sha==$a and
-    .prior_artifacts==[{id:"review-a-findings",path:"artifacts/review-a-round-1.md"}]
-  ' "$calls" >/dev/null || fail "correcting Coder should receive the rejected SHA and findings"
+    .prior_artifacts==[
+      {id:"review-a-findings",path:"artifacts/review-a-round-1.md"},
+      {id:"review-b-findings",path:"artifacts/review-b-round-1.md"}
+    ]
+  ' "$calls" >/dev/null || fail "correcting Coder should receive every member finding"
   jq -e --arg b "$SHA_B" '
     select(.step_id=="reviewer/review-a" and .attempt==2) |
-    .candidate_sha==$b
+    .candidate_sha==$b and
+    .prior_artifacts==[
+      {id:"review-a-findings",path:"artifacts/review-a-round-1.md"},
+      {id:"review-b-findings",path:"artifacts/review-b-round-1.md"}
+    ]
   ' "$calls" >/dev/null || fail "the next Reviewer round should start from member one on the new SHA"
+  jq -e --arg b "$SHA_B" '
+    select(.step_id=="reviewer/review-b" and .attempt==2) |
+    .candidate_sha==$b and
+    .prior_artifacts==[
+      {id:"review-a-findings",path:"artifacts/review-a-round-1.md"},
+      {id:"review-b-findings",path:"artifacts/review-b-round-1.md"}
+    ]
+  ' "$calls" >/dev/null || fail "every member should restart against candidate B from one snapshot"
   jq -e --arg b "$SHA_B" '
     select(.step_id=="gate") | .candidate_sha==$b
   ' "$calls" >/dev/null || fail "Gate should receive only the unanimously approved SHA"
