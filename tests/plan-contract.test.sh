@@ -21,7 +21,7 @@
 #
 #   INTERNALS
 #   ---------
-#   make_run, write_config, run_plan, plan_mode
+#   make_run, write_config, run_plan, plan_mode, file_sha256
 #
 # @exports none
 # @deps bash, jq, tests/lib.sh, bin/cb-plan.sh
@@ -78,12 +78,38 @@ run_plan() {
 }
 
 plan_mode() {
-  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+  local mode
+  if mode=$(stat -c '%a' "$1" 2>/dev/null); then
+    :
+  elif mode=$(stat -f '%Lp' "$1" 2>/dev/null); then
+    :
+  else
+    fail "no supported stat mode probe"
+  fi
+  [ -n "$mode" ] || fail "stat mode probe returned an empty value"
+  printf '%s\n' "$mode"
+}
+
+file_sha256() {
+  local digest output
+  digest=
+  if command -v sha256sum >/dev/null 2>&1 \
+    && output=$(sha256sum "$1" 2>/dev/null); then
+    digest=${output%% *}
+  fi
+  if [ -z "$digest" ] && command -v shasum >/dev/null 2>&1 \
+    && output=$(shasum -a 256 "$1" 2>/dev/null); then
+    digest=${output%% *}
+  fi
+  [ -n "$digest" ] || fail "no working SHA-256 digest tool"
+  printf '%s\n' "$digest"
 }
 
 # -- 1/5 CORE · test_compiles_immutable_plan -- <- START HERE
 test_compiles_immutable_plan() {
   local run=plan-success run_dir config plan before
+  local fallback_bin="$TMP_ROOT/fallback-bin"
+  local real_shasum
   run_dir=$(make_run "$run")
   config="$TMP_ROOT/config-success.json"
   plan="$run_dir/plan.json"
@@ -115,14 +141,23 @@ test_compiles_immutable_plan() {
     (keys == ["paths","reviewer_count","run_id","schema","steps"])
   ' "$plan" >/dev/null || fail "compiled plan shape should match the frozen contract"
 
-  before=$(sha256sum "$plan" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$plan" | awk '{print $1}')
+  real_shasum=$(command -v shasum) || fail "shasum is required by the fallback regression"
+  mkdir -p "$fallback_bin"
+  cb_write_fake "$fallback_bin/sha256sum" '#!/bin/sh
+exit 69
+'
+  cb_write_fake "$fallback_bin/shasum" "#!/bin/sh
+exec \"$real_shasum\" \"\$@\"
+"
+  before=$(PATH="$fallback_bin:$PATH" file_sha256 "$plan")
+  [ -n "$before" ] || fail "digest fallback must produce a non-empty hash"
   printf '{"schema":"mutated"}\n' >"$config"
   [ "$(jq -r '.schema' "$plan")" = "combo.run-plan/v1" ] \
     || fail "plan must not depend on the source config after publication"
 
   run_plan "$run" "$config"
   expect_code 73 "$CMD_STATUS" "existing plan collision"
-  [ "$before" = "$(sha256sum "$plan" 2>/dev/null | awk '{print $1}' || shasum -a 256 "$plan" | awk '{print $1}')" ] \
+  [ "$before" = "$(PATH="$fallback_bin:$PATH" file_sha256 "$plan")" ] \
     || fail "existing plan must remain byte-identical"
   pass "cb-plan: publishes one immutable, collision-safe provider-neutral run plan"
 }
@@ -204,6 +239,8 @@ EOF
 # -- 5/5 CORE · test_rejects_path_attacks --
 test_rejects_path_attacks() {
   local outside="$TMP_ROOT/outside" config="$TMP_ROOT/config-paths.json"
+  local collision_bin="$TMP_ROOT/collision-bin"
+  local real_realpath
   mkdir -p "$outside"
   write_config "$config"
 
@@ -227,6 +264,19 @@ test_rejects_path_attacks() {
   run_plan "$run" "$config"
   expect_code 73 "$CMD_STATUS" "symlink plan collision"
   [ "$(cat "$victim")" = "precious" ] || fail "plan symlink victim must remain unchanged"
+
+  run='snapshot-collision'
+  run_dir=$(make_run "$run")
+  real_realpath=$(command -v realpath) || fail "realpath is required"
+  mkdir -p "$collision_bin"
+  cb_write_fake "$collision_bin/realpath" "#!/bin/sh
+: >\"$run_dir/.config.snapshot.\$PPID\"
+exec \"$real_realpath\" \"\$@\"
+"
+  PATH="$collision_bin:$PATH" run_plan "$run" "$config"
+  expect_code 73 "$CMD_STATUS" "config snapshot no-clobber collision under sh"
+  assert_contains "$CMD_STDERR" "config snapshot path already exists" \
+    "dash must reach the explicit snapshot-collision fallback"
   pass "cb-plan: contains run-local publication and rejects config/plan symlinks"
 }
 # -/ 5/5
