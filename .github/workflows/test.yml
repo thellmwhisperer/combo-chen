@@ -35,3 +35,15 @@ jobs:
       - name: Run ShellCheck
         run: shellcheck --severity=warning --exclude=SC2154,SC2034 bin/cb-*.sh tests/run.sh tests/lib.sh tests/*.test.sh
       - run: tests/run.sh
+
+  slopslint:
+    name: slopslint
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Run blocking duplication gate
+        run: bin/cb-slopslint.sh
