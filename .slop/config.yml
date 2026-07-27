@@ -1,0 +1,12 @@
+# Native combo-chen slopslint detector policy.
+#
+# The gate compares normalized multiline Bash function bodies. Full-line
+# comments, blank lines, and whitespace are ignored; identifiers and commands
+# are not rewritten. Tiny boilerplate stays below both explicit thresholds.
+schema: 1
+detector: bash-function-body
+min_lines: 5
+min_tokens: 10
+paths:
+  - bin
+  - tests

@@ -1,0 +1,25 @@
+# Seed record for the P6 Reviewer finding introduced at afd0dab and corrected
+# by centralizing digest behavior in tests/lib.sh.
+schema: 1
+id: T-P6-DUPLICATE-DIGEST-HELPER
+status: resolved
+category: duplication
+title: "P6 test suites grew separate SHA-256 digest helpers"
+created_at: 2026-07-27
+incident:
+  commit: afd0dab66f0229c529cf73b68eb0ac3a266a4061
+  pattern: >
+    Test suites independently implement the same portability helper instead of
+    reusing the shared test library.
+  what_went_wrong: >
+    tests/plan-contract.test.sh added file_sha256 while
+    tests/step-adapter-contract.test.sh already carried file_digest for the same
+    SHA-256 portability responsibility. The implementations differed, but the
+    duplicated helper ownership made fixes and fallback behavior drift.
+  root_cause: >
+    The correction was scoped to one suite and did not search tests/lib.sh and
+    sibling suites for an existing digest surface before adding another helper.
+  rule_established: >
+    Search the repository before adding a test helper. Cross-suite portability
+    behavior belongs in tests/lib.sh with one regression matrix; exact
+    duplicated multiline function bodies are blocked by cb-slopslint.

@@ -18,10 +18,11 @@
 #
 #   INTERNALS
 #   ---------
-#   add_reason, emit_clean_failed, publish_cleaner_meta, treehouse_lease_owned
+#   add_reason, emit_clean_failed, publish_cleaner_meta
 #
 # @exports none
-# @deps sh, git, jq, treehouse (Treehouse-owned runways), cb-emit.sh
+# @deps sh, git, jq, treehouse (Treehouse-owned runways),
+#   cb-worktree-common.sh, cb-emit.sh
 set -eu
 
 usage() {
@@ -34,6 +35,8 @@ run=$1
 case "$run" in ''|-*|*[!a-z0-9-]*) usage ;; esac
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+# shellcheck source=bin/cb-worktree-common.sh
+. "$SCRIPT_DIR/cb-worktree-common.sh"
 runs_dir=${CB_RUNS_DIR:-"$HOME/.combo-chen/runs"}
 run_dir=$runs_dir/$run
 [ -d "$run_dir" ] && [ ! -L "$run_dir" ] || { echo "cb-cleaner: invalid run directory" >&2; exit 73; }
@@ -74,30 +77,6 @@ set +C
 
 add_reason() { printf '%s\n' "$1" >&3; }
 has_reasons() { [ -s "$reasons_file" ]; }
-canonical_git_common() {
-  cwd=$1
-  common=$(git -C "$cwd" rev-parse --git-common-dir 2>/dev/null) || return 1
-  case "$common" in
-    /*) realpath "$common" 2>/dev/null ;;
-    *) realpath "$cwd/$common" 2>/dev/null ;;
-  esac
-}
-treehouse_lease_owned() {
-  lease_path=$1 lease_holder=$2
-  status=$(cd "$repo_dir" && treehouse status 2>/dev/null) || return 1
-  display_path=$lease_path
-  case "$lease_path" in
-    "$HOME"/*)
-      home_prefix=$HOME/
-      tilde=$(printf '\176')
-      display_path=$tilde/${lease_path#"$home_prefix"}
-      ;;
-  esac
-  printf '%s\n' "$status" | awk -v path="$display_path" -v holder="(held by $lease_holder)" '
-    index($0,path)>0 && index($0,holder)>0 { matches++ }
-    END { exit !(matches==1) }
-  '
-}
 publish_cleaner_meta() {
   released=$1
   reasons=$(jq -Rsc '[split("\n")[] | select(length>0)]' "$reasons_file")
