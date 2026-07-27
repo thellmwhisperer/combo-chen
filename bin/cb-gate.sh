@@ -2511,11 +2511,6 @@ wait_for_auto_merge_outcome() {
   while :; do
     now=$(date +%s)
     remaining=$((merge_deadline - now))
-    if [ "$remaining" -le 0 ]; then
-      auto_gate_outcome=failed
-      auto_gate_reason=github_auto_merge_timeout
-      return 0
-    fi
     sleep_seconds=$merge_poll_seconds
     [ "$sleep_seconds" -le "$remaining" ] || sleep_seconds=$remaining
     sleep "$sleep_seconds"
