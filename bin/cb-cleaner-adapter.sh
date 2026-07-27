@@ -24,7 +24,7 @@
 #   usage, fail_contract, file_identity, file_inode, reserve_output_staging,
 #   remove_owned_output_staging, publish_outcome, reject,
 #   validate_latest_gate_terminal, recheck_authorized_gate_terminal,
-#   validate_cleaner_seal
+#   validate_cleaner_seal, read_cleaner_failure_reasons
 #
 # @exports none
 # @deps bash, jq, mktemp, realpath, stat, bin/cb-cleaner.sh
@@ -83,6 +83,11 @@ run_root=$(realpath "$run_dir" 2>/dev/null) \
   || fail_contract "cannot resolve run directory" 73
 [ "$run_root" = "$run_dir" ] \
   || fail_contract "run directory path must be canonical" 73
+runs_root=${run_root%/*}
+[ -d "$runs_root" ] && [ ! -L "$runs_root" ] \
+  && [ "$(realpath "$runs_root" 2>/dev/null)" = "$runs_root" ] \
+  && [ "$run_root" = "$runs_root/$run" ] \
+  || fail_contract "run directory does not match its canonical runs root" 73
 [ -d "$invocation_dir" ] && [ ! -L "$invocation_dir" ] \
   || fail_contract "invocation directory is missing or unsafe" 73
 [ "$(realpath "$invocation_dir" 2>/dev/null)" = "$invocation_dir" ] \
@@ -398,43 +403,111 @@ recheck_authorized_gate_terminal() {
 
 # -- 4/4 CORE · Replay or release the exact recorded Treehouse path --
 cleaner_seal=$run_root/agents/cleaner.ownership.json
+cleaner_seal_snapshot=
+cleaner_seal_json=
 validate_cleaner_seal() {
+  local mode mode_after identity identity_after json json_after
   [ -f "$cleaner_seal" ] && [ ! -L "$cleaner_seal" ] || return 1
+  [ "$(realpath "$cleaner_seal" 2>/dev/null)" = "$cleaner_seal" ] \
+    || return 1
+  mode=$(stat -c '%a' "$cleaner_seal" 2>/dev/null \
+    || stat -f '%Lp' "$cleaner_seal" 2>/dev/null || true)
+  [ "$mode" = 444 ] || return 1
+  identity=$(file_identity "$cleaner_seal") || return 1
+  json=$(jq -cS '.' "$cleaner_seal" 2>/dev/null) || return 1
   jq -e --arg run "$run" \
     --arg kind "$(jq -r '.runway_kind' "$ownership")" \
     --arg repo "$(jq -r '.repo_dir' "$ownership")" \
     --arg worktree "$(jq -r '.worktree' "$ownership")" \
     --arg branch "$(jq -r '.branch' "$ownership")" \
     --arg base "$(jq -r '.base_sha' "$ownership")" '
-      type=="object" and .run==$run and .runway_kind==$kind and
+      def sha:
+        type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+      def text:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      type=="object" and
+      keys==[
+        "base_sha","branch","reasons","released","repo_dir","run",
+        "runway_kind","worktree"
+      ] and
+      .run==$run and .runway_kind==$kind and
       .repo_dir==$repo and .worktree==$worktree and .branch==$branch and
-      .base_sha==$base and .released==true and .reasons==[]
-    ' "$cleaner_seal" >/dev/null 2>&1
+      .base_sha==$base and
+      (.run|text) and (.runway_kind|text) and (.repo_dir|text) and
+      (.worktree|text) and (.branch|text) and (.base_sha|sha) and
+      .released==true and .reasons==[]
+    ' <<<"$json" >/dev/null 2>&1 || return 1
+  identity_after=$(file_identity "$cleaner_seal") || return 1
+  json_after=$(jq -cS '.' "$cleaner_seal" 2>/dev/null) || return 1
+  mode_after=$(stat -c '%a' "$cleaner_seal" 2>/dev/null \
+    || stat -f '%Lp' "$cleaner_seal" 2>/dev/null || true)
+  [ "$identity_after" = "$identity" ] && [ "$json_after" = "$json" ] \
+    && [ "$mode_after" = 444 ] && [ ! -L "$cleaner_seal" ] \
+    && [ "$(realpath "$cleaner_seal" 2>/dev/null)" = "$cleaner_seal" ] \
+    || return 1
+  cleaner_seal_json=$json
+  cleaner_seal_snapshot=$identity:$json
 }
 
-if validate_cleaner_seal; then
+read_cleaner_failure_reasons() {
+  local mode identity identity_after json json_after reasons
+  [ -f "$cleaner_seal" ] && [ ! -L "$cleaner_seal" ] || return 1
+  [ "$(realpath "$cleaner_seal" 2>/dev/null)" = "$cleaner_seal" ] \
+    || return 1
+  mode=$(stat -c '%a' "$cleaner_seal" 2>/dev/null \
+    || stat -f '%Lp' "$cleaner_seal" 2>/dev/null || true)
+  [ "$mode" = 444 ] || return 1
+  identity=$(file_identity "$cleaner_seal") || return 1
+  json=$(jq -cS '.' "$cleaner_seal" 2>/dev/null) || return 1
+  reasons=$(jq -c '
+    if type=="object" and
+      (.reasons|type=="array" and length>0 and
+        all(.[]; type=="string" and length>0))
+    then .reasons else error("invalid Cleaner failure reasons") end
+  ' <<<"$json" 2>/dev/null) || return 1
+  identity_after=$(file_identity "$cleaner_seal") || return 1
+  json_after=$(jq -cS '.' "$cleaner_seal" 2>/dev/null) || return 1
+  [ "$identity_after" = "$identity" ] && [ "$json_after" = "$json" ] \
+    && [ ! -L "$cleaner_seal" ] \
+    && [ "$(realpath "$cleaner_seal" 2>/dev/null)" = "$cleaner_seal" ] \
+    || return 1
+  printf '%s\n' "$reasons"
+}
+
+if [ -e "$cleaner_seal" ] || [ -L "$cleaner_seal" ]; then
+  validate_cleaner_seal || reject "cleaner:release_seal_invalid"
+  authorized_cleaner_seal_snapshot=$cleaner_seal_snapshot
   recheck_authorized_gate_terminal \
     || reject "${gate_validation_reason:-gate:terminal_replaced}"
+  validate_cleaner_seal \
+    && [ "$cleaner_seal_snapshot" = "$authorized_cleaner_seal_snapshot" ] \
+    || reject "cleaner:release_seal_replaced"
   publish_outcome 0 "$(jq -c \
-    '{runway_kind:.runway_kind,worktree:.worktree}' "$cleaner_seal")"
+    '{runway_kind:.runway_kind,worktree:.worktree}' <<<"$cleaner_seal_json")"
 fi
 
 recheck_authorized_gate_terminal \
   || reject "${gate_validation_reason:-gate:terminal_replaced}"
 script_dir=$(CDPATH='' cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 set +e
-CB_RUNS_DIR=${CB_RUNS_DIR:-"$HOME/.combo-chen/runs"} \
+CB_RUNS_DIR=$runs_root \
   sh "$script_dir/cb-cleaner.sh" "$run" </dev/null >/dev/null 2>&1
 cleaner_status=$?
 set -e
 if [ "$cleaner_status" -ne 0 ]; then
-  reasons=$(jq -c '.reasons // ["cleaner:mechanical_failure"]' \
-    "$cleaner_seal" 2>/dev/null \
+  reasons=$(read_cleaner_failure_reasons \
     || printf '["cleaner:mechanical_failure"]')
   publish_outcome 1 "$(jq -cn --argjson reasons "$reasons" \
     '{reasons:$reasons}')"
 fi
 validate_cleaner_seal || reject "cleaner:release_unsealed"
+recheck_authorized_gate_terminal \
+  || reject "${gate_validation_reason:-gate:terminal_replaced}"
+authorized_cleaner_seal_snapshot=$cleaner_seal_snapshot
+validate_cleaner_seal \
+  && [ "$cleaner_seal_snapshot" = "$authorized_cleaner_seal_snapshot" ] \
+  || reject "cleaner:release_seal_replaced"
 publish_outcome 0 "$(jq -c \
-  '{runway_kind:.runway_kind,worktree:.worktree}' "$cleaner_seal")"
+  '{runway_kind:.runway_kind,worktree:.worktree}' <<<"$cleaner_seal_json")"
 # -/ 4/4

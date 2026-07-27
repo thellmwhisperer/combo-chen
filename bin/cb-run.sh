@@ -23,11 +23,13 @@
 #   ---------
 #   usage, fail_contract, resolve_dispatcher_executable, validate_run_root,
 #   validate_bare_dispatch_name, validate_dispatch_directory,
-#   validate_dispatch_destination, publish_text, shell_quote, run_endpoint_job,
-#   dispatch_step, mount_endpoints, result_exit_status, print_terminal_outcome
+#   validate_dispatch_destination, file_identity, file_inode,
+#   observe_endpoint_receipt,
+#   publish_text, shell_quote, run_endpoint_job, dispatch_step, mount_endpoints,
+#   result_exit_status, trusted_gate_terminal_outcome, print_terminal_outcome
 #
 # @exports none
-# @deps bash, jq, realpath, tmux, bin/cb-agent-spawn.sh, bin/cb-send.sh,
+# @deps bash, jq, realpath, stat, tmux, bin/cb-agent-spawn.sh, bin/cb-send.sh,
 #   bin/cb-tmux.sh, bin/cb-step.sh, bin/cb-chain.sh
 set -euo pipefail
 
@@ -104,6 +106,24 @@ validate_dispatch_destination() {
   validate_bare_dispatch_name "$name" "$suffix" || return 1
   validate_dispatch_directory "$directory" "$directory" || return 1
   [ ! -e "$directory/$name" ] && [ ! -L "$directory/$name" ]
+}
+
+file_identity() {
+  stat -c '%d:%i' "$1" 2>/dev/null \
+    || stat -f '%d:%i' "$1" 2>/dev/null
+}
+
+file_inode() {
+  stat -c '%i' "$1" 2>/dev/null \
+    || stat -f '%i' "$1" 2>/dev/null
+}
+
+observe_endpoint_receipt() {
+  local receipt=$1 expected=$2
+  [ ! -L "$receipt" ] || return 2
+  [ -e "$receipt" ] || return 1
+  [ -f "$receipt" ] || return 2
+  [ "$(realpath "$receipt" 2>/dev/null)" = "$expected" ] || return 2
 }
 
 publish_text() {
@@ -228,7 +248,7 @@ run_endpoint_job() {
 
   step_args=("$run" "$step" "$attempt")
   if [ "$candidate" != null ]; then
-    step_args+=(--candidate-sha "$(jq -r '.candidate_sha' "$job")")
+    step_args+=(--candidate-sha "$(jq -r '.candidate_sha' <<<"$job_json")")
   fi
   step_args+=(--prior-artifacts "$prior")
   set +e
@@ -281,7 +301,7 @@ dispatch_step() {
   [ "$#" -eq 6 ] || fail_contract "invalid internal dispatch arguments"
   local run=$1 role=$2 step=$3 attempt=$4 candidate=$5 prior=$6
   local safe_step dispatch_dir jobs_dir job_name receipt_name job receipt
-  local job_tmp command deadline status
+  local job_tmp command deadline status receipt_observation_status
   local receipt_json result wait_seconds ticks
 
   validate_run_root "$run" || fail_contract "unsafe dispatch run" 73
@@ -352,17 +372,41 @@ dispatch_step() {
   esac
   deadline=$((SECONDS + wait_seconds))
   ticks=0
-  while [ ! -e "$receipt" ]; do
-    [ ! -L "$receipt" ] \
+  while :; do
+    if observe_endpoint_receipt "$receipt" "$dispatch_dir/$receipt_name"; then
+      break
+    else
+      receipt_observation_status=$?
+    fi
+    [ "$receipt_observation_status" -eq 1 ] \
       || fail_contract "endpoint receipt path became unsafe" 73
-    [ "$SECONDS" -lt "$deadline" ] \
-      || fail_contract "endpoint receipt timeout for $step" 75
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      if observe_endpoint_receipt "$receipt" "$dispatch_dir/$receipt_name"; then
+        break
+      else
+        receipt_observation_status=$?
+      fi
+      [ "$receipt_observation_status" -eq 1 ] \
+        || fail_contract "endpoint receipt path became unsafe" 73
+      fail_contract "endpoint receipt timeout for $step" 75
+    fi
     ticks=$((ticks + 1))
     if [ $((ticks % 10)) -eq 0 ]; then
-      CB_RUNS_DIR=$runs_dir \
+      if CB_RUNS_DIR=$runs_dir \
         sh -c '. "$1/cb-tmux.sh"; cb_tmux_resolve_agent "$2" "$3" "$4" >/dev/null' \
-        sh "$script_dir" "$run" "$role" "$runs_dir" \
-        || fail_contract "$role endpoint died before receipt" 75
+        sh "$script_dir" "$run" "$role" "$runs_dir" </dev/null; then
+        :
+      else
+        if observe_endpoint_receipt \
+          "$receipt" "$dispatch_dir/$receipt_name"; then
+          break
+        else
+          receipt_observation_status=$?
+        fi
+        [ "$receipt_observation_status" -eq 1 ] \
+          || fail_contract "endpoint receipt path became unsafe" 73
+        fail_contract "$role endpoint died before receipt" 75
+      fi
     fi
     sleep 0.5
   done
@@ -411,20 +455,21 @@ mount_endpoints() {
     if target=$(
       CB_RUNS_DIR=$runs_dir \
         sh -c '. "$1/cb-tmux.sh"; cb_tmux_resolve_agent "$2" "$3" "$4"' \
-        sh "$script_dir" "$run" "$role" "$runs_dir" 2>/dev/null
+        sh "$script_dir" "$run" "$role" "$runs_dir" </dev/null 2>/dev/null
     ); then
       [ -n "$target" ] \
         || fail_contract "resolved $role endpoint has no target" 73
       continue
     fi
     CB_RUNS_DIR=$runs_dir sh "$script_dir/cb-agent-spawn.sh" \
-      "$run" "$role" --mode "$mode" --cwd "$run_root" >/dev/null \
+      "$run" "$role" --mode "$mode" --cwd "$run_root" \
+      </dev/null >/dev/null \
       || fail_contract "cannot create $role endpoint" 75
   done
   for role in launcher coder reviewer gate cleaner; do
     CB_RUNS_DIR=$runs_dir \
       sh -c '. "$1/cb-tmux.sh"; cb_tmux_resolve_agent "$2" "$3" "$4" >/dev/null' \
-      sh "$script_dir" "$run" "$role" "$runs_dir" \
+      sh "$script_dir" "$run" "$role" "$runs_dir" </dev/null \
       || fail_contract "$role endpoint is not live" 75
   done
 }
@@ -457,24 +502,106 @@ result_exit_status() {
   return 0
 }
 
-print_terminal_outcome() {
-  local result=$1 terminal_rel terminal normalized
+trusted_gate_terminal_outcome() {
+  local result=$1 terminal_rel terminal mode identity fd_inode
+  local terminal_json identity_after normalized candidate
   terminal_rel=$(jq -r '
     [(.artifacts // [])[] | select(.id=="gate-terminal") | .path] |
     if length==1 then .[0] else "" end
-  ' "$result" 2>/dev/null || true)
-  if [ -n "$terminal_rel" ]; then
-    terminal=$run_root/$terminal_rel
-    if [ -f "$terminal" ] && [ ! -L "$terminal" ]; then
-      normalized=$(jq -r '.normalized_outcome // empty' \
-        "$terminal" 2>/dev/null || true)
-      case "$normalized" in
-        merged|validated)
-          printf '%s\n' "$normalized"
-          return 0
-          ;;
-      esac
-    fi
+  ' "$result" 2>/dev/null) || return 1
+  [ "$terminal_rel" = artifacts/gate/terminal.json ] || return 1
+  terminal=$run_root/$terminal_rel
+  [ "$terminal" = "$run_root/artifacts/gate/terminal.json" ] || return 1
+  [ -f "$terminal" ] && [ ! -L "$terminal" ] || return 1
+  [ "$(realpath "$terminal" 2>/dev/null)" = "$terminal" ] || return 1
+  mode=$(stat -c '%a' "$terminal" 2>/dev/null \
+    || stat -f '%Lp' "$terminal" 2>/dev/null || true)
+  [ "$mode" = 444 ] || return 1
+  identity=$(file_identity "$terminal") || return 1
+  exec 7<"$terminal" || return 1
+  fd_inode=$(file_inode /dev/fd/7) || {
+    exec 7>&-
+    return 1
+  }
+  [ "$fd_inode" = "${identity#*:}" ] || {
+    exec 7>&-
+    return 1
+  }
+  if terminal_json=$(jq -cS '.' /dev/fd/7 2>/dev/null); then
+    :
+  else
+    exec 7>&-
+    return 1
+  fi
+  exec 7>&- || return 1
+  identity_after=$(file_identity "$terminal") || return 1
+  [ "$identity_after" = "$identity" ] || return 1
+  [ ! -L "$terminal" ] \
+    && [ "$(realpath "$terminal" 2>/dev/null)" = "$terminal" ] \
+    || return 1
+  candidate=$(jq -r '.candidate_sha // empty' "$result" 2>/dev/null) \
+    || return 1
+  if ! jq -e --arg run "$run" --arg candidate "$candidate" '
+    def text:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    . as $terminal |
+    type=="object" and
+    keys==[
+      "branch","candidate_sha","invocation","lease","merge",
+      "no_mistakes","normalized_outcome","result","run_id","schema","worktree"
+    ] and
+    .schema=="combo.gate-terminal/v3" and .run_id==$run and
+    .candidate_sha==$candidate and (.branch|text) and
+    (.worktree|text and startswith("/")) and
+    .invocation=="artifacts/gate/invocation.json" and
+    (.lease |
+      type=="string" and
+      test("^artifacts/gate/no-mistakes-lease-attempt-[1-9][0-9]*\\.json$")) and
+    (.normalized_outcome=="validated" or .normalized_outcome=="merged") and
+    (.merge |
+      type=="object" and keys==["arm","mode","outcome"] and
+      ((.mode=="manual" and $terminal.normalized_outcome=="validated" and
+        .arm=="" and .outcome=="") or
+       (.mode=="auto" and $terminal.normalized_outcome=="merged" and
+        (.arm|text) and (.outcome|text)))) and
+    (.no_mistakes |
+      type=="object" and keys==["outcome","pr","receipt","run_id"] and
+      (.run_id|text) and
+      (.outcome=="passed" or .outcome=="checks-passed") and
+      (.pr|text) and
+      (.receipt |
+        type=="string" and
+        test("^artifacts/gate/no-mistakes-attempt-[1-9][0-9]*\\.toon$"))) and
+    (.result |
+      type=="object" and
+      keys==["errors","events","exit_class","reasons"] and
+      .exit_class=="completed" and .reasons==[] and .errors==[] and
+      (.events|type=="array" and length==1) and
+      (.events[0] |
+        type=="object" and keys==["code","event","payload"] and
+        .code==0 and .event=="gate_ok" and
+        (.payload |
+          type=="object" and
+          (keys==["outcome","pr","sha"] or keys==["outcome","sha"]) and
+          .outcome==$terminal.normalized_outcome and .sha==$candidate and
+          ((has("pr") | not) or .pr==$terminal.no_mistakes.pr))))
+  ' <<<"$terminal_json" >/dev/null 2>&1; then
+    return 1
+  fi
+  normalized=$(jq -r '.normalized_outcome' <<<"$terminal_json") || return 1
+  printf '%s\n' "$normalized"
+}
+
+print_terminal_outcome() {
+  local result=$1 normalized
+  if normalized=$(trusted_gate_terminal_outcome "$result"); then
+    case "$normalized" in
+      merged|validated)
+        printf '%s\n' "$normalized"
+        return 0
+        ;;
+    esac
   fi
   printf 'failed\n'
 }

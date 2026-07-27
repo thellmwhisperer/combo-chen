@@ -27,7 +27,9 @@
 #   write_config, make_planned_run, run_step, run_step_with_stdin,
 #   test_native_end_envelopes, make_cleaner_security_fixture,
 #   write_gate_terminal, write_cleaner_seal, run_cleaner_adapter,
-#   assert_cleaner_rejects_without_release, test_cleaner_latest_gate_attempt,
+#   wait_for_test_path, assert_cleaner_rejects_without_release,
+#   test_adapter_runs_root_binding, test_cleaner_latest_gate_attempt,
+#   test_cleaner_non_vacuous_failure_reasons, test_cleaner_seal_trust,
 #   test_cleaner_unpredictable_staging, test_cleaner_security_contracts
 #
 # @exports none
@@ -62,6 +64,21 @@ REAL_REALPATH=$(command -v realpath)
 CMD_STATUS=
 CMD_STDOUT=
 CMD_STDERR=
+
+wait_for_test_path() {
+  local path=$1 pid=${2:-} wait_seconds=${3:-5} deadline
+  deadline=$((SECONDS + wait_seconds))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      return 0
+    fi
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      return 1
+    fi
+    sleep 0.01
+  done
+  [ -e "$path" ] || [ -L "$path" ]
+}
 
 cb_write_fake "$FAKE" '#!/usr/bin/env bash
 set -u
@@ -702,16 +719,184 @@ write_cleaner_seal() {
 run_cleaner_adapter() {
   local extra_path=${1:-} err="$TMP_ROOT/cleaner-adapter.err"
   local run="${CLEANER_RUN_ROOT##*/}"
+  local adapter=${CB_CLEANER_ADAPTER_UNDER_TEST:-"$BIN/cb-cleaner-adapter.sh"}
   CMD_STDOUT=$(
     PATH="${extra_path:+$extra_path:}$CLEANER_FAKE_BIN:$PATH" \
       CB_RUNS_DIR="$RUNS_DIR" \
       CB_CLEANER_TEST_RUN="$run" \
       CB_CLEANER_TEST_WORKTREE="$CLEANER_WORKTREE" \
       CB_CLEANER_TEST_RETURN_CALLS="$CLEANER_RETURN_CALLS" \
-      bash "$BIN/cb-cleaner-adapter.sh" \
-        --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" 2>"$err"
+      bash "$adapter" \
+        --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" \
+        </dev/null 2>"$err"
   ) && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$err" 2>/dev/null || true)
+}
+
+test_adapter_runs_root_binding() {
+  local lab="$TMP_ROOT/adapter-root-lab" launcher_lab cleaner_lab foreign_runs
+  local run=launcher-root-binding run_root invocation input output repo base
+  local trace="$lab/launcher.trace" worktree="$lab/launcher-worktree"
+  local err="$lab/launcher.err" result_code cleaner_trace cleaner_marker
+  local foreign_marker cleaner_err
+
+  launcher_lab="$lab/launcher"
+  cleaner_lab="$lab/cleaner"
+  foreign_runs="$lab/foreign-runs"
+  mkdir -p "$launcher_lab" "$cleaner_lab" "$foreign_runs"
+  cp "$BIN/cb-launcher-adapter.sh" "$launcher_lab/cb-launcher-adapter.sh"
+  chmod +x "$launcher_lab/cb-launcher-adapter.sh"
+  cb_write_fake "$launcher_lab/cb-launcher.sh" '#!/bin/sh
+set -eu
+run=$1
+root=$CB_RUNS_DIR/$run
+mkdir -p "$root/agents"
+printf "%s\n" "$CB_RUNS_DIR" >>"$CB_ROOT_TEST_TRACE"
+printf "delegated\n" >"$root/delegate.read-write"
+jq -cn \
+  --arg run "$run" --arg repo "$CB_ROOT_TEST_REPO" \
+  --arg worktree "$CB_ROOT_TEST_WORKTREE" \
+  --arg branch "combo/$run" --arg base "$CB_ROOT_TEST_BASE" \
+  "{
+    run:\$run,runway_kind:\"treehouse\",repo_dir:\$repo,
+    worktree:\$worktree,branch:\$branch,base_sha:\$base,lease_id:\$run
+  }" >"$root/agents/launcher.ownership.json"
+chmod 0444 "$root/agents/launcher.ownership.json"
+printf "{\"agent\":\"launcher\",\"event\":\"launch_ready\"}\n" \
+  >"$root/journal.jsonl"
+'
+  repo="$lab/launcher-repo"
+  mkdir -p "$repo"
+  git -C "$repo" init -q -b main
+  git -C "$repo" config user.name "Launcher Root Test"
+  git -C "$repo" config user.email "launcher-root@example.test"
+  printf 'base\n' >"$repo/file.txt"
+  git -C "$repo" add file.txt
+  git -C "$repo" commit -qm "fixture base"
+  base=$(git -C "$repo" rev-parse HEAD)
+  run_root="$RUNS_DIR/$run"
+  invocation="$run_root/steps/01-launcher/attempt-1"
+  input="$invocation/input.json"
+  output="$invocation/adapter-output.json"
+  mkdir -p "$invocation" "$foreign_runs/$run"
+  jq -cn \
+    --arg run "$run" --arg input "$input" --arg output "$output" \
+    --arg root "$run_root" --arg invocation "$invocation" \
+    --arg repo "$repo" '
+      {
+        schema:"combo.step-input/v1",run_id:$run,step_id:"launcher",
+        adapter_id:"launcher",role:"launcher",attempt:1,candidate_sha:null,
+        config:{
+          schema:"combo.launcher/treehouse/v1",repo_dir:$repo,
+          base_ref:"main",setup_command:"",
+          readiness:{
+            required_seats:["coder"],
+            seats:[{id:"coder",harness:"sh",auth_cmd:"exit 0"}]
+          }
+        },
+        prior_artifacts:[],
+        paths:{
+          run_dir:$root,artifacts_dir:($root+"/artifacts"),
+          steps_dir:($root+"/steps"),invocation_dir:$invocation,
+          input_path:$input,output_path:$output
+        }
+      }
+    ' >"$input"
+  chmod 0444 "$input"
+  CB_RUNS_DIR="$foreign_runs" \
+    CB_ROOT_TEST_TRACE="$trace" CB_ROOT_TEST_REPO="$repo" \
+    CB_ROOT_TEST_WORKTREE="$worktree" CB_ROOT_TEST_BASE="$base" \
+    bash "$launcher_lab/cb-launcher-adapter.sh" \
+      --input "$input" --output "$output" </dev/null 2>"$err" \
+    && result_code=0 || result_code=$?
+  expect_code 0 "$result_code" \
+    "Launcher canonical runs-root binding$(cat "$err")"
+  jq -e '.events==[{
+    code:0,event:"launch_ready",payload:{
+      worktree:"'"$worktree"'",branch:"combo/'"$run"'",
+      base_sha:"'"$base"'",runway_kind:"treehouse",lease_id:"'"$run"'"
+    }
+  }]' "$output" >/dev/null \
+    || fail "Launcher did not normalize custody from its envelope-bound run"
+  [ "$(cat "$trace")" = "$RUNS_DIR" ] \
+    || fail "Launcher delegated against ambient rather than canonical runs root"
+  assert_absent "$foreign_runs/$run/delegate.read-write" \
+    "hostile Launcher runs root received delegated read/write effects"
+  [ ! -L "$foreign_runs/$run/delegate.read-write" ] \
+    || fail "hostile Launcher runs root received a dangling delegated effect"
+  assert_absent "$foreign_runs/$run/agents/launcher.ownership.json" \
+    "hostile Launcher runs root received ownership"
+  [ ! -L "$foreign_runs/$run/agents/launcher.ownership.json" ] \
+    || fail "hostile Launcher runs root received dangling ownership"
+  assert_absent "$foreign_runs/$run/journal.jsonl" \
+    "hostile Launcher runs root received a journal effect"
+  [ ! -L "$foreign_runs/$run/journal.jsonl" ] \
+    || fail "hostile Launcher runs root received a dangling journal effect"
+
+  make_cleaner_security_fixture cleaner-root-binding
+  write_gate_terminal 1
+  run="${CLEANER_RUN_ROOT##*/}"
+  cleaner_trace="$lab/cleaner.trace"
+  cleaner_marker="$CLEANER_RUN_ROOT/release-marker"
+  foreign_marker="$foreign_runs/$run/release-marker"
+  cleaner_err="$lab/cleaner.err"
+  touch "$cleaner_marker"
+  mkdir -p "$foreign_runs/$run/agents"
+  touch "$foreign_marker"
+  cp "$BIN/cb-cleaner-adapter.sh" "$cleaner_lab/cb-cleaner-adapter.sh"
+  chmod +x "$cleaner_lab/cb-cleaner-adapter.sh"
+  cb_write_fake "$cleaner_lab/cb-cleaner.sh" '#!/bin/sh
+set -eu
+run=$1
+root=$CB_RUNS_DIR/$run
+mkdir -p "$root/agents"
+printf "%s\n" "$CB_RUNS_DIR" >>"$CB_ROOT_TEST_TRACE"
+rm -f -- "$root/release-marker"
+jq -cn \
+  --arg run "$run" --arg repo "$CB_ROOT_TEST_REPO" \
+  --arg worktree "$CB_ROOT_TEST_WORKTREE" \
+  --arg branch "$CB_ROOT_TEST_BRANCH" --arg base "$CB_ROOT_TEST_BASE" \
+  "{
+    run:\$run,runway_kind:\"treehouse\",repo_dir:\$repo,
+    worktree:\$worktree,branch:\$branch,base_sha:\$base,
+    released:true,reasons:[]
+  }" >"$root/agents/cleaner.ownership.json"
+chmod 0444 "$root/agents/cleaner.ownership.json"
+printf "{\"agent\":\"cleaner\",\"event\":\"cleaned\"}\n" \
+  >"$root/journal.jsonl"
+'
+  CB_RUNS_DIR="$foreign_runs" \
+    CB_ROOT_TEST_TRACE="$cleaner_trace" \
+    CB_ROOT_TEST_REPO="$(jq -r '.repo_dir' \
+      "$CLEANER_RUN_ROOT/agents/launcher.ownership.json")" \
+    CB_ROOT_TEST_WORKTREE="$CLEANER_WORKTREE" \
+    CB_ROOT_TEST_BRANCH="combo/$run" \
+    CB_ROOT_TEST_BASE="$(jq -r '.base_sha' \
+      "$CLEANER_RUN_ROOT/agents/launcher.ownership.json")" \
+    bash "$cleaner_lab/cb-cleaner-adapter.sh" \
+      --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" \
+      </dev/null >/dev/null 2>"$cleaner_err" \
+    && result_code=0 || result_code=$?
+  expect_code 0 "$result_code" \
+    "Cleaner canonical runs-root binding$(cat "$cleaner_err")"
+  jq -e '.events[0].event=="cleaned"' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "Cleaner did not normalize its canonical delegated release"
+  [ "$(cat "$cleaner_trace")" = "$RUNS_DIR" ] \
+    || fail "Cleaner delegated against ambient rather than canonical runs root"
+  assert_absent "$cleaner_marker" \
+    "Cleaner did not act on its envelope-bound release marker"
+  assert_present "$foreign_marker" \
+    "hostile Cleaner runs root received a foreign release/removal"
+  assert_absent "$foreign_runs/$run/agents/cleaner.ownership.json" \
+    "hostile Cleaner runs root received a release seal"
+  [ ! -L "$foreign_runs/$run/agents/cleaner.ownership.json" ] \
+    || fail "hostile Cleaner runs root received a dangling release seal"
+  assert_absent "$foreign_runs/$run/journal.jsonl" \
+    "hostile Cleaner runs root received a journal effect"
+  [ ! -L "$foreign_runs/$run/journal.jsonl" ] \
+    || fail "hostile Cleaner runs root received a dangling journal effect"
+
+  pass "native Launcher/Cleaner: bind delegation to the canonical envelope runs root"
 }
 
 assert_cleaner_rejects_without_release() {
@@ -806,8 +991,191 @@ exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
   pass "native Cleaner: only the immutable highest numeric Gate attempt authorizes release"
 }
 
+test_cleaner_non_vacuous_failure_reasons() {
+  local lab="$TMP_ROOT/cleaner-reasons-lab" run label content expected
+  local seal_source case_index=0
+  mkdir -p "$lab"
+  cp "$BIN/cb-cleaner-adapter.sh" "$lab/cb-cleaner-adapter.sh"
+  chmod +x "$lab/cb-cleaner-adapter.sh"
+  cb_write_fake "$lab/cb-cleaner.sh" '#!/bin/sh
+set -eu
+run=$1
+cp "$CB_CLEANER_TEST_FAILURE_SEAL" \
+  "$CB_RUNS_DIR/$run/agents/cleaner.ownership.json"
+chmod 0444 "$CB_RUNS_DIR/$run/agents/cleaner.ownership.json"
+exit 1
+'
+
+  while IFS='|' read -r label content expected; do
+    case_index=$((case_index + 1))
+    run="cleaner-reasons-$case_index"
+    make_cleaner_security_fixture "$run"
+    write_gate_terminal 1
+    seal_source="$lab/$label.json"
+    printf '%s\n' "$content" >"$seal_source"
+    export CB_CLEANER_ADAPTER_UNDER_TEST="$lab/cb-cleaner-adapter.sh"
+    export CB_CLEANER_TEST_FAILURE_SEAL="$seal_source"
+    run_cleaner_adapter
+    unset CB_CLEANER_ADAPTER_UNDER_TEST CB_CLEANER_TEST_FAILURE_SEAL
+    expect_code 0 "$CMD_STATUS" \
+      "Cleaner $label failure-reason normalization${CMD_STDERR:+: $CMD_STDERR}"
+    jq -e --argjson expected "$expected" '
+      .exit_class=="completed" and
+      .events==[{
+        code:1,event:"clean_failed",payload:{reasons:$expected}
+      }]
+    ' "$CLEANER_OUTPUT" >/dev/null \
+      || fail "Cleaner $label reasons were vacuous, malformed, or fail-open: $(cat "$CLEANER_OUTPUT")"
+  done <<'EOF'
+empty|{"reasons":[]}|["cleaner:mechanical_failure"]
+null|{"reasons":null}|["cleaner:mechanical_failure"]
+false|{"reasons":false}|["cleaner:mechanical_failure"]
+wrong-type|{"reasons":"release refused"}|["cleaner:mechanical_failure"]
+empty-string|{"reasons":[""]}|["cleaner:mechanical_failure"]
+mixed|{"reasons":["treehouse:release_refused",42]}|["cleaner:mechanical_failure"]
+malformed|not-json|["cleaner:mechanical_failure"]
+valid|{"reasons":["treehouse:release_refused","custody:active"]}|["treehouse:release_refused","custody:active"]
+EOF
+
+  pass "native Cleaner: mechanical failures always carry non-vacuous typed reasons"
+}
+
+assert_cleaner_rejects_invalid_seal() {
+  local expected_reason=${1:-cleaner:release_seal_invalid}
+  run_cleaner_adapter "${2:-}"
+  expect_code 0 "$CMD_STATUS" \
+    "Cleaner invalid-seal rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e --arg reason "$expected_reason" '
+    .exit_class=="completed" and
+    .events==[{
+      code:1,event:"clean_failed",payload:{reasons:[$reason]}
+    }]
+  ' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "Cleaner trusted an unsafe or replaced release seal: $(cat "$CLEANER_OUTPUT")"
+  assert_absent "$CLEANER_RETURN_CALLS" \
+    "Cleaner delegated release after rejecting an existing seal"
+  [ ! -L "$CLEANER_RETURN_CALLS" ] \
+    || fail "Cleaner left a dangling foreign return record"
+  assert_present "$CLEANER_WORKTREE" \
+    "Cleaner removed custody after rejecting an existing seal"
+}
+
+rewrite_cleaner_seal() {
+  local filter=$1 seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  chmod u+w "$seal"
+  jq "$filter" "$seal" >"$seal.rewrite"
+  chmod 0444 "$seal.rewrite"
+  mv -f "$seal.rewrite" "$seal"
+}
+
+test_cleaner_seal_trust() {
+  local seal target replacement race_bin gate_result
+
+  make_cleaner_security_fixture cleaner-seal-writable
+  write_gate_terminal 1
+  write_cleaner_seal
+  seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  chmod 0644 "$seal"
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-seal-extra
+  write_gate_terminal 1
+  write_cleaner_seal
+  rewrite_cleaner_seal '. + {unexpected:"authority"}'
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-seal-missing
+  write_gate_terminal 1
+  write_cleaner_seal
+  rewrite_cleaner_seal 'del(.branch)'
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-seal-partial
+  write_gate_terminal 1
+  seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  printf '{"run":\n' >"$seal"
+  chmod 0444 "$seal"
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-seal-stale
+  write_gate_terminal 1
+  write_cleaner_seal
+  rewrite_cleaner_seal '.worktree="/stale/worktree"'
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-seal-wrong-type
+  write_gate_terminal 1
+  write_cleaner_seal
+  rewrite_cleaner_seal '.released=1'
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-seal-symlink
+  write_gate_terminal 1
+  write_cleaner_seal
+  seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  target="$TMP_ROOT/cleaner-seal-symlink-target.json"
+  mv "$seal" "$target"
+  ln -s "$target" "$seal"
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-seal-valid-replay
+  write_gate_terminal 1
+  write_cleaner_seal
+  run_cleaner_adapter
+  expect_code 0 "$CMD_STATUS" \
+    "valid Cleaner seal replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].event=="cleaned"' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "an exact immutable Cleaner seal did not replay"
+  assert_absent "$CLEANER_RETURN_CALLS" \
+    "valid Cleaner replay duplicated the release effect"
+  assert_present "$CLEANER_WORKTREE" \
+    "valid Cleaner replay unexpectedly repeated fixture removal"
+
+  make_cleaner_security_fixture cleaner-seal-replaced
+  write_gate_terminal 1
+  write_cleaner_seal
+  seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  gate_result="$CLEANER_RUN_ROOT/steps/04-gate/attempt-1/result.json"
+  replacement="$TMP_ROOT/cleaner-seal-replacement.json"
+  jq '.worktree="/replacement/worktree"' "$seal" >"$replacement"
+  chmod 0444 "$replacement"
+  race_bin="$TMP_ROOT/cleaner-seal-race-bin"
+  mkdir "$race_bin"
+  cb_write_fake "$race_bin/jq" '#!/usr/bin/env bash
+last=${!#}
+if [ "${1:-}" = -cS ] && [ "${2:-}" = . ] &&
+  [ "$last" = "$CB_CLEANER_TEST_GATE_RESULT" ]; then
+  count=0
+  [ ! -f "$CB_CLEANER_TEST_RACE_COUNT" ] ||
+    count=$(cat "$CB_CLEANER_TEST_RACE_COUNT")
+  count=$((count + 1))
+  printf "%s\n" "$count" >"$CB_CLEANER_TEST_RACE_COUNT"
+  "$CB_CLEANER_TEST_REAL_JQ" "$@"
+  code=$?
+  if [ "$code" -eq 0 ] && [ "$count" -eq 3 ]; then
+    mv -f "$CB_CLEANER_TEST_RACE_REPLACEMENT" \
+      "$CB_CLEANER_TEST_CLEANER_SEAL"
+  fi
+  exit "$code"
+fi
+exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
+'
+  export CB_CLEANER_TEST_GATE_RESULT="$gate_result"
+  export CB_CLEANER_TEST_RACE_COUNT="$TMP_ROOT/cleaner-seal-race.count"
+  export CB_CLEANER_TEST_RACE_REPLACEMENT="$replacement"
+  export CB_CLEANER_TEST_CLEANER_SEAL="$seal"
+  export CB_CLEANER_TEST_REAL_JQ="$REAL_JQ"
+  assert_cleaner_rejects_invalid_seal cleaner:release_seal_replaced "$race_bin"
+  unset CB_CLEANER_TEST_GATE_RESULT CB_CLEANER_TEST_RACE_COUNT
+  unset CB_CLEANER_TEST_RACE_REPLACEMENT CB_CLEANER_TEST_CLEANER_SEAL
+  unset CB_CLEANER_TEST_REAL_JQ
+
+  pass "native Cleaner: trusts only an exact immutable canonical release seal"
+}
+
 test_cleaner_unpredictable_staging() {
-  local run pid status ready release poison victim blocker_bin
+  local run pid status ready release poison victim blocker_bin blocker_stage
+  local adapter=${CB_CLEANER_ADAPTER_UNDER_TEST:-"$BIN/cb-cleaner-adapter.sh"}
   local out="$TMP_ROOT/cleaner-pid.out" err="$TMP_ROOT/cleaner-pid.err"
 
   make_cleaner_security_fixture cleaner-pid-guess
@@ -831,11 +1199,15 @@ exec "$CB_CLEANER_TEST_REAL_REALPATH" "$@"
     CB_CLEANER_TEST_BLOCK_READY="$ready" \
     CB_CLEANER_TEST_BLOCK_RELEASE="$release" \
     CB_CLEANER_TEST_REAL_REALPATH="$REAL_REALPATH" \
-    bash "$BIN/cb-cleaner-adapter.sh" \
+    bash "$adapter" \
       --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" \
-      >"$out" 2>"$err" &
+      </dev/null >"$out" 2>"$err" &
   pid=$!
-  while [ ! -e "$ready" ]; do sleep 0.01; done
+  if ! wait_for_test_path "$ready" "$pid"; then
+    touch "$release"
+    wait "$pid" 2>/dev/null || true
+    fail "PID-guess fixture did not reach its synchronized realpath boundary"
+  fi
   victim="$TMP_ROOT/cleaner-pid-victim"
   poison="$CLEANER_RUN_ROOT/steps/05-cleaner/attempt-1/.cleaner-adapter-output.$pid"
   ln -s "$victim" "$poison"
@@ -857,15 +1229,27 @@ exec "$CB_CLEANER_TEST_REAL_REALPATH" "$@"
   blocker_bin="$TMP_ROOT/cleaner-jq-bin"
   mkdir "$blocker_bin"
   cb_write_fake "$blocker_bin/jq" '#!/usr/bin/env bash
-for argument in "$@"; do
-  case "$argument" in
-    *combo.step-output/v1*)
-      touch "$CB_CLEANER_TEST_BLOCK_READY"
-      while [ ! -e "$CB_CLEANER_TEST_BLOCK_RELEASE" ]; do sleep 0.01; done
-      break
-      ;;
-  esac
-done
+if [ "${1:-}" = -cn ]; then
+  for argument in "$@"; do
+    case "$argument" in
+      *step_id:\"cleaner\"*)
+        stage=
+        for candidate in "$CB_CLEANER_TEST_INVOCATION"/.cleaner-adapter-output.*; do
+          [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+          [ -z "$stage" ] || exit 72
+          stage=$candidate
+        done
+        [ -n "$stage" ] || exit 72
+        [ -f /dev/fd/3 ] || exit 72
+        printf "%s\n" "$stage" >"$CB_CLEANER_TEST_BLOCK_READY"
+        while [ ! -e "$CB_CLEANER_TEST_BLOCK_RELEASE" ]; do
+          sleep 0.01
+        done
+        break
+        ;;
+    esac
+  done
+fi
 exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
 '
   PATH="$blocker_bin:$CLEANER_FAKE_BIN:$PATH" \
@@ -876,11 +1260,19 @@ exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
     CB_CLEANER_TEST_BLOCK_READY="$ready" \
     CB_CLEANER_TEST_BLOCK_RELEASE="$release" \
     CB_CLEANER_TEST_REAL_JQ="$REAL_JQ" \
-    bash "$BIN/cb-cleaner-adapter.sh" \
+    CB_CLEANER_TEST_INVOCATION="$CLEANER_RUN_ROOT/steps/05-cleaner/attempt-1" \
+    bash "$adapter" \
       --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" \
-      >"$out" 2>"$err" &
+      </dev/null >"$out" 2>"$err" &
   pid=$!
-  while [ ! -e "$ready" ]; do sleep 0.01; done
+  if ! wait_for_test_path "$ready" "$pid"; then
+    touch "$release"
+    wait "$pid" 2>/dev/null || true
+    fail "interruption fixture did not reach owned open Cleaner staging"
+  fi
+  blocker_stage=$(cat "$ready")
+  [ -f "$blocker_stage" ] && [ ! -L "$blocker_stage" ] \
+    || fail "interruption fixture did not prove a reserved regular staging file"
   kill -TERM "$pid"
   touch "$release"
   wait "$pid" && status=0 || status=$?
@@ -901,14 +1293,29 @@ exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
 }
 
 test_cleaner_security_contracts() {
+  test_adapter_runs_root_binding
   test_cleaner_latest_gate_attempt
+  test_cleaner_non_vacuous_failure_reasons
+  test_cleaner_seal_trust
   test_cleaner_unpredictable_staging
 }
 # -/ 7/7
 
 case "${CB_STEP_ADAPTER_SECURITY_ONLY:-}" in
+  roots)
+    test_adapter_runs_root_binding
+    exit 0
+    ;;
   latest-gate)
     test_cleaner_latest_gate_attempt
+    exit 0
+    ;;
+  reasons)
+    test_cleaner_non_vacuous_failure_reasons
+    exit 0
+    ;;
+  seals)
+    test_cleaner_seal_trust
     exit 0
     ;;
   staging)

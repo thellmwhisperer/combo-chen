@@ -64,6 +64,7 @@ FAKE_GH="$FAKE_BIN_DIR/gh"
 FAKE_REALPATH="$FAKE_BIN_DIR/realpath"
 REAL_CAT=$(type -P cat)
 REAL_CHMOD=$(command -v chmod)
+REAL_GIT=$(command -v git)
 REAL_REALPATH=$(command -v realpath)
 FAKE_NM_HOME="$TMP_ROOT/no-mistakes-home"
 FAKE_NM_CONFIG="$FAKE_NM_HOME/.no-mistakes/config.yaml"
@@ -113,6 +114,7 @@ export CB_GATE_TEST_GH_HANG_ENTERED="$GH_HANG_ENTERED"
 export CB_GATE_TEST_GH_HANG_PIDS="$GH_HANG_PIDS"
 export CB_GATE_TEST_REAL_CAT="$REAL_CAT"
 export CB_GATE_TEST_REAL_CHMOD="$REAL_CHMOD"
+export CB_GATE_TEST_REAL_GIT="$REAL_GIT"
 export CB_GATE_TEST_REAL_REALPATH="$REAL_REALPATH"
 export CB_GATE_TEST_GH_MODE=exact
 export PATH="$FAKE_BIN_DIR:$PATH"
@@ -149,6 +151,17 @@ if [ "${CB_GATE_TEST_STAGE_WRITE_FAILURE:-}" = receipt ] &&
   exit 74
 fi
 exec "$CB_GATE_TEST_REAL_CAT" "$@"
+'
+
+cb_write_fake "$FAKE_BIN_DIR/git" '#!/bin/sh
+if [ "${CB_GATE_TEST_GIT_DIFF_FAILURE:-}" = 1 ]; then
+  for argument in "$@"; do
+    if [ "$argument" = diff ]; then
+      exit 42
+    fi
+  done
+fi
+exec "$CB_GATE_TEST_REAL_GIT" "$@"
 '
 
 cb_write_fake "$FAKE_REALPATH" '#!/usr/bin/env bash
@@ -801,7 +814,8 @@ run_gate() {
   export CB_GATE_TEST_BRANCH="$RUN_BRANCH"
   export CB_GATE_TEST_HEAD="$RUN_HEAD"
   CMD_STDOUT=$(HOME="$FAKE_NM_HOME" bash "$BIN/cb-step.sh" \
-    "$run" gate "$attempt" --candidate-sha "$candidate" 2>"$errfile") \
+    "$run" gate "$attempt" --candidate-sha "$candidate" \
+    </dev/null 2>"$errfile") \
     && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
 }
@@ -812,14 +826,17 @@ invocation_args() {
 
 wait_for_path() {
   local path=$1 pid=${2:-} wait_seconds=${3:-30} deadline
-  deadline=$(( $(date +%s) + wait_seconds ))
-  while [ ! -e "$path" ]; do
+  deadline=$((SECONDS + wait_seconds))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      return 0
+    fi
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
       return 1
     fi
-    [ "$(date +%s)" -lt "$deadline" ] || return 1
     sleep 0.02
   done
+  [ -e "$path" ] || [ -L "$path" ]
 }
 
 # -- 1/14 CORE · test_validates_exact_sha -- <- START HERE
@@ -1076,7 +1093,7 @@ test_seals_configured_identity() {
 
 # -- 4/14 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
-  local run=gate-drift result plan
+  local run=gate-drift result plan gate_stderr
   make_run "$run" passed
   printf 'drift\n' >>"$RUN_REPO/file.txt"
   git -C "$RUN_REPO" add file.txt
@@ -1163,6 +1180,36 @@ test_rejects_candidate_drift() {
     "candidate path drift must reject before No-Mistakes"
   assert_absent "$GH_CALLS" \
     "candidate path drift must reject before GitHub"
+
+  run=gate-allowed-path-diff-error
+  make_run "$run" passed
+  plan="$RUNS_DIR/$run/plan.json"
+  chmod u+w "$plan"
+  jq '(.steps[] | select(.id=="gate") |
+    .config.allowed_paths)=["docs/"]' \
+    "$plan" >"$RUNS_DIR/$run/.plan.rewrite"
+  mv "$RUNS_DIR/$run/.plan.rewrite" "$plan"
+  chmod 0444 "$plan"
+  rm -f "$NM_CALLED" "$GH_CALLS"
+  export CB_GATE_TEST_GIT_DIFF_FAILURE=1
+  run_gate "$run" "$RUN_HEAD"
+  unset CB_GATE_TEST_GIT_DIFF_FAILURE
+  expect_code 0 "$CMD_STATUS" \
+    "candidate diff command failure${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:73"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "git diff failure must remain a truthful Gate adapter error: $(cat "$CMD_STDOUT")"
+  gate_stderr="$RUNS_DIR/$run/steps/04-gate/attempt-1/stderr.log"
+  assert_grep \
+    "cb-gate: cannot inspect candidate paths (git diff exit 42)" \
+    "$gate_stderr" \
+    "closing the candidate-path fd must not silence the primary git diff diagnostic"
+  assert_absent "$NM_CALLED" \
+    "failed candidate diff must reject before No-Mistakes"
+  assert_absent "$GH_CALLS" \
+    "failed candidate diff must reject before GitHub"
 
   run=gate-expected-base-invalid
   make_run "$run" passed
@@ -2822,6 +2869,9 @@ test_seals_github_terminal_outcomes() {
 case "${CB_GATE_TEST_ONLY:-all}" in
   bounds)
     test_bounds_external_commands
+    ;;
+  preflight)
+    test_rejects_candidate_drift
     ;;
   provisional)
     test_releases_provisional_gate_lease

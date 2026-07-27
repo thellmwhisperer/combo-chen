@@ -95,6 +95,7 @@ publish_cleaner_meta() {
     return "$write_status"
   fi
   set +C
+  chmod 0444 "$cleaner_tmp"
   mv "$cleaner_tmp" "$cleaner_file"
   cleaner_tmp_owned=0
 }

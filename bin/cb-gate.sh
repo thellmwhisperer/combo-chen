@@ -581,10 +581,13 @@ if jq -e '.config | has("allowed_paths")' "$input" >/dev/null; then
     fail_contract "cannot reserve candidate path staging file" 73
   fi
   set +C
-  if ! git -C "$worktree" diff --name-only --no-renames -z \
-    "$expected_base_sha..$candidate_sha" -- >&8; then
-    exec 8>&- 2>/dev/null || true
-    fail_contract "cannot inspect candidate paths" 73
+  if git -C "$worktree" diff --name-only --no-renames -z \
+    "$expected_base_sha..$candidate_sha" -- </dev/null >&8; then
+    :
+  else
+    git_diff_status=$?
+    exec 8>&- || true
+    fail_contract "cannot inspect candidate paths (git diff exit $git_diff_status)" 73
   fi
   exec 8>&-
   candidate_changed_path_count=0

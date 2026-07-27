@@ -104,6 +104,11 @@ run_root=$(realpath "$run_dir" 2>/dev/null) \
   || fail_contract "cannot resolve run directory" 73
 [ "$run_root" = "$run_dir" ] \
   || fail_contract "run directory path must be canonical" 73
+runs_root=${run_root%/*}
+[ -d "$runs_root" ] && [ ! -L "$runs_root" ] \
+  && [ "$(realpath "$runs_root" 2>/dev/null)" = "$runs_root" ] \
+  && [ "$run_root" = "$runs_root/$run" ] \
+  || fail_contract "run directory does not match its canonical runs root" 73
 [ -d "$invocation_dir" ] && [ ! -L "$invocation_dir" ] \
   || fail_contract "invocation directory is missing or unsafe" 73
 [ "$(realpath "$invocation_dir" 2>/dev/null)" = "$invocation_dir" ] \
@@ -263,7 +268,7 @@ if [ ! -e "$ownership" ] && [ ! -L "$ownership" ]; then
 
   script_dir=$(CDPATH='' cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   set +e
-  CB_RUNS_DIR=${CB_RUNS_DIR:-"$HOME/.combo-chen/runs"} \
+  CB_RUNS_DIR=$runs_root \
     sh "$script_dir/cb-launcher.sh" "$run" </dev/null >/dev/null 2>&1
   launcher_status=$?
   set -e
