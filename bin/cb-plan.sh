@@ -1,8 +1,8 @@
 #!/bin/sh
 # @overview Compile one validated Combo config into an immutable per-run plan.
 #   The compiler knows only adapter ids, compatible roles, argv arrays, opaque
-#   config slices, and ordered Coder invocations; it binds no provider,
-#   runtime, model, or tool.
+#   config slices, ordered Coder invocations, and the Reviewer root degradation
+#   policy; it binds no provider, runtime, model, or tool.
 #
 #   READING GUIDE
 #   -------------

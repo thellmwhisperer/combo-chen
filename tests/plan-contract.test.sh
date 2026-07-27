@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the immutable Combo v1 config-to-plan compiler.
-#   Covers strict provider-neutral bindings, fixed role ordering, empty Reviewer
-#   arrays, run-local publication, producer-failure cleanup, and fail-closed
-#   collision/path handling.
+#   Covers strict provider-neutral bindings, fixed role ordering, validated
+#   Reviewer degradation, empty arrays, run-local publication, producer-failure
+#   cleanup, and fail-closed collision/path handling.
 #
 #   READING GUIDE
 #   -------------
@@ -22,10 +22,10 @@
 #
 #   INTERNALS
 #   ---------
-#   make_run, write_config, run_plan, plan_mode, file_sha256
+#   write_config, run_plan, run_plan_with_staging_collision
 #
 # @exports none
-# @deps bash, dash, jq, tests/lib.sh, bin/cb-plan.sh
+# @deps bash, dash, jq, sha256sum/shasum, tests/lib.sh, bin/cb-plan.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -77,50 +77,26 @@ run_plan() {
 }
 
 run_plan_with_staging_collision() {
-  local run=$1 config=$2 stem=$3
+  local run=$1 config=$2 target=$3
   local dash_bin errfile="$TMP_ROOT/.${run}.err" pathfile="$TMP_ROOT/.${run}.path"
   dash_bin=$(command -v dash) || fail "dash is required for staging-collision coverage"
 
   CMD_STDOUT=$(
     "$dash_bin" -c '
-      collision=$CB_RUNS_DIR/$1/$2.$$
+      case "$2" in
+        snapshot) collision=$CB_RUNS_DIR/$1/.config.snapshot.tmp ;;
+        plan) collision=$CB_RUNS_DIR/$1/.plan.json.tmp.$$ ;;
+        *) exit 64 ;;
+      esac
       printf "existing\n" >"$collision"
       printf "%s\n" "$collision" >"$3"
       exec "$4" "$5" "$1" --config "$6"
     ' cb-plan-collision \
-      "$run" "$stem" "$pathfile" "$dash_bin" "$BIN/cb-plan.sh" "$config" \
+      "$run" "$target" "$pathfile" "$dash_bin" "$BIN/cb-plan.sh" "$config" \
       2>"$errfile"
   ) && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
   COLLISION_PATH=$(cat "$pathfile" 2>/dev/null || true)
-}
-
-plan_mode() {
-  local mode
-  if mode=$(stat -c '%a' "$1" 2>/dev/null); then
-    :
-  elif mode=$(stat -f '%Lp' "$1" 2>/dev/null); then
-    :
-  else
-    fail "no supported stat mode probe"
-  fi
-  [ -n "$mode" ] || fail "stat mode probe returned an empty value"
-  printf '%s\n' "$mode"
-}
-
-file_sha256() {
-  local digest output
-  digest=
-  if command -v sha256sum >/dev/null 2>&1 \
-    && output=$(sha256sum "$1" 2>/dev/null); then
-    digest=${output%% *}
-  fi
-  if [ -z "$digest" ] && command -v shasum >/dev/null 2>&1 \
-    && output=$(shasum -a 256 "$1" 2>/dev/null); then
-    digest=${output%% *}
-  fi
-  [ -n "$digest" ] || fail "no working SHA-256 digest tool"
-  printf '%s\n' "$digest"
 }
 
 # -- 1/5 CORE · test_compiles_immutable_plan -- <- START HERE
@@ -298,15 +274,27 @@ test_rejects_path_attacks() {
   [ "$(cat "$victim")" = "precious" ] || fail "plan symlink victim must remain unchanged"
 
   run='snapshot-collision'
-  run_dir=$(make_run "$run")
-  printf 'existing\n' >"$run_dir/.config.snapshot.tmp"
-  run_plan "$run" "$config"
-  expect_code 73 "$CMD_STATUS" "config snapshot no-clobber collision under sh"
+  run_dir=$(cb_make_run "$run")
+  run_plan_with_staging_collision "$run" "$config" snapshot
+  expect_code 73 "$CMD_STATUS" "config snapshot collision under dash"
   assert_contains "$CMD_STDERR" "config snapshot path already exists" \
     "dash must reach the explicit snapshot-collision fallback"
+  [ "$(cat "$COLLISION_PATH")" = "existing" ] \
+    || fail "config snapshot collision must preserve the existing file"
+  assert_absent "$run_dir/plan.json" "snapshot collision must not publish a plan"
+
+  run='plan-staging-collision'
+  run_dir=$(cb_make_run "$run")
+  run_plan_with_staging_collision "$run" "$config" plan
+  expect_code 73 "$CMD_STATUS" "plan staging collision under dash"
+  assert_contains "$CMD_STDERR" "plan staging path already exists" \
+    "dash must reach the explicit plan-staging fallback"
+  [ "$(cat "$COLLISION_PATH")" = "existing" ] \
+    || fail "plan staging collision must preserve the existing file"
+  assert_absent "$run_dir/plan.json" "staging collision must not publish a plan"
 
   run='snapshot-producer-failure'
-  run_dir=$(make_run "$run")
+  run_dir=$(cb_make_run "$run")
   producer_bin="$TMP_ROOT/snapshot-producer-bin"
   mkdir -p "$producer_bin"
   cb_write_fake "$producer_bin/cat" '#!/bin/sh
@@ -325,7 +313,7 @@ exit 69
   expect_code 0 "$CMD_STATUS" "retry after config producer failure"
 
   run='plan-producer-failure'
-  run_dir=$(make_run "$run")
+  run_dir=$(cb_make_run "$run")
   producer_bin="$TMP_ROOT/plan-producer-bin"
   real_jq=$(command -v jq) || fail "jq is required"
   mkdir -p "$producer_bin"
