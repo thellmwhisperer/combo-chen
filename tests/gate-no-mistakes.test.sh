@@ -5,8 +5,9 @@
 #   No-Mistakes config plus the observed version/AXI help contract, builds
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
 #   records its target branch's strict app-aware check policy with exact-SHA
-#   check/status evidence, normalizes terminal outcomes, and replays durable
-#   invocation/terminal seals without starting a duplicate delivery or PR lookup.
+#   check/status evidence, seals authenticated GitHub merge/cancellation outcomes,
+#   and replays durable invocation/terminal seals without starting a duplicate
+#   delivery or PR lookup.
 #
 #   READING GUIDE
 #   -------------
@@ -20,6 +21,7 @@
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
 #   10. test_arms_auto_merge_once   <- strict checks, exact arm, final recovery.
+#   11. test_seals_github_terminal_outcomes <- cancelled GitHub fact recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -313,10 +315,24 @@ case "$1" in
               auto_merge="{\"mergeMethod\":\"REBASE\"}"
               printf "merged\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
               ;;
+            armed-then-closed)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "closed\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
+            armed-then-auto-cancelled)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "auto-cancelled\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
             merged)
               state=MERGED
               merged_at="\"2026-07-27T00:00:00Z\""
               merge_commit="{\"oid\":\"1111111111111111111111111111111111111111\"}"
+              ;;
+            closed)
+              state=CLOSED
+              ;;
+            auto-cancelled)
+              state=OPEN
               ;;
             *) exit 70 ;;
           esac
@@ -350,10 +366,24 @@ case "$1" in
               auto_merge="{\"mergeMethod\":\"REBASE\"}"
               printf "merged\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
               ;;
+            armed-then-closed)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "closed\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
+            armed-then-auto-cancelled)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "auto-cancelled\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
             merged)
               state=MERGED
               merged_at="\"2026-07-27T00:00:00Z\""
               merge_commit="{\"oid\":\"1111111111111111111111111111111111111111\"}"
+              ;;
+            closed)
+              state=CLOSED
+              ;;
+            auto-cancelled)
+              state=OPEN
               ;;
             *) exit 70 ;;
           esac
@@ -536,7 +566,7 @@ wait_for_path() {
   done
 }
 
-# -- 1/10 CORE · test_validates_exact_sha -- <- START HERE
+# -- 1/11 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -590,9 +620,9 @@ test_validates_exact_sha() {
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/10
+# -/ 1/11
 
-# -- 2/10 CORE · test_recovers_exact_pr --
+# -- 2/11 CORE · test_recovers_exact_pr --
 test_recovers_exact_pr() {
   local run result terminal calls
 
@@ -713,9 +743,9 @@ test_recovers_exact_pr() {
   export CB_GATE_TEST_GH_MODE=exact
   pass "Gate recovers and seals one exact PR without duplicate delivery or lookup"
 }
-# -/ 2/10
+# -/ 2/11
 
-# -- 3/10 CORE · test_seals_configured_identity --
+# -- 3/11 CORE · test_seals_configured_identity --
 test_seals_configured_identity() {
   local mismatch=gate-configured-identity-mismatch
   local run=gate-configured-identity result invocation poison
@@ -785,9 +815,9 @@ test_seals_configured_identity() {
     || fail "identity mismatch must not start or attach another No-Mistakes run"
   pass "Gate seals configured runtime/model identity and the supported AXI surface"
 }
-# -/ 3/10
+# -/ 3/11
 
-# -- 4/10 CORE · test_rejects_candidate_drift --
+# -- 4/11 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -809,9 +839,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 4/10
+# -/ 4/11
 
-# -- 5/10 CORE · test_maps_terminal_outcomes --
+# -- 5/11 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -848,9 +878,9 @@ test_maps_terminal_outcomes() {
   ' "$result" >/dev/null || fail "cancelled should remain a universal cancelled exit"
   pass "Gate maps documented passed, failed, and cancelled outcomes"
 }
-# -/ 5/10
+# -/ 5/11
 
-# -- 6/10 CORE · test_guards_argument_edges --
+# -- 6/11 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -884,9 +914,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 6/10
+# -/ 6/11
 
-# -- 7/10 CORE · test_replays_terminal_seal --
+# -- 7/11 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -953,9 +983,9 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 7/10
+# -/ 7/11
 
-# -- 8/10 CORE · test_adopts_interrupted_run --
+# -- 8/11 CORE · test_adopts_interrupted_run --
 test_adopts_interrupted_run() {
   local run=gate-interrupted-recovery first_result second_result invocation
   local invocation_before invocation_after invocation_mode terminal
@@ -1036,9 +1066,9 @@ test_adopts_interrupted_run() {
     || fail "recovered terminal seal should bind the adopted run and its receipt"
   pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
 }
-# -/ 8/10
+# -/ 8/11
 
-# -- 9/10 CORE · test_serializes_global_gate --
+# -- 9/11 CORE · test_serializes_global_gate --
 test_serializes_global_gate() {
   local first=gate-serial-first second=gate-serial-second stale=gate-serial-stale
   local first_repo first_head first_branch second_repo second_head second_branch
@@ -1142,9 +1172,9 @@ test_serializes_global_gate() {
     || fail "serialization fixture must use independently isolated worktrees"
   pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
 }
-# -/ 9/10
+# -/ 9/11
 
-# -- 10/10 CORE · test_arms_auto_merge_once --
+# -- 10/11 CORE · test_arms_auto_merge_once --
 test_arms_auto_merge_once() {
   local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls
   local arm_mode outcome_mode poison
@@ -1453,7 +1483,114 @@ test_arms_auto_merge_once() {
 
   pass "Gate binds strict exact-SHA checks, arms once, observes merge, and recovers"
 }
-# -/ 10/10
+# -/ 10/11
+
+# -- 11/11 CORE · test_seals_github_terminal_outcomes --
+test_seals_github_terminal_outcomes() {
+  local closed=gate-auto-merge-closed auto_cancelled=gate-auto-merge-cancelled
+  local outcome terminal poison gh_calls nm_calls
+
+  rm -f "$GH_CALLS" "$NM_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-closed
+  export CB_GATE_MERGE_POLL_SECONDS=0
+  make_run "$closed" passed auto
+  run_gate "$closed" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
+  expect_code 0 "$CMD_STATUS" \
+    "closed auto-merge terminal${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="cancelled" and .events==[] and
+    .reasons==["github_pr_closed"] and .errors==[] and
+    any(.artifacts[];
+      .id=="gate-merge-outcome" and
+      .path=="artifacts/gate/merge-outcome.json") and
+    any(.artifacts[];
+      .id=="gate-terminal" and
+      .path=="artifacts/gate/terminal.json")
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "an authenticated closed PR should become a durable cancelled Gate"
+  outcome="$RUNS_DIR/$closed/artifacts/gate/merge-outcome.json"
+  terminal="$RUNS_DIR/$closed/artifacts/gate/terminal.json"
+  jq -e --arg sha "$RUN_HEAD" '
+    .schema=="combo.gate-merge-outcome/v3" and
+    .candidate_sha==$sha and .outcome=="cancelled" and
+    .reason=="github_pr_closed" and
+    .requirements==.observed_requirements and
+    .observation.state=="CLOSED" and
+    .observation.headRefOid==$sha
+  ' "$outcome" >/dev/null \
+    || fail "closed outcome evidence should bind the exact PR, head, and policy"
+  jq -e '
+    .schema=="combo.gate-terminal/v4" and
+    .normalized_outcome=="cancelled" and
+    .no_mistakes.outcome=="passed" and
+    .merge=={
+      mode:"auto",
+      arm:"artifacts/gate/merge-arm.json",
+      outcome:"artifacts/gate/merge-outcome.json"
+    } and
+    .result.exit_class=="cancelled" and
+    .result.reasons==["github_pr_closed"]
+  ' "$terminal" >/dev/null \
+    || fail "closed terminal seal should distinguish GitHub from NM cancellation"
+
+  gh_calls=$(wc -l <"$GH_CALLS" | tr -d " ")
+  nm_calls=$(wc -l <"$NM_CALLS" | tr -d " ")
+  run_gate "$closed" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "closed terminal replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="cancelled" and
+    .reasons==["github_pr_closed"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "closed terminal replay should preserve cancellation"
+  [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
+    || fail "closed terminal replay must not observe or mutate GitHub again"
+  [ "$(wc -l <"$NM_CALLS" | tr -d " ")" -eq "$nm_calls" ] \
+    || fail "closed terminal replay must not re-enter No-Mistakes"
+  poison="$terminal.poison"
+  jq '.result.reasons=["github_auto_merge_cancelled"]' \
+    "$terminal" >"$poison"
+  chmod 0444 "$poison"
+  mv -f "$poison" "$terminal"
+  run_gate "$closed" "$RUN_HEAD" 3
+  expect_code 0 "$CMD_STATUS" \
+    "mismatched cancellation replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:73"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "terminal replay must reject mismatched cancellation evidence"
+  [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
+    || fail "invalid cancellation evidence must not query or mutate GitHub"
+  [ "$(wc -l <"$NM_CALLS" | tr -d " ")" -eq "$nm_calls" ] \
+    || fail "invalid cancellation evidence must not re-enter No-Mistakes"
+
+  rm -f "$GH_CALLS" "$NM_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-auto-cancelled
+  export CB_GATE_MERGE_POLL_SECONDS=0
+  make_run "$auto_cancelled" passed auto
+  run_gate "$auto_cancelled" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
+  expect_code 0 "$CMD_STATUS" \
+    "disabled auto-merge terminal${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="cancelled" and .events==[] and
+    .reasons==["github_auto_merge_cancelled"] and .errors==[]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "removing an authenticated merge arm should cancel Gate"
+  jq -e '
+    .schema=="combo.gate-merge-outcome/v3" and
+    .outcome=="cancelled" and
+    .reason=="github_auto_merge_cancelled" and
+    .observation.state=="OPEN" and
+    .observation.autoMergeRequest==null
+  ' "$RUNS_DIR/$auto_cancelled/artifacts/gate/merge-outcome.json" >/dev/null \
+    || fail "auto-merge cancellation should retain authenticated OPEN evidence"
+
+  pass "Gate seals and replays authenticated GitHub cancellation outcomes"
+}
+# -/ 11/11
 
 test_validates_exact_sha
 test_recovers_exact_pr
@@ -1465,3 +1602,4 @@ test_replays_terminal_seal
 test_adopts_interrupted_run
 test_serializes_global_gate
 test_arms_auto_merge_once
+test_seals_github_terminal_outcomes
