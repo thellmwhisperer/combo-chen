@@ -8,9 +8,10 @@
 #   same invocation after interruption, and seals/replays the typed terminal
 #   outcome plus one GitHub-verified exact PR. Explicit auto authority arms that
 #   PR once with GitHub auto-rebase, while manual authority remains mutation-free;
-#   authenticated state recovers an interrupted arm without replaying the effect,
-#   keeps an armed OPEN PR inside Gate, and seals the later merged observation
-#   before publishing the final Gate outcome.
+#   authenticated state and the target branch's strict required-check policy
+#   recover an interrupted arm without replaying the effect, keep an armed OPEN
+#   PR inside Gate, and seal exact-candidate check evidence with the later merged
+#   observation before publishing the final Gate outcome.
 #
 #   READING GUIDE
 #   -------------
@@ -35,8 +36,11 @@
 #   capture_no_mistakes_config_identity, capture_no_mistakes_probe,
 #   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
 #   reclaim_stale_lease, validate_github_pr_object, resolve_exact_github_pr,
-#   resolve_github_binary, validate_merge_arm, validate_merge_observation,
-#   validate_merge_outcome, observe_exact_merge_state,
+#   resolve_github_binary, validate_required_checks,
+#   required_checks_satisfied, validate_merge_arm,
+#   validate_merge_observation, validate_merge_outcome,
+#   resolve_github_repository, capture_github_requirements,
+#   capture_github_check_evidence, observe_exact_merge_state,
 #   merge_observation_is_armed, publish_merge_arm, publish_merge_outcome,
 #   ensure_auto_merge_armed, wait_for_auto_merge_outcome
 #
@@ -521,25 +525,137 @@ merge_outcome_rel=artifacts/gate/merge-outcome.json
 merge_outcome=$run_root/$merge_outcome_rel
 merge_outcome_tmp=$gate_artifacts/.merge-outcome.json.tmp.$$
 
-validate_merge_arm() {
+validate_required_checks() {
   local json=$1
-  printf '%s\n' "$json" | jq -e \
+  printf '%s\n' "$json" | jq -e '
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    type=="object" and
+    keys==["checks","repository","strict","target_branch"] and
+    .strict==true and (.target_branch|clean) and
+    (.repository |
+      type=="object" and keys==["name_with_owner","url"] and
+      (.name_with_owner |
+        type=="string" and test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) and
+      (.url|clean and startswith("https://"))) and
+    (.checks |
+      type=="array" and length>0 and
+      all(.[];
+        type=="object" and keys==["app_id","context"] and
+        (.context|clean) and
+        (.app_id==null or
+          (.app_id |
+            type=="number" and floor==. and
+            (.==-1 or .>0)))) and
+      (map([.context,.app_id]) | unique | length)==length)
+  ' >/dev/null 2>&1
+}
+
+validate_merge_observation() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e '
+    def sha:
+      type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    type=="object" and
+    keys==[
+      "autoMergeRequest","baseRefName","baseRefOid","checks",
+      "headRefName","headRefOid","mergeCommit","mergeStateStatus",
+      "mergeable","mergedAt","state","url"
+    ] and
+    (.url|clean and startswith("https://")) and
+    (.headRefName|clean) and (.headRefOid|sha) and
+    (.baseRefName|clean) and (.baseRefOid|sha) and
+    (.mergeStateStatus|clean) and (.mergeable|clean) and
+    (.state=="OPEN" or .state=="CLOSED" or .state=="MERGED") and
+    (.autoMergeRequest==null or
+      (.autoMergeRequest |
+        type=="object" and (.mergeMethod|clean))) and
+    (.checks |
+      . as $checks |
+      type=="object" and keys==["check_runs","sha","statuses"] and
+      (.sha|sha) and
+      (.check_runs |
+        type=="array" and all(.[];
+          type=="object" and
+          keys==["app_id","conclusion","head_sha","name","status"] and
+          (.app_id|type=="number" and floor==. and .>0) and
+          (.head_sha|sha) and
+          (.name|clean) and (.status|clean) and
+          (.conclusion==null or (.conclusion|clean))) and
+        (map([.name,.app_id]) | unique | length)==length) and
+      (.statuses |
+        type=="array" and all(.[];
+          type=="object" and keys==["context","state"] and
+          (.context|clean) and (.state|clean)) and
+        (map(.context) | unique | length)==length) and
+      all(.check_runs[]; .head_sha==$checks.sha)) and
+    if .state=="MERGED" then
+      (.mergedAt|clean) and
+      (.mergeCommit|type=="object" and (.oid|sha))
+    else
+      .mergedAt==null and .mergeCommit==null
+    end
+  ' >/dev/null 2>&1
+}
+
+required_checks_satisfied() {
+  local requirements=$1 observation=$2
+  jq -en \
+    --argjson requirements "$requirements" \
+    --argjson observation "$observation" '
+      def successful_run($run):
+        $run.status=="COMPLETED" and
+        ($run.conclusion=="SUCCESS" or
+          $run.conclusion=="NEUTRAL" or
+          $run.conclusion=="SKIPPED");
+      def successful_status($status):
+        $status.state=="SUCCESS";
+      all($requirements.checks[];
+        . as $required |
+        if ($required.app_id==null or $required.app_id==-1) then
+          ([
+            $observation.checks.check_runs[] |
+            select(.name==$required.context) |
+            successful_run(.)
+          ] + [
+            $observation.checks.statuses[] |
+            select(.context==$required.context) |
+            successful_status(.)
+          ]) as $matches |
+          ($matches|length)>0 and ($matches|all)
+        else
+          [
+            $observation.checks.check_runs[] |
+            select(
+              .name==$required.context and
+              .app_id==$required.app_id
+            ) |
+            successful_run(.)
+          ] as $matches |
+          ($matches|length)==1 and ($matches|all)
+        end)
+    ' >/dev/null 2>&1
+}
+
+validate_merge_arm() {
+  local json=$1 requirements observation
+  if ! printf '%s\n' "$json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" '
-      def sha:
-        type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
       def clean:
         type=="string" and length>0 and
         (explode | all(.[]; .>=32 and .!=127));
-      def clean_or_null:
-        .==null or clean;
       . as $arm |
       type=="object" and
       keys==[
         "branch","candidate_sha","command","mode","observation","pr",
-        "run_id","schema","source","state","worktree"
+        "requirements","run_id","schema","source","state","worktree"
       ] and
-      .schema=="combo.gate-merge-arm/v1" and
+      .schema=="combo.gate-merge-arm/v2" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .mode=="auto" and .state=="armed" and
       (.source=="command" or .source=="observed") and
@@ -548,33 +664,42 @@ validate_merge_arm() {
         type=="object" and keys==["argv","binary"] and
         (.binary|clean and startswith("/")) and
         .argv==["pr","merge",$arm.pr,"--auto","--rebase"]) and
-      (.observation |
-        type=="object" and
-        keys==[
-          "autoMergeRequest","headRefName","headRefOid","mergeCommit",
-          "mergedAt","state","url"
-        ] and
-        .url==$arm.pr and .headRefName==$branch and .headRefOid==$sha and
-        (.mergedAt|clean_or_null) and
-        if .state=="OPEN" then
-          (.autoMergeRequest |
-            type=="object" and .mergeMethod=="REBASE") and
-          .mergedAt==null and .mergeCommit==null
-        elif .state=="MERGED" then
-          .mergedAt!=null and
-          (.mergeCommit |
-            type=="object" and (.oid|sha))
-        else false end)
+      (.requirements|type=="object") and
+      (.observation|type=="object")
+    ' >/dev/null 2>&1; then
+    return 1
+  fi
+  requirements=$(printf '%s\n' "$json" | jq -c '.requirements') \
+    || return 1
+  observation=$(printf '%s\n' "$json" | jq -c '.observation') \
+    || return 1
+  validate_required_checks "$requirements" || return 1
+  validate_merge_observation "$observation" || return 1
+  printf '%s\n' "$json" | jq -e \
+    --arg branch "$branch" --arg sha "$candidate_sha" '
+      . as $arm |
+      (.requirements.repository.url + "/pull/") as $prefix |
+      .observation.url==$arm.pr and
+      .observation.headRefName==$branch and
+      .observation.headRefOid==$sha and
+      .observation.checks.sha==$sha and
+      .observation.baseRefName==.requirements.target_branch and
+      (.pr|startswith($prefix)) and
+      (.pr|ltrimstr($prefix)|test("^[1-9][0-9]*$")) and
+      if .observation.state=="OPEN" then
+        (.observation.autoMergeRequest |
+          type=="object" and .mergeMethod=="REBASE")
+      elif .observation.state=="MERGED" then
+        true
+      else false end
     ' >/dev/null 2>&1
 }
 
 validate_merge_outcome() {
-  local json=$1
-  printf '%s\n' "$json" | jq -e \
+  local json=$1 requirements observation
+  if ! printf '%s\n' "$json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" '
-      def sha:
-        type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
       def clean:
         type=="string" and length>0 and
         (explode | all(.[]; .>=32 and .!=127));
@@ -582,23 +707,37 @@ validate_merge_outcome() {
       type=="object" and
       keys==[
         "branch","candidate_sha","observation","outcome","pr",
-        "run_id","schema","worktree"
+        "requirements","run_id","schema","worktree"
       ] and
-      .schema=="combo.gate-merge-outcome/v1" and
+      .schema=="combo.gate-merge-outcome/v2" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .outcome=="merged" and
       (.pr|clean and startswith("https://")) and
-      (.observation |
-        type=="object" and
-        keys==[
-          "autoMergeRequest","headRefName","headRefOid","mergeCommit",
-          "mergedAt","state","url"
-        ] and
-        .url==$outcome.pr and .headRefName==$branch and .headRefOid==$sha and
-        .state=="MERGED" and .autoMergeRequest==null and
-        (.mergedAt|clean) and
-        (.mergeCommit |
-          type=="object" and (.oid|sha)))
+      (.requirements|type=="object") and
+      (.observation|type=="object")
+    ' >/dev/null 2>&1; then
+    return 1
+  fi
+  requirements=$(printf '%s\n' "$json" | jq -c '.requirements') \
+    || return 1
+  observation=$(printf '%s\n' "$json" | jq -c '.observation') \
+    || return 1
+  validate_required_checks "$requirements" || return 1
+  validate_merge_observation "$observation" || return 1
+  required_checks_satisfied "$requirements" "$observation" || return 1
+  printf '%s\n' "$json" | jq -e \
+    --arg branch "$branch" --arg sha "$candidate_sha" '
+      . as $outcome |
+      (.requirements.repository.url + "/pull/") as $prefix |
+      .observation.url==$outcome.pr and
+      .observation.headRefName==$branch and
+      .observation.headRefOid==$sha and
+      .observation.checks.sha==$sha and
+      .observation.baseRefName==.requirements.target_branch and
+      (.pr|startswith($prefix)) and
+      (.pr|ltrimstr($prefix)|test("^[1-9][0-9]*$")) and
+      .observation.state=="MERGED" and
+      .observation.autoMergeRequest==null
     ' >/dev/null 2>&1
 }
 
@@ -781,6 +920,13 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       jq -e --arg pr "$(printf '%s\n' "$terminal_json" |
         jq -r '.no_mistakes.pr')" '.pr==$pr' >/dev/null 2>&1 \
       || fail_contract "Gate terminal merge outcome disagrees with PR" 73
+    jq -en \
+      --argjson arm "$terminal_arm_json" \
+      --argjson outcome "$terminal_merge_outcome_json" '
+        $arm.pr==$outcome.pr and
+        $arm.requirements==$outcome.requirements
+      ' >/dev/null 2>&1 \
+      || fail_contract "Gate terminal merge evidence disagrees" 73
   fi
   publish_terminal_result "$terminal_json"
   exit 0
@@ -1425,6 +1571,9 @@ github_binary=
 github_pr=
 github_pr_json=
 github_merge_observation=
+github_repository=
+github_requirements=
+github_check_evidence=
 
 resolve_github_binary() {
   local discovered
@@ -1522,7 +1671,7 @@ resolve_exact_github_pr() {
     || fail_contract "cannot read exact GitHub PR URL" 73
 }
 
-validate_merge_observation() {
+validate_merge_state_object() {
   local json=$1
   printf '%s\n' "$json" | jq -e '
     def sha:
@@ -1532,11 +1681,14 @@ validate_merge_observation() {
       (explode | all(.[]; .>=32 and .!=127));
     type=="object" and
     keys==[
-      "autoMergeRequest","headRefName","headRefOid","mergeCommit",
+      "autoMergeRequest","baseRefName","baseRefOid","headRefName",
+      "headRefOid","mergeCommit","mergeStateStatus","mergeable",
       "mergedAt","state","url"
     ] and
     (.url|clean and startswith("https://")) and
     (.headRefName|clean) and (.headRefOid|sha) and
+    (.baseRefName|clean) and (.baseRefOid|sha) and
+    (.mergeStateStatus|clean) and (.mergeable|clean) and
     (.state=="OPEN" or .state=="CLOSED" or .state=="MERGED") and
     (.autoMergeRequest==null or
       (.autoMergeRequest |
@@ -1550,21 +1702,226 @@ validate_merge_observation() {
   ' >/dev/null 2>&1
 }
 
+resolve_github_repository() {
+  local evidence status
+  [ -z "$github_repository" ] || return 0
+  resolve_github_binary
+  set +e
+  evidence=$(
+    cd "$worktree" || exit 73
+    "$github_binary" repo view --json nameWithOwner,url </dev/null
+  )
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] \
+    || fail_contract "GitHub repository lookup failed" 73
+  if ! printf '%s\n' "$evidence" | jq -e '
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    type=="object" and keys==["nameWithOwner","url"] and
+    (.nameWithOwner |
+      type=="string" and test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) and
+    (.url|clean and startswith("https://") and (endswith("/")|not))
+  ' >/dev/null 2>&1; then
+    fail_contract "invalid GitHub repository evidence" 73
+  fi
+  github_repository=$(printf '%s\n' "$evidence" | jq -c '
+    {name_with_owner:.nameWithOwner,url:.url}
+  ') || fail_contract "cannot normalize GitHub repository evidence" 73
+}
+
+capture_github_requirements() {
+  local pr=$1 target_branch=$2 repository_name repository_url
+  local encoded_branch endpoint evidence status checks
+  resolve_github_repository
+  repository_name=$(printf '%s\n' "$github_repository" |
+    jq -r '.name_with_owner') \
+    || fail_contract "cannot read GitHub repository identity" 73
+  repository_url=$(printf '%s\n' "$github_repository" | jq -r '.url') \
+    || fail_contract "cannot read GitHub repository URL" 73
+  if ! jq -en --arg pr "$pr" --arg repository "$repository_url" '
+    ($repository + "/pull/") as $prefix |
+    ($pr|startswith($prefix)) and
+    ($pr|ltrimstr($prefix)|test("^[1-9][0-9]*$"))
+  ' >/dev/null 2>&1; then
+    publish_gate_failed github_pr_repository_mismatch "$artifacts"
+    exit 0
+  fi
+  encoded_branch=$(jq -rn --arg branch "$target_branch" '$branch|@uri') \
+    || fail_contract "cannot encode GitHub target branch" 73
+  endpoint="repos/$repository_name/branches/$encoded_branch/protection/required_status_checks"
+  set +e
+  evidence=$(
+    cd "$worktree" || exit 73
+    "$github_binary" api "$endpoint" </dev/null
+  )
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] \
+    || fail_contract "GitHub required-check policy lookup failed" 73
+  if ! printf '%s\n' "$evidence" | jq -e '
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    type=="object" and (.strict|type=="boolean") and
+    (.contexts |
+      type=="array" and all(.[]; clean) and
+      (unique|length)==length) and
+    ((has("checks")|not) or
+      (.checks |
+        type=="array" and all(.[];
+          type=="object" and
+          (.context|clean) and
+          (.app_id==null or
+            (.app_id |
+              type=="number" and floor==. and
+              (.==-1 or .>0)))))) and
+    if ((.checks // [])|length)>0 then
+      ((.contexts|sort|unique)==
+        ([.checks[].context]|sort|unique))
+    else true end
+  ' >/dev/null 2>&1; then
+    fail_contract "invalid GitHub required-check policy evidence" 73
+  fi
+  if ! printf '%s\n' "$evidence" |
+    jq -e '.strict==true' >/dev/null 2>&1; then
+    publish_gate_failed github_required_checks_not_strict "$artifacts"
+    exit 0
+  fi
+  checks=$(printf '%s\n' "$evidence" | jq -c '
+    if ((.checks // [])|length)>0 then
+      [.checks[] | {context:.context,app_id:(.app_id // -1)}]
+    else
+      [.contexts[] | {context:.,app_id:-1}]
+    end |
+    sort_by(.context,.app_id)
+  ') || fail_contract "cannot normalize GitHub required checks" 73
+  if ! printf '%s\n' "$checks" |
+    jq -e 'type=="array" and length>0' >/dev/null 2>&1; then
+    publish_gate_failed github_required_checks_missing "$artifacts"
+    exit 0
+  fi
+  github_requirements=$(jq -cn \
+    --argjson repository "$github_repository" \
+    --arg target "$target_branch" --argjson checks "$checks" '
+      {
+        repository:$repository,
+        target_branch:$target,
+        strict:true,
+        checks:$checks
+      }
+    ') || fail_contract "cannot build GitHub required-check evidence" 73
+  validate_required_checks "$github_requirements" \
+    || fail_contract "invalid normalized GitHub required checks" 73
+}
+
+capture_github_check_evidence() {
+  local repository_name checks_endpoint statuses_endpoint
+  local checks_json statuses_json checks_status statuses_status
+  resolve_github_repository
+  repository_name=$(printf '%s\n' "$github_repository" |
+    jq -r '.name_with_owner') \
+    || fail_contract "cannot read GitHub repository identity" 73
+  checks_endpoint="repos/$repository_name/commits/$candidate_sha/check-runs?filter=latest&per_page=100"
+  statuses_endpoint="repos/$repository_name/commits/$candidate_sha/status?per_page=100"
+  set +e
+  checks_json=$(
+    cd "$worktree" || exit 73
+    "$github_binary" api "$checks_endpoint" </dev/null
+  )
+  checks_status=$?
+  statuses_json=$(
+    cd "$worktree" || exit 73
+    "$github_binary" api "$statuses_endpoint" </dev/null
+  )
+  statuses_status=$?
+  set -e
+  [ "$checks_status" -eq 0 ] && [ "$statuses_status" -eq 0 ] \
+    || fail_contract "GitHub exact-SHA check lookup failed" 73
+  if ! printf '%s\n' "$checks_json" | jq -e \
+    --arg sha "$candidate_sha" '
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    def commit:
+      type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+    . as $root |
+    type=="object" and
+    (.total_count |
+      type=="number" and floor==. and .>=0 and .<=100) and
+    (.check_runs |
+      type=="array" and length==$root.total_count and
+      all(.[];
+        type=="object" and .head_sha==$sha and (.head_sha|commit) and
+        (.name|clean) and (.status|clean) and
+        (.conclusion==null or (.conclusion|clean)) and
+        (.app |
+          type=="object" and
+          (.id|type=="number" and floor==. and .>0))))
+  ' >/dev/null 2>&1; then
+    fail_contract "invalid GitHub exact-SHA check-run evidence" 73
+  fi
+  if ! printf '%s\n' "$statuses_json" | jq -e \
+    --arg sha "$candidate_sha" '
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    . as $root |
+    type=="object" and
+    .sha==$sha and
+    (.total_count |
+      type=="number" and floor==. and .>=0 and .<100) and
+    (.statuses |
+      type=="array" and length==$root.total_count and
+      all(.[];
+        type=="object" and (.context|clean) and (.state|clean)))
+  ' >/dev/null 2>&1; then
+    fail_contract "invalid GitHub exact-SHA status evidence" 73
+  fi
+  github_check_evidence=$(jq -cn \
+    --arg sha "$candidate_sha" \
+    --argjson checks "$checks_json" --argjson statuses "$statuses_json" '
+      {
+        sha:$sha,
+        check_runs:(
+          [$checks.check_runs[] | {
+            name:.name,
+            app_id:.app.id,
+            head_sha:.head_sha,
+            status:(.status|ascii_upcase),
+            conclusion:(
+              if .conclusion==null then null
+              else (.conclusion|ascii_upcase)
+              end
+            )
+          }] | sort_by(.name,.app_id,.status,.conclusion)
+        ),
+        statuses:(
+          [$statuses.statuses[] | {
+            context:.context,
+            state:(.state|ascii_upcase)
+          }] | sort_by(.context,.state)
+        )
+      }
+    ') || fail_contract "cannot normalize GitHub exact-SHA checks" 73
+}
+
 observe_exact_merge_state() {
-  local pr=$1 evidence status
+  local pr=$1 evidence status target_branch
   resolve_github_binary
   set +e
   evidence=$(
     cd "$worktree" || exit 73
     "$github_binary" pr view "$pr" \
-      --json url,headRefName,headRefOid,state,autoMergeRequest,mergedAt,mergeCommit \
+      --json url,headRefName,headRefOid,baseRefName,baseRefOid,state,autoMergeRequest,mergeStateStatus,mergeable,mergedAt,mergeCommit \
       </dev/null
   )
   status=$?
   set -e
   [ "$status" -eq 0 ] \
     || fail_contract "GitHub merge-state lookup failed" 73
-  validate_merge_observation "$evidence" \
+  validate_merge_state_object "$evidence" \
     || fail_contract "invalid GitHub merge-state evidence" 73
   github_merge_observation=$(printf '%s\n' "$evidence" | jq -c '.') \
     || fail_contract "cannot normalize GitHub merge-state evidence" 73
@@ -1575,6 +1932,18 @@ observe_exact_merge_state() {
     publish_gate_failed github_pr_identity_mismatch "$artifacts"
     exit 0
   fi
+  target_branch=$(printf '%s\n' "$github_merge_observation" |
+    jq -r '.baseRefName') \
+    || fail_contract "cannot read GitHub target branch" 73
+  capture_github_requirements "$pr" "$target_branch"
+  capture_github_check_evidence
+  github_merge_observation=$(jq -cn \
+    --argjson observation "$github_merge_observation" \
+    --argjson checks "$github_check_evidence" '
+      $observation + {checks:$checks}
+    ') || fail_contract "cannot attach exact-SHA checks to merge evidence" 73
+  validate_merge_observation "$github_merge_observation" \
+    || fail_contract "invalid normalized GitHub merge-state evidence" 73
 }
 
 merge_observation_is_armed() {
@@ -1593,9 +1962,10 @@ publish_merge_arm() {
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --arg pr "$pr" \
     --arg gh "$github_binary" --arg source "$source" \
+    --argjson requirements "$github_requirements" \
     --argjson observation "$observation" '
       {
-        schema:"combo.gate-merge-arm/v1",
+        schema:"combo.gate-merge-arm/v2",
         run_id:$run,
         branch:$branch,
         worktree:$worktree,
@@ -1608,6 +1978,7 @@ publish_merge_arm() {
           binary:$gh,
           argv:["pr","merge",$pr,"--auto","--rebase"]
         },
+        requirements:$requirements,
         observation:$observation
       }
     ') || fail_contract "cannot build Gate merge-arm evidence" 73
@@ -1645,19 +2016,21 @@ publish_merge_arm() {
 }
 
 publish_merge_outcome() {
-  local pr=$1 observation=$2 outcome_json existing
+  local pr=$1 observation=$2 requirements=$3 outcome_json existing
   outcome_json=$(jq -cn \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --arg pr "$pr" \
+    --argjson requirements "$requirements" \
     --argjson observation "$observation" '
       {
-        schema:"combo.gate-merge-outcome/v1",
+        schema:"combo.gate-merge-outcome/v2",
         run_id:$run,
         branch:$branch,
         worktree:$worktree,
         candidate_sha:$sha,
         pr:$pr,
         outcome:"merged",
+        requirements:$requirements,
         observation:$observation
       }
     ') || fail_contract "cannot build Gate merge-outcome evidence" 73
@@ -1763,7 +2136,7 @@ ensure_auto_merge_armed() {
 }
 
 wait_for_auto_merge_outcome() {
-  local pr=$1 poll_seconds arm_json state existing
+  local pr=$1 poll_seconds arm_json state existing requirements
   poll_seconds=${CB_GATE_MERGE_POLL_SECONDS:-5}
   case "$poll_seconds" in
     ''|*[!0-9]*) fail_contract "invalid Gate merge poll interval" ;;
@@ -1788,10 +2161,18 @@ wait_for_auto_merge_outcome() {
     || fail_contract "invalid Gate merge-arm evidence" 73
   validate_merge_arm "$arm_json" \
     || fail_contract "invalid Gate merge-arm evidence" 73
+  requirements=$(printf '%s\n' "$arm_json" | jq -c '.requirements') \
+    || fail_contract "cannot read Gate merge-arm requirements" 73
   if printf '%s\n' "$arm_json" |
     jq -e '.observation.state=="MERGED"' >/dev/null 2>&1; then
+    if ! required_checks_satisfied "$requirements" \
+      "$(printf '%s\n' "$arm_json" | jq -c '.observation')"; then
+      publish_gate_failed github_required_checks_incomplete "$artifacts"
+      exit 0
+    fi
     publish_merge_outcome "$pr" \
-      "$(printf '%s\n' "$arm_json" | jq -c '.observation')"
+      "$(printf '%s\n' "$arm_json" | jq -c '.observation')" \
+      "$requirements"
     return 0
   fi
 
@@ -1802,9 +2183,22 @@ wait_for_auto_merge_outcome() {
     observe_exact_merge_state "$pr"
     verify_candidate \
       || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
+    if ! jq -en \
+      --argjson sealed "$requirements" \
+      --argjson current "$github_requirements" \
+      '$sealed==$current' >/dev/null 2>&1; then
+      publish_gate_failed github_required_checks_changed "$artifacts"
+      exit 0
+    fi
     state=$(printf '%s\n' "$github_merge_observation" | jq -r '.state')
     if [ "$state" = MERGED ]; then
-      publish_merge_outcome "$pr" "$github_merge_observation"
+      if ! required_checks_satisfied "$requirements" \
+        "$github_merge_observation"; then
+        publish_gate_failed github_required_checks_incomplete "$artifacts"
+        exit 0
+      fi
+      publish_merge_outcome \
+        "$pr" "$github_merge_observation" "$requirements"
       return 0
     fi
     if [ "$state" = CLOSED ]; then

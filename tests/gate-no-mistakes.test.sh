@@ -4,8 +4,9 @@
 #   branch/head, proves the configured Pi/DeepSeek identity against the effective
 #   No-Mistakes config plus the observed version/AXI help contract, builds
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
-#   normalizes terminal outcomes, and replays durable invocation/terminal seals
-#   without starting a duplicate delivery or PR lookup.
+#   records its target branch's strict app-aware check policy with exact-SHA
+#   check/status evidence, normalizes terminal outcomes, and replays durable
+#   invocation/terminal seals without starting a duplicate delivery or PR lookup.
 #
 #   READING GUIDE
 #   -------------
@@ -18,7 +19,7 @@
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
-#   10. test_arms_auto_merge_once   <- exact arm, final observation, crash recovery.
+#   10. test_arms_auto_merge_once   <- strict checks, exact arm, final recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -211,7 +212,6 @@ set -eu
   printf "\n"
 } >>"$CB_GATE_TEST_GH_CALLS"
 
-[ "$#" -ge 3 ] && [ "$1" = pr ] || exit 64
 mode=${CB_GATE_TEST_GH_MODE:-exact}
 url=https://example.test/pull/7
 branch=$CB_GATE_TEST_BRANCH
@@ -221,8 +221,78 @@ case "$mode" in
   wrong-head) head=0000000000000000000000000000000000000000 ;;
 esac
 
-case "$2" in
-  view)
+case "$1" in
+  repo)
+    [ "$#" -eq 4 ] && [ "$2" = view ] &&
+      [ "$3" = --json ] && [ "$4" = nameWithOwner,url ] || exit 64
+    jq -cn \
+      "{nameWithOwner:\"acme/repo\",url:\"https://example.test\"}"
+    ;;
+  api)
+    [ "$#" -eq 2 ] || exit 64
+    if [ "$2" = \
+      "repos/acme/repo/branches/main/protection/required_status_checks" ]; then
+      strict=true
+      [ "${CB_GATE_TEST_GH_POLICY_MODE:-strict}" != loose ] || strict=false
+      jq -cn --argjson strict "$strict" \
+        "{
+          strict:\$strict,
+          contexts:[\"backend\",\"frontend\"],
+          checks:[
+            {context:\"backend\",app_id:101},
+            {context:\"frontend\",app_id:-1}
+          ]
+        }"
+    elif [ "$2" = \
+      "repos/acme/repo/commits/$CB_GATE_TEST_HEAD/check-runs?filter=latest&per_page=100" ]; then
+      backend_app=101
+      check_head=$CB_GATE_TEST_HEAD
+      [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" != unrelated ] ||
+        backend_app=202
+      [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" != stale ] ||
+        check_head=0000000000000000000000000000000000000000
+      jq -cn --argjson backend_app "$backend_app" --arg head "$check_head" \
+        "{
+          total_count:2,
+          check_runs:[
+            {
+              name:\"backend\",
+              head_sha:\$head,
+              status:\"completed\",
+              conclusion:\"success\",
+              app:{id:\$backend_app}
+            },
+            {
+              name:\"unrelated-check\",
+              head_sha:\$head,
+              status:\"completed\",
+              conclusion:\"success\",
+              app:{id:202}
+            }
+          ]
+        }"
+    elif [ "$2" = \
+      "repos/acme/repo/commits/$CB_GATE_TEST_HEAD/status?per_page=100" ]; then
+      if [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" = unrelated ]; then
+        jq -cn --arg head "$CB_GATE_TEST_HEAD" \
+          "{sha:\$head,total_count:1,statuses:[
+            {context:\"unrelated-frontend\",state:\"success\"}
+          ]}"
+      else
+        jq -cn --arg head "$CB_GATE_TEST_HEAD" \
+          "{sha:\$head,total_count:2,statuses:[
+            {context:\"frontend\",state:\"success\"},
+            {context:\"unrelated-status\",state:\"success\"}
+          ]}"
+      fi
+    else
+      exit 64
+    fi
+    ;;
+  pr)
+    [ "$#" -ge 3 ] || exit 64
+    case "$2" in
+      view)
     [ "$#" -eq 5 ] && [ "$3" = "$url" ] && [ "$4" = --json ] || exit 64
     case "$5" in
       url,headRefName,headRefOid)
@@ -266,10 +336,51 @@ case "$2" in
             mergeCommit:\$merge_commit
           }"
         ;;
+      url,headRefName,headRefOid,baseRefName,baseRefOid,state,autoMergeRequest,mergeStateStatus,mergeable,mergedAt,mergeCommit)
+        auto_merge=null
+        state=OPEN
+        merged_at=null
+        merge_commit=null
+        if [ -f "$CB_GATE_TEST_GH_AUTO_MERGE_STATE" ]; then
+          case "$(cat "$CB_GATE_TEST_GH_AUTO_MERGE_STATE")" in
+            armed)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              ;;
+            armed-then-merged)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "merged\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
+            merged)
+              state=MERGED
+              merged_at="\"2026-07-27T00:00:00Z\""
+              merge_commit="{\"oid\":\"1111111111111111111111111111111111111111\"}"
+              ;;
+            *) exit 70 ;;
+          esac
+        fi
+        jq -cn \
+          --arg url "$url" --arg branch "$branch" --arg head "$head" \
+          --arg state "$state" --argjson auto "$auto_merge" \
+          --argjson merged_at "$merged_at" \
+          --argjson merge_commit "$merge_commit" \
+          "{
+            url:\$url,
+            headRefName:\$branch,
+            headRefOid:\$head,
+            baseRefName:\"main\",
+            baseRefOid:\"2222222222222222222222222222222222222222\",
+            state:\$state,
+            autoMergeRequest:\$auto,
+            mergeStateStatus:\"BLOCKED\",
+            mergeable:\"MERGEABLE\",
+            mergedAt:\$merged_at,
+            mergeCommit:\$merge_commit
+          }"
+        ;;
       *) exit 64 ;;
     esac
     ;;
-  list)
+      list)
     [ "$#" -eq 10 ] && [ "$3" = --head ] &&
       [ "$4" = "$CB_GATE_TEST_BRANCH" ] &&
       [ "$5" = --state ] && [ "$6" = open ] &&
@@ -293,7 +404,7 @@ case "$2" in
         ;;
     esac
     ;;
-  merge)
+      merge)
     [ "$#" -eq 5 ] && [ "$3" = "$url" ] &&
       [ "$4" = --auto ] && [ "$5" = --rebase ] || exit 64
     printf "%s\n" "${CB_GATE_TEST_GH_MERGE_EFFECT:-armed}" \
@@ -306,6 +417,9 @@ case "$2" in
       exit 75
     fi
     printf "auto merge armed\n"
+    ;;
+      *) exit 64 ;;
+    esac
     ;;
   *) exit 64 ;;
 esac
@@ -1033,9 +1147,12 @@ test_serializes_global_gate() {
 # -- 10/10 CORE · test_arms_auto_merge_once --
 test_arms_auto_merge_once() {
   local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls
-  local arm_mode outcome_mode
+  local arm_mode outcome_mode poison
   local immediate=gate-auto-merge-immediate
   local interrupted=gate-auto-merge-interrupted first_result second_result
+  local loose=gate-auto-merge-loose-policy
+  local stale=gate-auto-merge-stale-checks
+  local partial=gate-auto-merge-partial-checks
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
 
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-merged
@@ -1076,10 +1193,22 @@ test_arms_auto_merge_once() {
   jq -e \
     --arg run "$run" --arg branch "$RUN_BRANCH" --arg worktree "$RUN_REPO" \
     --arg sha "$RUN_HEAD" --arg gh "$FAKE_GH" '
-      .schema=="combo.gate-merge-arm/v1" and
+      .schema=="combo.gate-merge-arm/v2" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .pr=="https://example.test/pull/7" and
       .mode=="auto" and .state=="armed" and .source=="command" and
+      .requirements=={
+        repository:{
+          name_with_owner:"acme/repo",
+          url:"https://example.test"
+        },
+        target_branch:"main",
+        strict:true,
+        checks:[
+          {context:"backend",app_id:101},
+          {context:"frontend",app_id:-1}
+        ]
+      } and
       .command=={
         binary:$gh,
         argv:[
@@ -1087,9 +1216,11 @@ test_arms_auto_merge_once() {
         ]
       } and
       .observation.state=="OPEN" and
-      .observation.autoMergeRequest.mergeMethod=="REBASE"
+      .observation.autoMergeRequest.mergeMethod=="REBASE" and
+      .observation.headRefOid==$sha and
+      .observation.checks.sha==$sha
     ' "$arm" >/dev/null \
-    || fail "merge-arm seal should bind exact authority, command, PR, and head"
+    || fail "merge-arm seal should bind exact policy, checks, authority, PR, and head"
   outcome="$RUNS_DIR/$run/artifacts/gate/merge-outcome.json"
   outcome_mode=$(stat -c '%a' "$outcome" 2>/dev/null || stat -f '%Lp' "$outcome")
   [ "$outcome_mode" = 444 ] \
@@ -1097,16 +1228,43 @@ test_arms_auto_merge_once() {
   jq -e \
     --arg run "$run" --arg branch "$RUN_BRANCH" --arg worktree "$RUN_REPO" \
     --arg sha "$RUN_HEAD" '
-      .schema=="combo.gate-merge-outcome/v1" and
+      .schema=="combo.gate-merge-outcome/v2" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .pr=="https://example.test/pull/7" and
       .outcome=="merged" and
+      .requirements.strict==true and
+      .requirements.target_branch=="main" and
+      .requirements.checks==[
+        {context:"backend",app_id:101},
+        {context:"frontend",app_id:-1}
+      ] and
       .observation.state=="MERGED" and
       .observation.autoMergeRequest==null and
       .observation.mergedAt=="2026-07-27T00:00:00Z" and
-      .observation.mergeCommit.oid=="1111111111111111111111111111111111111111"
-    ' "$outcome" >/dev/null \
-    || fail "merge-outcome seal should retain the later authenticated merge fact"
+      .observation.mergeCommit.oid=="1111111111111111111111111111111111111111" and
+      .observation.checks.sha==$sha and
+      any(.observation.checks.check_runs[];
+        .name=="backend" and .app_id==101 and
+        .status=="COMPLETED" and .conclusion=="SUCCESS") and
+      any(.observation.checks.statuses[];
+        .context=="frontend" and .state=="SUCCESS")
+  ' "$outcome" >/dev/null \
+    || fail "merge outcome should retain exact successful required-check evidence"
+  assert_grep \
+    $'repo\tview\t--json\tnameWithOwner,url' "$GH_CALLS" \
+    "Gate should resolve the authenticated target repository"
+  assert_grep \
+    $'api\trepos/acme/repo/branches/main/protection/required_status_checks' \
+    "$GH_CALLS" \
+    "Gate should read the actual target-branch check policy"
+  assert_grep \
+    $'api\trepos/acme/repo/commits/'"$RUN_HEAD"$'/check-runs?filter=latest&per_page=100' \
+    "$GH_CALLS" \
+    "Gate should read check runs from the exact reviewed SHA"
+  assert_grep \
+    $'api\trepos/acme/repo/commits/'"$RUN_HEAD"$'/status?per_page=100' \
+    "$GH_CALLS" \
+    "Gate should read statuses from the exact reviewed SHA"
   terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
   jq -e '
     .schema=="combo.gate-terminal/v3" and
@@ -1129,6 +1287,25 @@ test_arms_auto_merge_once() {
     || fail "terminal replay must never duplicate the merge arm"
   [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
     || fail "terminal replay must not observe GitHub again after a final merge"
+  poison="$outcome.poison"
+  jq '
+    .requirements.checks[1]={
+      context:"unrelated-status",
+      app_id:-1
+    }
+  ' "$outcome" >"$poison"
+  chmod 0444 "$poison"
+  mv -f "$poison" "$outcome"
+  run_gate "$run" "$RUN_HEAD" 3
+  expect_code 0 "$CMD_STATUS" \
+    "mismatched merge evidence replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:73"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "terminal replay must reject independently valid mismatched policies"
+  [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
+    || fail "mismatched terminal evidence must not query or mutate GitHub"
 
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=merged
@@ -1215,7 +1392,66 @@ test_arms_auto_merge_once() {
   jq -e '.state=="armed" and .source=="observed"' \
     "$RUNS_DIR/$interrupted/artifacts/gate/merge-arm.json" >/dev/null \
     || fail "recovery should seal the authenticated pre-existing arm"
-  pass "Gate arms exact auto-rebase once, observes final merge, and recovers"
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_POLICY_MODE=loose
+  export CB_GATE_TEST_GH_MERGE_EFFECT=merged
+  make_run "$loose" passed auto
+  run_gate "$loose" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_POLICY_MODE CB_GATE_TEST_GH_MERGE_EFFECT
+  expect_code 0 "$CMD_STATUS" \
+    "non-strict target policy rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_required_checks_not_strict"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "Gate must reject a target branch without strict required checks"
+  assert_no_grep $'pr\tmerge\t' "$GH_CALLS" \
+    "Gate must reject a loose policy before arming auto-merge"
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_CHECK_MODE=stale
+  export CB_GATE_TEST_GH_MERGE_EFFECT=merged
+  make_run "$stale" passed auto
+  run_gate "$stale" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_CHECK_MODE CB_GATE_TEST_GH_MERGE_EFFECT
+  expect_code 0 "$CMD_STATUS" \
+    "stale required-check rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:73"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "Gate must reject check runs returned for another commit SHA"
+  assert_no_grep $'pr\tmerge\t' "$GH_CALLS" \
+    "Gate must reject stale check evidence before arming auto-merge"
+  assert_absent "$RUNS_DIR/$stale/artifacts/gate/merge-arm.json" \
+    "stale check evidence must not produce an immutable merge arm"
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_CHECK_MODE=unrelated
+  export CB_GATE_TEST_GH_MERGE_EFFECT=merged
+  make_run "$partial" passed auto
+  run_gate "$partial" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_CHECK_MODE CB_GATE_TEST_GH_MERGE_EFFECT
+  expect_code 0 "$CMD_STATUS" \
+    "partial required-check rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_required_checks_incomplete"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "wrong-app and unrelated successes must not satisfy required checks"
+  assert_absent "$RUNS_DIR/$partial/artifacts/gate/merge-outcome.json" \
+    "partial required checks must not produce a merged outcome seal"
+  assert_absent "$RUNS_DIR/$partial/artifacts/gate/terminal.json" \
+    "partial required checks must not hand Cleaner a successful terminal"
+
+  pass "Gate binds strict exact-SHA checks, arms once, observes merge, and recovers"
 }
 # -/ 10/10
 
