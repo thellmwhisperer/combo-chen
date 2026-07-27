@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# @overview Native Bash duplication gate. ~520 lines, one CLI; validates the
+# @overview Native Bash duplication gate. ~590 lines, one CLI; validates the
 #   committed zero-tolerance policy and durable tombstones, extracts normalized
 #   multiline function bodies, and blocks on every exact duplicate.
 #
@@ -22,11 +22,12 @@
 #   INTERNALS
 #   ---------
 #   die, scalar, nested_scalar, nested_field_has_content, validate_policy,
-#   validate_tombstone, validate_tombstones, scan_functions, compare_bodies,
-#   cleanup
+#   validate_tombstone, validate_tombstones, allocate_workspace, scan_functions,
+#   brace_delta, compare_bodies, cleanup
 #
 # @exports none
-# @deps bash 3.2+, POSIX awk/find/sort/grep/cmp/cksum/mktemp, .slop/*.yml
+# @deps bash 3.2+, POSIX awk/find/sort/grep/cmp/cksum/mkdir/mktemp/pwd/rmdir,
+#   .slop/*.yml
 set -u
 
 LC_ALL=C
@@ -40,6 +41,7 @@ MIN_LINES=
 MIN_TOKENS=
 SCAN_PATHS=()
 WORK_DIR=
+WORKSPACE_NAME=
 MANIFEST=
 FINDINGS=0
 
@@ -104,9 +106,47 @@ nested_field_has_content() {
 }
 
 cleanup() {
-  if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
-    rm -rf -- "$WORK_DIR"
+  local artifact
+  [ -n "$WORKSPACE_NAME" ] || return 0
+  for artifact in ./manifest.tsv ./*.body; do
+    if [ -f "$artifact" ] || [ -L "$artifact" ]; then
+      rm -f -- "$artifact"
+    fi
+  done
+  cd .. 2>/dev/null || return 0
+  if [ ! -L "$WORKSPACE_NAME" ] && [ -d "$WORKSPACE_NAME" ]; then
+    rmdir -- "$WORKSPACE_NAME" 2>/dev/null || true
   fi
+  WORKSPACE_NAME=
+}
+
+allocate_workspace() {
+  local tmp_root physical workspace
+  tmp_root=$ROOT/.tmp
+  [ ! -L "$tmp_root" ] || die "$tmp_root must not be a symlink"
+  if [ -e "$tmp_root" ] && [ ! -d "$tmp_root" ]; then
+    die "$tmp_root exists and is not a directory"
+  fi
+  mkdir -p -- "$tmp_root" || die "cannot create project-local .tmp"
+  [ ! -L "$tmp_root" ] || die "$tmp_root became a symlink"
+  cd -- "$tmp_root" || die "cannot enter project-local .tmp"
+  physical=$(pwd -P) || die "cannot resolve project-local .tmp"
+  [ "$physical" = "$tmp_root" ] || die "$tmp_root identity changed"
+
+  workspace=$(mktemp -d "slopslint.XXXXXX") \
+    || die "cannot allocate project-local detector workspace"
+  case "$workspace" in
+    slopslint.*) ;;
+    *) die "mktemp returned an invalid detector workspace" ;;
+  esac
+  [ -d "$workspace" ] && [ ! -L "$workspace" ] \
+    || die "detector workspace is not a private directory"
+  cd -- "$workspace" || die "cannot enter detector workspace"
+  WORKSPACE_NAME=$workspace
+  WORK_DIR=.
+  MANIFEST=./manifest.tsv
+  trap cleanup EXIT
+  trap 'cleanup; exit 130' HUP INT TERM
 }
 # -/ 1/5
 
@@ -290,6 +330,7 @@ scan_functions() {
           heredoc = ""
           heredoc_strip = 0
           quote = ""
+          brace_depth = 0
         }
         function add_body(raw, literal, line, copy, count, i) {
           line = raw
@@ -330,6 +371,36 @@ scan_functions() {
             if (ch == "#" && (i == 1 || substr(raw, i - 1, 1) ~ /[[:space:]]/)) break
           }
           return state
+        }
+        function brace_delta(raw, state, i, ch, delta) {
+          delta = 0
+          for (i = 1; i <= length(raw); i++) {
+            ch = substr(raw, i, 1)
+            if (state == "\047") {
+              if (ch == "\047") state = ""
+              continue
+            }
+            if (state == "\"") {
+              if (ch == "\\") {
+                i++
+                continue
+              }
+              if (ch == "\"") state = ""
+              continue
+            }
+            if (ch == "\\") {
+              i++
+              continue
+            }
+            if (ch == "\047" || ch == "\"") {
+              state = ch
+              continue
+            }
+            if (ch == "#" && (i == 1 || substr(raw, i - 1, 1) ~ /[[:space:]]/)) break
+            if (ch == "{") delta++
+            if (ch == "}") delta--
+          }
+          return delta
         }
         function start_heredoc(raw, i, ch, state, rest, token) {
           state = ""
@@ -377,6 +448,7 @@ scan_functions() {
           sub(/[[:space:]]*\{.*/, "", name)
           start = NR
           active = 1
+          brace_depth = 1
           next
         }
         active && heredoc != "" {
@@ -395,6 +467,11 @@ scan_functions() {
           next
         }
         active && /^}[[:space:]]*(#.*)?$/ {
+          if (brace_depth > 1) {
+            add_body($0, 0)
+            brace_depth--
+            next
+          }
           if (kept >= min_lines && tokens >= min_tokens) {
             serial++
             id = source_id "-" serial
@@ -410,6 +487,7 @@ scan_functions() {
         }
         active {
           add_body($0, 0)
+          brace_depth += brace_delta($0, "")
           heredoc = start_heredoc($0)
           if (heredoc == "") quote = quote_after($0, "")
         }
@@ -504,13 +582,7 @@ TOMBSTONES="$ROOT/.slop/tombstones"
 validate_policy
 validate_tombstones
 
-[ ! -L "$ROOT/.tmp" ] || die "$ROOT/.tmp must not be a symlink"
-mkdir -p "$ROOT/.tmp" || die "cannot create project-local .tmp"
-WORK_DIR=$(mktemp -d "$ROOT/.tmp/slopslint.XXXXXX") \
-  || die "cannot allocate project-local detector workspace"
-MANIFEST="$WORK_DIR/manifest.tsv"
-trap cleanup EXIT
-trap 'cleanup; exit 130' HUP INT TERM
+allocate_workspace
 
 scan_functions
 compare_bodies
