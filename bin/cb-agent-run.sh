@@ -302,8 +302,12 @@ install_git_guard() {
     "exec $real_git_quoted \"\$@\"" \
     >"$guard/git") 2>/dev/null \
     || fail_contract "cannot install git guard" 73
+  # These modes deter accidental replacement; they are not an integrity
+  # boundary against the same-UID tool, which can chmod/mv the guard or invoke
+  # the embedded Git path directly. The gatekeeper remains the trusted
+  # publisher; this wrapper only rejects ordinary PATH-routed pushes.
   chmod 0555 "$guard/git" "$guard" \
-    || fail_contract "cannot protect git guard" 73
+    || fail_contract "cannot set git guard modes" 73
 }
 
 tool_argv=()

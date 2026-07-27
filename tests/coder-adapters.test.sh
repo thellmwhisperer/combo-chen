@@ -2,8 +2,8 @@
 # @overview Contract and deterministic end-to-end tests for the P5 Coder
 #   adapters. Proves plan-selected invocation sequences, direct-agent and GNHF
 #   schema enforcement, git-fact normalization, artifact routing, isolated
-#   environments, mandatory GNHF safety flags, and a protected PATH guard for
-#   the no-push boundary.
+#   environments, mandatory GNHF safety flags, and ordinary PATH-routed push
+#   rejection without treating same-UID mode bits as an integrity boundary.
 #
 #   READING GUIDE
 #   -------------
@@ -138,9 +138,13 @@ attempt=$(jq -r ".attempt" "$input")
 schema=$(jq -r ".config.schema" "$input")
 [ "$schema" = "combo.coder/direct-agent/v1" ] || exit 83
 guard_dir=${PATH%%:*}
+# Mode bits catch accidental replacement but are owner-reversible. Prove that
+# limitation, restore the installed mode, then exercise the supported contract.
+chmod 0755 "$guard_dir" || exit 88
+chmod 0555 "$guard_dir" || exit 89
 if rm -f "$guard_dir/git" 2>/dev/null \
   && printf "#!/bin/sh\nexit 0\n" >"$guard_dir/git" 2>/dev/null; then
-  exit 88
+  exit 90
 fi
 if [ "$attempt" -gt 1 ]; then
   finding=$(jq -r ".prior_artifacts[] | select(.id==\"needs-change\") | .path" "$input")
