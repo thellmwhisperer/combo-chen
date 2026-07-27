@@ -4,8 +4,8 @@
 #   branch/head, proves the configured Pi/DeepSeek identity against the effective
 #   No-Mistakes config plus the observed version/AXI help contract, builds
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
-#   records its target branch's strict app-aware check policy with exact-SHA
-#   check/status evidence, seals authenticated GitHub merged/failed/cancelled
+#   records its target branch's strict app-aware check policy with paginated
+#   exact-SHA check/status evidence, seals authenticated GitHub merged/failed/cancelled
 #   outcomes, bounds armed-OPEN merge waiting before the host-global lease can
 #   starve sibling runs, and replays durable invocation/terminal seals without
 #   starting a duplicate delivery or PR lookup.
@@ -38,7 +38,7 @@
 #   invocation_args, wait_for_path
 #
 # @exports none
-# @deps bash, cksum, date, git, gh-compatible fake, jq, ps, stat, touch,
+# @deps awk, bash, cksum, date, git, gh-compatible fake, jq, ps, stat, touch,
 #   tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh, bin/cb-gate.sh
 set -u
 
@@ -65,6 +65,7 @@ NM_ATTACHES="$TMP_ROOT/no-mistakes.attaches"
 NM_SERIAL_ACTIVE="$TMP_ROOT/no-mistakes.serial-active"
 NM_SERIAL_ENTERED="$TMP_ROOT/no-mistakes.serial-entered"
 NM_SERIAL_OVERLAP="$TMP_ROOT/no-mistakes.serial-overlap"
+NM_SERIAL_RELEASE="$TMP_ROOT/no-mistakes.serial-release"
 GH_CALLS="$TMP_ROOT/gh.calls"
 GH_AUTO_MERGE_STATE="$TMP_ROOT/gh.auto-merge-state"
 GH_ARM_INTERRUPT="$TMP_ROOT/gh.arm-interrupt"
@@ -84,6 +85,7 @@ export CB_GATE_TEST_ATTACHES="$NM_ATTACHES"
 export CB_GATE_TEST_SERIAL_ACTIVE="$NM_SERIAL_ACTIVE"
 export CB_GATE_TEST_SERIAL_ENTERED="$NM_SERIAL_ENTERED"
 export CB_GATE_TEST_SERIAL_OVERLAP="$NM_SERIAL_OVERLAP"
+export CB_GATE_TEST_SERIAL_RELEASE="$NM_SERIAL_RELEASE"
 export CB_GATE_TEST_GH_CALLS="$GH_CALLS"
 export CB_GATE_TEST_GH_AUTO_MERGE_STATE="$GH_AUTO_MERGE_STATE"
 export CB_GATE_TEST_GH_MODE=exact
@@ -184,7 +186,11 @@ if [ "$outcome" = interrupt-once ]; then
   outcome=passed
 fi
 if [ "$outcome" = slow-passed ]; then
-  sleep 0.4
+  release_deadline=$(( $(date +%s) + 30 ))
+  while [ ! -e "$CB_GATE_TEST_SERIAL_RELEASE" ]; do
+    [ "$(date +%s)" -lt "$release_deadline" ] || exit 75
+    sleep 0.02
+  done
   outcome=passed
 fi
 status=completed
@@ -232,8 +238,7 @@ case "$1" in
       "{nameWithOwner:\"acme/repo\",url:\"https://example.test\"}"
     ;;
   api)
-    [ "$#" -eq 2 ] || exit 64
-    if [ "$2" = \
+    if [ "$#" -eq 2 ] && [ "$2" = \
       "repos/acme/repo/branches/main/protection/required_status_checks" ]; then
       strict=true
       [ "${CB_GATE_TEST_GH_POLICY_MODE:-strict}" != loose ] || strict=false
@@ -246,7 +251,8 @@ case "$1" in
             {context:\"frontend\",app_id:-1}
           ]
         }"
-    elif [ "$2" = \
+    elif [ "$#" -eq 4 ] && [ "$2" = --paginate ] &&
+      [ "$3" = --slurp ] && [ "$4" = \
       "repos/acme/repo/commits/$CB_GATE_TEST_HEAD/check-runs?filter=latest&per_page=100" ]; then
       backend_app=101
       backend_conclusion=success
@@ -259,53 +265,94 @@ case "$1" in
         [ "$(cat "$CB_GATE_TEST_GH_AUTO_MERGE_STATE")" = failed-then-closed ]; then
         backend_conclusion=failure
       fi
-      jq -cn --argjson backend_app "$backend_app" --arg head "$check_head" \
-        --arg conclusion "$backend_conclusion" \
-        "{
-          total_count:2,
-          check_runs:[
-            {
-              name:\"backend\",
-              head_sha:\$head,
-              status:\"completed\",
-              conclusion:\$conclusion,
-              app:{id:\$backend_app}
-            },
-            {
-              name:\"unrelated-check\",
-              head_sha:\$head,
-              status:\"completed\",
-              conclusion:\"success\",
-              app:{id:202}
-            }
-          ]
-        }"
-    elif [ "$2" = \
+      if [ "${CB_GATE_TEST_GH_PAGINATION_MODE:-single-page}" = multi-page ]; then
+        jq -cn --argjson backend_app "$backend_app" --arg head "$check_head" \
+          --arg conclusion "$backend_conclusion" \
+          "[{
+              total_count:101,
+              check_runs:(
+                [{
+                  name:\"backend\",
+                  head_sha:\$head,
+                  status:\"completed\",
+                  conclusion:\$conclusion,
+                  app:{id:\$backend_app}
+                }] +
+                [range(1;100) | {
+                  name:(\"unrelated-check-\" + tostring),
+                  head_sha:\$head,
+                  status:\"completed\",
+                  conclusion:\"success\",
+                  app:{id:202}
+                }]
+              )
+            },{
+              total_count:101,
+              check_runs:[{
+                name:\"unrelated-check-100\",
+                head_sha:\$head,
+                status:\"completed\",
+                conclusion:\"success\",
+                app:{id:202}
+              }]
+            }]"
+      else
+        jq -cn --argjson backend_app "$backend_app" --arg head "$check_head" \
+          --arg conclusion "$backend_conclusion" \
+          "[{
+            total_count:2,
+            check_runs:[
+              {
+                name:\"backend\",
+                head_sha:\$head,
+                status:\"completed\",
+                conclusion:\$conclusion,
+                app:{id:\$backend_app}
+              },
+              {
+                name:\"unrelated-check\",
+                head_sha:\$head,
+                status:\"completed\",
+                conclusion:\"success\",
+                app:{id:202}
+              }
+            ]
+          }]"
+      fi
+    elif [ "$#" -eq 4 ] && [ "$2" = --paginate ] &&
+      [ "$3" = --slurp ] && [ "$4" = \
       "repos/acme/repo/commits/$CB_GATE_TEST_HEAD/status?per_page=100" ]; then
-      if [ "${CB_GATE_TEST_GH_STATUS_MODE:-complete}" = full-page ]; then
+      if [ "${CB_GATE_TEST_GH_PAGINATION_MODE:-single-page}" = multi-page ]; then
         jq -cn --arg head "$CB_GATE_TEST_HEAD" \
-          "{
-            sha:\$head,
-            total_count:100,
-            statuses:(
-              [{context:\"frontend\",state:\"success\"}] +
-              [range(1;100) | {
-                context:(\"unrelated-status-\" + tostring),
+          "[{
+              sha:\$head,
+              total_count:101,
+              statuses:(
+                [{context:\"frontend\",state:\"success\"}] +
+                [range(1;100) | {
+                  context:(\"unrelated-status-\" + tostring),
+                  state:\"success\"
+                }]
+              )
+            },{
+              sha:\$head,
+              total_count:101,
+              statuses:[{
+                context:\"unrelated-status-100\",
                 state:\"success\"
               }]
-            )
-          }"
+            }]"
       elif [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" = unrelated ]; then
         jq -cn --arg head "$CB_GATE_TEST_HEAD" \
-          "{sha:\$head,total_count:1,statuses:[
+          "[{sha:\$head,total_count:1,statuses:[
             {context:\"unrelated-frontend\",state:\"success\"}
-          ]}"
+          ]}]"
       else
         jq -cn --arg head "$CB_GATE_TEST_HEAD" \
-          "{sha:\$head,total_count:2,statuses:[
+          "[{sha:\$head,total_count:2,statuses:[
             {context:\"frontend\",state:\"success\"},
             {context:\"unrelated-status\",state:\"success\"}
-          ]}"
+          ]}]"
       fi
     else
       exit 64
@@ -606,11 +653,14 @@ invocation_args() {
 }
 
 wait_for_path() {
-  local path=$1 deadline
-  deadline=$(( $(date +%s) + 5 ))
+  local path=$1 pid=${2:-} deadline
+  deadline=$(( $(date +%s) + 30 ))
   while [ ! -e "$path" ]; do
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      return 1
+    fi
     [ "$(date +%s)" -lt "$deadline" ] || return 1
-    sleep 0.01
+    sleep 0.02
   done
 }
 
@@ -960,6 +1010,25 @@ test_guards_argument_edges() {
     .errors==["adapter_exit:64"]
   ' "$result" >/dev/null || fail "bare --skip review must not bypass review=true"
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
+  if ! awk '
+    /^observe_exact_merge_state\(\) \{/ { in_observe=1 }
+    in_observe && /"\$github_binary" pr view "\$pr"/ { saw_view=1 }
+    in_observe && saw_view && /<\/dev\/null/ { found=1 }
+    in_observe && /^}/ { exit }
+    END { exit(found ? 0 : 1) }
+  ' "$BIN/cb-gate.sh"; then
+    fail "merge-state GitHub observation must close stdin locally"
+  fi
+  if ! awk '
+    index($0, "[ -n \"$terminal_arm_json\" ]") { guard=NR }
+    index($0, "--argjson arm \"$terminal_arm_json\"") {
+      found=(guard>0 && guard<NR)
+      exit
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$BIN/cb-gate.sh"; then
+    fail "terminal replay must guard non-empty merge-arm JSON before --argjson"
+  fi
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
 # -/ 6/11
@@ -1122,8 +1191,10 @@ test_serializes_global_gate() {
   local first_repo first_head first_branch second_repo second_head second_branch
   local first_out first_err second_out second_err first_pid second_pid
   local first_status second_status first_result second_result lease lock owner
+  local second_invocation second_blocked_entries
   rm -rf "$GATE_LEASES_DIR" "$NM_SERIAL_ACTIVE"
-  rm -f "$NM_SERIAL_ENTERED" "$NM_SERIAL_OVERLAP" "$NM_CALLS"
+  rm -f \
+    "$NM_SERIAL_ENTERED" "$NM_SERIAL_OVERLAP" "$NM_SERIAL_RELEASE" "$NM_CALLS"
 
   make_run "$first" slow-passed
   first_repo=$RUN_REPO
@@ -1136,23 +1207,42 @@ test_serializes_global_gate() {
 
   first_out="$TMP_ROOT/$first.out"
   first_err="$TMP_ROOT/$first.background.err"
-  CB_GATE_TEST_BRANCH=$first_branch CB_GATE_TEST_HEAD=$first_head \
+  HOME="$FAKE_NM_HOME" \
+    CB_GATE_TEST_BRANCH=$first_branch CB_GATE_TEST_HEAD=$first_head \
     bash "$BIN/cb-step.sh" \
       "$first" gate 1 --candidate-sha "$first_head" \
       >"$first_out" 2>"$first_err" &
   first_pid=$!
-  if ! wait_for_path "$NM_SERIAL_ACTIVE"; then
+  if ! wait_for_path "$NM_SERIAL_ENTERED" "$first_pid"; then
+    : >"$NM_SERIAL_RELEASE"
     wait "$first_pid" 2>/dev/null || true
     fail "first Gate did not enter the serialized fake No-Mistakes runtime"
+  fi
+  if [ ! -d "$NM_SERIAL_ACTIVE" ]; then
+    : >"$NM_SERIAL_RELEASE"
+    wait "$first_pid" 2>/dev/null || true
+    fail "first Gate should retain the fake runtime until its release handshake"
   fi
 
   second_out="$TMP_ROOT/$second.out"
   second_err="$TMP_ROOT/$second.background.err"
-  CB_GATE_TEST_BRANCH=$second_branch CB_GATE_TEST_HEAD=$second_head \
+  HOME="$FAKE_NM_HOME" \
+    CB_GATE_TEST_BRANCH=$second_branch CB_GATE_TEST_HEAD=$second_head \
     bash "$BIN/cb-step.sh" \
       "$second" gate 1 --candidate-sha "$second_head" \
       >"$second_out" 2>"$second_err" &
   second_pid=$!
+  second_invocation="$RUNS_DIR/$second/artifacts/gate/invocation.json"
+  if ! wait_for_path "$second_invocation" "$second_pid"; then
+    : >"$NM_SERIAL_RELEASE"
+    wait "$first_pid" 2>/dev/null || true
+    wait "$second_pid" 2>/dev/null || true
+    fail "second Gate did not reach the sealed pre-lease boundary"
+  fi
+  second_blocked_entries=$(wc -l <"$NM_SERIAL_ENTERED" | tr -d ' ')
+  : >"$NM_SERIAL_RELEASE"
+  [ "$second_blocked_entries" = 1 ] \
+    || fail "second Gate must remain outside No-Mistakes while the first owns the lease"
 
   wait "$first_pid" && first_status=0 || first_status=$?
   wait "$second_pid" && second_status=0 || second_status=$?
@@ -1227,8 +1317,9 @@ test_arms_auto_merge_once() {
   local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls nm_calls
   local arm_mode outcome_mode poison
   local pending=gate-auto-merge-timeout
+  local deadline=gate-auto-merge-deadline
   local zero_poll=gate-auto-merge-zero-poll
-  local full_page=gate-auto-merge-full-status-page
+  local paginated=gate-auto-merge-paginated-checks
   local immediate=gate-auto-merge-immediate
   local interrupted=gate-auto-merge-interrupted first_result second_result
   local loose=gate-auto-merge-loose-policy
@@ -1307,6 +1398,39 @@ test_arms_auto_merge_once() {
   assert_absent "$GATE_LEASES_DIR/no-mistakes.lock" \
     "merge-timeout replay must not reacquire the global lease"
 
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-merged
+  make_run "$deadline" passed auto 1 1
+  run_gate "$deadline" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_MERGE_EFFECT
+  expect_code 0 "$CMD_STATUS" \
+    "deadline-edge auto-merge observation${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e --arg sha "$RUN_HEAD" '
+    .exit_class=="completed" and
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"merged",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }] and
+    any(.artifacts[]; .id=="gate-merge-outcome")
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "Gate must observe a merge that becomes visible at the wait deadline"
+  jq -e '
+    .schema=="combo.gate-merge-outcome/v2" and
+    .outcome=="merged" and .observation.state=="MERGED"
+  ' "$RUNS_DIR/$deadline/artifacts/gate/merge-outcome.json" >/dev/null \
+    || fail "a deadline-edge merge must retain authenticated GitHub evidence"
+  jq -e '
+    .schema=="combo.gate-terminal/v3" and
+    .normalized_outcome=="merged" and
+    .merge.outcome=="artifacts/gate/merge-outcome.json"
+  ' "$RUNS_DIR/$deadline/artifacts/gate/terminal.json" >/dev/null \
+    || fail "a deadline-edge merge must not seal the local timeout terminal"
+
   export CB_GATE_MERGE_POLL_SECONDS=0
   make_run "$zero_poll" passed auto
   run_gate "$zero_poll" "$RUN_HEAD"
@@ -1324,13 +1448,13 @@ test_arms_auto_merge_once() {
     "an invalid merge poll interval must not acquire the global lease"
 
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
-  export CB_GATE_TEST_GH_STATUS_MODE=full-page
+  export CB_GATE_TEST_GH_PAGINATION_MODE=multi-page
   export CB_GATE_TEST_GH_MERGE_EFFECT=merged
-  make_run "$full_page" passed auto
-  run_gate "$full_page" "$RUN_HEAD"
-  unset CB_GATE_TEST_GH_STATUS_MODE CB_GATE_TEST_GH_MERGE_EFFECT
+  make_run "$paginated" passed auto
+  run_gate "$paginated" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_PAGINATION_MODE CB_GATE_TEST_GH_MERGE_EFFECT
   expect_code 0 "$CMD_STATUS" \
-    "full GitHub status page${CMD_STDERR:+: $CMD_STDERR}"
+    "paginated GitHub checks${CMD_STDERR:+: $CMD_STDERR}"
   jq -e --arg sha "$RUN_HEAD" '
     .events==[{
       code:0,
@@ -1342,12 +1466,13 @@ test_arms_auto_merge_once() {
       }
     }]
   ' "$CMD_STDOUT" >/dev/null \
-    || fail "Gate must accept a valid full page of 100 commit statuses"
+    || fail "Gate must accept complete check evidence beyond one GitHub page"
   jq -e '
     .outcome=="merged" and
-    (.observation.checks.statuses | length)==100
-  ' "$RUNS_DIR/$full_page/artifacts/gate/merge-outcome.json" >/dev/null \
-    || fail "Gate should retain all 100 authenticated commit statuses"
+    (.observation.checks.check_runs | length)==101 and
+    (.observation.checks.statuses | length)==101
+  ' "$RUNS_DIR/$paginated/artifacts/gate/merge-outcome.json" >/dev/null \
+    || fail "Gate should retain every authenticated check and status page"
 
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-merged
@@ -1453,13 +1578,13 @@ test_arms_auto_merge_once() {
     "$GH_CALLS" \
     "Gate should read the actual target-branch check policy"
   assert_grep \
-    $'api\trepos/acme/repo/commits/'"$RUN_HEAD"$'/check-runs?filter=latest&per_page=100' \
+    $'api\t--paginate\t--slurp\trepos/acme/repo/commits/'"$RUN_HEAD"$'/check-runs?filter=latest&per_page=100' \
     "$GH_CALLS" \
-    "Gate should read check runs from the exact reviewed SHA"
+    "Gate should paginate check runs from the exact reviewed SHA"
   assert_grep \
-    $'api\trepos/acme/repo/commits/'"$RUN_HEAD"$'/status?per_page=100' \
+    $'api\t--paginate\t--slurp\trepos/acme/repo/commits/'"$RUN_HEAD"$'/status?per_page=100' \
     "$GH_CALLS" \
-    "Gate should read statuses from the exact reviewed SHA"
+    "Gate should paginate statuses from the exact reviewed SHA"
   terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
   jq -e '
     .schema=="combo.gate-terminal/v3" and

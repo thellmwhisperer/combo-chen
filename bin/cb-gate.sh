@@ -10,9 +10,10 @@
 #   PR once with GitHub auto-rebase, while manual authority remains mutation-free;
 #   authenticated state and the target branch's strict required-check policy
 #   recover an interrupted arm without replaying the effect, keep an armed OPEN
-#   PR inside a bounded wait, and seal exact-candidate check evidence with the
-#   later merged or authenticated GitHub-cancelled observation before publishing
-#   the final Gate outcome, including durable exact-check failure evidence.
+#   PR inside a bounded wait, and seal all paginated exact-candidate check
+#   evidence with the later merged or authenticated GitHub-cancelled observation
+#   before publishing the final Gate outcome, including durable exact-check
+#   failure evidence.
 #
 #   READING GUIDE
 #   -------------
@@ -1124,6 +1125,7 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
     || fail_contract "Gate terminal receipt is missing or unsafe" 73
   [ "$(realpath "$terminal_receipt" 2>/dev/null)" = "$terminal_receipt" ] \
     || fail_contract "Gate terminal receipt path must be canonical" 73
+  terminal_arm_json=
   terminal_arm_rel=$(printf '%s\n' "$terminal_json" | jq -r '.merge.arm')
   if [ -n "$terminal_arm_rel" ]; then
     terminal_arm=$run_root/$terminal_arm_rel
@@ -1157,6 +1159,8 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       jq -e --arg pr "$(printf '%s\n' "$terminal_json" |
         jq -r '.no_mistakes.pr')" '.pr==$pr' >/dev/null 2>&1 \
       || fail_contract "Gate terminal merge outcome disagrees with PR" 73
+    [ -n "$terminal_arm_json" ] \
+      || fail_contract "Gate terminal merge outcome requires a merge arm" 73
     jq -en \
       --argjson arm "$terminal_arm_json" \
       --argjson outcome "$terminal_merge_outcome_json" '
@@ -2084,12 +2088,54 @@ capture_github_check_evidence() {
   set +e
   checks_json=$(
     cd "$worktree" || exit 73
-    "$github_binary" api "$checks_endpoint" </dev/null
+    "$github_binary" api --paginate --slurp "$checks_endpoint" </dev/null |
+      jq -c '
+        if length==0 then
+          error("missing check-run pages")
+        else
+          .[0] as $first |
+          {
+            total_count:$first.total_count,
+            check_runs:[
+              .[] as $page |
+              if (($page|type)!="object" or
+                  $page.total_count!=$first.total_count or
+                  ($page.check_runs|type)!="array") then
+                error("inconsistent check-run pages")
+              else
+                $page.check_runs[]
+              end
+            ]
+          }
+        end
+      '
   )
   checks_status=$?
   statuses_json=$(
     cd "$worktree" || exit 73
-    "$github_binary" api "$statuses_endpoint" </dev/null
+    "$github_binary" api --paginate --slurp "$statuses_endpoint" </dev/null |
+      jq -c '
+        if length==0 then
+          error("missing status pages")
+        else
+          .[0] as $first |
+          {
+            sha:$first.sha,
+            total_count:$first.total_count,
+            statuses:[
+              .[] as $page |
+              if (($page|type)!="object" or
+                  $page.sha!=$first.sha or
+                  $page.total_count!=$first.total_count or
+                  ($page.statuses|type)!="array") then
+                error("inconsistent status pages")
+              else
+                $page.statuses[]
+              end
+            ]
+          }
+        end
+      '
   )
   statuses_status=$?
   set -e
@@ -2105,7 +2151,7 @@ capture_github_check_evidence() {
     . as $root |
     type=="object" and
     (.total_count |
-      type=="number" and floor==. and .>=0 and .<=100) and
+      type=="number" and floor==. and .>=0) and
     (.check_runs |
       type=="array" and length==$root.total_count and
       all(.[];
@@ -2127,7 +2173,7 @@ capture_github_check_evidence() {
     type=="object" and
     .sha==$sha and
     (.total_count |
-      type=="number" and floor==. and .>=0 and .<=100) and
+      type=="number" and floor==. and .>=0) and
     (.statuses |
       type=="array" and length==$root.total_count and
       all(.[];
@@ -2455,7 +2501,7 @@ auto_gate_outcome=
 auto_gate_reason=
 wait_for_auto_merge_outcome() {
   local pr=$1 arm_json arm_observation state existing requirements
-  local merge_deadline now remaining sleep_seconds
+  local merge_deadline now remaining sleep_seconds polled=0
 
   if [ -e "$merge_outcome" ] || [ -L "$merge_outcome" ]; then
     [ -f "$merge_outcome" ] && [ ! -L "$merge_outcome" ] \
@@ -2510,15 +2556,17 @@ wait_for_auto_merge_outcome() {
   merge_deadline=$(( $(date +%s) + merge_wait_seconds ))
   while :; do
     now=$(date +%s)
-    remaining=$((merge_deadline - now))
-    sleep_seconds=$merge_poll_seconds
-    [ "$sleep_seconds" -le "$remaining" ] || sleep_seconds=$remaining
-    sleep "$sleep_seconds"
-    if [ "$(date +%s)" -ge "$merge_deadline" ]; then
+    if [ "$polled" -eq 1 ] && [ "$now" -ge "$merge_deadline" ]; then
       auto_gate_outcome=failed
       auto_gate_reason=github_auto_merge_timeout
       return 0
     fi
+    remaining=$((merge_deadline - now))
+    [ "$remaining" -ge 0 ] || remaining=0
+    sleep_seconds=$merge_poll_seconds
+    [ "$sleep_seconds" -le "$remaining" ] || sleep_seconds=$remaining
+    sleep "$sleep_seconds"
+    polled=1
     verify_candidate \
       || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
     observe_exact_merge_state "$pr"
@@ -2768,4 +2816,3 @@ publish_terminal_result "$terminal_json"
 # -/ 5/5
 
 # merge-wait deadline (configurable, default 600s): prevents unbounded lease hold
-
