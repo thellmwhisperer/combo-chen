@@ -18,6 +18,7 @@
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
+#   10. test_arms_auto_merge_once   <- exact auto-rebase arm and crash recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -61,6 +62,8 @@ NM_SERIAL_ACTIVE="$TMP_ROOT/no-mistakes.serial-active"
 NM_SERIAL_ENTERED="$TMP_ROOT/no-mistakes.serial-entered"
 NM_SERIAL_OVERLAP="$TMP_ROOT/no-mistakes.serial-overlap"
 GH_CALLS="$TMP_ROOT/gh.calls"
+GH_AUTO_MERGE_STATE="$TMP_ROOT/gh.auto-merge-state"
+GH_ARM_INTERRUPT="$TMP_ROOT/gh.arm-interrupt"
 GATE_LEASES_DIR="$TMP_ROOT/gate-leases"
 mkdir -p "$RUNS_DIR"
 mkdir -p "$FAKE_BIN_DIR"
@@ -78,6 +81,7 @@ export CB_GATE_TEST_SERIAL_ACTIVE="$NM_SERIAL_ACTIVE"
 export CB_GATE_TEST_SERIAL_ENTERED="$NM_SERIAL_ENTERED"
 export CB_GATE_TEST_SERIAL_OVERLAP="$NM_SERIAL_OVERLAP"
 export CB_GATE_TEST_GH_CALLS="$GH_CALLS"
+export CB_GATE_TEST_GH_AUTO_MERGE_STATE="$GH_AUTO_MERGE_STATE"
 export CB_GATE_TEST_GH_MODE=exact
 export PATH="$FAKE_BIN_DIR:$PATH"
 
@@ -219,11 +223,47 @@ esac
 
 case "$2" in
   view)
-    [ "$#" -eq 5 ] && [ "$3" = "$url" ] &&
-      [ "$4" = --json ] &&
-      [ "$5" = url,headRefName,headRefOid ] || exit 64
-    jq -cn --arg url "$url" --arg branch "$branch" --arg head "$head" \
-      "{url:\$url,headRefName:\$branch,headRefOid:\$head}"
+    [ "$#" -eq 5 ] && [ "$3" = "$url" ] && [ "$4" = --json ] || exit 64
+    case "$5" in
+      url,headRefName,headRefOid)
+        jq -cn --arg url "$url" --arg branch "$branch" --arg head "$head" \
+          "{url:\$url,headRefName:\$branch,headRefOid:\$head}"
+        ;;
+      url,headRefName,headRefOid,state,autoMergeRequest,mergedAt,mergeCommit)
+        auto_merge=null
+        state=OPEN
+        merged_at=null
+        merge_commit=null
+        if [ -f "$CB_GATE_TEST_GH_AUTO_MERGE_STATE" ]; then
+          case "$(cat "$CB_GATE_TEST_GH_AUTO_MERGE_STATE")" in
+            armed)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              ;;
+            merged)
+              state=MERGED
+              merged_at="\"2026-07-27T00:00:00Z\""
+              merge_commit="{\"oid\":\"1111111111111111111111111111111111111111\"}"
+              ;;
+            *) exit 70 ;;
+          esac
+        fi
+        jq -cn \
+          --arg url "$url" --arg branch "$branch" --arg head "$head" \
+          --arg state "$state" --argjson auto "$auto_merge" \
+          --argjson merged_at "$merged_at" \
+          --argjson merge_commit "$merge_commit" \
+          "{
+            url:\$url,
+            headRefName:\$branch,
+            headRefOid:\$head,
+            state:\$state,
+            autoMergeRequest:\$auto,
+            mergedAt:\$merged_at,
+            mergeCommit:\$merge_commit
+          }"
+        ;;
+      *) exit 64 ;;
+    esac
     ;;
   list)
     [ "$#" -eq 10 ] && [ "$3" = --head ] &&
@@ -249,6 +289,20 @@ case "$2" in
         ;;
     esac
     ;;
+  merge)
+    [ "$#" -eq 5 ] && [ "$3" = "$url" ] &&
+      [ "$4" = --auto ] && [ "$5" = --rebase ] || exit 64
+    printf "%s\n" "${CB_GATE_TEST_GH_MERGE_EFFECT:-armed}" \
+      >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+    if [ -n "${CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM:-}" ] &&
+      [ ! -e "$CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM" ]; then
+      : >"$CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM"
+      gate_pid=$(ps -o ppid= -p "$PPID" | tr -d " ")
+      kill -TERM "$gate_pid"
+      exit 75
+    fi
+    printf "auto merge armed\n"
+    ;;
   *) exit 64 ;;
 esac
 '
@@ -266,7 +320,7 @@ write_no_mistakes_identity() {
 write_no_mistakes_identity "deepseek/deepseek-v4-pro"
 
 write_config() {
-  local path=$1 outcome=$2 arguments=${3:-}
+  local path=$1 outcome=$2 arguments=${3:-} merge=${4:-manual}
   if [ -z "$arguments" ]; then
     arguments=$(jq -cn --arg outcome "$outcome" '[("--fake-outcome=" + $outcome)]')
   fi
@@ -274,6 +328,7 @@ write_config() {
     --arg role "$FAKE_ROLE" \
     --arg gate "$BIN/cb-gate.sh" \
     --arg nm "$FAKE_NM" \
+    --arg merge "$merge" \
     --argjson arguments "$arguments" '
       {
         schema:"combo.config/v1",
@@ -299,7 +354,7 @@ write_config() {
               intent:"validate exact candidate",
               approval:"auto",
               review:true,
-              merge:"manual"
+              merge:$merge
             }
           },
           cleaner:{adapter:"cleaner",config:{}}
@@ -309,7 +364,7 @@ write_config() {
 }
 
 make_run() {
-  local run=$1 outcome=$2 config base
+  local run=$1 outcome=$2 merge=${3:-manual} config base
   config="$TMP_ROOT/$run.config.json"
   RUN_REPO="$TMP_ROOT/$run-repo"
   read -r base RUN_HEAD < <(cb_candidate_repo "$RUN_REPO" "$run")
@@ -333,7 +388,7 @@ make_run() {
         ownership_id:("git-worktree:" + $run)
       }
     ' >"$RUNS_DIR/$run/agents/launcher.ownership.json"
-  write_config "$config" "$outcome"
+  write_config "$config" "$outcome" "" "$merge"
   sh "$BIN/cb-plan.sh" "$run" --config "$config" >/dev/null \
     || fail "could not compile Gate fixture plan for $run"
 }
@@ -363,7 +418,7 @@ wait_for_path() {
   done
 }
 
-# -- 1/9 CORE · test_validates_exact_sha -- <- START HERE
+# -- 1/10 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -409,15 +464,17 @@ test_validates_exact_sha() {
     '["axi","run","--intent","validate exact candidate","--fake-outcome=passed","--yes"]' ] \
     || fail "Gate should build the documented axi run argv from config"
   assert_no_grep "--auto-merge" "$NM_ARGV" "Gate must never invent a No-Mistakes auto-merge flag"
+  assert_no_grep $'pr\tmerge' "$GH_CALLS" \
+    "manual merge authority must not arm GitHub auto-merge"
 
   receipt="$RUNS_DIR/$run/artifacts/gate/no-mistakes-attempt-1.toon"
   assert_present "$receipt" "Gate should preserve the machine-readable No-Mistakes outcome"
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/9
+# -/ 1/10
 
-# -- 2/9 CORE · test_recovers_exact_pr --
+# -- 2/10 CORE · test_recovers_exact_pr --
 test_recovers_exact_pr() {
   local run result terminal calls
 
@@ -538,9 +595,9 @@ test_recovers_exact_pr() {
   export CB_GATE_TEST_GH_MODE=exact
   pass "Gate recovers and seals one exact PR without duplicate delivery or lookup"
 }
-# -/ 2/9
+# -/ 2/10
 
-# -- 3/9 CORE · test_seals_configured_identity --
+# -- 3/10 CORE · test_seals_configured_identity --
 test_seals_configured_identity() {
   local mismatch=gate-configured-identity-mismatch
   local run=gate-configured-identity result invocation poison
@@ -576,7 +633,8 @@ test_seals_configured_identity() {
 
   invocation="$RUNS_DIR/$run/artifacts/gate/invocation.json"
   jq -e --arg config "$FAKE_NM_CONFIG" '
-    .schema=="combo.gate-invocation/v2" and
+    .schema=="combo.gate-invocation/v3" and
+    .merge=="manual" and
     .preflight.runtime=="pi" and
     .preflight.model=="deepseek/deepseek-v4-pro" and
     .preflight.config_path==$config and
@@ -609,9 +667,9 @@ test_seals_configured_identity() {
     || fail "identity mismatch must not start or attach another No-Mistakes run"
   pass "Gate seals configured runtime/model identity and the supported AXI surface"
 }
-# -/ 3/9
+# -/ 3/10
 
-# -- 4/9 CORE · test_rejects_candidate_drift --
+# -- 4/10 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -633,9 +691,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 4/9
+# -/ 4/10
 
-# -- 5/9 CORE · test_maps_terminal_outcomes --
+# -- 5/10 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -672,9 +730,9 @@ test_maps_terminal_outcomes() {
   ' "$result" >/dev/null || fail "cancelled should remain a universal cancelled exit"
   pass "Gate maps documented passed, failed, and cancelled outcomes"
 }
-# -/ 5/9
+# -/ 5/10
 
-# -- 6/9 CORE · test_guards_argument_edges --
+# -- 6/10 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -708,9 +766,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 6/9
+# -/ 6/10
 
-# -- 7/9 CORE · test_replays_terminal_seal --
+# -- 7/10 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -724,7 +782,7 @@ test_replays_terminal_seal() {
   terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
   jq -e \
     --arg sha "$RUN_HEAD" --arg branch "$RUN_BRANCH" --arg worktree "$RUN_REPO" '
-      .schema=="combo.gate-terminal/v1" and
+      .schema=="combo.gate-terminal/v2" and
       .run_id=="gate-terminal-replay" and
       .branch==$branch and .worktree==$worktree and .candidate_sha==$sha and
       .lease=="artifacts/gate/no-mistakes-lease-attempt-1.json" and
@@ -734,6 +792,7 @@ test_replays_terminal_seal() {
         pr:"https://example.test/pull/7",
         receipt:"artifacts/gate/no-mistakes-attempt-1.toon"
       } and
+      .merge=={mode:"manual",arm:""} and
       .normalized_outcome=="validated"
     ' "$terminal" >/dev/null \
     || fail "terminal seal should retain exact run, branch, head, PR, and NM identity"
@@ -776,9 +835,9 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 7/9
+# -/ 7/10
 
-# -- 8/9 CORE · test_adopts_interrupted_run --
+# -- 8/10 CORE · test_adopts_interrupted_run --
 test_adopts_interrupted_run() {
   local run=gate-interrupted-recovery first_result second_result invocation
   local invocation_before invocation_after invocation_mode terminal
@@ -807,10 +866,10 @@ test_adopts_interrupted_run() {
   jq -e \
     --arg sha "$RUN_HEAD" --arg branch "$RUN_BRANCH" \
     --arg worktree "$RUN_REPO" --arg binary "$FAKE_NM" '
-      .schema=="combo.gate-invocation/v2" and
+      .schema=="combo.gate-invocation/v3" and
       .run_id=="gate-interrupted-recovery" and
       .branch==$branch and .worktree==$worktree and .candidate_sha==$sha and
-      .initial_attempt==1 and .binary==$binary and
+      .initial_attempt==1 and .binary==$binary and .merge=="manual" and
       .preflight.runtime=="pi" and
       .preflight.model=="deepseek/deepseek-v4-pro" and
       .argv==[
@@ -859,9 +918,9 @@ test_adopts_interrupted_run() {
     || fail "recovered terminal seal should bind the adopted run and its receipt"
   pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
 }
-# -/ 8/9
+# -/ 8/10
 
-# -- 9/9 CORE · test_serializes_global_gate --
+# -- 9/10 CORE · test_serializes_global_gate --
 test_serializes_global_gate() {
   local first=gate-serial-first second=gate-serial-second stale=gate-serial-stale
   local first_repo first_head first_branch second_repo second_head second_branch
@@ -965,7 +1024,133 @@ test_serializes_global_gate() {
     || fail "serialization fixture must use independently isolated worktrees"
   pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
 }
-# -/ 9/9
+# -/ 9/10
+
+# -- 10/10 CORE · test_arms_auto_merge_once --
+test_arms_auto_merge_once() {
+  local run=gate-auto-merge result arm terminal merge_calls
+  local arm_mode
+  local immediate=gate-auto-merge-immediate
+  local interrupted=gate-auto-merge-interrupted first_result second_result
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
+
+  make_run "$run" passed auto
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "configured auto-merge Gate${CMD_STDERR:+: $CMD_STDERR}"
+  result=$CMD_STDOUT
+  jq -e --arg sha "$RUN_HEAD" '
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"validated",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }] and
+    any(.artifacts[];
+      .id=="gate-merge-arm" and
+      .path=="artifacts/gate/merge-arm.json")
+  ' "$result" >/dev/null \
+    || fail "auto mode should publish the exact merge-arm evidence"
+
+  merge_calls=$(grep -c $'^pr\tmerge\thttps://example.test/pull/7\t--auto\t--rebase$' \
+    "$GH_CALLS" || true)
+  [ "$merge_calls" -eq 1 ] \
+    || fail "Gate should execute the sole auto-rebase arm exactly once"
+  arm="$RUNS_DIR/$run/artifacts/gate/merge-arm.json"
+  arm_mode=$(stat -c '%a' "$arm" 2>/dev/null || stat -f '%Lp' "$arm")
+  [ "$arm_mode" = 444 ] \
+    || fail "merge-arm evidence should be immutable"
+  jq -e \
+    --arg run "$run" --arg branch "$RUN_BRANCH" --arg worktree "$RUN_REPO" \
+    --arg sha "$RUN_HEAD" --arg gh "$FAKE_GH" '
+      .schema=="combo.gate-merge-arm/v1" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and .pr=="https://example.test/pull/7" and
+      .mode=="auto" and .state=="armed" and .source=="command" and
+      .command=={
+        binary:$gh,
+        argv:[
+          "pr","merge","https://example.test/pull/7","--auto","--rebase"
+        ]
+      } and
+      .observation.state=="OPEN" and
+      .observation.autoMergeRequest.mergeMethod=="REBASE"
+    ' "$arm" >/dev/null \
+    || fail "merge-arm seal should bind exact authority, command, PR, and head"
+  terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
+  jq -e '
+    .schema=="combo.gate-terminal/v2" and
+    .merge=={
+      mode:"auto",
+      arm:"artifacts/gate/merge-arm.json"
+    }
+  ' "$terminal" >/dev/null \
+    || fail "terminal recovery should retain the immutable auto-merge arm"
+
+  run_gate "$run" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "auto-merge terminal replay${CMD_STDERR:+: $CMD_STDERR}"
+  merge_calls=$(grep -c $'^pr\tmerge\thttps://example.test/pull/7\t--auto\t--rebase$' \
+    "$GH_CALLS" || true)
+  [ "$merge_calls" -eq 1 ] \
+    || fail "terminal replay must never duplicate the merge arm"
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_MERGE_EFFECT=merged
+  make_run "$immediate" passed auto
+  run_gate "$immediate" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_MERGE_EFFECT
+  expect_code 0 "$CMD_STATUS" \
+    "immediate GitHub auto-merge${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .source=="command" and .state=="armed" and
+    .observation.state=="MERGED" and
+    .observation.autoMergeRequest==null and
+    .observation.mergedAt=="2026-07-27T00:00:00Z" and
+    .observation.mergeCommit.oid=="1111111111111111111111111111111111111111"
+  ' "$RUNS_DIR/$immediate/artifacts/gate/merge-arm.json" >/dev/null \
+    || fail "an immediately merged PR should still seal the completed arm effect"
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
+  make_run "$interrupted" passed auto
+  export CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM="$GH_ARM_INTERRUPT"
+  run_gate "$interrupted" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM
+  first_result=$CMD_STDOUT
+  if ! jq -e '
+    (.exit_class=="cancelled" and .events==[] and
+      (.reasons==["adapter_exit:130"] or .reasons==["adapter_exit:143"])) or
+    (.exit_class=="technical_error" and .events==[] and
+      (.errors[0] | test("^adapter_exit:[1-9][0-9]*$")))
+  ' "$first_result" >/dev/null; then
+    fail "an interrupted merge arm should remain retryable: $first_result"
+  fi
+  assert_present "$GH_AUTO_MERGE_STATE" \
+    "the fake GitHub effect must precede the simulated Gate interruption"
+  assert_absent "$RUNS_DIR/$interrupted/artifacts/gate/merge-arm.json" \
+    "interruption before arm publication must not invent a seal"
+  assert_absent "$RUNS_DIR/$interrupted/artifacts/gate/terminal.json" \
+    "interruption before arm publication must not invent a terminal result"
+
+  run_gate "$interrupted" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "interrupted auto-merge recovery${CMD_STDERR:+: $CMD_STDERR}"
+  second_result=$CMD_STDOUT
+  jq -e '.events[0].event=="gate_ok"' "$second_result" >/dev/null \
+    || fail "retry should recover the authenticated existing merge arm"
+  merge_calls=$(grep -c $'^pr\tmerge\thttps://example.test/pull/7\t--auto\t--rebase$' \
+    "$GH_CALLS" || true)
+  [ "$merge_calls" -eq 1 ] \
+    || fail "recovery after the GitHub effect must not invoke a second arm"
+  jq -e '.state=="armed" and .source=="observed"' \
+    "$RUNS_DIR/$interrupted/artifacts/gate/merge-arm.json" >/dev/null \
+    || fail "recovery should seal the authenticated pre-existing arm"
+  pass "Gate arms exact auto-rebase once and recovers after an interrupted effect"
+}
+# -/ 10/10
 
 test_validates_exact_sha
 test_recovers_exact_pr
@@ -976,3 +1161,4 @@ test_guards_argument_edges
 test_replays_terminal_seal
 test_adopts_interrupted_run
 test_serializes_global_gate
+test_arms_auto_merge_once

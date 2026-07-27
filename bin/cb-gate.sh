@@ -6,9 +6,9 @@
 #   version/help plus effective binary/argv before launch, serializes the
 #   invocation through a host-global lease with run-local evidence, adopts the
 #   same invocation after interruption, and seals/replays the typed terminal
-#   outcome plus one GitHub-verified exact PR without duplicating delivery or
-#   PR selection. Merge authority is a later P7 slice, so this version accepts
-#   manual merge mode only.
+#   outcome plus one GitHub-verified exact PR. Explicit auto authority arms that
+#   PR once with GitHub auto-rebase, while manual authority remains mutation-free;
+#   authenticated state recovers an interrupted arm without replaying the effect.
 #
 #   READING GUIDE
 #   -------------
@@ -16,7 +16,7 @@
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
 #   3. Invocation/terminal replay <- freeze identity and one documented axi run.
 #   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
-#   5. Terminal normalization     <- exact PR plus passed/failed/cancelled.
+#   5. Terminal normalization     <- exact PR, merge arm, and typed outcome.
 #
 #   MAIN FLOW
 #   ---------
@@ -32,7 +32,10 @@
 #   verify_candidate, toon_scalar, publish_terminal_result,
 #   capture_no_mistakes_config_identity, capture_no_mistakes_probe,
 #   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
-#   reclaim_stale_lease, validate_github_pr_object, resolve_exact_github_pr
+#   reclaim_stale_lease, validate_github_pr_object, resolve_exact_github_pr,
+#   resolve_github_binary, validate_merge_arm, validate_merge_observation,
+#   observe_exact_merge_state, merge_observation_is_armed, publish_merge_arm,
+#   ensure_auto_merge_armed
 #
 # @exports none
 # @deps bash, date, gh, git, jq, od, realpath, sleep, stat, touch, tr,
@@ -82,6 +85,8 @@ invocation_tmp=
 invocation_tmp_owned=0
 lease_tmp=
 lease_tmp_owned=0
+merge_arm_tmp=
+merge_arm_tmp_owned=0
 gate_lease_lock=
 gate_lease_owner=
 gate_lease_owner_json=
@@ -94,6 +99,7 @@ cleanup() {
   [ "$terminal_tmp_owned" -eq 0 ] || rm -f -- "$terminal_tmp"
   [ "$invocation_tmp_owned" -eq 0 ] || rm -f -- "$invocation_tmp"
   [ "$lease_tmp_owned" -eq 0 ] || rm -f -- "$lease_tmp"
+  [ "$merge_arm_tmp_owned" -eq 0 ] || rm -f -- "$merge_arm_tmp"
   if [ -n "$gate_lease_heartbeat_pid" ]; then
     kill "$gate_lease_heartbeat_pid" 2>/dev/null || true
     wait "$gate_lease_heartbeat_pid" 2>/dev/null || true
@@ -154,7 +160,7 @@ if ! jq -e '
     (.intent|clean_string) and
     (.approval=="auto" or .approval=="manual") and
     (.review|type=="boolean") and
-    (.merge=="manual"))
+    (.merge=="manual" or .merge=="auto"))
 ' "$input" >/dev/null 2>&1; then
   fail_contract "invalid universal Gate input or No-Mistakes config"
 fi
@@ -164,6 +170,7 @@ attempt=$(jq -r '.attempt' "$input")
 candidate_sha=$(jq -r '.candidate_sha' "$input")
 nm_runtime=$(jq -r '.config.runtime' "$input")
 nm_model=$(jq -r '.config.model' "$input")
+merge_mode=$(jq -r '.config.merge' "$input")
 run_dir=$(jq -r '.paths.run_dir' "$input")
 invocation_dir=$(jq -r '.paths.invocation_dir' "$input")
 declared_input=$(jq -r '.paths.input_path' "$input")
@@ -263,18 +270,24 @@ toon_scalar() {
 
 publish_terminal_result() {
   local terminal_json=$1 terminal_lease terminal_receipt terminal_result
-  local terminal_artifacts
+  local terminal_arm terminal_artifacts
   terminal_lease=$(printf '%s\n' "$terminal_json" | jq -r '.lease')
   terminal_receipt=$(printf '%s\n' "$terminal_json" |
     jq -r '.no_mistakes.receipt')
+  terminal_arm=$(printf '%s\n' "$terminal_json" | jq -r '.merge.arm')
   terminal_result=$(printf '%s\n' "$terminal_json" | jq -c '.result')
   terminal_artifacts=$(jq -cn \
     --arg invocation "$invocation_rel" --arg lease "$terminal_lease" \
-    --arg receipt "$terminal_receipt" --arg terminal "$terminal_rel" '
+    --arg receipt "$terminal_receipt" --arg arm "$terminal_arm" \
+    --arg terminal "$terminal_rel" '
       [
         {id:"gate-invocation",path:$invocation},
         {id:"gate-lease",path:$lease},
-        {id:"no-mistakes-outcome",path:$receipt},
+        {id:"no-mistakes-outcome",path:$receipt}
+      ] +
+      if $arm=="" then [] else [
+        {id:"gate-merge-arm",path:$arm}
+      ] end + [
         {id:"gate-terminal",path:$terminal}
       ]
     ')
@@ -489,6 +502,57 @@ invocation_tmp=$gate_artifacts/.invocation.json.tmp.$$
 terminal_rel=artifacts/gate/terminal.json
 terminal=$run_root/$terminal_rel
 terminal_tmp=$gate_artifacts/.terminal.json.tmp.$$
+merge_arm_rel=artifacts/gate/merge-arm.json
+merge_arm=$run_root/$merge_arm_rel
+merge_arm_tmp=$gate_artifacts/.merge-arm.json.tmp.$$
+
+validate_merge_arm() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" '
+      def sha:
+        type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+      def clean:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      def clean_or_null:
+        .==null or clean;
+      . as $arm |
+      type=="object" and
+      keys==[
+        "branch","candidate_sha","command","mode","observation","pr",
+        "run_id","schema","source","state","worktree"
+      ] and
+      .schema=="combo.gate-merge-arm/v1" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and .mode=="auto" and .state=="armed" and
+      (.source=="command" or .source=="observed") and
+      (.pr|clean and startswith("https://")) and
+      (.command |
+        type=="object" and keys==["argv","binary"] and
+        (.binary|clean and startswith("/")) and
+        .argv==["pr","merge",$arm.pr,"--auto","--rebase"]) and
+      (.observation |
+        type=="object" and
+        keys==[
+          "autoMergeRequest","headRefName","headRefOid","mergeCommit",
+          "mergedAt","state","url"
+        ] and
+        .url==$arm.pr and .headRefName==$branch and .headRefOid==$sha and
+        (.mergedAt|clean_or_null) and
+        if .state=="OPEN" then
+          (.autoMergeRequest |
+            type=="object" and .mergeMethod=="REBASE") and
+          .mergedAt==null and .mergeCommit==null
+        elif .state=="MERGED" then
+          .mergedAt!=null and
+          (.mergeCommit |
+            type=="object" and (.oid|sha))
+        else false end)
+    ' >/dev/null 2>&1
+}
+
 if [ -e "$terminal" ] || [ -L "$terminal" ]; then
   [ -f "$terminal" ] && [ ! -L "$terminal" ] \
     || fail_contract "Gate terminal seal is unsafe" 73
@@ -498,7 +562,8 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
     || fail_contract "invalid Gate terminal seal" 73
   if ! printf '%s\n' "$terminal_json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
-    --arg sha "$candidate_sha" --arg invocation "$invocation_rel" '
+    --arg sha "$candidate_sha" --arg invocation "$invocation_rel" \
+    --arg merge "$merge_mode" --arg arm "$merge_arm_rel" '
       def clean:
         type=="string" and length>0 and
         (explode | all(.[]; .>=32 and .!=127));
@@ -508,10 +573,10 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       . as $terminal |
       type=="object" and
       keys==[
-        "branch","candidate_sha","invocation","lease","no_mistakes",
-        "normalized_outcome","result","run_id","schema","worktree"
+        "branch","candidate_sha","invocation","lease","merge",
+        "no_mistakes","normalized_outcome","result","run_id","schema","worktree"
       ] and
-      .schema=="combo.gate-terminal/v1" and
+      .schema=="combo.gate-terminal/v2" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .invocation==$invocation and
       (.lease |
@@ -519,6 +584,13 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         test("^artifacts/gate/no-mistakes-lease-attempt-[1-9][0-9]*\\.json$")) and
       (.normalized_outcome |
         .=="validated" or .=="failed" or .=="cancelled") and
+      (.merge |
+        type=="object" and keys==["arm","mode"] and .mode==$merge and
+        if $terminal.normalized_outcome=="validated" and $merge=="auto" then
+          .arm==$arm
+        else
+          .arm==""
+        end) and
       (.no_mistakes |
         type=="object" and keys==["outcome","pr","receipt","run_id"] and
         (.run_id|clean) and
@@ -585,18 +657,19 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
     || fail_contract "invalid Gate invocation seal" 73
   if ! printf '%s\n' "$terminal_invocation_json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
-    --arg sha "$candidate_sha" --argjson attempt "$attempt" '
+    --arg sha "$candidate_sha" --arg merge "$merge_mode" \
+    --argjson attempt "$attempt" '
       def clean:
         type=="string" and length>0 and
         (explode | all(.[]; .>=32 and .!=127));
       type=="object" and
       keys==[
-        "argv","binary","branch","candidate_sha","initial_attempt","preflight",
-        "run_id","schema","worktree"
+        "argv","binary","branch","candidate_sha","initial_attempt","merge",
+        "preflight","run_id","schema","worktree"
       ] and
-      .schema=="combo.gate-invocation/v2" and
+      .schema=="combo.gate-invocation/v3" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
-      .candidate_sha==$sha and
+      .candidate_sha==$sha and .merge==$merge and
       (.initial_attempt |
         type=="number" and floor==. and .>0 and .<=$attempt) and
       (.binary|clean) and
@@ -625,6 +698,18 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
     || fail_contract "Gate terminal receipt is missing or unsafe" 73
   [ "$(realpath "$terminal_receipt" 2>/dev/null)" = "$terminal_receipt" ] \
     || fail_contract "Gate terminal receipt path must be canonical" 73
+  terminal_arm_rel=$(printf '%s\n' "$terminal_json" | jq -r '.merge.arm')
+  if [ -n "$terminal_arm_rel" ]; then
+    terminal_arm=$run_root/$terminal_arm_rel
+    [ -f "$terminal_arm" ] && [ ! -L "$terminal_arm" ] \
+      || fail_contract "Gate terminal merge arm is missing or unsafe" 73
+    [ "$(realpath "$terminal_arm" 2>/dev/null)" = "$terminal_arm" ] \
+      || fail_contract "Gate terminal merge arm path must be canonical" 73
+    terminal_arm_json=$(jq -c '.' "$terminal_arm" 2>/dev/null) \
+      || fail_contract "invalid Gate terminal merge arm" 73
+    validate_merge_arm "$terminal_arm_json" \
+      || fail_contract "invalid Gate terminal merge arm" 73
+  fi
   publish_terminal_result "$terminal_json"
   exit 0
 fi
@@ -876,6 +961,7 @@ validate_invocation() {
   printf '%s\n' "$json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --arg binary "$binary_path" \
+    --arg merge "$merge_mode" \
     --argjson attempt "$attempt" --argjson argv "$nm_args_json" \
     --argjson preflight "$preflight_json" '
       def clean:
@@ -883,13 +969,13 @@ validate_invocation() {
         (explode | all(.[]; .>=32 and .!=127));
       type=="object" and
       keys==[
-        "argv","binary","branch","candidate_sha","initial_attempt","preflight",
-        "run_id","schema","worktree"
+        "argv","binary","branch","candidate_sha","initial_attempt","merge",
+        "preflight","run_id","schema","worktree"
       ] and
-      .schema=="combo.gate-invocation/v2" and
+      .schema=="combo.gate-invocation/v3" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .binary==$binary and .argv==$argv and
-      .preflight==$preflight and
+      .merge==$merge and .preflight==$preflight and
       (.initial_attempt |
         type=="number" and floor==. and .>0 and .<=$attempt) and
       (.binary|clean) and
@@ -906,15 +992,17 @@ else
   invocation_json=$(jq -cn \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --arg binary "$binary_path" \
+    --arg merge "$merge_mode" \
     --argjson attempt "$attempt" --argjson argv "$nm_args_json" \
     --argjson preflight "$preflight_json" '
       {
-        schema:"combo.gate-invocation/v2",
+        schema:"combo.gate-invocation/v3",
         run_id:$run,
         branch:$branch,
         worktree:$worktree,
         candidate_sha:$sha,
         initial_attempt:$attempt,
+        merge:$merge,
         binary:$binary,
         argv:$argv,
         preflight:$preflight
@@ -1261,10 +1349,29 @@ validate_github_pr_object() {
   ' >/dev/null 2>&1
 }
 
-resolve_exact_github_pr() {
-  local returned_url=$1 github_binary github_evidence github_status match_count
-  github_binary=$(command -v gh 2>/dev/null) \
+github_binary=
+github_pr=
+github_pr_json=
+github_merge_observation=
+
+resolve_github_binary() {
+  local discovered
+  [ -z "$github_binary" ] || return 0
+  discovered=$(command -v gh 2>/dev/null) \
     || fail_contract "gh is required to verify the Gate PR" 73
+  case "$discovered" in
+    /*) ;;
+    *) fail_contract "gh path must be absolute" 73 ;;
+  esac
+  [ -f "$discovered" ] && [ -x "$discovered" ] \
+    || fail_contract "gh is missing or unsafe" 73
+  github_binary=$(realpath "$discovered" 2>/dev/null) \
+    || fail_contract "cannot resolve gh binary" 73
+}
+
+resolve_exact_github_pr() {
+  local returned_url=$1 github_evidence github_status match_count
+  resolve_github_binary
 
   if [ -n "$returned_url" ] && ! jq -en --arg url "$returned_url" '
     $url |
@@ -1343,6 +1450,193 @@ resolve_exact_github_pr() {
     || fail_contract "cannot read exact GitHub PR URL" 73
 }
 
+validate_merge_observation() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e '
+    def sha:
+      type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+    def clean:
+      type=="string" and length>0 and
+      (explode | all(.[]; .>=32 and .!=127));
+    type=="object" and
+    keys==[
+      "autoMergeRequest","headRefName","headRefOid","mergeCommit",
+      "mergedAt","state","url"
+    ] and
+    (.url|clean and startswith("https://")) and
+    (.headRefName|clean) and (.headRefOid|sha) and
+    (.state=="OPEN" or .state=="CLOSED" or .state=="MERGED") and
+    (.autoMergeRequest==null or
+      (.autoMergeRequest |
+        type=="object" and (.mergeMethod|clean))) and
+    if .state=="MERGED" then
+      (.mergedAt|clean) and
+      (.mergeCommit|type=="object" and (.oid|sha))
+    else
+      .mergedAt==null and .mergeCommit==null
+    end
+  ' >/dev/null 2>&1
+}
+
+observe_exact_merge_state() {
+  local pr=$1 evidence status
+  resolve_github_binary
+  set +e
+  evidence=$(
+    cd "$worktree" || exit 73
+    "$github_binary" pr view "$pr" \
+      --json url,headRefName,headRefOid,state,autoMergeRequest,mergedAt,mergeCommit \
+      </dev/null
+  )
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] \
+    || fail_contract "GitHub merge-state lookup failed" 73
+  validate_merge_observation "$evidence" \
+    || fail_contract "invalid GitHub merge-state evidence" 73
+  github_merge_observation=$(printf '%s\n' "$evidence" | jq -c '.') \
+    || fail_contract "cannot normalize GitHub merge-state evidence" 73
+  if ! printf '%s\n' "$github_merge_observation" | jq -e \
+    --arg pr "$pr" --arg branch "$branch" --arg sha "$candidate_sha" '
+      .url==$pr and .headRefName==$branch and .headRefOid==$sha
+    ' >/dev/null 2>&1; then
+    publish_gate_failed github_pr_identity_mismatch "$artifacts"
+    exit 0
+  fi
+}
+
+merge_observation_is_armed() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e '
+    .state=="MERGED" or
+    (.state=="OPEN" and
+      (.autoMergeRequest |
+        type=="object" and .mergeMethod=="REBASE"))
+  ' >/dev/null 2>&1
+}
+
+publish_merge_arm() {
+  local pr=$1 source=$2 observation=$3 arm_json existing
+  arm_json=$(jq -cn \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" --arg pr "$pr" \
+    --arg gh "$github_binary" --arg source "$source" \
+    --argjson observation "$observation" '
+      {
+        schema:"combo.gate-merge-arm/v1",
+        run_id:$run,
+        branch:$branch,
+        worktree:$worktree,
+        candidate_sha:$sha,
+        pr:$pr,
+        mode:"auto",
+        state:"armed",
+        source:$source,
+        command:{
+          binary:$gh,
+          argv:["pr","merge",$pr,"--auto","--rebase"]
+        },
+        observation:$observation
+      }
+    ') || fail_contract "cannot build Gate merge-arm evidence" 73
+  validate_merge_arm "$arm_json" \
+    || fail_contract "invalid Gate merge-arm evidence" 73
+
+  [ ! -e "$merge_arm_tmp" ] && [ ! -L "$merge_arm_tmp" ] \
+    || fail_contract "Gate merge-arm staging path already exists" 73
+  set -C
+  if exec 8>"$merge_arm_tmp"; then
+    merge_arm_tmp_owned=1
+  else
+    set +C
+    fail_contract "cannot reserve Gate merge-arm staging path" 73
+  fi
+  set +C
+  printf '%s\n' "$arm_json" >&8
+  exec 8>&-
+  chmod 0444 "$merge_arm_tmp" \
+    || fail_contract "cannot make Gate merge-arm evidence read-only" 73
+  if ln "$merge_arm_tmp" "$merge_arm" 2>/dev/null; then
+    rm -f -- "$merge_arm_tmp"
+    merge_arm_tmp_owned=0
+    return 0
+  fi
+
+  rm -f -- "$merge_arm_tmp"
+  merge_arm_tmp_owned=0
+  [ -f "$merge_arm" ] && [ ! -L "$merge_arm" ] \
+    || fail_contract "Gate merge-arm publication collision" 73
+  existing=$(jq -c '.' "$merge_arm" 2>/dev/null) \
+    || fail_contract "invalid colliding Gate merge arm" 73
+  validate_merge_arm "$existing" \
+    || fail_contract "invalid colliding Gate merge arm" 73
+}
+
+ensure_auto_merge_armed() {
+  local pr=$1 existing state source command_status
+  resolve_github_binary
+  if [ -e "$merge_arm" ] || [ -L "$merge_arm" ]; then
+    [ -f "$merge_arm" ] && [ ! -L "$merge_arm" ] \
+      || fail_contract "Gate merge-arm evidence is unsafe" 73
+    [ "$(realpath "$merge_arm" 2>/dev/null)" = "$merge_arm" ] \
+      || fail_contract "Gate merge-arm path must be canonical" 73
+    existing=$(jq -c '.' "$merge_arm" 2>/dev/null) \
+      || fail_contract "invalid Gate merge-arm evidence" 73
+    validate_merge_arm "$existing" \
+      || fail_contract "invalid Gate merge-arm evidence" 73
+    if ! printf '%s\n' "$existing" | jq -e \
+      --arg pr "$pr" --arg gh "$github_binary" '
+        .pr==$pr and .command.binary==$gh
+      ' >/dev/null 2>&1; then
+      fail_contract "Gate merge-arm evidence disagrees with this retry" 73
+    fi
+    return 0
+  fi
+
+  observe_exact_merge_state "$pr"
+  verify_candidate \
+    || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
+  if merge_observation_is_armed "$github_merge_observation"; then
+    source=observed
+  else
+    state=$(printf '%s\n' "$github_merge_observation" | jq -r '.state')
+    if [ "$state" != OPEN ]; then
+      publish_gate_failed github_pr_not_open "$artifacts"
+      exit 0
+    fi
+    if ! printf '%s\n' "$github_merge_observation" |
+      jq -e '.autoMergeRequest==null' >/dev/null 2>&1; then
+      publish_gate_failed github_auto_merge_method_mismatch "$artifacts"
+      exit 0
+    fi
+    verify_candidate \
+      || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
+    set +e
+    (
+      cd "$worktree" || exit 73
+      "$github_binary" pr merge "$pr" --auto --rebase </dev/null
+    ) >/dev/null 2>&1
+    command_status=$?
+    set -e
+    verify_candidate \
+      || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
+    observe_exact_merge_state "$pr"
+    verify_candidate \
+      || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
+    if ! merge_observation_is_armed "$github_merge_observation"; then
+      if [ "$command_status" -eq 0 ]; then
+        publish_gate_failed github_auto_merge_not_armed "$artifacts"
+      else
+        publish_gate_failed github_auto_merge_arm_failed "$artifacts"
+      fi
+      exit 0
+    fi
+    source='command'
+  fi
+
+  publish_merge_arm "$pr" "$source" "$github_merge_observation"
+}
+
 if ! verify_candidate; then
   publish_gate_failed candidate_head_changed "$artifacts"
   exit 0
@@ -1367,6 +1661,7 @@ case "$candidate_sha" in
   *) publish_gate_failed no_mistakes_head_mismatch "$artifacts"; exit 0 ;;
 esac
 
+terminal_merge_arm=
 case "$nm_outcome" in
   passed|checks-passed)
     [ "$nm_status" -eq 0 ] \
@@ -1377,6 +1672,10 @@ case "$nm_outcome" in
     if ! verify_candidate; then
       publish_gate_failed candidate_head_changed "$artifacts"
       exit 0
+    fi
+    if [ "$merge_mode" = auto ]; then
+      ensure_auto_merge_armed "$nm_pr"
+      terminal_merge_arm=$merge_arm_rel
     fi
     payload=$(jq -cn --arg sha "$candidate_sha" --arg pr "$nm_pr" '
       {outcome:"validated",sha:$sha,pr:$pr}
@@ -1428,16 +1727,21 @@ terminal_json=$(jq -cn \
   --arg nm_outcome "$nm_outcome" --arg pr "$nm_pr" \
   --arg invocation "$invocation_rel" --arg lease "$lease_rel" \
   --arg receipt "$receipt_rel" \
+  --arg merge "$merge_mode" --arg arm "$terminal_merge_arm" \
   --arg normalized "$normalized_outcome" \
   --argjson result "$normalized_result" '
     {
-      schema:"combo.gate-terminal/v1",
+      schema:"combo.gate-terminal/v2",
       run_id:$run,
       branch:$branch,
       worktree:$worktree,
       candidate_sha:$sha,
       invocation:$invocation,
       lease:$lease,
+      merge:{
+        mode:$merge,
+        arm:$arm
+      },
       no_mistakes:{
         run_id:$nm_run,
         outcome:$nm_outcome,
