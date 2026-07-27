@@ -2511,7 +2511,7 @@ wait_for_auto_merge_outcome() {
   while :; do
     now=$(date +%s)
     remaining=$((merge_deadline - now))
-    observe_exact_merge_state "$pr"; if [ "$remaining" -le 0 ]; then
+    if [ "$remaining" -le 0 ]; then
       auto_gate_outcome=failed
       auto_gate_reason=github_auto_merge_timeout
       return 0
@@ -2519,7 +2519,12 @@ wait_for_auto_merge_outcome() {
     sleep_seconds=$merge_poll_seconds
     [ "$sleep_seconds" -le "$remaining" ] || sleep_seconds=$remaining
     sleep "$sleep_seconds"
-    [ "$(date +%s)" -lt "$merge_deadline" ] || continue
+    observe_exact_merge_state "$pr"
+    if [ "$(date +%s)" -ge "$merge_deadline" ]; then
+      auto_gate_outcome=failed
+      auto_gate_reason=github_auto_merge_timeout
+      return 0
+    fi
     verify_candidate \
       || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
     observe_exact_merge_state "$pr"
