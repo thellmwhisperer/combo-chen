@@ -1402,6 +1402,7 @@ test_rejects_staged_artifact_write_failures() {
         artifact="$RUNS_DIR/$run/artifacts/gate/no-mistakes-lease-attempt-1.json"
         ;;
       receipt)
+        run=gate-stage-write-nmtoon
         marker=receipt
         artifact="$RUNS_DIR/$run/artifacts/gate/no-mistakes-attempt-1.toon"
         ;;
