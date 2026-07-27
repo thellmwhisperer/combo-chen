@@ -1,3 +1,3 @@
 commands:
   test: tests/run.sh
-  lint: shellcheck --severity=warning --exclude=SC2154,SC2034 bin/cb-*.sh tests/run.sh tests/lib.sh tests/*.test.sh
+  lint: shellcheck --severity=warning --exclude=SC2154,SC2034 bin/cb-*.sh tests/run.sh tests/lib.sh tests/*.test.sh && bin/cb-slopslint.sh

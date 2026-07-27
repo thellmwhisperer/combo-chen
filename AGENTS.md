@@ -118,8 +118,10 @@ the shared validation commands intentionally change.
 - Keep operational values configurable through env, TOML, then fallback.
 - Use focused tests for orchestration contracts and broaden only when shared
   behavior changes.
-- Validate with `tests/run.sh`, `shellcheck` (per `.no-mistakes.yaml` lint), and
-  `git diff --check` before committing.
+- Validate with `tests/run.sh`, `shellcheck` and `bin/cb-slopslint.sh` (per
+  `.no-mistakes.yaml` lint), and `git diff --check` before committing.
+- The duplication ceiling is zero. `.slop/tombstones/README.md` defines durable
+  resolved-incident records; tombstones never suppress a current finding.
 - The Bash chain is tested with Bash: `tests/run.sh` runs `tests/*.test.sh`
   serially. No Node/TypeScript/Vitest toolchain remains on this line.
 - Use short conventional commits. No co-authors.

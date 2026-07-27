@@ -1,0 +1,4 @@
+# Findings are regressions, not accepted debt. This ceiling is deliberately
+# fixed at zero; cb-slopslint rejects any attempt to raise it.
+schema: 1
+active_duplicates_ceiling: 0
