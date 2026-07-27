@@ -4,8 +4,9 @@
 #   axi invocation, verifies configured runtime/model against the effective
 #   No-Mistakes config and doctor surface, seals that identity with the observed
 #   version/help plus effective binary/argv before launch, serializes the
-#   invocation through a host-global lease with run-local evidence, bounds every
-#   No-Mistakes and GitHub child, releases shared runtime custody before GitHub,
+#   invocation through a host-global lease with provisional custody registered
+#   at mkdir and run-local evidence, bounds every No-Mistakes and GitHub child,
+#   releases shared runtime custody before GitHub,
 #   adopts the same invocation after interruption, and seals/replays the typed
 #   terminal outcome plus one GitHub-verified exact PR. Explicit auto authority
 #   arms that PR once with GitHub auto-rebase, while manual authority remains mutation-free;
@@ -105,6 +106,7 @@ gate_lease_lock=
 gate_lease_owner=
 gate_lease_owner_json=
 gate_lease_owned=0
+gate_lease_owner_published=0
 gate_lease_owner_removed=0
 gate_lease_heartbeat_pid=
 release_gate_lease() {
@@ -115,7 +117,23 @@ release_gate_lease() {
     gate_lease_heartbeat_pid=
   fi
   if [ "$gate_lease_owned" -eq 1 ]; then
-    if [ "$gate_lease_owner_removed" -eq 0 ]; then
+    if [ "$gate_lease_owner_published" -eq 0 ]; then
+      current_owner=$(cat "$gate_lease_owner" 2>/dev/null || true)
+      if [ ! -e "$gate_lease_owner" ] && [ ! -L "$gate_lease_owner" ]; then
+        gate_lease_owner_removed=1
+      elif [ -n "$current_owner" ] \
+        && validate_lease_owner "$current_owner" \
+        && [ "$current_owner" != "$gate_lease_owner_json" ]; then
+        gate_lease_owned=0
+      else
+        rm -f -- "$gate_lease_owner"
+        if [ ! -e "$gate_lease_owner" ] && [ ! -L "$gate_lease_owner" ]; then
+          gate_lease_owner_removed=1
+        else
+          gate_lease_owned=0
+        fi
+      fi
+    elif [ "$gate_lease_owner_removed" -eq 0 ]; then
       current_owner=$(cat "$gate_lease_owner" 2>/dev/null || true)
       if [ "$current_owner" = "$gate_lease_owner_json" ]; then
         rm -f -- "$gate_lease_owner"
@@ -1757,6 +1775,8 @@ while ! mkdir "$gate_lease_lock" 2>/dev/null; do
   sleep 0.05
 done
 
+gate_lease_owned=1
+gate_lease_owner_published=0
 [ "$(realpath "$gate_lease_lock" 2>/dev/null)" = "$gate_lease_lock" ] \
   || fail_contract "global Gate lease path must be canonical" 73
 lease_acquired=$(date +%s)
@@ -1797,9 +1817,9 @@ if ! printf '%s\n' "$gate_lease_owner_json" >&7; then
   fail_contract "cannot record global Gate lease owner" 73
 fi
 exec 7>&-
-gate_lease_owned=1
 chmod 0444 "$gate_lease_owner" \
   || fail_contract "cannot make global Gate lease owner read-only" 73
+gate_lease_owner_published=1
 
 lease_rel=artifacts/gate/no-mistakes-lease-attempt-$attempt.json
 lease=$run_root/$lease_rel

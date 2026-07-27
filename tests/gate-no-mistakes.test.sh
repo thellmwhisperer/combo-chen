@@ -20,7 +20,8 @@
 #   6. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
-#   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
+#   9. test_serializes_global_gate + test_releases_provisional_gate_lease
+#                                    <- durable and provisional lease custody.
 #   10. test_releases_lease_before_github <- GitHub waits cannot starve siblings.
 #   11. test_bounds_external_commands <- hung No-Mistakes/GitHub children die.
 #   12. test_arms_auto_merge_once   <- exact arm, stdin isolation, replay contracts.
@@ -40,8 +41,8 @@
 #   invocation_args, wait_for_path
 #
 # @exports none
-# @deps bash, cksum, date, git, gh-compatible fake, jq, mkfifo, ps, stat, touch,
-#   tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh, bin/cb-gate.sh
+# @deps bash, cksum, date, git, gh-compatible fake, jq, mkfifo, ps, realpath,
+#   stat, touch, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh, bin/cb-gate.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -54,7 +55,11 @@ RUNS_DIR="$TMP_ROOT/runs"
 FAKE_ROLE="$TMP_ROOT/fake-role-adapter"
 FAKE_NM="$TMP_ROOT/fake-no-mistakes"
 FAKE_BIN_DIR="$TMP_ROOT/fake-bin"
+FAKE_CHMOD="$FAKE_BIN_DIR/chmod"
 FAKE_GH="$FAKE_BIN_DIR/gh"
+FAKE_REALPATH="$FAKE_BIN_DIR/realpath"
+REAL_CHMOD=$(command -v chmod)
+REAL_REALPATH=$(command -v realpath)
 FAKE_NM_HOME="$TMP_ROOT/no-mistakes-home"
 FAKE_NM_CONFIG="$FAKE_NM_HOME/.no-mistakes/config.yaml"
 NM_ARGV="$TMP_ROOT/no-mistakes.argv"
@@ -77,6 +82,8 @@ GH_ENTERED="$TMP_ROOT/gh.entered"
 GH_HANG_ENTERED="$TMP_ROOT/gh.hang-entered"
 GH_HANG_PIDS="$TMP_ROOT/gh.hang-pids"
 GATE_LEASES_DIR="$TMP_ROOT/gate-leases"
+LEASE_BOUNDARY_REACHED="$TMP_ROOT/gate-lease-boundary.reached"
+LEASE_BOUNDARY_PIDS="$TMP_ROOT/gate-lease-boundary.pids"
 mkdir -p "$RUNS_DIR"
 mkdir -p "$FAKE_BIN_DIR"
 mkdir -p "$FAKE_NM_HOME/.no-mistakes"
@@ -99,6 +106,8 @@ export CB_GATE_TEST_GH_CALLS="$GH_CALLS"
 export CB_GATE_TEST_GH_AUTO_MERGE_STATE="$GH_AUTO_MERGE_STATE"
 export CB_GATE_TEST_GH_HANG_ENTERED="$GH_HANG_ENTERED"
 export CB_GATE_TEST_GH_HANG_PIDS="$GH_HANG_PIDS"
+export CB_GATE_TEST_REAL_CHMOD="$REAL_CHMOD"
+export CB_GATE_TEST_REAL_REALPATH="$REAL_REALPATH"
 export CB_GATE_TEST_GH_MODE=exact
 export PATH="$FAKE_BIN_DIR:$PATH"
 
@@ -111,6 +120,60 @@ RUN_REPO=
 
 cb_write_fake "$FAKE_ROLE" '#!/usr/bin/env bash
 exit 99
+'
+
+cb_write_fake "$FAKE_CHMOD" '#!/usr/bin/env bash
+set -u
+if [ "${CB_GATE_TEST_LEASE_BOUNDARY_MODE:-}" = signal ] &&
+  [ "$#" -eq 2 ] && [ "$1" = 0444 ] &&
+  [ "$2" = "$CB_GATE_LEASES_DIR/no-mistakes.lock/owner.json" ] &&
+  [ -f "$2" ] && [ ! -L "$2" ]; then
+  printf "owner-written-not-read-only\n" >"$CB_GATE_TEST_LEASE_BOUNDARY_REACHED"
+  printf "%s\n%s\n" "$PPID" "$$" >"$CB_GATE_TEST_LEASE_BOUNDARY_PIDS"
+  kill -TERM "$PPID"
+  exit 143
+fi
+exec "$CB_GATE_TEST_REAL_CHMOD" "$@"
+'
+
+cb_write_fake "$FAKE_REALPATH" '#!/usr/bin/env bash
+set -u
+case "${CB_GATE_TEST_LEASE_BOUNDARY_MODE:-}" in
+  fail|owner-mismatch) ;;
+  *) exec "$CB_GATE_TEST_REAL_REALPATH" "$@" ;;
+esac
+if
+  [ "$#" -eq 1 ] &&
+  [ "$1" = "$CB_GATE_LEASES_DIR/no-mistakes.lock" ] &&
+  [ -d "$1" ]; then
+  owner=$1/owner.json
+  if [ -e "$owner" ] || [ -L "$owner" ]; then
+    printf "owner-present\n" >"$CB_GATE_TEST_LEASE_BOUNDARY_REACHED"
+    exit 72
+  fi
+  if [ "$CB_GATE_TEST_LEASE_BOUNDARY_MODE" = owner-mismatch ]; then
+    jq -cn --argjson pid "$CB_GATE_TEST_SIBLING_PID" "{
+      schema:\"combo.gate-lease-owner/v1\",
+      scope:\"host-global\",
+      adapter:\"no-mistakes\",
+      run_id:\"gate-sibling-owner\",
+      branch:\"combo/gate-sibling-owner\",
+      worktree:\"/sibling/worktree\",
+      candidate_sha:\"0000000000000000000000000000000000000000\",
+      attempt:1,
+      pid:\$pid,
+      token:\"sibling-owner\",
+      acquired_at:1
+    }" >"$owner"
+    "$CB_GATE_TEST_REAL_CHMOD" 0444 "$owner"
+    printf "valid-sibling-owner-published\n" \
+      >"$CB_GATE_TEST_LEASE_BOUNDARY_REACHED"
+    exit 1
+  fi
+  printf "post-mkdir-owner-absent\n" >"$CB_GATE_TEST_LEASE_BOUNDARY_REACHED"
+  exit 1
+fi
+exec "$CB_GATE_TEST_REAL_REALPATH" "$@"
 '
 
 cb_write_fake "$FAKE_NM" '#!/usr/bin/env bash
@@ -1433,6 +1496,108 @@ test_serializes_global_gate() {
     || fail "serialization fixture must use independently isolated worktrees"
   pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
 }
+
+test_releases_provisional_gate_lease() {
+  local mode run sibling lock owner lease pid
+  lock="$GATE_LEASES_DIR/no-mistakes.lock"
+  owner="$lock/owner.json"
+
+  for mode in fail signal; do
+    run="gate-provisional-$mode"
+    sibling="gate-after-provisional-$mode"
+    rm -rf "$GATE_LEASES_DIR" "$NM_SERIAL_ACTIVE"
+    rm -f \
+      "$LEASE_BOUNDARY_REACHED" "$LEASE_BOUNDARY_PIDS" \
+      "$NM_CALLED" "$NM_SERIAL_ENTERED" "$NM_SERIAL_OVERLAP" "$NM_CALLS"
+
+    make_run "$run" passed
+    export CB_GATE_TEST_LEASE_BOUNDARY_MODE=$mode
+    export CB_GATE_TEST_LEASE_BOUNDARY_REACHED=$LEASE_BOUNDARY_REACHED
+    export CB_GATE_TEST_LEASE_BOUNDARY_PIDS=$LEASE_BOUNDARY_PIDS
+    run_gate "$run" "$RUN_HEAD"
+    unset \
+      CB_GATE_TEST_LEASE_BOUNDARY_MODE \
+      CB_GATE_TEST_LEASE_BOUNDARY_REACHED \
+      CB_GATE_TEST_LEASE_BOUNDARY_PIDS
+
+    expect_code 0 "$CMD_STATUS" \
+      "provisional lease $mode result${CMD_STDERR:+: $CMD_STDERR}"
+    if [ "$mode" = fail ]; then
+      [ "$(cat "$LEASE_BOUNDARY_REACHED" 2>/dev/null)" = \
+        post-mkdir-owner-absent ] \
+        || fail "failure path did not reach the post-mkdir pre-owner boundary"
+    else
+      [ "$(cat "$LEASE_BOUNDARY_REACHED" 2>/dev/null)" = \
+        owner-written-not-read-only ] \
+        || fail "signal path did not reach the pre-publication chmod boundary"
+    fi
+    assert_absent "$NM_CALLED" \
+      "$mode at the provisional boundary must precede No-Mistakes"
+    if [ "$mode" = fail ]; then
+      jq -e '
+        .exit_class=="technical_error" and .events==[] and
+        .errors==["adapter_exit:73"]
+      ' "$CMD_STDOUT" >/dev/null \
+        || fail "explicit boundary failure must remain a truthful technical error"
+    else
+      jq -e '
+        .exit_class=="cancelled" and .events==[] and
+        .reasons==["adapter_exit:130"]
+      ' "$CMD_STDOUT" >/dev/null \
+        || fail "SIGTERM at the boundary must remain a truthful cancellation: $(jq -c . "$CMD_STDOUT")"
+      while IFS= read -r pid; do
+        kill -0 "$pid" 2>/dev/null \
+          && fail "signal-boundary Gate or helper survived cleanup: $pid"
+      done <"$LEASE_BOUNDARY_PIDS"
+    fi
+    assert_absent "$owner" \
+      "$mode cleanup must leave no provisional owner file"
+    assert_absent "$lock" \
+      "$mode cleanup must release the provisional lock immediately"
+
+    make_run "$sibling" passed
+    export CB_GATE_LEASE_WAIT_SECONDS=1
+    run_gate "$sibling" "$RUN_HEAD"
+    unset CB_GATE_LEASE_WAIT_SECONDS
+    expect_code 0 "$CMD_STATUS" \
+      "sibling after provisional $mode${CMD_STDERR:+: $CMD_STDERR}"
+    jq -e '.events[0].event=="gate_ok"' "$CMD_STDOUT" >/dev/null \
+      || fail "sibling must enter immediately after provisional $mode cleanup"
+    lease="$RUNS_DIR/$sibling/artifacts/gate/no-mistakes-lease-attempt-1.json"
+    jq -e '.state=="acquired" and .recovered_from==null' "$lease" >/dev/null \
+      || fail "sibling progress after $mode must not use stale-owner recovery"
+    assert_absent "$lock" \
+      "sibling after provisional $mode must release its exact lease"
+  done
+
+  run=gate-provisional-owner-mismatch
+  rm -rf "$GATE_LEASES_DIR"
+  rm -f "$LEASE_BOUNDARY_REACHED" "$NM_CALLED"
+  make_run "$run" passed
+  export CB_GATE_TEST_LEASE_BOUNDARY_MODE=owner-mismatch
+  export CB_GATE_TEST_LEASE_BOUNDARY_REACHED=$LEASE_BOUNDARY_REACHED
+  export CB_GATE_TEST_SIBLING_PID=$$
+  run_gate "$run" "$RUN_HEAD"
+  unset \
+    CB_GATE_TEST_LEASE_BOUNDARY_MODE \
+    CB_GATE_TEST_LEASE_BOUNDARY_REACHED \
+    CB_GATE_TEST_SIBLING_PID
+  expect_code 0 "$CMD_STATUS" \
+    "provisional owner mismatch${CMD_STDERR:+: $CMD_STDERR}"
+  [ "$(cat "$LEASE_BOUNDARY_REACHED" 2>/dev/null)" = \
+    valid-sibling-owner-published ] \
+    || fail "owner-mismatch path did not publish a valid sibling owner"
+  jq -e --argjson pid "$$" '
+    .run_id=="gate-sibling-owner" and .pid==$pid and
+    .token=="sibling-owner"
+  ' "$owner" >/dev/null \
+    || fail "provisional cleanup removed or changed the valid sibling owner"
+  "$REAL_CHMOD" u+w "$owner"
+  rm -f "$owner"
+  rmdir "$lock"
+
+  pass "Gate releases provisional custody after failure and SIGTERM"
+}
 # -/ 9/13
 
 # -- 10/13 CORE · test_releases_lease_before_github --
@@ -2348,6 +2513,9 @@ case "${CB_GATE_TEST_ONLY:-all}" in
   bounds)
     test_bounds_external_commands
     ;;
+  provisional)
+    test_releases_provisional_gate_lease
+    ;;
   release)
     test_releases_lease_before_github
     ;;
@@ -2361,6 +2529,7 @@ case "${CB_GATE_TEST_ONLY:-all}" in
     test_replays_terminal_seal
     test_adopts_interrupted_run
     test_serializes_global_gate
+    test_releases_provisional_gate_lease
     test_releases_lease_before_github
     test_bounds_external_commands
     test_arms_auto_merge_once
