@@ -18,7 +18,7 @@
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
-#   10. test_arms_auto_merge_once   <- exact arm, merged terminal, crash recovery.
+#   10. test_arms_auto_merge_once   <- exact arm, final observation, crash recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -238,6 +238,10 @@ case "$2" in
           case "$(cat "$CB_GATE_TEST_GH_AUTO_MERGE_STATE")" in
             armed)
               auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              ;;
+            armed-then-merged)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "merged\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
               ;;
             merged)
               state=MERGED
@@ -782,7 +786,7 @@ test_replays_terminal_seal() {
   terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
   jq -e \
     --arg sha "$RUN_HEAD" --arg branch "$RUN_BRANCH" --arg worktree "$RUN_REPO" '
-      .schema=="combo.gate-terminal/v2" and
+      .schema=="combo.gate-terminal/v3" and
       .run_id=="gate-terminal-replay" and
       .branch==$branch and .worktree==$worktree and .candidate_sha==$sha and
       .lease=="artifacts/gate/no-mistakes-lease-attempt-1.json" and
@@ -792,7 +796,7 @@ test_replays_terminal_seal() {
         pr:"https://example.test/pull/7",
         receipt:"artifacts/gate/no-mistakes-attempt-1.toon"
       } and
-      .merge=={mode:"manual",arm:""} and
+      .merge=={mode:"manual",arm:"",outcome:""} and
       .normalized_outcome=="validated"
     ' "$terminal" >/dev/null \
     || fail "terminal seal should retain exact run, branch, head, PR, and NM identity"
@@ -1028,14 +1032,17 @@ test_serializes_global_gate() {
 
 # -- 10/10 CORE · test_arms_auto_merge_once --
 test_arms_auto_merge_once() {
-  local run=gate-auto-merge result arm terminal merge_calls
-  local arm_mode
+  local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls
+  local arm_mode outcome_mode
   local immediate=gate-auto-merge-immediate
   local interrupted=gate-auto-merge-interrupted first_result second_result
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
 
+  export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-merged
+  export CB_GATE_MERGE_POLL_SECONDS=0
   make_run "$run" passed auto
   run_gate "$run" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
   expect_code 0 "$CMD_STATUS" \
     "configured auto-merge Gate${CMD_STDERR:+: $CMD_STDERR}"
   result=$CMD_STDOUT
@@ -1044,16 +1051,19 @@ test_arms_auto_merge_once() {
       code:0,
       event:"gate_ok",
       payload:{
-        outcome:"validated",
+        outcome:"merged",
         sha:$sha,
         pr:"https://example.test/pull/7"
       }
     }] and
     any(.artifacts[];
       .id=="gate-merge-arm" and
-      .path=="artifacts/gate/merge-arm.json")
+      .path=="artifacts/gate/merge-arm.json") and
+    any(.artifacts[];
+      .id=="gate-merge-outcome" and
+      .path=="artifacts/gate/merge-outcome.json")
   ' "$result" >/dev/null \
-    || fail "auto mode should publish the exact merge-arm evidence"
+    || fail "auto mode should wait for and publish the authenticated final merge"
 
   merge_calls=$(grep -c $'^pr\tmerge\thttps://example.test/pull/7\t--auto\t--rebase$' \
     "$GH_CALLS" || true)
@@ -1080,16 +1090,36 @@ test_arms_auto_merge_once() {
       .observation.autoMergeRequest.mergeMethod=="REBASE"
     ' "$arm" >/dev/null \
     || fail "merge-arm seal should bind exact authority, command, PR, and head"
+  outcome="$RUNS_DIR/$run/artifacts/gate/merge-outcome.json"
+  outcome_mode=$(stat -c '%a' "$outcome" 2>/dev/null || stat -f '%Lp' "$outcome")
+  [ "$outcome_mode" = 444 ] \
+    || fail "merge-outcome evidence should be immutable"
+  jq -e \
+    --arg run "$run" --arg branch "$RUN_BRANCH" --arg worktree "$RUN_REPO" \
+    --arg sha "$RUN_HEAD" '
+      .schema=="combo.gate-merge-outcome/v1" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and .pr=="https://example.test/pull/7" and
+      .outcome=="merged" and
+      .observation.state=="MERGED" and
+      .observation.autoMergeRequest==null and
+      .observation.mergedAt=="2026-07-27T00:00:00Z" and
+      .observation.mergeCommit.oid=="1111111111111111111111111111111111111111"
+    ' "$outcome" >/dev/null \
+    || fail "merge-outcome seal should retain the later authenticated merge fact"
   terminal="$RUNS_DIR/$run/artifacts/gate/terminal.json"
   jq -e '
-    .schema=="combo.gate-terminal/v2" and
+    .schema=="combo.gate-terminal/v3" and
+    .normalized_outcome=="merged" and
     .merge=={
       mode:"auto",
-      arm:"artifacts/gate/merge-arm.json"
+      arm:"artifacts/gate/merge-arm.json",
+      outcome:"artifacts/gate/merge-outcome.json"
     }
   ' "$terminal" >/dev/null \
-    || fail "terminal recovery should retain the immutable auto-merge arm"
+    || fail "terminal recovery should retain the immutable arm and final observation"
 
+  gh_calls=$(wc -l <"$GH_CALLS" | tr -d " ")
   run_gate "$run" "$RUN_HEAD" 2
   expect_code 0 "$CMD_STATUS" \
     "auto-merge terminal replay${CMD_STDERR:+: $CMD_STDERR}"
@@ -1097,6 +1127,8 @@ test_arms_auto_merge_once() {
     "$GH_CALLS" || true)
   [ "$merge_calls" -eq 1 ] \
     || fail "terminal replay must never duplicate the merge arm"
+  [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
+    || fail "terminal replay must not observe GitHub again after a final merge"
 
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=merged
@@ -1128,6 +1160,7 @@ test_arms_auto_merge_once() {
     || fail "an immediately merged PR should still seal the completed arm effect"
   jq -e '
     .normalized_outcome=="merged" and
+    .merge.outcome=="artifacts/gate/merge-outcome.json" and
     .result.events[0].payload.outcome=="merged"
   ' "$RUNS_DIR/$immediate/artifacts/gate/terminal.json" >/dev/null \
     || fail "the terminal seal should retain the authenticated merged outcome"
@@ -1163,11 +1196,17 @@ test_arms_auto_merge_once() {
   assert_absent "$RUNS_DIR/$interrupted/artifacts/gate/terminal.json" \
     "interruption before arm publication must not invent a terminal result"
 
+  printf "armed-then-merged\n" >"$GH_AUTO_MERGE_STATE"
+  export CB_GATE_MERGE_POLL_SECONDS=0
   run_gate "$interrupted" "$RUN_HEAD" 2
+  unset CB_GATE_MERGE_POLL_SECONDS
   expect_code 0 "$CMD_STATUS" \
     "interrupted auto-merge recovery${CMD_STDERR:+: $CMD_STDERR}"
   second_result=$CMD_STDOUT
-  jq -e '.events[0].event=="gate_ok"' "$second_result" >/dev/null \
+  jq -e '
+    .events[0].event=="gate_ok" and
+    .events[0].payload.outcome=="merged"
+  ' "$second_result" >/dev/null \
     || fail "retry should recover the authenticated existing merge arm"
   merge_calls=$(grep -c $'^pr\tmerge\thttps://example.test/pull/7\t--auto\t--rebase$' \
     "$GH_CALLS" || true)
@@ -1176,7 +1215,7 @@ test_arms_auto_merge_once() {
   jq -e '.state=="armed" and .source=="observed"' \
     "$RUNS_DIR/$interrupted/artifacts/gate/merge-arm.json" >/dev/null \
     || fail "recovery should seal the authenticated pre-existing arm"
-  pass "Gate arms exact auto-rebase once and recovers after an interrupted effect"
+  pass "Gate arms exact auto-rebase once, observes final merge, and recovers"
 }
 # -/ 10/10
 

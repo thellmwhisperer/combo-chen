@@ -8,8 +8,9 @@
 #   same invocation after interruption, and seals/replays the typed terminal
 #   outcome plus one GitHub-verified exact PR. Explicit auto authority arms that
 #   PR once with GitHub auto-rebase, while manual authority remains mutation-free;
-#   authenticated state recovers an interrupted arm without replaying the effect
-#   and classifies an already-merged arm as the final merged Gate outcome.
+#   authenticated state recovers an interrupted arm without replaying the effect,
+#   keeps an armed OPEN PR inside Gate, and seals the later merged observation
+#   before publishing the final Gate outcome.
 #
 #   READING GUIDE
 #   -------------
@@ -17,7 +18,7 @@
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
 #   3. Invocation/terminal replay <- freeze identity and one documented axi run.
 #   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
-#   5. Terminal normalization     <- exact PR, merge arm, merged fact, typed outcome.
+#   5. Terminal normalization     <- exact PR, merge arm, final fact, typed outcome.
 #
 #   MAIN FLOW
 #   ---------
@@ -35,8 +36,9 @@
 #   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
 #   reclaim_stale_lease, validate_github_pr_object, resolve_exact_github_pr,
 #   resolve_github_binary, validate_merge_arm, validate_merge_observation,
-#   observe_exact_merge_state, merge_observation_is_armed, publish_merge_arm,
-#   ensure_auto_merge_armed
+#   validate_merge_outcome, observe_exact_merge_state,
+#   merge_observation_is_armed, publish_merge_arm, publish_merge_outcome,
+#   ensure_auto_merge_armed, wait_for_auto_merge_outcome
 #
 # @exports none
 # @deps bash, date, gh, git, jq, od, realpath, sleep, stat, touch, tr,
@@ -88,6 +90,8 @@ lease_tmp=
 lease_tmp_owned=0
 merge_arm_tmp=
 merge_arm_tmp_owned=0
+merge_outcome_tmp=
+merge_outcome_tmp_owned=0
 gate_lease_lock=
 gate_lease_owner=
 gate_lease_owner_json=
@@ -101,6 +105,7 @@ cleanup() {
   [ "$invocation_tmp_owned" -eq 0 ] || rm -f -- "$invocation_tmp"
   [ "$lease_tmp_owned" -eq 0 ] || rm -f -- "$lease_tmp"
   [ "$merge_arm_tmp_owned" -eq 0 ] || rm -f -- "$merge_arm_tmp"
+  [ "$merge_outcome_tmp_owned" -eq 0 ] || rm -f -- "$merge_outcome_tmp"
   if [ -n "$gate_lease_heartbeat_pid" ]; then
     kill "$gate_lease_heartbeat_pid" 2>/dev/null || true
     wait "$gate_lease_heartbeat_pid" 2>/dev/null || true
@@ -271,15 +276,18 @@ toon_scalar() {
 
 publish_terminal_result() {
   local terminal_json=$1 terminal_lease terminal_receipt terminal_result
-  local terminal_arm terminal_artifacts
+  local terminal_arm terminal_merge_outcome terminal_artifacts
   terminal_lease=$(printf '%s\n' "$terminal_json" | jq -r '.lease')
   terminal_receipt=$(printf '%s\n' "$terminal_json" |
     jq -r '.no_mistakes.receipt')
   terminal_arm=$(printf '%s\n' "$terminal_json" | jq -r '.merge.arm')
+  terminal_merge_outcome=$(printf '%s\n' "$terminal_json" |
+    jq -r '.merge.outcome')
   terminal_result=$(printf '%s\n' "$terminal_json" | jq -c '.result')
   terminal_artifacts=$(jq -cn \
     --arg invocation "$invocation_rel" --arg lease "$terminal_lease" \
     --arg receipt "$terminal_receipt" --arg arm "$terminal_arm" \
+    --arg merge_outcome "$terminal_merge_outcome" \
     --arg terminal "$terminal_rel" '
       [
         {id:"gate-invocation",path:$invocation},
@@ -288,6 +296,9 @@ publish_terminal_result() {
       ] +
       if $arm=="" then [] else [
         {id:"gate-merge-arm",path:$arm}
+      ] end +
+      if $merge_outcome=="" then [] else [
+        {id:"gate-merge-outcome",path:$merge_outcome}
       ] end + [
         {id:"gate-terminal",path:$terminal}
       ]
@@ -506,6 +517,9 @@ terminal_tmp=$gate_artifacts/.terminal.json.tmp.$$
 merge_arm_rel=artifacts/gate/merge-arm.json
 merge_arm=$run_root/$merge_arm_rel
 merge_arm_tmp=$gate_artifacts/.merge-arm.json.tmp.$$
+merge_outcome_rel=artifacts/gate/merge-outcome.json
+merge_outcome=$run_root/$merge_outcome_rel
+merge_outcome_tmp=$gate_artifacts/.merge-outcome.json.tmp.$$
 
 validate_merge_arm() {
   local json=$1
@@ -554,6 +568,40 @@ validate_merge_arm() {
     ' >/dev/null 2>&1
 }
 
+validate_merge_outcome() {
+  local json=$1
+  printf '%s\n' "$json" | jq -e \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" '
+      def sha:
+        type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+      def clean:
+        type=="string" and length>0 and
+        (explode | all(.[]; .>=32 and .!=127));
+      . as $outcome |
+      type=="object" and
+      keys==[
+        "branch","candidate_sha","observation","outcome","pr",
+        "run_id","schema","worktree"
+      ] and
+      .schema=="combo.gate-merge-outcome/v1" and
+      .run_id==$run and .branch==$branch and .worktree==$worktree and
+      .candidate_sha==$sha and .outcome=="merged" and
+      (.pr|clean and startswith("https://")) and
+      (.observation |
+        type=="object" and
+        keys==[
+          "autoMergeRequest","headRefName","headRefOid","mergeCommit",
+          "mergedAt","state","url"
+        ] and
+        .url==$outcome.pr and .headRefName==$branch and .headRefOid==$sha and
+        .state=="MERGED" and .autoMergeRequest==null and
+        (.mergedAt|clean) and
+        (.mergeCommit |
+          type=="object" and (.oid|sha)))
+    ' >/dev/null 2>&1
+}
+
 if [ -e "$terminal" ] || [ -L "$terminal" ]; then
   [ -f "$terminal" ] && [ ! -L "$terminal" ] \
     || fail_contract "Gate terminal seal is unsafe" 73
@@ -564,7 +612,8 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
   if ! printf '%s\n' "$terminal_json" | jq -e \
     --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
     --arg sha "$candidate_sha" --arg invocation "$invocation_rel" \
-    --arg merge "$merge_mode" --arg arm "$merge_arm_rel" '
+    --arg merge "$merge_mode" --arg arm "$merge_arm_rel" \
+    --arg merge_outcome "$merge_outcome_rel" '
       def clean:
         type=="string" and length>0 and
         (explode | all(.[]; .>=32 and .!=127));
@@ -577,7 +626,7 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         "branch","candidate_sha","invocation","lease","merge",
         "no_mistakes","normalized_outcome","result","run_id","schema","worktree"
       ] and
-      .schema=="combo.gate-terminal/v2" and
+      .schema=="combo.gate-terminal/v3" and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .invocation==$invocation and
       (.lease |
@@ -585,14 +634,15 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         test("^artifacts/gate/no-mistakes-lease-attempt-[1-9][0-9]*\\.json$")) and
       (.normalized_outcome |
         .=="validated" or .=="merged" or .=="failed" or .=="cancelled") and
+      ($terminal.normalized_outcome!="validated" or $merge=="manual") and
       ($terminal.normalized_outcome!="merged" or $merge=="auto") and
       (.merge |
-        type=="object" and keys==["arm","mode"] and .mode==$merge and
-        if ($terminal.normalized_outcome=="validated" or
-            $terminal.normalized_outcome=="merged") and $merge=="auto" then
-          .arm==$arm
+        type=="object" and keys==["arm","mode","outcome"] and
+        .mode==$merge and
+        if $terminal.normalized_outcome=="merged" then
+          .arm==$arm and .outcome==$merge_outcome
         else
-          .arm==""
+          .arm=="" and .outcome==""
         end) and
       (.no_mistakes |
         type=="object" and keys==["outcome","pr","receipt","run_id"] and
@@ -713,12 +763,24 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       || fail_contract "invalid Gate terminal merge arm" 73
     validate_merge_arm "$terminal_arm_json" \
       || fail_contract "invalid Gate terminal merge arm" 73
-    if [ "$(printf '%s\n' "$terminal_json" |
-      jq -r '.normalized_outcome')" = merged ]; then
-      printf '%s\n' "$terminal_arm_json" |
-        jq -e '.observation.state=="MERGED"' >/dev/null 2>&1 \
-        || fail_contract "merged Gate terminal lacks authenticated merge evidence" 73
-    fi
+  fi
+  terminal_merge_outcome_rel=$(printf '%s\n' "$terminal_json" |
+    jq -r '.merge.outcome')
+  if [ -n "$terminal_merge_outcome_rel" ]; then
+    terminal_merge_outcome=$run_root/$terminal_merge_outcome_rel
+    [ -f "$terminal_merge_outcome" ] && [ ! -L "$terminal_merge_outcome" ] \
+      || fail_contract "Gate terminal merge outcome is missing or unsafe" 73
+    [ "$(realpath "$terminal_merge_outcome" 2>/dev/null)" = \
+      "$terminal_merge_outcome" ] \
+      || fail_contract "Gate terminal merge outcome path must be canonical" 73
+    terminal_merge_outcome_json=$(jq -c '.' "$terminal_merge_outcome" 2>/dev/null) \
+      || fail_contract "invalid Gate terminal merge outcome" 73
+    validate_merge_outcome "$terminal_merge_outcome_json" \
+      || fail_contract "invalid Gate terminal merge outcome" 73
+    printf '%s\n' "$terminal_merge_outcome_json" |
+      jq -e --arg pr "$(printf '%s\n' "$terminal_json" |
+        jq -r '.no_mistakes.pr')" '.pr==$pr' >/dev/null 2>&1 \
+      || fail_contract "Gate terminal merge outcome disagrees with PR" 73
   fi
   publish_terminal_result "$terminal_json"
   exit 0
@@ -1582,6 +1644,59 @@ publish_merge_arm() {
     || fail_contract "invalid colliding Gate merge arm" 73
 }
 
+publish_merge_outcome() {
+  local pr=$1 observation=$2 outcome_json existing
+  outcome_json=$(jq -cn \
+    --arg run "$run" --arg branch "$branch" --arg worktree "$worktree" \
+    --arg sha "$candidate_sha" --arg pr "$pr" \
+    --argjson observation "$observation" '
+      {
+        schema:"combo.gate-merge-outcome/v1",
+        run_id:$run,
+        branch:$branch,
+        worktree:$worktree,
+        candidate_sha:$sha,
+        pr:$pr,
+        outcome:"merged",
+        observation:$observation
+      }
+    ') || fail_contract "cannot build Gate merge-outcome evidence" 73
+  validate_merge_outcome "$outcome_json" \
+    || fail_contract "invalid Gate merge-outcome evidence" 73
+
+  [ ! -e "$merge_outcome_tmp" ] && [ ! -L "$merge_outcome_tmp" ] \
+    || fail_contract "Gate merge-outcome staging path already exists" 73
+  set -C
+  if exec 9>"$merge_outcome_tmp"; then
+    merge_outcome_tmp_owned=1
+  else
+    set +C
+    fail_contract "cannot reserve Gate merge-outcome staging path" 73
+  fi
+  set +C
+  printf '%s\n' "$outcome_json" >&9
+  exec 9>&-
+  chmod 0444 "$merge_outcome_tmp" \
+    || fail_contract "cannot make Gate merge-outcome evidence read-only" 73
+  if ln "$merge_outcome_tmp" "$merge_outcome" 2>/dev/null; then
+    rm -f -- "$merge_outcome_tmp"
+    merge_outcome_tmp_owned=0
+    return 0
+  fi
+
+  rm -f -- "$merge_outcome_tmp"
+  merge_outcome_tmp_owned=0
+  [ -f "$merge_outcome" ] && [ ! -L "$merge_outcome" ] \
+    || fail_contract "Gate merge-outcome publication collision" 73
+  existing=$(jq -c '.' "$merge_outcome" 2>/dev/null) \
+    || fail_contract "invalid colliding Gate merge outcome" 73
+  validate_merge_outcome "$existing" \
+    || fail_contract "invalid colliding Gate merge outcome" 73
+  printf '%s\n' "$existing" |
+    jq -e --arg pr "$pr" '.pr==$pr' >/dev/null 2>&1 \
+    || fail_contract "colliding Gate merge outcome disagrees with PR" 73
+}
+
 ensure_auto_merge_armed() {
   local pr=$1 existing state source command_status
   resolve_github_binary
@@ -1647,6 +1762,62 @@ ensure_auto_merge_armed() {
   publish_merge_arm "$pr" "$source" "$github_merge_observation"
 }
 
+wait_for_auto_merge_outcome() {
+  local pr=$1 poll_seconds arm_json state existing
+  poll_seconds=${CB_GATE_MERGE_POLL_SECONDS:-5}
+  case "$poll_seconds" in
+    ''|*[!0-9]*) fail_contract "invalid Gate merge poll interval" ;;
+  esac
+
+  if [ -e "$merge_outcome" ] || [ -L "$merge_outcome" ]; then
+    [ -f "$merge_outcome" ] && [ ! -L "$merge_outcome" ] \
+      || fail_contract "Gate merge-outcome evidence is unsafe" 73
+    [ "$(realpath "$merge_outcome" 2>/dev/null)" = "$merge_outcome" ] \
+      || fail_contract "Gate merge-outcome path must be canonical" 73
+    existing=$(jq -c '.' "$merge_outcome" 2>/dev/null) \
+      || fail_contract "invalid Gate merge-outcome evidence" 73
+    validate_merge_outcome "$existing" \
+      || fail_contract "invalid Gate merge-outcome evidence" 73
+    printf '%s\n' "$existing" |
+      jq -e --arg pr "$pr" '.pr==$pr' >/dev/null 2>&1 \
+      || fail_contract "Gate merge-outcome evidence disagrees with this retry" 73
+    return 0
+  fi
+
+  arm_json=$(jq -c '.' "$merge_arm" 2>/dev/null) \
+    || fail_contract "invalid Gate merge-arm evidence" 73
+  validate_merge_arm "$arm_json" \
+    || fail_contract "invalid Gate merge-arm evidence" 73
+  if printf '%s\n' "$arm_json" |
+    jq -e '.observation.state=="MERGED"' >/dev/null 2>&1; then
+    publish_merge_outcome "$pr" \
+      "$(printf '%s\n' "$arm_json" | jq -c '.observation')"
+    return 0
+  fi
+
+  while :; do
+    [ "$poll_seconds" -eq 0 ] || sleep "$poll_seconds"
+    verify_candidate \
+      || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
+    observe_exact_merge_state "$pr"
+    verify_candidate \
+      || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
+    state=$(printf '%s\n' "$github_merge_observation" | jq -r '.state')
+    if [ "$state" = MERGED ]; then
+      publish_merge_outcome "$pr" "$github_merge_observation"
+      return 0
+    fi
+    if [ "$state" = CLOSED ]; then
+      publish_gate_failed github_pr_closed "$artifacts"
+      exit 0
+    fi
+    if ! merge_observation_is_armed "$github_merge_observation"; then
+      publish_gate_failed github_auto_merge_cancelled "$artifacts"
+      exit 0
+    fi
+  done
+}
+
 if ! verify_candidate; then
   publish_gate_failed candidate_head_changed "$artifacts"
   exit 0
@@ -1672,6 +1843,7 @@ case "$candidate_sha" in
 esac
 
 terminal_merge_arm=
+terminal_merge_outcome=
 case "$nm_outcome" in
   passed|checks-passed)
     [ "$nm_status" -eq 0 ] \
@@ -1685,12 +1857,14 @@ case "$nm_outcome" in
     fi
     if [ "$merge_mode" = auto ]; then
       ensure_auto_merge_armed "$nm_pr"
+      wait_for_auto_merge_outcome "$nm_pr"
+      verify_candidate \
+        || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
       terminal_merge_arm=$merge_arm_rel
-    fi
-    gate_outcome=validated
-    if [ "$merge_mode" = auto ] &&
-      jq -e '.observation.state=="MERGED"' "$merge_arm" >/dev/null 2>&1; then
+      terminal_merge_outcome=$merge_outcome_rel
       gate_outcome=merged
+    else
+      gate_outcome=validated
     fi
     payload=$(jq -cn \
       --arg outcome "$gate_outcome" --arg sha "$candidate_sha" \
@@ -1745,10 +1919,11 @@ terminal_json=$(jq -cn \
   --arg invocation "$invocation_rel" --arg lease "$lease_rel" \
   --arg receipt "$receipt_rel" \
   --arg merge "$merge_mode" --arg arm "$terminal_merge_arm" \
+  --arg merge_outcome "$terminal_merge_outcome" \
   --arg normalized "$normalized_outcome" \
   --argjson result "$normalized_result" '
     {
-      schema:"combo.gate-terminal/v2",
+      schema:"combo.gate-terminal/v3",
       run_id:$run,
       branch:$branch,
       worktree:$worktree,
@@ -1757,7 +1932,8 @@ terminal_json=$(jq -cn \
       lease:$lease,
       merge:{
         mode:$merge,
-        arm:$arm
+        arm:$arm,
+        outcome:$merge_outcome
       },
       no_mistakes:{
         run_id:$nm_run,
