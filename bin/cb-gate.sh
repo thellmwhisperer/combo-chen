@@ -2519,7 +2519,6 @@ wait_for_auto_merge_outcome() {
     sleep_seconds=$merge_poll_seconds
     [ "$sleep_seconds" -le "$remaining" ] || sleep_seconds=$remaining
     sleep "$sleep_seconds"
-    observe_exact_merge_state "$pr"
     if [ "$(date +%s)" -ge "$merge_deadline" ]; then
       auto_gate_outcome=failed
       auto_gate_reason=github_auto_merge_timeout
