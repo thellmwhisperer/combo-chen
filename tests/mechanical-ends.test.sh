@@ -3,10 +3,11 @@
 #
 # Contract: proves the P3 mechanical Launcher/Cleaner contracts — Treehouse
 # runway acquisition/release with exact lease identity, explicit Git worktree
-# ownership with distinct custody, the generic seat/harness/auth readiness
-# boundary, and predictable-temp-path symlink/replace safety. tmux is not used
-# here; treehouse and git are real where the contract demands them, and
-# PATH-first fakes isolate refusal and identity-race branches.
+# ownership with distinct custody, immutable Launcher publication, the generic
+# seat/harness/auth readiness boundary, and predictable-temp-path
+# symlink/replace safety. tmux is not used here; treehouse and git are real
+# where the contract demands them, and PATH-first fakes isolate refusal and
+# identity-race branches.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -212,6 +213,8 @@ test_th_persists_exact_lease_and_releases() {
   expect_code 0 "$CMD_STATUS" "launcher should succeed${CMD_STDERR:+: $CMD_STDERR}"
   local meta; meta=$(cat "$FIX_RUNS/$run/agents/launcher.ownership.json")
   local wt; wt=$(printf '%s' "$meta" | jq -r '.worktree')
+  [ "$(cb_file_mode "$FIX_RUNS/$run/agents/launcher.ownership.json")" = 444 ] \
+    || fail "Launcher ownership should be published read-only"
   for kv in "run:$run" "runway_kind:treehouse" "repo_dir:$FIX_REPO" "branch:combo/$run" "base_sha:$base_sha" "lease_id:$run"; do
     local k=${kv%%:*} v=${kv#*:}
     [ "$(printf '%s' "$meta" | jq -r ".$k")" = "$v" ] || fail "ownership $k mismatch"
@@ -400,7 +403,9 @@ test_git_refuses_copied_ownership_metadata() {
   run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "launcher"
   track_git_fixture "$FIX_REPO" "$git_path"
   local meta; meta=$(cat "$FIX_RUNS/$run/agents/launcher.ownership.json")
+  chmod u+w "$FIX_RUNS/$run/agents/launcher.ownership.json"
   printf '%s' "$meta" | jq -c '.run="another-run" | .ownership_id="git-worktree:another-run"' >"$FIX_RUNS/$run/agents/launcher.ownership.json"
+  chmod 0444 "$FIX_RUNS/$run/agents/launcher.ownership.json"
 
   run_cb cb-cleaner.sh "$run"
   [ "$CMD_STATUS" -ne 0 ] || fail "mismatched ownership should fail"

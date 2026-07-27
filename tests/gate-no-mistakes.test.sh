@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the P7 No-Mistakes Gate adapter. Proves the
 #   universal P4 envelope reaches a Gate that seals the Launcher-owned exact
-#   branch/head, proves the configured Pi/DeepSeek identity against the effective
-#   No-Mistakes config plus the observed version/AXI help contract, builds
+#   branch/head and configured expected base before publication, proves the
+#   configured Pi/DeepSeek identity against the effective No-Mistakes config
+#   plus the observed version/AXI help contract, builds
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
 #   records its target branch's strict app-aware check policy with paginated
 #   exact-SHA check/status evidence, seals authenticated GitHub merged/failed/cancelled
@@ -16,7 +17,7 @@
 #   1. test_validates_exact_sha     <- canonical validated-mode invocation.
 #   2. test_recovers_exact_pr       <- returned URL plus unique branch fallback.
 #   3. test_seals_configured_identity <- immutable runtime/model + AXI surface.
-#   4. test_rejects_candidate_drift <- no Gate call after the reviewed SHA moves.
+#   4. test_rejects_candidate_drift <- no Gate call after candidate/base drift.
 #   5. test_maps_terminal_outcomes  <- normalization plus untrusted-result rejection.
 #   6. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
@@ -122,6 +123,7 @@ CMD_STDERR=
 RUN_HEAD=
 RUN_BRANCH=
 RUN_REPO=
+RUN_BASE=
 
 cb_write_fake "$FAKE_ROLE" '#!/usr/bin/env bash
 exit 99
@@ -697,6 +699,7 @@ write_config() {
     --arg gate "$BIN/cb-gate.sh" \
     --arg nm "$FAKE_NM" \
     --arg merge "$merge" \
+    --arg expected_base_sha "$RUN_BASE" \
     --arg merge_poll_seconds "$merge_poll_seconds" \
     --arg merge_wait_seconds "$merge_wait_seconds" \
     --arg nm_timeout_seconds "$nm_timeout_seconds" \
@@ -727,7 +730,9 @@ write_config() {
                 intent:"validate exact candidate",
                 approval:"auto",
                 review:true,
-                merge:$merge
+                merge:$merge,
+                expected_base_branch:"accepted-base",
+                expected_base_sha:$expected_base_sha
               } +
               (if $merge_poll_seconds=="" then {} else
                 {merge_poll_seconds:($merge_poll_seconds|tonumber)}
@@ -758,8 +763,10 @@ make_run() {
   config="$TMP_ROOT/$run.config.json"
   RUN_REPO="$TMP_ROOT/$run-repo"
   read -r base RUN_HEAD < <(cb_candidate_repo "$RUN_REPO" "$run")
+  RUN_BASE=$base
   RUN_BRANCH="combo/$run"
   git -C "$RUN_REPO" switch -qc "$RUN_BRANCH"
+  git -C "$RUN_REPO" branch accepted-base "$RUN_BASE"
 
   mkdir -p "$RUNS_DIR/$run/agents"
   jq -n \
@@ -778,6 +785,7 @@ make_run() {
         ownership_id:("git-worktree:" + $run)
       }
     ' >"$RUNS_DIR/$run/agents/launcher.ownership.json"
+  chmod 0444 "$RUNS_DIR/$run/agents/launcher.ownership.json"
   write_config \
     "$config" "$outcome" "" "$merge" \
     "$merge_poll_seconds" "$merge_wait_seconds" \
@@ -860,6 +868,7 @@ test_validates_exact_sha() {
     '["axi","run","--intent","validate exact candidate","--fake-outcome=passed","--yes"]' ] \
     || fail "Gate should build the documented axi run argv from config"
   assert_no_grep "--auto-merge" "$NM_ARGV" "Gate must never invent a No-Mistakes auto-merge flag"
+  assert_no_grep "--base" "$NM_ARGV" "Gate must never invent a No-Mistakes base-selection flag"
   assert_no_grep $'pr\tmerge' "$GH_CALLS" \
     "manual merge authority must not arm GitHub auto-merge"
 
@@ -1067,7 +1076,7 @@ test_seals_configured_identity() {
 
 # -- 4/14 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
-  local run=gate-drift result
+  local run=gate-drift result plan
   make_run "$run" passed
   printf 'drift\n' >>"$RUN_REPO/file.txt"
   git -C "$RUN_REPO" add file.txt
@@ -1085,7 +1094,99 @@ test_rejects_candidate_drift() {
     }]
   ' "$result" >/dev/null || fail "candidate drift should become a terminal gate_failed event"
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
-  pass "Gate rejects candidate drift before invoking No-Mistakes"
+
+  run=gate-expected-base-sha-mismatch
+  make_run "$run" passed
+  plan="$RUNS_DIR/$run/plan.json"
+  chmod u+w "$plan"
+  jq '(.steps[] | select(.id=="gate") |
+    .config.expected_base_sha)="0000000000000000000000000000000000000000"' \
+    "$plan" >"$RUNS_DIR/$run/.plan.rewrite"
+  mv "$RUNS_DIR/$run/.plan.rewrite" "$plan"
+  chmod 0444 "$plan"
+  rm -f "$NM_CALLED" "$GH_CALLS"
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "expected base SHA mismatch${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="completed" and
+    .events[0].event=="gate_failed" and
+    .events[0].payload.reason=="expected_base_sha_mismatch"
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "wrong expected base SHA must be a typed Gate product failure"
+  assert_absent "$NM_CALLED" \
+    "wrong expected base SHA must reject before any No-Mistakes call"
+  assert_absent "$GH_CALLS" \
+    "wrong expected base SHA must reject before any GitHub call"
+
+  run=gate-expected-base-branch-mismatch
+  make_run "$run" passed
+  git -C "$RUN_REPO" branch wrong-base "$RUN_HEAD"
+  plan="$RUNS_DIR/$run/plan.json"
+  chmod u+w "$plan"
+  jq '(.steps[] | select(.id=="gate") |
+    .config.expected_base_branch)="wrong-base"' \
+    "$plan" >"$RUNS_DIR/$run/.plan.rewrite"
+  mv "$RUNS_DIR/$run/.plan.rewrite" "$plan"
+  chmod 0444 "$plan"
+  rm -f "$NM_CALLED" "$GH_CALLS"
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "expected base branch mismatch${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events[0].payload.reason=="expected_base_branch_mismatch"
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "wrong expected base branch must be a typed Gate product failure"
+  assert_absent "$NM_CALLED" \
+    "wrong expected base branch must reject before No-Mistakes"
+  assert_absent "$GH_CALLS" \
+    "wrong expected base branch must reject before GitHub"
+
+  run=gate-allowed-path-mismatch
+  make_run "$run" passed
+  plan="$RUNS_DIR/$run/plan.json"
+  chmod u+w "$plan"
+  jq '(.steps[] | select(.id=="gate") |
+    .config.allowed_paths)=["docs/"]' \
+    "$plan" >"$RUNS_DIR/$run/.plan.rewrite"
+  mv "$RUNS_DIR/$run/.plan.rewrite" "$plan"
+  chmod 0444 "$plan"
+  rm -f "$NM_CALLED" "$GH_CALLS"
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "allowed path mismatch${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events[0].payload.reason=="candidate_path_outside_allowed_scope"
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "candidate path drift must be a typed Gate product failure"
+  assert_absent "$NM_CALLED" \
+    "candidate path drift must reject before No-Mistakes"
+  assert_absent "$GH_CALLS" \
+    "candidate path drift must reject before GitHub"
+
+  run=gate-expected-base-invalid
+  make_run "$run" passed
+  plan="$RUNS_DIR/$run/plan.json"
+  chmod u+w "$plan"
+  jq '(.steps[] | select(.id=="gate") |
+    .config.expected_base_branch)="refs/heads/main"' \
+    "$plan" >"$RUNS_DIR/$run/.plan.rewrite"
+  mv "$RUNS_DIR/$run/.plan.rewrite" "$plan"
+  chmod 0444 "$plan"
+  rm -f "$NM_CALLED" "$GH_CALLS"
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "invalid expected base config normalization${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and
+    .errors==["adapter_exit:64"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "invalid expected base key must fail the Gate schema"
+  assert_absent "$NM_CALLED" \
+    "invalid expected base config must reject before No-Mistakes"
+  assert_absent "$GH_CALLS" \
+    "invalid expected base config must reject before GitHub"
+  pass "Gate rejects candidate, expected-base, and path drift before publication"
 }
 # -/ 4/14
 

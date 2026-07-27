@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # @overview P7 No-Mistakes Gate adapter for the universal P4 envelope. It
-#   verifies the Launcher-owned exact candidate before and after one documented
-#   axi invocation, verifies configured runtime/model against the effective
+#   verifies the Launcher-owned exact candidate, configured expected base, and
+#   optional allowed-path scope before one documented axi invocation, verifies configured
+#   runtime/model against the effective
 #   No-Mistakes config and doctor surface, seals that identity with the observed
 #   version/help plus effective binary/argv before launch, serializes the
 #   invocation through a host-global lease with provisional custody registered
@@ -20,7 +21,7 @@
 #   READING GUIDE
 #   -------------
 #   1. Universal input validation <- contain paths and freeze adapter config.
-#   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
+#   2. Launcher/base preflight    <- prove custody, expected base, exact HEAD.
 #   3. Invocation/terminal replay <- freeze identity and one documented axi run.
 #   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
 #   5. Terminal normalization     <- exact PR, merge arm, final fact, typed outcome.
@@ -99,6 +100,8 @@ merge_arm_tmp=
 merge_outcome_tmp=
 staged_tmp=
 staged_tmp_owned=0
+candidate_paths_tmp=
+candidate_paths_tmp_owned=0
 gate_lease_lock=
 gate_lease_owner=
 gate_lease_owner_json=
@@ -160,7 +163,9 @@ release_gate_lease() {
 }
 
 cleanup() {
+  exec 8>&- 2>/dev/null || true
   exec 9>&- 2>/dev/null || true
+  [ "$candidate_paths_tmp_owned" -eq 0 ] || rm -f -- "$candidate_paths_tmp"
   [ "$staged_tmp_owned" -eq 0 ] || rm -f -- "$staged_tmp"
   release_gate_lease || true
 }
@@ -182,6 +187,17 @@ if ! jq -e '
     (explode | all(.[]; .>=32 and .!=127));
   def clean_strings:
     type=="array" and all(.[]; clean_string);
+  def path_prefix:
+    clean_string and endswith("/") and
+    (startswith("/")|not) and (contains("..")|not) and
+    test("^([A-Za-z0-9._-]+/)+$");
+  def branch:
+    clean_string and
+    (startswith("refs/")|not) and
+    (startswith("/")|not) and (endswith("/")|not) and
+    (endswith(".")|not) and
+    (contains("..")|not) and (contains("//")|not) and
+    test("^[A-Za-z0-9][A-Za-z0-9._/-]*$");
   type=="object" and
   keys==[
     "adapter_id","attempt","candidate_sha","config","paths",
@@ -201,11 +217,13 @@ if ! jq -e '
     type=="object" and
     (keys as $keys |
       (([
-        "approval","arguments","binary","intent","merge","model","review",
-        "runtime","schema"
+        "approval","arguments","binary","expected_base_branch",
+        "expected_base_sha","intent","merge","model","review","runtime","schema"
       ] - $keys) | length==0) and
       (($keys - [
         "approval","arguments","binary","intent","merge",
+        "allowed_paths",
+        "expected_base_branch","expected_base_sha",
         "github_command_timeout_seconds","merge_poll_seconds",
         "merge_wait_seconds","model","no_mistakes_command_timeout_seconds",
         "review","runtime","schema"
@@ -219,6 +237,13 @@ if ! jq -e '
     (.approval=="auto" or .approval=="manual") and
     (.review|type=="boolean") and
     (.merge=="manual" or .merge=="auto") and
+    (.expected_base_branch|branch) and
+    (.expected_base_sha|sha) and
+    ((has("allowed_paths")|not) or
+      (.allowed_paths |
+        type=="array" and length>0 and
+        all(.[]; path_prefix) and
+        (unique | length)==length)) and
     ((has("merge_poll_seconds")|not) or
       (.merge_poll_seconds |
         type=="number" and floor==. and .>0)) and
@@ -241,6 +266,8 @@ candidate_sha=$(jq -r '.candidate_sha' "$input")
 nm_runtime=$(jq -r '.config.runtime' "$input")
 nm_model=$(jq -r '.config.model' "$input")
 merge_mode=$(jq -r '.config.merge' "$input")
+expected_base_branch=$(jq -r '.config.expected_base_branch' "$input")
+expected_base_sha=$(jq -r '.config.expected_base_sha' "$input")
 configured_merge_poll_seconds=$(jq -r \
   '.config.merge_poll_seconds // 5' "$input")
 configured_merge_wait_seconds=$(jq -r \
@@ -456,7 +483,7 @@ publish_terminal_result() {
   )"
 }
 
-# -- 2/5 CORE · Verify Launcher custody and the exact reviewed candidate --
+# -- 2/5 CORE · Verify Launcher custody, expected base, and reviewed candidate --
 ownership=$run_root/agents/launcher.ownership.json
 [ -f "$ownership" ] && [ ! -L "$ownership" ] \
   || fail_contract "Launcher ownership is missing or unsafe" 73
@@ -485,14 +512,46 @@ if ! jq -e --arg run "$run" '
   fail_contract "invalid Launcher ownership"
 fi
 
+ownership_mode=$(stat -c '%a' "$ownership" 2>/dev/null \
+  || stat -f '%Lp' "$ownership" 2>/dev/null || true)
+[ "$ownership_mode" = 444 ] \
+  || fail_contract "Launcher ownership must be read-only" 73
+repo_dir=$(jq -r '.repo_dir' "$ownership")
 worktree=$(jq -r '.worktree' "$ownership")
 branch=$(jq -r '.branch' "$ownership")
+ownership_base_sha=$(jq -r '.base_sha' "$ownership")
+[ -d "$repo_dir" ] && [ ! -L "$repo_dir" ] \
+  || fail_contract "Launcher repository is missing or unsafe" 73
+[ "$(realpath "$repo_dir" 2>/dev/null)" = "$repo_dir" ] \
+  || fail_contract "Launcher repository path must be canonical" 73
 [ -d "$worktree" ] && [ ! -L "$worktree" ] \
   || fail_contract "Launcher worktree is missing or unsafe" 73
 worktree_root=$(realpath "$worktree" 2>/dev/null) \
   || fail_contract "cannot resolve Launcher worktree" 73
 [ "$worktree_root" = "$worktree" ] \
   || fail_contract "Launcher worktree path must be canonical" 73
+
+if [ "$expected_base_sha" != "$ownership_base_sha" ]; then
+  publish_gate_failed expected_base_sha_mismatch
+  exit 0
+fi
+git check-ref-format --branch "$expected_base_branch" >/dev/null 2>&1 \
+  || fail_contract "invalid expected base branch" 64
+expected_base_observed=$(git -C "$repo_dir" rev-parse --verify \
+  "$expected_base_branch^{commit}" 2>/dev/null || true)
+if [ -z "$expected_base_observed" ]; then
+  publish_gate_failed expected_base_branch_unresolved
+  exit 0
+fi
+if [ "$expected_base_observed" != "$expected_base_sha" ]; then
+  publish_gate_failed expected_base_branch_mismatch
+  exit 0
+fi
+if ! git -C "$worktree" merge-base --is-ancestor \
+  "$expected_base_sha" "$candidate_sha" 2>/dev/null; then
+  publish_gate_failed expected_base_not_ancestor
+  exit 0
+fi
 
 verify_candidate() {
   local observed_branch observed_head dirty
@@ -509,6 +568,47 @@ verify_candidate() {
 if ! verify_candidate; then
   publish_gate_failed candidate_head_changed
   exit 0
+fi
+if jq -e '.config | has("allowed_paths")' "$input" >/dev/null; then
+  candidate_paths_tmp=$invocation_dir/.candidate-paths.$$.tmp
+  [ ! -e "$candidate_paths_tmp" ] && [ ! -L "$candidate_paths_tmp" ] \
+    || fail_contract "candidate path staging file already exists" 73
+  set -C
+  if exec 8>"$candidate_paths_tmp"; then
+    candidate_paths_tmp_owned=1
+  else
+    set +C
+    fail_contract "cannot reserve candidate path staging file" 73
+  fi
+  set +C
+  if ! git -C "$worktree" diff --name-only --no-renames -z \
+    "$expected_base_sha..$candidate_sha" -- >&8; then
+    exec 8>&- 2>/dev/null || true
+    fail_contract "cannot inspect candidate paths" 73
+  fi
+  exec 8>&-
+  candidate_changed_path_count=0
+  candidate_path_outside_allowed_scope=0
+  while IFS= read -r -d '' candidate_path; do
+    candidate_changed_path_count=$((candidate_changed_path_count + 1))
+    if ! jq -e --arg path "$candidate_path" '
+      any(.config.allowed_paths[];
+        . as $prefix | $path | startswith($prefix))
+    ' "$input" >/dev/null; then
+      candidate_path_outside_allowed_scope=1
+    fi
+  done <"$candidate_paths_tmp"
+  rm -f -- "$candidate_paths_tmp"
+  candidate_paths_tmp_owned=0
+  candidate_paths_tmp=
+  if [ "$candidate_changed_path_count" -eq 0 ]; then
+    publish_gate_failed candidate_diff_empty
+    exit 0
+  fi
+  if [ "$candidate_path_outside_allowed_scope" -eq 1 ]; then
+    publish_gate_failed candidate_path_outside_allowed_scope
+    exit 0
+  fi
 fi
 # -/ 2/5
 
@@ -1472,6 +1572,11 @@ esac
 case "$nm_axi_run_help" in
   *"--auto-merge"*)
     fail_contract "No-Mistakes axi run unexpectedly exposes --auto-merge" 73
+    ;;
+esac
+case "$nm_axi_run_help" in
+  *"--base"*)
+    fail_contract "No-Mistakes axi run unexpectedly exposes base selection" 73
     ;;
 esac
 case "$nm_axi_status_help" in

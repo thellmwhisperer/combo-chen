@@ -11,6 +11,7 @@
 #   3. test_accepts_role_outcomes            <- allowed 0/1 product matrix.
 #   4. test_normalizes_non_product_exits     <- technical/cancelled classes.
 #   5. test_rejects_unsafe_invocations       <- artifacts, paths, collisions.
+#   6. test_native_end_envelopes              <- Launcher/Cleaner P4 failures.
 #
 #   MAIN FLOW
 #   ---------
@@ -22,7 +23,8 @@
 #
 #   INTERNALS
 #   ---------
-#   write_config, make_planned_run, run_step, run_step_with_stdin
+#   write_config, make_planned_run, run_step, run_step_with_stdin,
+#   test_native_end_envelopes
 #
 # @exports none
 # @deps bash, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh
@@ -171,7 +173,7 @@ run_step_with_stdin() {
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
 }
 
-# -- 1/5 CORE · test_invokes_with_universal_envelope -- <- START HERE
+# -- 1/6 CORE · test_invokes_with_universal_envelope -- <- START HERE
 test_invokes_with_universal_envelope() {
   local run=step-envelope prior result input
   make_planned_run "$run"
@@ -214,9 +216,9 @@ test_invokes_with_universal_envelope() {
   ' "$result" >/dev/null || fail "validated result should preserve normalized adapter output"
   pass "cb-step: invokes configured argv with an immutable universal envelope"
 }
-# -/ 1/5
+# -/ 1/6
 
-# -- 2/5 CORE · test_closes_adapter_stdin --
+# -- 2/6 CORE · test_closes_adapter_stdin --
 test_closes_adapter_stdin() {
   local run=step-stdin-closed
   make_planned_run "$run"
@@ -232,9 +234,9 @@ test_closes_adapter_stdin() {
     || fail "cb-step must prevent adapters from consuming caller stdin"
   pass "cb-step: closes adapter stdin at the universal process boundary"
 }
-# -/ 2/5
+# -/ 2/6
 
-# -- 3/5 CORE · test_accepts_role_outcomes --
+# -- 3/6 CORE · test_accepts_role_outcomes --
 test_accepts_role_outcomes() {
   local run=step-role-outcomes spec step args result
   make_planned_run "$run"
@@ -296,9 +298,9 @@ cleaner|clean_failed|--candidate-sha $SHA_A
 EOF
   pass "cb-step: accepts only the role-specific 0/1 product outcome matrix"
 }
-# -/ 3/5
+# -/ 3/6
 
-# -- 4/5 CORE · test_normalizes_non_product_exits --
+# -- 4/6 CORE · test_normalizes_non_product_exits --
 test_normalizes_non_product_exits() {
   local run=step-technical result
   make_planned_run "$run"
@@ -385,9 +387,9 @@ test_normalizes_non_product_exits() {
   ' "$CMD_STDOUT" >/dev/null || fail "timeout should become a normalized cancellation"
   pass "cb-step: normalizes process errors, invalid outputs, cancellation, and timeout"
 }
-# -/ 4/5
+# -/ 4/6
 
-# -- 5/5 CORE · test_rejects_unsafe_invocations --
+# -- 5/6 CORE · test_rejects_unsafe_invocations --
 test_rejects_unsafe_invocations() {
   local run='step-directory-race' outside="$TMP_ROOT/outside"
   local fakebin="$TMP_ROOT/race-bin" barrier="$TMP_ROOT/mkdir-barrier"
@@ -508,12 +510,80 @@ exec \"$REAL_JQ\" \"\$@\"
     || fail "temp-path poisoning must still publish only the validated result"
   pass "cb-step: rejects unsafe artifacts, paths, attempts, collisions, and result poisoning"
 }
-# -/ 5/5
+# -/ 5/6
+
+# -- 6/6 CORE · test_native_end_envelopes --
+test_native_end_envelopes() {
+  local run=step-native-launcher result combined
+  make_planned_run "$run"
+  chmod u+w "$RUNS_DIR/$run/plan.json"
+  jq --arg adapter "$BIN/cb-launcher-adapter.sh" '
+    (.steps[] | select(.id=="launcher") | .argv) = [$adapter] |
+    (.steps[] | select(.id=="launcher") | .config) = {
+      schema:"combo.launcher/treehouse/v1",
+      repo_dir:"/definitely-missing-combo-repository",
+      base_ref:"main",
+      setup_command:"",
+      readiness:{
+        required_seats:["coder"],
+        seats:[{id:"coder",harness:"sh",auth_cmd:"exit 0"}]
+      }
+    }
+  ' "$RUNS_DIR/$run/plan.json" >"$RUNS_DIR/$run/.plan.tmp"
+  mv "$RUNS_DIR/$run/.plan.tmp" "$RUNS_DIR/$run/plan.json"
+  chmod 0444 "$RUNS_DIR/$run/plan.json"
+
+  run_step_with_stdin native-secret "$run" launcher 1
+  expect_code 0 "$CMD_STATUS" \
+    "native Launcher envelope failure${CMD_STDERR:+: $CMD_STDERR}"
+  result=$CMD_STDOUT
+  jq -e '
+    .exit_class=="completed" and
+    .events==[{code:1,event:"launch_not_ready",payload:{
+      reasons:["repo:missing_or_unsafe"]
+    }}]
+  ' <"$result" >/dev/null \
+    || fail "native Launcher should normalize a non-vacuous P4 failure"
+  combined=$(cat "$RUNS_DIR/$run/steps/01-launcher/attempt-1/stdout.log" \
+    "$RUNS_DIR/$run/steps/01-launcher/attempt-1/stderr.log")
+  assert_not_contains "$combined" native-secret \
+    "native Launcher must not consume caller stdin"
+
+  run='step-native-cleaner'
+  make_planned_run "$run"
+  chmod u+w "$RUNS_DIR/$run/plan.json"
+  jq --arg adapter "$BIN/cb-cleaner-adapter.sh" '
+    (.steps[] | select(.id=="cleaner") | .argv) = [$adapter] |
+    (.steps[] | select(.id=="cleaner") | .config) = {
+      schema:"combo.cleaner/treehouse/v1"
+    }
+  ' "$RUNS_DIR/$run/plan.json" >"$RUNS_DIR/$run/.plan.tmp"
+  mv "$RUNS_DIR/$run/.plan.tmp" "$RUNS_DIR/$run/plan.json"
+  chmod 0444 "$RUNS_DIR/$run/plan.json"
+
+  run_step_with_stdin native-secret "$run" cleaner 1
+  expect_code 0 "$CMD_STATUS" \
+    "native Cleaner envelope failure${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="completed" and
+    .events==[{code:1,event:"clean_failed",payload:{
+      reasons:["ownership:missing_or_unsafe"]
+    }}]
+  ' <"$CMD_STDOUT" >/dev/null \
+    || fail "native Cleaner should normalize a non-vacuous P4 failure"
+  combined=$(cat "$RUNS_DIR/$run/steps/05-cleaner/attempt-1/stdout.log" \
+    "$RUNS_DIR/$run/steps/05-cleaner/attempt-1/stderr.log")
+  assert_not_contains "$combined" native-secret \
+    "native Cleaner must not consume caller stdin"
+  pass "native Launcher/Cleaner: honor P4 envelopes with isolated failures"
+}
+# -/ 6/6
 
 test_invokes_with_universal_envelope
 test_closes_adapter_stdin
 test_accepts_role_outcomes
 test_normalizes_non_product_exits
 test_rejects_unsafe_invocations
+test_native_end_envelopes
 
 printf '\nstep-adapter-contract: all tests passed\n'
