@@ -22,8 +22,7 @@
 #
 #   INTERNALS
 #   ---------
-#   write_config, make_planned_run, run_step, run_step_with_stdin,
-#   result_mode
+#   write_config, make_planned_run, run_step, run_step_with_stdin
 #
 # @exports none
 # @deps bash, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh
@@ -172,10 +171,6 @@ run_step_with_stdin() {
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
 }
 
-result_mode() {
-  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
-}
-
 # -- 1/5 CORE · test_invokes_with_universal_envelope -- <- START HERE
 test_invokes_with_universal_envelope() {
   local run=step-envelope prior result input
@@ -192,8 +187,8 @@ test_invokes_with_universal_envelope() {
     || fail "cb-step should print the immutable result path"
   assert_present "$input" "step input should be published"
   assert_present "$result" "step result should be published"
-  [ "$(result_mode "$input")" = "444" ] || fail "step input should be read-only"
-  [ "$(result_mode "$result")" = "444" ] || fail "step result should be read-only"
+  [ "$(cb_file_mode "$input")" = "444" ] || fail "step input should be read-only"
+  [ "$(cb_file_mode "$result")" = "444" ] || fail "step result should be read-only"
 
   jq -e --arg run "$run" --arg root "$RUNS_DIR/$run" --arg sha "$SHA_A" '
     .schema=="combo.step-input/v1" and
