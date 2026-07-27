@@ -47,8 +47,9 @@ treehouse_lease_owned() {
       display_path=$tilde/${lease_path#"$home_prefix"}
       ;;
   esac
-  printf '%s\n' "$status" | awk -v path="$display_path" -v holder="(held by $lease_holder)" '
-    index($0,path)>0 && index($0,holder)>0 { matches++ }
+  printf '%s\n' "$status" | awk -v path="$display_path" -v holder="$lease_holder" '
+    NF == 6 && $2 == "leased" && $3 == path &&
+      $4 == "(held" && $5 == "by" && $6 == holder ")" { matches++ }
     END { exit !(matches==1) }
   '
 }

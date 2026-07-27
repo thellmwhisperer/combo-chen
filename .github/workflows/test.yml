@@ -46,4 +46,4 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Run blocking duplication gate
-        run: bin/cb-slopslint.sh
+        run: bash bin/cb-slopslint.sh
