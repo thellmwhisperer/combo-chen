@@ -24,7 +24,7 @@
 #   INTERNALS
 #   ---------
 #   usage, publish_json, write_technical, write_cancelled,
-#   write_lgtm, write_needs_change
+#   write_lgtm, write_needs_change, require_clean_candidate
 #
 # @exports none
 # @deps bash, git, jq, realpath, ln
@@ -112,17 +112,20 @@ artifact_tmp=
 context_tmp=
 rabbit_output_tmp=
 rabbit_stderr_tmp=
+agent_log_tmp=
 output_tmp_owned=0
 artifact_tmp_owned=0
 context_tmp_owned=0
 rabbit_output_tmp_owned=0
 rabbit_stderr_tmp_owned=0
+agent_log_tmp_owned=0
 cleanup() {
   [ "$output_tmp_owned" -eq 0 ] || rm -f "$output_tmp"
   [ "$artifact_tmp_owned" -eq 0 ] || rm -f "$artifact_tmp"
   [ "$context_tmp_owned" -eq 0 ] || rm -f "$context_tmp"
   [ "$rabbit_output_tmp_owned" -eq 0 ] || rm -f "$rabbit_output_tmp"
   [ "$rabbit_stderr_tmp_owned" -eq 0 ] || rm -f "$rabbit_stderr_tmp"
+  [ "$agent_log_tmp_owned" -eq 0 ] || rm -f "$agent_log_tmp"
 }
 trap cleanup 0
 trap 'exit 130' 1 2 15
@@ -199,6 +202,18 @@ write_needs_change() {
       reasons:[],errors:[]
     }')
   publish_json "$document"
+}
+
+require_clean_candidate() {
+  local dirty_detail=$1 status_out
+  if ! status_out=$(git -C "$worktree" status --porcelain=v1 2>/dev/null); then
+    write_technical "candidate:status_unavailable"
+    return 1
+  fi
+  if [ -n "$status_out" ]; then
+    write_technical "$dirty_detail"
+    return 1
+  fi
 }
 # -/ 2/5
 
@@ -289,8 +304,7 @@ if [ "$mode" = coderabbit ]; then
     write_technical "candidate:base_not_ancestor"
     exit 0
   fi
-  if [ -n "$(git -C "$worktree" status --porcelain=v1 2>/dev/null)" ]; then
-    write_technical "candidate:dirty_worktree"
+  if ! require_clean_candidate "candidate:dirty_worktree"; then
     exit 0
   fi
 
@@ -423,8 +437,7 @@ if [ "$mode" = coderabbit ]; then
     write_technical "candidate:head_changed"
     exit 0
   fi
-  if [ -n "$(git -C "$worktree" status --porcelain=v1 2>/dev/null)" ]; then
-    write_technical "candidate:worktree_changed"
+  if ! require_clean_candidate "candidate:worktree_changed"; then
     exit 0
   fi
   if [ "$rabbit_status" -ne 0 ]; then
@@ -462,9 +475,11 @@ if [ "$mode" = coderabbit ]; then
         ((has("suggestions")|not) or
           (.suggestions|type=="array" and
             all(.[]; type=="string")))) and
-      ([.[] | select(.type=="complete")] | length)==1 and
-      .[-1].type=="complete" and .[-1].status=="review_completed" and
       (.[-1].findings|type=="number" and floor==. and .>=0) and
+      ([.[] | select(.type=="complete")] | length)==1 and
+      .[-1].type=="complete" and
+      (.[-1].status=="review_completed" or
+        (.[-1].status=="review_skipped" and .[-1].findings==0)) and
       .[-1].findings==([.[] | select(.type=="finding")] | length)
     ' "$rabbit_output" >/dev/null 2>&1; then
     write_technical "coderabbit_output:invalid"
@@ -545,15 +560,38 @@ if [ "${#agent_argv[@]}" -ne "$argv_expected" ]; then
 fi
 
 member_output=$invocation_dir/reviewer-member-output.json
-if [ -e "$member_output" ] || [ -L "$member_output" ]; then
-  write_technical "agent_output:collision"
+agent_log=$invocation_dir/reviewer-agent.log
+agent_log_tmp=$invocation_dir/.reviewer-agent.log.tmp.$$
+for reserved_path in "$member_output" "$agent_log" "$agent_log_tmp"; do
+  if [ -e "$reserved_path" ] || [ -L "$reserved_path" ]; then
+    write_technical "agent_output:collision"
+    exit 0
+  fi
+done
+
+set -C
+if exec 9>"$agent_log_tmp"; then
+  agent_log_tmp_owned=1
+else
+  set +C
+  write_technical "agent_output:staging_failed"
   exit 0
 fi
+set +C
 
 set +e
-"${agent_argv[@]}" --input "$input" --output "$member_output" </dev/null
+"${agent_argv[@]}" --input "$input" --output "$member_output" \
+  </dev/null >&9 2>&1
 agent_status=$?
 set -e
+exec 9>&-
+chmod 0444 "$agent_log_tmp" || exit 73
+if ! ln "$agent_log_tmp" "$agent_log" 2>/dev/null; then
+  write_technical "agent_output:publication_failed"
+  exit 0
+fi
+rm -f "$agent_log_tmp"
+agent_log_tmp_owned=0
 if [ "$agent_status" -ne 0 ]; then
   if [ "$agent_status" -eq 124 ] || [ "$agent_status" -eq 130 ] \
     || [ "$agent_status" -eq 137 ] || [ "$agent_status" -eq 143 ]; then
