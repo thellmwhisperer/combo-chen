@@ -12,7 +12,7 @@
 #   recover an interrupted arm without replaying the effect, keep an armed OPEN
 #   PR inside Gate, and seal exact-candidate check evidence with the later merged
 #   or authenticated GitHub-cancelled observation before publishing the final
-#   Gate outcome.
+#   Gate outcome, including durable exact-check failure evidence.
 #
 #   READING GUIDE
 #   -------------
@@ -38,7 +38,7 @@
 #   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
 #   reclaim_stale_lease, validate_github_pr_object, resolve_exact_github_pr,
 #   resolve_github_binary, validate_required_checks,
-#   required_checks_satisfied, validate_merge_arm,
+#   required_checks_satisfied, required_checks_failed, validate_merge_arm,
 #   validate_merge_observation, validate_merge_outcome,
 #   resolve_github_repository, capture_github_requirements,
 #   capture_github_check_evidence, observe_exact_merge_state,
@@ -642,6 +642,68 @@ required_checks_satisfied() {
     ' >/dev/null 2>&1
 }
 
+required_checks_failed() {
+  local requirements=$1 observation=$2
+  jq -en \
+    --argjson requirements "$requirements" \
+    --argjson observation "$observation" '
+      def run_result($run):
+        if (
+          $run.status=="COMPLETED" and
+          ($run.conclusion=="SUCCESS" or
+            $run.conclusion=="NEUTRAL" or
+            $run.conclusion=="SKIPPED")
+        ) then
+          "success"
+        elif (
+          $run.status=="COMPLETED" and
+          ($run.conclusion=="ACTION_REQUIRED" or
+            $run.conclusion=="CANCELLED" or
+            $run.conclusion=="FAILURE" or
+            $run.conclusion=="STALE" or
+            $run.conclusion=="STARTUP_FAILURE" or
+            $run.conclusion=="TIMED_OUT")
+        ) then
+          "failed"
+        else
+          "pending"
+        end;
+      def status_result($status):
+        if $status.state=="SUCCESS" then
+          "success"
+        elif ($status.state=="ERROR" or $status.state=="FAILURE") then
+          "failed"
+        else
+          "pending"
+        end;
+      any($requirements.checks[];
+        . as $required |
+        (if ($required.app_id==null or $required.app_id==-1) then
+          ([
+            $observation.checks.check_runs[] |
+            select(.name==$required.context) |
+            run_result(.)
+          ] + [
+            $observation.checks.statuses[] |
+            select(.context==$required.context) |
+            status_result(.)
+          ])
+        else
+          [
+            $observation.checks.check_runs[] |
+            select(
+              .name==$required.context and
+              .app_id==$required.app_id
+            ) |
+            run_result(.)
+          ]
+        end) as $matches |
+        ($matches|length)>0 and
+        ($matches|all(.!="pending")) and
+        ($matches|any(.=="failed")))
+    ' >/dev/null 2>&1
+}
+
 validate_merge_arm() {
   local json=$1 requirements observation
   if ! printf '%s\n' "$json" | jq -e \
@@ -745,6 +807,29 @@ validate_merge_outcome() {
           (.observation|type=="object")
         ' >/dev/null 2>&1 || return 1
       ;;
+    combo.gate-merge-outcome/v4)
+      printf '%s\n' "$json" | jq -e \
+        --arg run "$run" --arg branch "$branch" \
+        --arg worktree "$worktree" --arg sha "$candidate_sha" '
+          def clean:
+            type=="string" and length>0 and
+            (explode | all(.[]; .>=32 and .!=127));
+          type=="object" and
+          keys==[
+            "branch","candidate_sha","observation","observed_requirements",
+            "outcome","pr","reason","requirements","run_id","schema",
+            "worktree"
+          ] and
+          .schema=="combo.gate-merge-outcome/v4" and
+          .run_id==$run and .branch==$branch and .worktree==$worktree and
+          .candidate_sha==$sha and .outcome=="failed" and
+          .reason=="github_required_checks_failed" and
+          (.pr|clean and startswith("https://")) and
+          (.requirements|type=="object") and
+          (.observed_requirements|type=="object") and
+          (.observation|type=="object")
+        ' >/dev/null 2>&1 || return 1
+      ;;
     *) return 1 ;;
   esac
   requirements=$(printf '%s\n' "$json" | jq -c '.requirements') \
@@ -775,6 +860,10 @@ validate_merge_outcome() {
   observed_requirements=$(printf '%s\n' "$json" |
     jq -c '.observed_requirements') || return 1
   validate_required_checks "$observed_requirements" || return 1
+  if [ "$schema" = combo.gate-merge-outcome/v4 ]; then
+    required_checks_failed "$observed_requirements" "$observation" \
+      || return 1
+  fi
   printf '%s\n' "$json" | jq -e \
     --arg branch "$branch" --arg sha "$candidate_sha" '
       . as $outcome |
@@ -787,7 +876,11 @@ validate_merge_outcome() {
       .observation.baseRefName==.observed_requirements.target_branch and
       (.pr|startswith($prefix)) and
       (.pr|ltrimstr($prefix)|test("^[1-9][0-9]*$")) and
-      if .reason=="github_pr_closed" then
+      if .outcome=="failed" then
+        .observation.state=="OPEN" and
+        (.observation.autoMergeRequest |
+          type=="object" and .mergeMethod=="REBASE")
+      elif .reason=="github_pr_closed" then
         .observation.state=="CLOSED"
       else
         .observation.state=="OPEN" and
@@ -821,7 +914,8 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         "no_mistakes","normalized_outcome","result","run_id","schema","worktree"
       ] and
       (.schema=="combo.gate-terminal/v3" or
-        .schema=="combo.gate-terminal/v4") and
+        .schema=="combo.gate-terminal/v4" or
+        .schema=="combo.gate-terminal/v5") and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .invocation==$invocation and
       (.lease |
@@ -831,13 +925,16 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         .=="validated" or .=="merged" or .=="failed" or .=="cancelled") and
       ($terminal.schema!="combo.gate-terminal/v4" or
         $terminal.normalized_outcome=="cancelled") and
+      ($terminal.schema!="combo.gate-terminal/v5" or
+        ($terminal.normalized_outcome=="failed" and $merge=="auto")) and
       ($terminal.normalized_outcome!="validated" or $merge=="manual") and
       ($terminal.normalized_outcome!="merged" or $merge=="auto") and
       (.merge |
         type=="object" and keys==["arm","mode","outcome"] and
         .mode==$merge and
         if ($terminal.normalized_outcome=="merged" or
-            $terminal.schema=="combo.gate-terminal/v4") then
+            $terminal.schema=="combo.gate-terminal/v4" or
+            $terminal.schema=="combo.gate-terminal/v5") then
           .arm==$arm and .outcome==$merge_outcome
         else
           .arm=="" and .outcome==""
@@ -878,17 +975,33 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
           errors:[]
         }
       elif .normalized_outcome=="failed" then
-        .no_mistakes.outcome=="failed" and
-        .result=={
-          exit_class:"completed",
-          events:[{
-            code:1,
-            event:"gate_failed",
-            payload:{reason:"no_mistakes_failed"}
-          }],
-          reasons:[],
-          errors:[]
-        }
+        if .schema=="combo.gate-terminal/v5" then
+          (.no_mistakes.outcome=="passed" or
+            .no_mistakes.outcome=="checks-passed") and
+          ($terminal.no_mistakes.pr|clean) and
+          .result=={
+            exit_class:"completed",
+            events:[{
+              code:1,
+              event:"gate_failed",
+              payload:{reason:"github_required_checks_failed"}
+            }],
+            reasons:[],
+            errors:[]
+          }
+        else
+          .no_mistakes.outcome=="failed" and
+          .result=={
+            exit_class:"completed",
+            events:[{
+              code:1,
+              event:"gate_failed",
+              payload:{reason:"no_mistakes_failed"}
+            }],
+            reasons:[],
+            errors:[]
+          }
+        end
       else
         if .schema=="combo.gate-terminal/v4" then
           (.no_mistakes.outcome=="passed" or
@@ -1009,6 +1122,15 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
           $terminal.result.reasons==[$outcome.reason]
         ' >/dev/null 2>&1 \
         || fail_contract "Gate terminal cancellation evidence disagrees" 73
+    elif printf '%s\n' "$terminal_json" |
+      jq -e '.schema=="combo.gate-terminal/v5"' >/dev/null 2>&1; then
+      jq -en \
+        --argjson terminal "$terminal_json" \
+        --argjson outcome "$terminal_merge_outcome_json" '
+          $terminal.normalized_outcome==$outcome.outcome and
+          $terminal.result.events[0].payload.reason==$outcome.reason
+        ' >/dev/null 2>&1 \
+        || fail_contract "Gate terminal failure evidence disagrees" 73
     fi
   fi
   publish_terminal_result "$terminal_json"
@@ -2147,6 +2269,31 @@ publish_merge_outcome() {
           }
         ') || fail_contract "cannot build Gate merge-outcome evidence" 73
       ;;
+    failed)
+      [ "$reason" = github_required_checks_failed ] \
+        || fail_contract "unsupported Gate failure reason" 73
+      outcome_json=$(jq -cn \
+        --arg run "$run" --arg branch "$branch" \
+        --arg worktree "$worktree" --arg sha "$candidate_sha" \
+        --arg pr "$pr" --arg reason "$reason" \
+        --argjson requirements "$requirements" \
+        --argjson observed "$observed_requirements" \
+        --argjson observation "$observation" '
+          {
+            schema:"combo.gate-merge-outcome/v4",
+            run_id:$run,
+            branch:$branch,
+            worktree:$worktree,
+            candidate_sha:$sha,
+            pr:$pr,
+            outcome:"failed",
+            reason:$reason,
+            requirements:$requirements,
+            observed_requirements:$observed,
+            observation:$observation
+          }
+        ') || fail_contract "cannot build Gate merge-outcome evidence" 73
+      ;;
     *) fail_contract "unsupported Gate merge outcome" 73 ;;
   esac
   validate_merge_outcome "$outcome_json" \
@@ -2183,7 +2330,7 @@ publish_merge_outcome() {
   printf '%s\n' "$existing" |
     jq -e --arg pr "$pr" --arg outcome "$outcome" --arg reason "$reason" '
       .pr==$pr and .outcome==$outcome and
-      if $outcome=="cancelled" then .reason==$reason else true end
+      if $outcome=="merged" then true else .reason==$reason end
     ' >/dev/null 2>&1 \
     || fail_contract "colliding Gate merge outcome disagrees with PR" 73
 }
@@ -2256,7 +2403,7 @@ ensure_auto_merge_armed() {
 auto_gate_outcome=
 auto_gate_reason=
 wait_for_auto_merge_outcome() {
-  local pr=$1 poll_seconds arm_json state existing requirements
+  local pr=$1 poll_seconds arm_json arm_observation state existing requirements
   poll_seconds=${CB_GATE_MERGE_POLL_SECONDS:-5}
   case "$poll_seconds" in
     ''|*[!0-9]*) fail_contract "invalid Gate merge poll interval" ;;
@@ -2287,16 +2434,26 @@ wait_for_auto_merge_outcome() {
     || fail_contract "invalid Gate merge-arm evidence" 73
   requirements=$(printf '%s\n' "$arm_json" | jq -c '.requirements') \
     || fail_contract "cannot read Gate merge-arm requirements" 73
+  arm_observation=$(printf '%s\n' "$arm_json" | jq -c '.observation') \
+    || fail_contract "cannot read Gate merge-arm observation" 73
+  if printf '%s\n' "$arm_observation" |
+    jq -e '.state=="OPEN"' >/dev/null 2>&1 &&
+    required_checks_failed "$requirements" "$arm_observation"; then
+    publish_merge_outcome \
+      "$pr" "$arm_observation" "$requirements" \
+      failed github_required_checks_failed "$requirements"
+    auto_gate_outcome=failed
+    auto_gate_reason=github_required_checks_failed
+    return 0
+  fi
   if printf '%s\n' "$arm_json" |
     jq -e '.observation.state=="MERGED"' >/dev/null 2>&1; then
     if ! required_checks_satisfied "$requirements" \
-      "$(printf '%s\n' "$arm_json" | jq -c '.observation')"; then
+      "$arm_observation"; then
       publish_gate_failed github_required_checks_incomplete "$artifacts"
       exit 0
     fi
-    publish_merge_outcome "$pr" \
-      "$(printf '%s\n' "$arm_json" | jq -c '.observation')" \
-      "$requirements"
+    publish_merge_outcome "$pr" "$arm_observation" "$requirements"
     auto_gate_outcome=merged
     auto_gate_reason=
     return 0
@@ -2317,6 +2474,16 @@ wait_for_auto_merge_outcome() {
       exit 0
     fi
     state=$(printf '%s\n' "$github_merge_observation" | jq -r '.state')
+    if [ "$state" = OPEN ] &&
+      merge_observation_is_armed "$github_merge_observation" &&
+      required_checks_failed "$requirements" "$github_merge_observation"; then
+      publish_merge_outcome \
+        "$pr" "$github_merge_observation" "$requirements" \
+        failed github_required_checks_failed "$github_requirements"
+      auto_gate_outcome=failed
+      auto_gate_reason=github_required_checks_failed
+      return 0
+    fi
     if [ "$state" = MERGED ]; then
       if ! required_checks_satisfied "$requirements" \
         "$github_merge_observation"; then
@@ -2401,36 +2568,57 @@ case "$nm_outcome" in
           gate_outcome=cancelled
           terminal_schema=combo.gate-terminal/v4
           ;;
+        failed)
+          gate_outcome=failed
+          terminal_schema=combo.gate-terminal/v5
+          ;;
         *) fail_contract "unsupported authenticated GitHub outcome" 73 ;;
       esac
     else
       gate_outcome=validated
     fi
     normalized_outcome=$gate_outcome
-    if [ "$gate_outcome" = cancelled ]; then
-      normalized_result=$(jq -cn --arg reason "$auto_gate_reason" '
-        {
-          exit_class:"cancelled",
-          events:[],
-          reasons:[$reason],
-          errors:[]
-        }
-      ')
-    else
-      payload=$(jq -cn \
-        --arg outcome "$gate_outcome" --arg sha "$candidate_sha" \
-        --arg pr "$nm_pr" '
-        {outcome:$outcome,sha:$sha,pr:$pr}
-      ')
-      normalized_result=$(jq -cn --argjson payload "$payload" '
-        {
-          exit_class:"completed",
-          events:[{code:0,event:"gate_ok",payload:$payload}],
-          reasons:[],
-          errors:[]
-        }
-      ')
-    fi
+    case "$gate_outcome" in
+      cancelled)
+        normalized_result=$(jq -cn --arg reason "$auto_gate_reason" '
+          {
+            exit_class:"cancelled",
+            events:[],
+            reasons:[$reason],
+            errors:[]
+          }
+        ')
+        ;;
+      failed)
+        normalized_result=$(jq -cn --arg reason "$auto_gate_reason" '
+          {
+            exit_class:"completed",
+            events:[{
+              code:1,
+              event:"gate_failed",
+              payload:{reason:$reason}
+            }],
+            reasons:[],
+            errors:[]
+          }
+        ')
+        ;;
+      *)
+        payload=$(jq -cn \
+          --arg outcome "$gate_outcome" --arg sha "$candidate_sha" \
+          --arg pr "$nm_pr" '
+          {outcome:$outcome,sha:$sha,pr:$pr}
+        ')
+        normalized_result=$(jq -cn --argjson payload "$payload" '
+          {
+            exit_class:"completed",
+            events:[{code:0,event:"gate_ok",payload:$payload}],
+            reasons:[],
+            errors:[]
+          }
+        ')
+        ;;
+    esac
     ;;
   failed)
     normalized_outcome=failed

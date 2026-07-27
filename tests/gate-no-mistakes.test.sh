@@ -5,9 +5,9 @@
 #   No-Mistakes config plus the observed version/AXI help contract, builds
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
 #   records its target branch's strict app-aware check policy with exact-SHA
-#   check/status evidence, seals authenticated GitHub merge/cancellation outcomes,
-#   and replays durable invocation/terminal seals without starting a duplicate
-#   delivery or PR lookup.
+#   check/status evidence, seals authenticated GitHub merged/failed/cancelled
+#   outcomes, and replays durable invocation/terminal seals without starting a
+#   duplicate delivery or PR lookup.
 #
 #   READING GUIDE
 #   -------------
@@ -21,7 +21,7 @@
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
 #   10. test_arms_auto_merge_once   <- strict checks, exact arm, final recovery.
-#   11. test_seals_github_terminal_outcomes <- cancelled GitHub fact recovery.
+#   11. test_seals_github_terminal_outcomes <- failed/cancelled fact recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -248,12 +248,18 @@ case "$1" in
     elif [ "$2" = \
       "repos/acme/repo/commits/$CB_GATE_TEST_HEAD/check-runs?filter=latest&per_page=100" ]; then
       backend_app=101
+      backend_conclusion=success
       check_head=$CB_GATE_TEST_HEAD
       [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" != unrelated ] ||
         backend_app=202
       [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" != stale ] ||
         check_head=0000000000000000000000000000000000000000
+      if [ -f "$CB_GATE_TEST_GH_AUTO_MERGE_STATE" ] &&
+        [ "$(cat "$CB_GATE_TEST_GH_AUTO_MERGE_STATE")" = failed-then-closed ]; then
+        backend_conclusion=failure
+      fi
       jq -cn --argjson backend_app "$backend_app" --arg head "$check_head" \
+        --arg conclusion "$backend_conclusion" \
         "{
           total_count:2,
           check_runs:[
@@ -261,7 +267,7 @@ case "$1" in
               name:\"backend\",
               head_sha:\$head,
               status:\"completed\",
-              conclusion:\"success\",
+              conclusion:\$conclusion,
               app:{id:\$backend_app}
             },
             {
@@ -323,6 +329,13 @@ case "$1" in
               auto_merge="{\"mergeMethod\":\"REBASE\"}"
               printf "auto-cancelled\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
               ;;
+            armed-failed-then-closed)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "failed-then-closed\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
+            failed-then-closed)
+              state=CLOSED
+              ;;
             merged)
               state=MERGED
               merged_at="\"2026-07-27T00:00:00Z\""
@@ -373,6 +386,13 @@ case "$1" in
             armed-then-auto-cancelled)
               auto_merge="{\"mergeMethod\":\"REBASE\"}"
               printf "auto-cancelled\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
+            armed-failed-then-closed)
+              auto_merge="{\"mergeMethod\":\"REBASE\"}"
+              printf "failed-then-closed\n" >"$CB_GATE_TEST_GH_AUTO_MERGE_STATE"
+              ;;
+            failed-then-closed)
+              state=CLOSED
               ;;
             merged)
               state=MERGED
@@ -1488,7 +1508,87 @@ test_arms_auto_merge_once() {
 # -- 11/11 CORE · test_seals_github_terminal_outcomes --
 test_seals_github_terminal_outcomes() {
   local closed=gate-auto-merge-closed auto_cancelled=gate-auto-merge-cancelled
+  local failed=gate-auto-merge-check-failed
   local outcome terminal poison gh_calls nm_calls
+
+  rm -f "$GH_CALLS" "$NM_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_MERGE_EFFECT=armed-failed-then-closed
+  export CB_GATE_MERGE_POLL_SECONDS=0
+  make_run "$failed" passed auto
+  run_gate "$failed" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
+  expect_code 0 "$CMD_STATUS" \
+    "failed required-check terminal${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="completed" and .reasons==[] and .errors==[] and
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_required_checks_failed"}
+    }] and
+    any(.artifacts[];
+      .id=="gate-merge-outcome" and
+      .path=="artifacts/gate/merge-outcome.json") and
+    any(.artifacts[];
+      .id=="gate-terminal" and
+      .path=="artifacts/gate/terminal.json")
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "definitive check failure did not become durable: $(jq -c . "$CMD_STDOUT")"
+  outcome="$RUNS_DIR/$failed/artifacts/gate/merge-outcome.json"
+  terminal="$RUNS_DIR/$failed/artifacts/gate/terminal.json"
+  jq -e --arg sha "$RUN_HEAD" '
+    .schema=="combo.gate-merge-outcome/v4" and
+    .candidate_sha==$sha and .outcome=="failed" and
+    .reason=="github_required_checks_failed" and
+    .requirements==.observed_requirements and
+    .observation.state=="OPEN" and
+    .observation.autoMergeRequest.mergeMethod=="REBASE" and
+    .observation.headRefOid==$sha and
+    any(.observation.checks.check_runs[];
+      .name=="backend" and .app_id==101 and
+      .head_sha==$sha and .status=="COMPLETED" and
+      .conclusion=="FAILURE")
+  ' "$outcome" >/dev/null \
+    || fail "failed outcome evidence should bind the exact required check and armed PR"
+  jq -e '
+    .schema=="combo.gate-terminal/v5" and
+    .normalized_outcome=="failed" and
+    .no_mistakes.outcome=="passed" and
+    .merge=={
+      mode:"auto",
+      arm:"artifacts/gate/merge-arm.json",
+      outcome:"artifacts/gate/merge-outcome.json"
+    } and
+    .result=={
+      exit_class:"completed",
+      events:[{
+        code:1,
+        event:"gate_failed",
+        payload:{reason:"github_required_checks_failed"}
+      }],
+      reasons:[],
+      errors:[]
+    }
+  ' "$terminal" >/dev/null \
+    || fail "failed terminal seal should distinguish GitHub from NM failure"
+
+  gh_calls=$(wc -l <"$GH_CALLS" | tr -d " ")
+  nm_calls=$(wc -l <"$NM_CALLS" | tr -d " ")
+  run_gate "$failed" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "failed required-check replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_required_checks_failed"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "failed terminal replay should preserve the exact GitHub reason"
+  [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
+    || fail "failed terminal replay must not observe or mutate GitHub again"
+  [ "$(wc -l <"$NM_CALLS" | tr -d " ")" -eq "$nm_calls" ] \
+    || fail "failed terminal replay must not re-enter No-Mistakes"
 
   rm -f "$GH_CALLS" "$NM_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-closed
@@ -1588,7 +1688,7 @@ test_seals_github_terminal_outcomes() {
   ' "$RUNS_DIR/$auto_cancelled/artifacts/gate/merge-outcome.json" >/dev/null \
     || fail "auto-merge cancellation should retain authenticated OPEN evidence"
 
-  pass "Gate seals and replays authenticated GitHub cancellation outcomes"
+  pass "Gate seals and replays authenticated GitHub failed/cancelled outcomes"
 }
 # -/ 11/11
 
