@@ -18,7 +18,7 @@
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
-#   10. test_arms_auto_merge_once   <- exact auto-rebase arm and crash recovery.
+#   10. test_arms_auto_merge_once   <- exact arm, merged terminal, crash recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -1105,6 +1105,19 @@ test_arms_auto_merge_once() {
   unset CB_GATE_TEST_GH_MERGE_EFFECT
   expect_code 0 "$CMD_STATUS" \
     "immediate GitHub auto-merge${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e --arg sha "$RUN_HEAD" '
+    .exit_class=="completed" and
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"merged",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "an authenticated immediately merged PR must become the final merged Gate outcome"
   jq -e '
     .source=="command" and .state=="armed" and
     .observation.state=="MERGED" and
@@ -1113,6 +1126,21 @@ test_arms_auto_merge_once() {
     .observation.mergeCommit.oid=="1111111111111111111111111111111111111111"
   ' "$RUNS_DIR/$immediate/artifacts/gate/merge-arm.json" >/dev/null \
     || fail "an immediately merged PR should still seal the completed arm effect"
+  jq -e '
+    .normalized_outcome=="merged" and
+    .result.events[0].payload.outcome=="merged"
+  ' "$RUNS_DIR/$immediate/artifacts/gate/terminal.json" >/dev/null \
+    || fail "the terminal seal should retain the authenticated merged outcome"
+
+  run_gate "$immediate" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "immediate merged terminal replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].payload.outcome=="merged"' "$CMD_STDOUT" >/dev/null \
+    || fail "terminal replay should preserve the final merged outcome"
+  merge_calls=$(grep -c $'^pr\tmerge\thttps://example.test/pull/7\t--auto\t--rebase$' \
+    "$GH_CALLS" || true)
+  [ "$merge_calls" -eq 1 ] \
+    || fail "merged terminal replay must not duplicate the merge arm"
 
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
   make_run "$interrupted" passed auto

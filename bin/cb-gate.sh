@@ -8,7 +8,8 @@
 #   same invocation after interruption, and seals/replays the typed terminal
 #   outcome plus one GitHub-verified exact PR. Explicit auto authority arms that
 #   PR once with GitHub auto-rebase, while manual authority remains mutation-free;
-#   authenticated state recovers an interrupted arm without replaying the effect.
+#   authenticated state recovers an interrupted arm without replaying the effect
+#   and classifies an already-merged arm as the final merged Gate outcome.
 #
 #   READING GUIDE
 #   -------------
@@ -16,7 +17,7 @@
 #   2. Launcher custody preflight <- prove worktree, branch, clean exact HEAD.
 #   3. Invocation/terminal replay <- freeze identity and one documented axi run.
 #   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
-#   5. Terminal normalization     <- exact PR, merge arm, and typed outcome.
+#   5. Terminal normalization     <- exact PR, merge arm, merged fact, typed outcome.
 #
 #   MAIN FLOW
 #   ---------
@@ -583,10 +584,12 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         type=="string" and
         test("^artifacts/gate/no-mistakes-lease-attempt-[1-9][0-9]*\\.json$")) and
       (.normalized_outcome |
-        .=="validated" or .=="failed" or .=="cancelled") and
+        .=="validated" or .=="merged" or .=="failed" or .=="cancelled") and
+      ($terminal.normalized_outcome!="merged" or $merge=="auto") and
       (.merge |
         type=="object" and keys==["arm","mode"] and .mode==$merge and
-        if $terminal.normalized_outcome=="validated" and $merge=="auto" then
+        if ($terminal.normalized_outcome=="validated" or
+            $terminal.normalized_outcome=="merged") and $merge=="auto" then
           .arm==$arm
         else
           .arm==""
@@ -604,7 +607,8 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       (.result |
         type=="object" and
         keys==["errors","events","exit_class","reasons"]) and
-      if .normalized_outcome=="validated" then
+      if (.normalized_outcome=="validated" or
+          .normalized_outcome=="merged") then
         (.no_mistakes.outcome=="passed" or
           .no_mistakes.outcome=="checks-passed") and
         ($terminal.no_mistakes.pr|clean) and
@@ -614,7 +618,7 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
             code:0,
             event:"gate_ok",
             payload:(
-              {outcome:"validated",sha:$sha} +
+              {outcome:$terminal.normalized_outcome,sha:$sha} +
               if $terminal.no_mistakes.pr=="" then
                 {}
               else
@@ -709,6 +713,12 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       || fail_contract "invalid Gate terminal merge arm" 73
     validate_merge_arm "$terminal_arm_json" \
       || fail_contract "invalid Gate terminal merge arm" 73
+    if [ "$(printf '%s\n' "$terminal_json" |
+      jq -r '.normalized_outcome')" = merged ]; then
+      printf '%s\n' "$terminal_arm_json" |
+        jq -e '.observation.state=="MERGED"' >/dev/null 2>&1 \
+        || fail_contract "merged Gate terminal lacks authenticated merge evidence" 73
+    fi
   fi
   publish_terminal_result "$terminal_json"
   exit 0
@@ -1677,10 +1687,17 @@ case "$nm_outcome" in
       ensure_auto_merge_armed "$nm_pr"
       terminal_merge_arm=$merge_arm_rel
     fi
-    payload=$(jq -cn --arg sha "$candidate_sha" --arg pr "$nm_pr" '
-      {outcome:"validated",sha:$sha,pr:$pr}
+    gate_outcome=validated
+    if [ "$merge_mode" = auto ] &&
+      jq -e '.observation.state=="MERGED"' "$merge_arm" >/dev/null 2>&1; then
+      gate_outcome=merged
+    fi
+    payload=$(jq -cn \
+      --arg outcome "$gate_outcome" --arg sha "$candidate_sha" \
+      --arg pr "$nm_pr" '
+      {outcome:$outcome,sha:$sha,pr:$pr}
     ')
-    normalized_outcome=validated
+    normalized_outcome=$gate_outcome
     normalized_result=$(jq -cn --argjson payload "$payload" '
       {
         exit_class:"completed",
