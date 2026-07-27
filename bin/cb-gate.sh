@@ -2511,7 +2511,7 @@ wait_for_auto_merge_outcome() {
   while :; do
     now=$(date +%s)
     remaining=$((merge_deadline - now))
-    if [ "$remaining" -le 0 ]; then
+    observe_exact_merge_state "$pr"; if [ "$remaining" -le 0 ]; then
       auto_gate_outcome=failed
       auto_gate_reason=github_auto_merge_timeout
       return 0
