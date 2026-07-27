@@ -2127,7 +2127,7 @@ capture_github_check_evidence() {
     type=="object" and
     .sha==$sha and
     (.total_count |
-      type=="number" and floor==. and .>=0 and .<100) and
+      type=="number" and floor==. and .>=0 and .<=100) and
     (.statuses |
       type=="array" and length==$root.total_count and
       all(.[];
@@ -2769,4 +2769,4 @@ publish_terminal_result "$terminal_json"
 # -/ 5/5
 
 # merge-wait deadline (configurable, default 600s): prevents unbounded lease hold
-CB_GATE_MERGE_WAIT_SECONDS="${CB_GATE_MERGE_WAIT_SECONDS:-600}"
+

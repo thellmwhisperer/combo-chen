@@ -282,7 +282,20 @@ case "$1" in
         }"
     elif [ "$2" = \
       "repos/acme/repo/commits/$CB_GATE_TEST_HEAD/status?per_page=100" ]; then
-      if [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" = unrelated ]; then
+      if [ "${CB_GATE_TEST_GH_STATUS_MODE:-complete}" = full-page ]; then
+        jq -cn --arg head "$CB_GATE_TEST_HEAD" \
+          "{
+            sha:\$head,
+            total_count:100,
+            statuses:(
+              [{context:\"frontend\",state:\"success\"}] +
+              [range(1;100) | {
+                context:(\"unrelated-status-\" + tostring),
+                state:\"success\"
+              }]
+            )
+          }"
+      elif [ "${CB_GATE_TEST_GH_CHECK_MODE:-complete}" = unrelated ]; then
         jq -cn --arg head "$CB_GATE_TEST_HEAD" \
           "{sha:\$head,total_count:1,statuses:[
             {context:\"unrelated-frontend\",state:\"success\"}
@@ -1215,6 +1228,7 @@ test_arms_auto_merge_once() {
   local arm_mode outcome_mode poison
   local pending=gate-auto-merge-timeout
   local zero_poll=gate-auto-merge-zero-poll
+  local full_page=gate-auto-merge-full-status-page
   local immediate=gate-auto-merge-immediate
   local interrupted=gate-auto-merge-interrupted first_result second_result
   local loose=gate-auto-merge-loose-policy
@@ -1308,6 +1322,32 @@ test_arms_auto_merge_once() {
     "an invalid merge poll interval must not enter No-Mistakes"
   assert_absent "$GATE_LEASES_DIR/no-mistakes.lock" \
     "an invalid merge poll interval must not acquire the global lease"
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_STATUS_MODE=full-page
+  export CB_GATE_TEST_GH_MERGE_EFFECT=merged
+  make_run "$full_page" passed auto
+  run_gate "$full_page" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_STATUS_MODE CB_GATE_TEST_GH_MERGE_EFFECT
+  expect_code 0 "$CMD_STATUS" \
+    "full GitHub status page${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e --arg sha "$RUN_HEAD" '
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"merged",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "Gate must accept a valid full page of 100 commit statuses"
+  jq -e '
+    .outcome=="merged" and
+    (.observation.checks.statuses | length)==100
+  ' "$RUNS_DIR/$full_page/artifacts/gate/merge-outcome.json" >/dev/null \
+    || fail "Gate should retain all 100 authenticated commit statuses"
 
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-merged
