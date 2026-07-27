@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the P6 direct CodeRabbit Reviewer adapter.
-#   Proves the adapter runs the configured CodeRabbit binary against one clean
-#   exact candidate, supplies the review contract and prior artifacts, and
-#   normalizes agent JSONL into exact-SHA 0/1 Reviewer outcomes.
+#   Proves the adapter runs the configured CodeRabbit binary against one
+#   verifiably clean exact candidate, supplies the review contract and prior
+#   artifacts, and normalizes completed or skipped JSONL into exact-SHA 0/1
+#   Reviewer outcomes.
 #
 #   READING GUIDE
 #   -------------
 #   1. Fixture CLI, repository, and plan helpers <- executable adapter boundary.
-#   2. test_normalizes_nonblocking_lgtm          <- critical-only clean result.
+#   2. test_normalizes_nonblocking_lgtm          <- completed/skipped clean result.
 #   3. test_normalizes_blocking_findings         <- findings artifact mapping.
 #   4. test_fails_closed                         <- config, SHA, output, process.
 #
@@ -38,12 +39,16 @@ RUNS_DIR="$TMP_ROOT/runs"
 REPO="$TMP_ROOT/repo"
 RABBIT="$TMP_ROOT/bin/coderabbit"
 RABBIT_REAL="$TMP_ROOT/bin/coderabbit-real"
+GIT_SHIM="$TMP_ROOT/bin/git"
+REAL_GIT=$(command -v git)
 CAPTURES="$TMP_ROOT/captures"
 MARKER="$TMP_ROOT/coderabbit-ran"
 mkdir -p "$RUNS_DIR" "$REPO" "$(dirname "$RABBIT")" "$CAPTURES"
 export CB_RUNS_DIR="$RUNS_DIR"
 export CB_RABBIT_TEST_CAPTURES="$CAPTURES"
 export CB_RABBIT_TEST_MARKER="$MARKER"
+export CB_RABBIT_TEST_REAL_GIT="$REAL_GIT"
+export CB_RABBIT_TEST_REPO="$REPO"
 
 CMD_STATUS=
 CMD_STDOUT=
@@ -122,6 +127,12 @@ case "$run" in
       reviewedFiles:[\"src/nonblocking.sh\",\"src/blocking.sh\"]
     }"
     ;;
+  rabbit-skipped)
+    jq -cn "{
+      type:\"complete\",status:\"review_skipped\",findings:0,
+      reviewedFiles:[]
+    }"
+    ;;
   *)
     jq -cn "{
       type:\"complete\",status:\"review_completed\",findings:0,
@@ -129,6 +140,26 @@ case "$run" in
     }"
     ;;
 esac
+'
+cb_write_fake "$GIT_SHIM" '#!/usr/bin/env bash
+set -eu
+if [ "${1:-}" = -C ] && [ "${2:-}" = "$CB_RABBIT_TEST_REPO" ] \
+  && [ "${3:-}" = status ] && [ "${4:-}" = --porcelain=v1 ]; then
+  count=0
+  if [ -n "${CB_RABBIT_TEST_STATUS_COUNT_FILE:-}" ] \
+    && [ -f "$CB_RABBIT_TEST_STATUS_COUNT_FILE" ]; then
+    count=$(cat "$CB_RABBIT_TEST_STATUS_COUNT_FILE")
+  fi
+  count=$((count + 1))
+  if [ -n "${CB_RABBIT_TEST_STATUS_COUNT_FILE:-}" ]; then
+    printf "%s\n" "$count" >"$CB_RABBIT_TEST_STATUS_COUNT_FILE"
+  fi
+  case "${CB_RABBIT_TEST_STATUS_FAILURE:-}" in
+    first) [ "$count" -ne 1 ] || exit 42 ;;
+    second) [ "$count" -ne 2 ] || exit 42 ;;
+  esac
+fi
+exec "$CB_RABBIT_TEST_REAL_GIT" "$@"
 '
 ln -s "$(basename "$RABBIT_REAL")" "$RABBIT"
 
@@ -193,7 +224,7 @@ make_run() {
 run_reviewer() {
   local run=$1 sha=${2:-"$CANDIDATE_SHA"}
   local errfile="$TMP_ROOT/$run.err"
-  CMD_STDOUT=$(bash "$BIN/cb-step.sh" \
+  CMD_STDOUT=$(PATH="$(dirname "$GIT_SHIM"):$PATH" bash "$BIN/cb-step.sh" \
     "$run" reviewer/rabbit 1 \
     --candidate-sha "$sha" \
     --prior-artifacts '[{"id":"review-context","path":"artifacts/context.md"}]' \
@@ -246,6 +277,21 @@ test_normalizes_nonblocking_lgtm() {
     "$BASE_SHA" "$REPO" "$(rabbit_file "$run" coderabbit-context.md)")
   [ "$(cat "$args")" = "$expected" ] \
     || fail "adapter must invoke the direct CodeRabbit CLI with frozen committed scope"
+
+  run=rabbit-skipped
+  make_run "$run"
+  run_reviewer "$run"
+  expect_code 0 "$CMD_STATUS" "skipped CodeRabbit review${CMD_STDERR:+: $CMD_STDERR}"
+  result=$(result_file)
+  raw=$(rabbit_file "$run" coderabbit-output.jsonl)
+  assert_grep '"status":"review_skipped"' "$raw" \
+    "CodeRabbit skipped-review evidence must remain run-local"
+  jq -e --arg sha "$CANDIDATE_SHA" '
+    .exit_class=="completed" and
+    .events==[{code:0,event:"lgtm",payload:{sha:$sha}}] and
+    .artifacts==[] and .errors==[] and .reasons==[]
+  ' "$result" >/dev/null \
+    || fail "a clean review_skipped completion must normalize to exact-SHA LGTM"
   pass "cb-reviewer-adapter: normalizes nonblocking CodeRabbit evidence to exact-SHA LGTM"
 }
 # -/ 2/4
@@ -305,6 +351,42 @@ test_fails_closed() {
     .exit_class=="technical_error" and
     .events==[] and .errors==["candidate:head_mismatch"]
   ' "$result" >/dev/null || fail "stale CodeRabbit input must never enter the fold"
+
+  run=rabbit-status-unavailable-before
+  make_run "$run"
+  rm -f "$MARKER"
+  export CB_RABBIT_TEST_STATUS_FAILURE=first
+  export CB_RABBIT_TEST_STATUS_COUNT_FILE="$TMP_ROOT/$run.status-count"
+  rm -f "$CB_RABBIT_TEST_STATUS_COUNT_FILE"
+  run_reviewer "$run"
+  unset CB_RABBIT_TEST_STATUS_FAILURE CB_RABBIT_TEST_STATUS_COUNT_FILE
+  expect_code 0 "$CMD_STATUS" "unavailable pre-review status${CMD_STDERR:+: $CMD_STDERR}"
+  result=$(result_file)
+  assert_absent "$MARKER" \
+    "a failed cleanliness probe must stop before CodeRabbit execution"
+  jq -e '
+    .exit_class=="technical_error" and
+    .events==[] and .errors==["candidate:status_unavailable"]
+  ' "$result" >/dev/null \
+    || fail "a failed pre-review cleanliness probe must fail closed"
+
+  run=rabbit-status-unavailable-after
+  make_run "$run"
+  rm -f "$MARKER"
+  export CB_RABBIT_TEST_STATUS_FAILURE=second
+  export CB_RABBIT_TEST_STATUS_COUNT_FILE="$TMP_ROOT/$run.status-count"
+  rm -f "$CB_RABBIT_TEST_STATUS_COUNT_FILE"
+  run_reviewer "$run"
+  unset CB_RABBIT_TEST_STATUS_FAILURE CB_RABBIT_TEST_STATUS_COUNT_FILE
+  expect_code 0 "$CMD_STATUS" "unavailable post-review status${CMD_STDERR:+: $CMD_STDERR}"
+  result=$(result_file)
+  assert_present "$MARKER" \
+    "the post-review cleanliness failure must occur after CodeRabbit execution"
+  jq -e '
+    .exit_class=="technical_error" and
+    .events==[] and .errors==["candidate:status_unavailable"]
+  ' "$result" >/dev/null \
+    || fail "a failed post-review cleanliness probe must fail closed"
 
   run=rabbit-invalid-json
   make_run "$run"

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the P6 direct-agent Reviewer adapter. Proves a
 #   configured agent receives the immutable universal input with the review
-#   contract, prior artifacts, and exact candidate SHA, then returns a typed
-#   0/1 member result that is normalized into the P4 Reviewer outcome schema.
+#   contract, prior artifacts, and exact candidate SHA, its process streams
+#   remain run-local evidence, and its typed 0/1 member result is normalized
+#   into the P4 Reviewer outcome schema.
 #
 #   READING GUIDE
 #   -------------
 #   1. Fixture agent and plan helpers      <- executable adapter boundary.
-#   2. test_normalizes_lgtm                <- exact-SHA unanimous input.
+#   2. test_normalizes_lgtm                <- exact-SHA input and stream isolation.
 #   3. test_materializes_findings          <- code 1 artifact normalization.
 #   4. test_fails_closed                   <- config, output, and process errors.
 #
@@ -71,7 +72,11 @@ run=$(jq -r ".run_id" "$input")
 cp "$input" "$CB_REVIEWER_TEST_CAPTURES/$run-${step#reviewer/}-$attempt.json"
 sha=$(jq -r ".candidate_sha" "$input")
 case "$mode" in
-  approve)
+  approve|noisy-approve)
+    if [ "$mode" = noisy-approve ]; then
+      printf "reviewer progress on stdout\n"
+      printf "reviewer progress on stderr\n" >&2
+    fi
     jq -n --arg sha "$sha" "{
       schema:\"combo.reviewer-member-output/v1\",
       sha:\$sha,code:0,findings:\"\"
@@ -162,7 +167,7 @@ captured_input() {
 
 # -- 2/4 CORE · test_normalizes_lgtm -- <- START HERE
 test_normalizes_lgtm() {
-  local run=reviewer-direct-lgtm result capture
+  local run=reviewer-direct-lgtm result capture agent_log
   make_run "$run" approve
   rm -f "$MARKER"
   run_reviewer "$run"
@@ -184,6 +189,24 @@ test_normalizes_lgtm() {
     .events==[{code:0,event:"lgtm",payload:{sha:$sha}}] and
     .artifacts==[] and .errors==[] and .reasons==[]
   ' "$result" >/dev/null || fail "member code 0 must normalize to exact-SHA LGTM"
+
+  run=reviewer-direct-noisy-lgtm
+  make_run "$run" noisy-approve
+  run_reviewer "$run"
+  expect_code 0 "$CMD_STATUS" "noisy direct Reviewer${CMD_STDERR:+: $CMD_STDERR}"
+  result=$CMD_STDOUT
+  agent_log="$RUNS_DIR/$run/steps/03-reviewer-model-a/attempt-1/reviewer-agent.log"
+  jq -e --arg sha "$SHA_A" '
+    .exit_class=="completed" and
+    .events==[{code:0,event:"lgtm",payload:{sha:$sha}}]
+  ' "$result" >/dev/null \
+    || fail "direct-agent process output must not corrupt the result-path contract"
+  assert_present "$agent_log" \
+    "direct-agent stdout and stderr must remain as run-local evidence"
+  assert_grep "reviewer progress on stdout" "$agent_log" \
+    "direct-agent stdout must be captured outside the step contract"
+  assert_grep "reviewer progress on stderr" "$agent_log" \
+    "direct-agent stderr must be captured outside the step contract"
   pass "cb-reviewer-adapter: passes the complete immutable input to a configured direct agent"
 }
 # -/ 2/4
