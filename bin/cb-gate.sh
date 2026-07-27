@@ -10,9 +10,9 @@
 #   PR once with GitHub auto-rebase, while manual authority remains mutation-free;
 #   authenticated state and the target branch's strict required-check policy
 #   recover an interrupted arm without replaying the effect, keep an armed OPEN
-#   PR inside Gate, and seal exact-candidate check evidence with the later merged
-#   or authenticated GitHub-cancelled observation before publishing the final
-#   Gate outcome, including durable exact-check failure evidence.
+#   PR inside a bounded wait, and seal exact-candidate check evidence with the
+#   later merged or authenticated GitHub-cancelled observation before publishing
+#   the final Gate outcome, including durable exact-check failure evidence.
 #
 #   READING GUIDE
 #   -------------
@@ -159,10 +159,16 @@ if ! jq -e '
   (.prior_artifacts|type=="array") and
   (.config |
     type=="object" and
-    keys==[
-      "approval","arguments","binary","intent","merge","model","review",
-      "runtime","schema"
-    ] and
+    (keys as $keys |
+      (([
+        "approval","arguments","binary","intent","merge","model","review",
+        "runtime","schema"
+      ] - $keys) | length==0) and
+      (($keys - [
+        "approval","arguments","binary","intent","merge",
+        "merge_poll_seconds","merge_wait_seconds","model","review",
+        "runtime","schema"
+      ]) | length==0)) and
     .schema=="combo.gate.no-mistakes/v1" and
     (.binary|clean_string) and
     (.runtime|clean_string) and
@@ -171,7 +177,13 @@ if ! jq -e '
     (.intent|clean_string) and
     (.approval=="auto" or .approval=="manual") and
     (.review|type=="boolean") and
-    (.merge=="manual" or .merge=="auto"))
+    (.merge=="manual" or .merge=="auto") and
+    ((has("merge_poll_seconds")|not) or
+      (.merge_poll_seconds |
+        type=="number" and floor==. and .>0)) and
+    ((has("merge_wait_seconds")|not) or
+      (.merge_wait_seconds |
+        type=="number" and floor==. and .>0)))
 ' "$input" >/dev/null 2>&1; then
   fail_contract "invalid universal Gate input or No-Mistakes config"
 fi
@@ -182,6 +194,22 @@ candidate_sha=$(jq -r '.candidate_sha' "$input")
 nm_runtime=$(jq -r '.config.runtime' "$input")
 nm_model=$(jq -r '.config.model' "$input")
 merge_mode=$(jq -r '.config.merge' "$input")
+configured_merge_poll_seconds=$(jq -r \
+  '.config.merge_poll_seconds // 5' "$input")
+configured_merge_wait_seconds=$(jq -r \
+  '.config.merge_wait_seconds // 600' "$input")
+merge_poll_seconds=${CB_GATE_MERGE_POLL_SECONDS:-$configured_merge_poll_seconds}
+merge_wait_seconds=${CB_GATE_MERGE_WAIT_SECONDS:-$configured_merge_wait_seconds}
+case "$merge_poll_seconds" in
+  ''|0|0*|*[!0-9]*)
+    fail_contract "Gate merge poll interval must be a positive integer"
+    ;;
+esac
+case "$merge_wait_seconds" in
+  ''|0|0*|*[!0-9]*)
+    fail_contract "Gate merge wait duration must be a positive integer"
+    ;;
+esac
 run_dir=$(jq -r '.paths.run_dir' "$input")
 invocation_dir=$(jq -r '.paths.invocation_dir' "$input")
 declared_input=$(jq -r '.paths.input_path' "$input")
@@ -915,7 +943,8 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       ] and
       (.schema=="combo.gate-terminal/v3" or
         .schema=="combo.gate-terminal/v4" or
-        .schema=="combo.gate-terminal/v5") and
+        .schema=="combo.gate-terminal/v5" or
+        .schema=="combo.gate-terminal/v6") and
       .run_id==$run and .branch==$branch and .worktree==$worktree and
       .candidate_sha==$sha and .invocation==$invocation and
       (.lease |
@@ -927,12 +956,16 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
         $terminal.normalized_outcome=="cancelled") and
       ($terminal.schema!="combo.gate-terminal/v5" or
         ($terminal.normalized_outcome=="failed" and $merge=="auto")) and
+      ($terminal.schema!="combo.gate-terminal/v6" or
+        ($terminal.normalized_outcome=="failed" and $merge=="auto")) and
       ($terminal.normalized_outcome!="validated" or $merge=="manual") and
       ($terminal.normalized_outcome!="merged" or $merge=="auto") and
       (.merge |
         type=="object" and keys==["arm","mode","outcome"] and
         .mode==$merge and
-        if ($terminal.normalized_outcome=="merged" or
+        if $terminal.schema=="combo.gate-terminal/v6" then
+          .arm==$arm and .outcome==""
+        elif ($terminal.normalized_outcome=="merged" or
             $terminal.schema=="combo.gate-terminal/v4" or
             $terminal.schema=="combo.gate-terminal/v5") then
           .arm==$arm and .outcome==$merge_outcome
@@ -985,6 +1018,20 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
               code:1,
               event:"gate_failed",
               payload:{reason:"github_required_checks_failed"}
+            }],
+            reasons:[],
+            errors:[]
+          }
+        elif .schema=="combo.gate-terminal/v6" then
+          (.no_mistakes.outcome=="passed" or
+            .no_mistakes.outcome=="checks-passed") and
+          ($terminal.no_mistakes.pr|clean) and
+          .result=={
+            exit_class:"completed",
+            events:[{
+              code:1,
+              event:"gate_failed",
+              payload:{reason:"github_auto_merge_timeout"}
             }],
             reasons:[],
             errors:[]
@@ -1088,6 +1135,10 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
       || fail_contract "invalid Gate terminal merge arm" 73
     validate_merge_arm "$terminal_arm_json" \
       || fail_contract "invalid Gate terminal merge arm" 73
+    printf '%s\n' "$terminal_arm_json" |
+      jq -e --arg pr "$(printf '%s\n' "$terminal_json" |
+        jq -r '.no_mistakes.pr')" '.pr==$pr' >/dev/null 2>&1 \
+      || fail_contract "Gate terminal merge arm disagrees with PR" 73
   fi
   terminal_merge_outcome_rel=$(printf '%s\n' "$terminal_json" |
     jq -r '.merge.outcome')
@@ -2403,11 +2454,8 @@ ensure_auto_merge_armed() {
 auto_gate_outcome=
 auto_gate_reason=
 wait_for_auto_merge_outcome() {
-  local pr=$1 poll_seconds arm_json arm_observation state existing requirements
-  poll_seconds=${CB_GATE_MERGE_POLL_SECONDS:-5}
-  case "$poll_seconds" in
-    ''|*[!0-9]*) fail_contract "invalid Gate merge poll interval" ;;
-  esac
+  local pr=$1 arm_json arm_observation state existing requirements
+  local merge_deadline now remaining sleep_seconds
 
   if [ -e "$merge_outcome" ] || [ -L "$merge_outcome" ]; then
     [ -f "$merge_outcome" ] && [ ! -L "$merge_outcome" ] \
@@ -2459,8 +2507,19 @@ wait_for_auto_merge_outcome() {
     return 0
   fi
 
+  merge_deadline=$(( $(date +%s) + merge_wait_seconds ))
   while :; do
-    [ "$poll_seconds" -eq 0 ] || sleep "$poll_seconds"
+    now=$(date +%s)
+    remaining=$((merge_deadline - now))
+    if [ "$remaining" -le 0 ]; then
+      auto_gate_outcome=failed
+      auto_gate_reason=github_auto_merge_timeout
+      return 0
+    fi
+    sleep_seconds=$merge_poll_seconds
+    [ "$sleep_seconds" -le "$remaining" ] || sleep_seconds=$remaining
+    sleep "$sleep_seconds"
+    [ "$(date +%s)" -lt "$merge_deadline" ] || continue
     verify_candidate \
       || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
     observe_exact_merge_state "$pr"
@@ -2559,18 +2618,24 @@ case "$nm_outcome" in
       verify_candidate \
         || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
       terminal_merge_arm=$merge_arm_rel
-      terminal_merge_outcome=$merge_outcome_rel
       case "$auto_gate_outcome" in
         merged)
           gate_outcome=merged
+          terminal_merge_outcome=$merge_outcome_rel
           ;;
         cancelled)
           gate_outcome=cancelled
+          terminal_merge_outcome=$merge_outcome_rel
           terminal_schema=combo.gate-terminal/v4
           ;;
         failed)
           gate_outcome=failed
-          terminal_schema=combo.gate-terminal/v5
+          if [ "$auto_gate_reason" = github_auto_merge_timeout ]; then
+            terminal_schema=combo.gate-terminal/v6
+          else
+            terminal_merge_outcome=$merge_outcome_rel
+            terminal_schema=combo.gate-terminal/v5
+          fi
           ;;
         *) fail_contract "unsupported authenticated GitHub outcome" 73 ;;
       esac
@@ -2702,3 +2767,6 @@ rm -f -- "$terminal_tmp"
 terminal_tmp_owned=0
 publish_terminal_result "$terminal_json"
 # -/ 5/5
+
+# merge-wait deadline (configurable, default 600s): prevents unbounded lease hold
+CB_GATE_MERGE_WAIT_SECONDS="${CB_GATE_MERGE_WAIT_SECONDS:-600}"

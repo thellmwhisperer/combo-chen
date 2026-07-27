@@ -6,8 +6,9 @@
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
 #   records its target branch's strict app-aware check policy with exact-SHA
 #   check/status evidence, seals authenticated GitHub merged/failed/cancelled
-#   outcomes, and replays durable invocation/terminal seals without starting a
-#   duplicate delivery or PR lookup.
+#   outcomes, bounds armed-OPEN merge waiting before the host-global lease can
+#   starve sibling runs, and replays durable invocation/terminal seals without
+#   starting a duplicate delivery or PR lookup.
 #
 #   READING GUIDE
 #   -------------
@@ -20,7 +21,7 @@
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
-#   10. test_arms_auto_merge_once   <- strict checks, exact arm, final recovery.
+#   10. test_arms_auto_merge_once   <- exact arm, bounded wait, final recovery.
 #   11. test_seals_github_terminal_outcomes <- failed/cancelled fact recovery.
 #
 #   MAIN FLOW
@@ -489,6 +490,7 @@ write_no_mistakes_identity "deepseek/deepseek-v4-pro"
 
 write_config() {
   local path=$1 outcome=$2 arguments=${3:-} merge=${4:-manual}
+  local merge_poll_seconds=${5:-} merge_wait_seconds=${6:-}
   if [ -z "$arguments" ]; then
     arguments=$(jq -cn --arg outcome "$outcome" '[("--fake-outcome=" + $outcome)]')
   fi
@@ -497,6 +499,8 @@ write_config() {
     --arg gate "$BIN/cb-gate.sh" \
     --arg nm "$FAKE_NM" \
     --arg merge "$merge" \
+    --arg merge_poll_seconds "$merge_poll_seconds" \
+    --arg merge_wait_seconds "$merge_wait_seconds" \
     --argjson arguments "$arguments" '
       {
         schema:"combo.config/v1",
@@ -513,17 +517,25 @@ write_config() {
           reviewers:[{id:"review-a",adapter:"reviewer",config:{}}],
           gate:{
             adapter:"gate",
-            config:{
-              schema:"combo.gate.no-mistakes/v1",
-              binary:$nm,
-              runtime:"pi",
-              model:"deepseek/deepseek-v4-pro",
-              arguments:$arguments,
-              intent:"validate exact candidate",
-              approval:"auto",
-              review:true,
-              merge:$merge
-            }
+            config:(
+              {
+                schema:"combo.gate.no-mistakes/v1",
+                binary:$nm,
+                runtime:"pi",
+                model:"deepseek/deepseek-v4-pro",
+                arguments:$arguments,
+                intent:"validate exact candidate",
+                approval:"auto",
+                review:true,
+                merge:$merge
+              } +
+              (if $merge_poll_seconds=="" then {} else
+                {merge_poll_seconds:($merge_poll_seconds|tonumber)}
+              end) +
+              (if $merge_wait_seconds=="" then {} else
+                {merge_wait_seconds:($merge_wait_seconds|tonumber)}
+              end)
+            )
           },
           cleaner:{adapter:"cleaner",config:{}}
         }
@@ -532,7 +544,8 @@ write_config() {
 }
 
 make_run() {
-  local run=$1 outcome=$2 merge=${3:-manual} config base
+  local run=$1 outcome=$2 merge=${3:-manual}
+  local merge_poll_seconds=${4:-} merge_wait_seconds=${5:-} config base
   config="$TMP_ROOT/$run.config.json"
   RUN_REPO="$TMP_ROOT/$run-repo"
   read -r base RUN_HEAD < <(cb_candidate_repo "$RUN_REPO" "$run")
@@ -556,7 +569,9 @@ make_run() {
         ownership_id:("git-worktree:" + $run)
       }
     ' >"$RUNS_DIR/$run/agents/launcher.ownership.json"
-  write_config "$config" "$outcome" "" "$merge"
+  write_config \
+    "$config" "$outcome" "" "$merge" \
+    "$merge_poll_seconds" "$merge_wait_seconds"
   sh "$BIN/cb-plan.sh" "$run" --config "$config" >/dev/null \
     || fail "could not compile Gate fixture plan for $run"
 }
@@ -1196,8 +1211,10 @@ test_serializes_global_gate() {
 
 # -- 10/11 CORE · test_arms_auto_merge_once --
 test_arms_auto_merge_once() {
-  local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls
+  local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls nm_calls
   local arm_mode outcome_mode poison
+  local pending=gate-auto-merge-timeout
+  local zero_poll=gate-auto-merge-zero-poll
   local immediate=gate-auto-merge-immediate
   local interrupted=gate-auto-merge-interrupted first_result second_result
   local loose=gate-auto-merge-loose-policy
@@ -1205,8 +1222,96 @@ test_arms_auto_merge_once() {
   local partial=gate-auto-merge-partial-checks
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
 
-  export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-merged
+  export CB_GATE_TEST_GH_MERGE_EFFECT=armed
+  export CB_STEP_TIMEOUT_SECONDS=3
+  make_run "$pending" passed auto 1 1
+  run_gate "$pending" "$RUN_HEAD"
+  unset CB_GATE_TEST_GH_MERGE_EFFECT CB_STEP_TIMEOUT_SECONDS
+  expect_code 0 "$CMD_STATUS" \
+    "bounded auto-merge wait${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="completed" and .reasons==[] and .errors==[] and
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_auto_merge_timeout"}
+    }] and
+    any(.artifacts[];
+      .id=="gate-merge-arm" and
+      .path=="artifacts/gate/merge-arm.json") and
+    any(.artifacts[];
+      .id=="gate-terminal" and
+      .path=="artifacts/gate/terminal.json") and
+    all(.artifacts[]; .id!="gate-merge-outcome")
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "an armed PR with pending checks must become a durable Gate escalation"
+  assert_present "$RUNS_DIR/$pending/artifacts/gate/merge-arm.json" \
+    "merge timeout should retain the immutable arm"
+  assert_absent "$RUNS_DIR/$pending/artifacts/gate/merge-outcome.json" \
+    "a local wait timeout must not invent a GitHub terminal observation"
+  terminal="$RUNS_DIR/$pending/artifacts/gate/terminal.json"
+  jq -e '
+    .schema=="combo.gate-terminal/v6" and
+    .normalized_outcome=="failed" and
+    .no_mistakes.outcome=="passed" and
+    .merge=={
+      mode:"auto",
+      arm:"artifacts/gate/merge-arm.json",
+      outcome:""
+    } and
+    .result=={
+      exit_class:"completed",
+      events:[{
+        code:1,
+        event:"gate_failed",
+        payload:{reason:"github_auto_merge_timeout"}
+      }],
+      reasons:[],
+      errors:[]
+    }
+  ' "$terminal" >/dev/null \
+    || fail "merge timeout should seal a documented escalation without fake GitHub outcome"
+  assert_absent "$GATE_LEASES_DIR/no-mistakes.lock" \
+    "merge timeout must release the host-global Gate lease"
+  gh_calls=$(wc -l <"$GH_CALLS" | tr -d " ")
+  nm_calls=$(wc -l <"$NM_CALLS" | tr -d " ")
+  run_gate "$pending" "$RUN_HEAD" 2
+  expect_code 0 "$CMD_STATUS" \
+    "merge-timeout terminal replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_auto_merge_timeout"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "merge-timeout replay should preserve the escalation reason"
+  [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
+    || fail "merge-timeout replay must not query or mutate GitHub"
+  [ "$(wc -l <"$NM_CALLS" | tr -d " ")" -eq "$nm_calls" ] \
+    || fail "merge-timeout replay must not re-enter No-Mistakes"
+  assert_absent "$GATE_LEASES_DIR/no-mistakes.lock" \
+    "merge-timeout replay must not reacquire the global lease"
+
   export CB_GATE_MERGE_POLL_SECONDS=0
+  make_run "$zero_poll" passed auto
+  run_gate "$zero_poll" "$RUN_HEAD"
+  unset CB_GATE_MERGE_POLL_SECONDS
+  expect_code 0 "$CMD_STATUS" \
+    "zero merge poll interval${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and .reasons==[] and
+    .errors==["adapter_exit:64"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "Gate must reject a zero merge poll interval before acquiring the lease"
+  assert_absent "$NM_CALLED" \
+    "an invalid merge poll interval must not enter No-Mistakes"
+  assert_absent "$GATE_LEASES_DIR/no-mistakes.lock" \
+    "an invalid merge poll interval must not acquire the global lease"
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE"
+  export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-merged
+  export CB_GATE_MERGE_POLL_SECONDS=1
   make_run "$run" passed auto
   run_gate "$run" "$RUN_HEAD"
   unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
@@ -1424,7 +1529,7 @@ test_arms_auto_merge_once() {
     "interruption before arm publication must not invent a terminal result"
 
   printf "armed-then-merged\n" >"$GH_AUTO_MERGE_STATE"
-  export CB_GATE_MERGE_POLL_SECONDS=0
+  export CB_GATE_MERGE_POLL_SECONDS=1
   run_gate "$interrupted" "$RUN_HEAD" 2
   unset CB_GATE_MERGE_POLL_SECONDS
   expect_code 0 "$CMD_STATUS" \
@@ -1513,7 +1618,7 @@ test_seals_github_terminal_outcomes() {
 
   rm -f "$GH_CALLS" "$NM_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed-failed-then-closed
-  export CB_GATE_MERGE_POLL_SECONDS=0
+  export CB_GATE_MERGE_POLL_SECONDS=1
   make_run "$failed" passed auto
   run_gate "$failed" "$RUN_HEAD"
   unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
@@ -1592,7 +1697,7 @@ test_seals_github_terminal_outcomes() {
 
   rm -f "$GH_CALLS" "$NM_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-closed
-  export CB_GATE_MERGE_POLL_SECONDS=0
+  export CB_GATE_MERGE_POLL_SECONDS=1
   make_run "$closed" passed auto
   run_gate "$closed" "$RUN_HEAD"
   unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
@@ -1668,7 +1773,7 @@ test_seals_github_terminal_outcomes() {
 
   rm -f "$GH_CALLS" "$NM_CALLS" "$GH_AUTO_MERGE_STATE"
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed-then-auto-cancelled
-  export CB_GATE_MERGE_POLL_SECONDS=0
+  export CB_GATE_MERGE_POLL_SECONDS=1
   make_run "$auto_cancelled" passed auto
   run_gate "$auto_cancelled" "$RUN_HEAD"
   unset CB_GATE_TEST_GH_MERGE_EFFECT CB_GATE_MERGE_POLL_SECONDS
