@@ -14,6 +14,7 @@ BIN="$ROOT/bin"
 FIXTURES="$ROOT/test/fixtures/journal-v1"
 REAL_MKDIR=$(command -v mkdir)
 REAL_CAT=$(command -v cat)
+REAL_STAT=$(command -v stat)
 
 TMP_ROOT=
 cb_tmproot TMP_ROOT cb-journal
@@ -36,12 +37,6 @@ run_cmd() {
   local errfile=$TMP_ROOT/.cmd.err
   CMD_STDOUT=$(sh "$BIN/$script" "$@" 2>"$errfile") && CMD_STATUS=0 || CMD_STATUS=$?
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
-}
-
-# make_run <run-id>: create runs/<run-id>, echo its dir path.
-make_run() {
-  mkdir -p "$RUNS_DIR/$1"
-  printf '%s/%s\n' "$RUNS_DIR" "$1"
 }
 
 # write_fake <path>: read script body from stdin, write executable.
@@ -111,22 +106,22 @@ test_cat_fakes_do_not_hardcode_bin_path() {
 test_rejects_invalid_enum_code_event_payload() {
   local run_dir journal agent code event payload
   # Case 1: bogus agent
-  run_dir=$(make_run rej-bogus-agent); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run rej-bogus-agent); journal="$run_dir/journal.jsonl"
   run_cmd cb-emit.sh --run rej-bogus-agent --agent bogus --code 0 --event run_created --payload '{"work_item":"#311","repo":"/repo"}'
   [ "$CMD_STATUS" -ne 0 ] || fail "bogus agent should be rejected"
   journal_is_empty "$journal" || fail "journal should be empty (bogus agent)"
   # Case 2: invalid code
-  run_dir=$(make_run rej-bad-code); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run rej-bad-code); journal="$run_dir/journal.jsonl"
   run_cmd cb-emit.sh --run rej-bad-code --agent chain --code 7 --event run_created --payload '{"work_item":"#311","repo":"/repo"}'
   [ "$CMD_STATUS" -ne 0 ] || fail "code 7 should be rejected"
   journal_is_empty "$journal" || fail "journal should be empty (bad code)"
   # Case 3: unknown event
-  run_dir=$(make_run rej-bad-event); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run rej-bad-event); journal="$run_dir/journal.jsonl"
   run_cmd cb-emit.sh --run rej-bad-event --agent chain --code 0 --event event_zoo --payload '{}'
   [ "$CMD_STATUS" -ne 0 ] || fail "unknown event should be rejected"
   journal_is_empty "$journal" || fail "journal should be empty (bad event)"
   # Case 4: missing required payload field (repo)
-  run_dir=$(make_run rej-missing-field); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run rej-missing-field); journal="$run_dir/journal.jsonl"
   run_cmd cb-emit.sh --run rej-missing-field --agent chain --code 0 --event run_created --payload '{"work_item":"#311"}'
   [ "$CMD_STATUS" -ne 0 ] || fail "missing payload field should be rejected"
   journal_is_empty "$journal" || fail "journal should be empty (missing field)"
@@ -135,7 +130,7 @@ test_rejects_invalid_enum_code_event_payload() {
 
 test_deduplicates_by_identity_key() {
   local run_dir journal
-  run_dir=$(make_run dedup); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run dedup); journal="$run_dir/journal.jsonl"
   local payload="{\"member\":\"model\",\"round\":1,\"sha\":\"$SHA_A\"}"
   run_cmd cb-emit.sh --run dedup --agent reviewer --code 0 --event member_result --payload "$payload"
   expect_code 0 "$CMD_STATUS" "first member_result should succeed"
@@ -151,7 +146,7 @@ test_deduplicates_by_identity_key() {
 
 test_keeps_distinct_payloads_while_deduplicating_retry() {
   local run_dir journal
-  run_dir=$(make_run dedup-keep); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run dedup-keep); journal="$run_dir/journal.jsonl"
   local p1='{"errors":["exit=1"]}'
   local p2='{"errors":["exit=1, retry"]}'
   run_cmd cb-emit.sh --run dedup-keep --agent coder --code 1 --event coder_not_ready --payload "$p1"
@@ -170,7 +165,7 @@ test_keeps_distinct_payloads_while_deduplicating_retry() {
 
 test_keeps_member_result_same_scope_different_codes() {
   local run_dir journal
-  run_dir=$(make_run dedup-codes); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run dedup-codes); journal="$run_dir/journal.jsonl"
   local scope="{\"member\":\"model\",\"round\":1,\"sha\":\"$SHA_A\"}"
   run_cmd cb-emit.sh --run dedup-codes --agent reviewer --code 0 --event member_result --payload "$scope"
   expect_code 0 "$CMD_STATUS" "passed member_result"
@@ -186,7 +181,7 @@ test_keeps_member_result_same_scope_different_codes() {
 
 test_derives_coder_facts_and_verifies_claims() {
   local run_dir worktree base head
-  run_dir=$(make_run derives); worktree="$run_dir/worktree"
+  run_dir=$(cb_make_run derives); worktree="$run_dir/worktree"
   mkdir -p "$worktree"
   git -C "$worktree" init -q -b main
   git -C "$worktree" config user.name "Combo Test"
@@ -234,7 +229,7 @@ setup_launch_facts() {
 
 test_prefers_config_env_launch_facts() {
   local run_dir trusted decoy
-  run_dir=$(make_run config-env-facts)
+  run_dir=$(cb_make_run config-env-facts)
   trusted="$run_dir/trusted"; decoy="$run_dir/decoy"
   setup_launch_facts "$run_dir"
   run_cmd cb-emit.sh --run config-env-facts --agent launcher --code 0 --event launch_ready \
@@ -252,7 +247,7 @@ test_prefers_config_env_launch_facts() {
 
 test_prefers_journal_launch_facts_without_config_env() {
   local run_dir trusted decoy
-  run_dir=$(make_run journal-facts)
+  run_dir=$(cb_make_run journal-facts)
   trusted="$run_dir/trusted"; decoy="$run_dir/decoy"
   setup_launch_facts "$run_dir"
   run_cmd cb-emit.sh --run journal-facts --agent launcher --code 0 --event launch_ready \
@@ -269,7 +264,7 @@ test_prefers_journal_launch_facts_without_config_env() {
 
 test_backfills_partial_config_env_from_journal() {
   local run_dir trusted decoy
-  run_dir=$(make_run partial-config)
+  run_dir=$(cb_make_run partial-config)
   trusted="$run_dir/trusted"; decoy="$run_dir/decoy"
   setup_launch_facts "$run_dir"
   run_cmd cb-emit.sh --run partial-config --agent launcher --code 0 --event launch_ready \
@@ -289,7 +284,7 @@ test_backfills_partial_config_env_from_journal() {
 
 test_accepts_nonempty_artifact_in_run_dir() {
   local run_dir
-  run_dir=$(make_run artifact-ok)
+  run_dir=$(cb_make_run artifact-ok)
   mkdir -p "$run_dir/artifacts"
   printf 'fix this\n' >"$run_dir/artifacts/findings.md"
   run_cmd cb-emit.sh --run artifact-ok --agent reviewer --code 1 --event needs_change \
@@ -300,7 +295,7 @@ test_accepts_nonempty_artifact_in_run_dir() {
 
 test_rejects_needs_change_escape() {
   local run_dir outside journal
-  run_dir=$(make_run artifact-escape)
+  run_dir=$(cb_make_run artifact-escape)
   outside="$RUNS_DIR/outside-absolute.md"
   printf 'outside\n' >"$outside"
   mkdir -p "$run_dir/artifacts"
@@ -334,7 +329,7 @@ test_rejects_needs_change_escape() {
 
 test_never_reclaims_alive_owner() {
   local run_dir lock
-  run_dir=$(make_run alive-owner); lock="$run_dir/.journal.lock"
+  run_dir=$(cb_make_run alive-owner); lock="$run_dir/.journal.lock"
   mkdir -p "$lock"
   printf '%s live-owner-token\n' "$$" >"$lock/owner"
   CB_JOURNAL_LOCK_STALE_SECONDS=0 CB_JOURNAL_LOCK_TIMEOUT_SECONDS=1 \
@@ -349,7 +344,7 @@ test_never_reclaims_alive_owner() {
 test_reclaims_stale_ownerless_and_malformed_lock() {
   local run_dir lock
   # ownerless
-  run_dir=$(make_run stale-ownerless); lock="$run_dir/.journal.lock"
+  run_dir=$(cb_make_run stale-ownerless); lock="$run_dir/.journal.lock"
   mkdir -p "$lock"
   CB_JOURNAL_LOCK_STALE_SECONDS=0 CB_JOURNAL_LOCK_TIMEOUT_SECONDS=2 \
     run_cmd cb-emit.sh --run stale-ownerless --agent chain --code 0 --event run_created \
@@ -358,7 +353,7 @@ test_reclaims_stale_ownerless_and_malformed_lock() {
   assert_not_match 'No such file or directory' "$CMD_STDERR" "no redirect noise"
   assert_absent "$lock" "ownerless lock dir should be removed"
   # malformed
-  run_dir=$(make_run stale-malformed); lock="$run_dir/.journal.lock"
+  run_dir=$(cb_make_run stale-malformed); lock="$run_dir/.journal.lock"
   mkdir -p "$lock"
   printf 'not-a-valid-owner\n' >"$lock/owner"
   CB_JOURNAL_LOCK_STALE_SECONDS=0 CB_JOURNAL_LOCK_TIMEOUT_SECONDS=2 \
@@ -372,7 +367,7 @@ test_reclaims_stale_ownerless_and_malformed_lock() {
 
 test_no_steal_ownerless_gains_live_owner_during_reap() {
   local run_dir lock owner fakebin
-  run_dir=$(make_run stale-live-race); lock="$run_dir/.journal.lock"; owner="$lock/owner"
+  run_dir=$(cb_make_run stale-live-race); lock="$run_dir/.journal.lock"; owner="$lock/owner"
   fakebin=$(cb_fakebin "$run_dir")
   mkdir -p "$lock"
   write_fake "$fakebin/mkdir" <<EOF
@@ -398,7 +393,7 @@ EOF
 
 test_one_owner_snapshot_for_liveness_and_deletion() {
   local run_dir lock owner fakebin cat_count live_owner
-  run_dir=$(make_run stale-snapshot); lock="$run_dir/.journal.lock"; owner="$lock/owner"
+  run_dir=$(cb_make_run stale-snapshot); lock="$run_dir/.journal.lock"; owner="$lock/owner"
   fakebin=$(cb_fakebin "$run_dir"); cat_count="$run_dir/cat-count"
   live_owner="$$ stable-live-token"
   mkdir -p "$lock" "$fakebin"
@@ -442,7 +437,7 @@ EOF
 
 test_reclaims_stale_lock_when_owner_dead() {
   local run_dir lock
-  run_dir=$(make_run dead-owner); lock="$run_dir/.journal.lock"
+  run_dir=$(cb_make_run dead-owner); lock="$run_dir/.journal.lock"
   mkdir -p "$lock"
   printf '99999999 abandoned-owner-token\n' >"$lock/owner"
   CB_JOURNAL_LOCK_STALE_SECONDS=0 CB_JOURNAL_LOCK_TIMEOUT_SECONDS=2 \
@@ -453,9 +448,26 @@ test_reclaims_stale_lock_when_owner_dead() {
   pass "cb-emit: reclaims a stale lock only when its recorded owner is dead"
 }
 
+test_reclaims_aged_dead_lock_with_gnu_stat() {
+  local run_dir lock fakebin
+  run_dir=$(cb_make_run aged-dead-owner); lock="$run_dir/.journal.lock"
+  fakebin=$(cb_fakebin "$run_dir")
+  mkdir -p "$lock"
+  printf '99999999 abandoned-owner-token\n' >"$lock/owner"
+  touch -t 202001010000 "$lock"
+  cb_write_gnu_stat_fake "$fakebin/stat"
+  PATH="$fakebin:$PATH" CB_TEST_REAL_STAT="$REAL_STAT" \
+  CB_JOURNAL_LOCK_STALE_SECONDS=30 CB_JOURNAL_LOCK_TIMEOUT_SECONDS=1 \
+    run_cmd cb-emit.sh --run aged-dead-owner --agent chain --code 0 --event run_created \
+    --payload '{"work_item":"#311","repo":"/repo"}'
+  expect_code 0 "$CMD_STATUS" "aged dead-owner lock should be reclaimed with GNU stat${CMD_STDERR:+: $CMD_STDERR}"
+  assert_absent "$lock" "aged dead-owner lock dir should be removed"
+  pass "cb-emit: reclaims an aged dead-owner lock with a non-zero threshold under GNU stat"
+}
+
 test_no_remove_replacement_lock_on_reread_mismatch() {
   local run_dir lock owner fakebin cat_values
-  run_dir=$(make_run reread-mismatch); lock="$run_dir/.journal.lock"; owner="$lock/owner"
+  run_dir=$(cb_make_run reread-mismatch); lock="$run_dir/.journal.lock"; owner="$lock/owner"
   fakebin=$(cb_fakebin "$run_dir"); cat_values="$run_dir/cat-values"
   mkdir -p "$lock" "$fakebin"
   printf '99999999 abandoned-owner-token\n' >"$owner"
@@ -497,7 +509,7 @@ EOF
 
 test_leaves_replacement_owner_untouched_during_cleanup() {
   local run_dir owner fakebin
-  run_dir=$(make_run cleanup-owner); owner="$run_dir/.journal.lock/owner"
+  run_dir=$(cb_make_run cleanup-owner); owner="$run_dir/.journal.lock/owner"
   fakebin=$(cb_fakebin "$run_dir")
   mkdir -p "$fakebin"
   write_fake "$fakebin/cat" <<EOF
@@ -522,7 +534,7 @@ EOF
 
 test_serializes_concurrent_appenders() {
   local run_dir journal pids=() i any_fail=0
-  run_dir=$(make_run concurrent); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run concurrent); journal="$run_dir/journal.jsonl"
   for i in $(seq 0 23); do
     CB_JOURNAL_LOCK_TIMEOUT_SECONDS=30 \
     sh "$BIN/cb-emit.sh" --run concurrent --agent reviewer --code 0 --event member_result \
@@ -544,7 +556,7 @@ test_serializes_concurrent_appenders() {
 
 test_torn_line_tolerance() {
   local run_dir journal
-  run_dir=$(make_run torn); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run torn); journal="$run_dir/journal.jsonl"
   printf '%s\n%s' \
     '{"seq":1,"ts":"2026-07-23T10:00:00Z","run":"torn","agent":"chain","code":0,"event":"run_created","payload":{"work_item":"#311","repo":"/repo"}}' \
     '{"seq":2' >"$journal"
@@ -573,7 +585,7 @@ test_torn_line_tolerance() {
 fold_inline() {
   local run=$1 expected=$2; shift 2
   local run_dir journal
-  run_dir=$(make_run "$run"); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run "$run"); journal="$run_dir/journal.jsonl"
   : >"$journal"
   local line
   for line in "$@"; do printf '%s\n' "$line" >>"$journal"; done
@@ -650,7 +662,7 @@ test_fold_lowest_seq_surviving_failure() {
 
 test_replays_by_sequence_not_line_order() {
   local run_dir journal
-  run_dir=$(make_run out-of-order); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run out-of-order); journal="$run_dir/journal.jsonl"
   awk '{a[NR]=$0} END {for(i=NR;i>=1;i--) print a[i]}' "$FIXTURES/happy-path.jsonl" >"$journal"
   run_cmd cb-run-state.sh out-of-order
   [ "$CMD_STDOUT" = "done" ] || fail "reversed happy-path should fold to done, got: $CMD_STDOUT"
@@ -659,7 +671,7 @@ test_replays_by_sequence_not_line_order() {
 
 test_forensic_events_do_not_route_phase() {
   local run_dir journal product
-  run_dir=$(make_run forensic-only); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run forensic-only); journal="$run_dir/journal.jsonl"
   product=$(cat "$FIXTURES/gate-failure.jsonl")
   printf '%s\n%s\n' "$product" \
     '{"seq":8,"ts":"2026-07-23T10:03:08Z","run":"forensic-only","agent":"gate","code":1,"event":"gate_progress","payload":{"state":"late-forensic-record"}}' >"$journal"
@@ -672,7 +684,7 @@ test_forensic_events_do_not_route_phase() {
 fold_fixture() {
   local fixture=$1 expected=$2 run=${1%.jsonl}
   local run_dir journal
-  run_dir=$(make_run "$run"); journal="$run_dir/journal.jsonl"
+  run_dir=$(cb_make_run "$run"); journal="$run_dir/journal.jsonl"
   cp "$FIXTURES/$fixture" "$journal"
   run_cmd cb-run-state.sh "$run"
   expect_code 0 "$CMD_STATUS" "cb-run-state for $fixture"
@@ -710,6 +722,7 @@ test_reclaims_stale_ownerless_and_malformed_lock
 test_no_steal_ownerless_gains_live_owner_during_reap
 test_one_owner_snapshot_for_liveness_and_deletion
 test_reclaims_stale_lock_when_owner_dead
+test_reclaims_aged_dead_lock_with_gnu_stat
 test_no_remove_replacement_lock_on_reread_mismatch
 test_leaves_replacement_owner_untouched_during_cleanup
 test_serializes_concurrent_appenders

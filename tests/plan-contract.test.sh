@@ -25,7 +25,7 @@
 #   make_run, write_config, run_plan, plan_mode, file_sha256
 #
 # @exports none
-# @deps bash, dash, jq, sha256sum/shasum, tests/lib.sh, bin/cb-plan.sh
+# @deps bash, dash, jq, tests/lib.sh, bin/cb-plan.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -42,11 +42,6 @@ CMD_STATUS=
 CMD_STDOUT=
 CMD_STDERR=
 COLLISION_PATH=
-
-make_run() {
-  mkdir -p "$RUNS_DIR/$1"
-  printf '%s/%s\n' "$RUNS_DIR" "$1"
-}
 
 write_config() {
   local path=$1 reviewers=${2:-'[{"id":"review-a","adapter":"review-a","config":{"policy":"strict"}},{"id":"review-b","adapter":"review-b","config":{}}]'}
@@ -133,7 +128,7 @@ test_compiles_immutable_plan() {
   local run=plan-success run_dir config plan before
   local fallback_bin="$TMP_ROOT/fallback-bin"
   local real_shasum
-  run_dir=$(make_run "$run")
+  run_dir=$(cb_make_run "$run")
   config="$TMP_ROOT/config-success.json"
   plan="$run_dir/plan.json"
   write_config "$config"
@@ -142,7 +137,7 @@ test_compiles_immutable_plan() {
   expect_code 0 "$CMD_STATUS" "valid plan compile${CMD_STDERR:+: $CMD_STDERR}"
   [ "$CMD_STDOUT" = "$plan" ] || fail "compiler should print the plan path"
   assert_present "$plan" "plan.json should be published"
-  [ "$(plan_mode "$plan")" = "444" ] || fail "plan.json should be read-only"
+  [ "$(cb_file_mode "$plan")" = "444" ] || fail "plan.json should be read-only"
 
   jq -e --arg run "$run" --arg dir "$run_dir" '
     .schema == "combo.run-plan/v1" and
@@ -190,7 +185,7 @@ exec \"$real_shasum\" \"\$@\"
 # -- 2/5 CORE · test_accepts_reviewer_options --
 test_accepts_reviewer_options() {
   local run=plan-empty run_dir config plan default_run default_dir default_config
-  run_dir=$(make_run "$run")
+  run_dir=$(cb_make_run "$run")
   config="$TMP_ROOT/config-empty.json"
   plan="$run_dir/plan.json"
   write_config "$config" '[]' skip
@@ -205,7 +200,7 @@ test_accepts_reviewer_options() {
   ' "$plan" >/dev/null || fail "empty Reviewer array should compile directly from Coder to Gate"
 
   default_run='plan-default-degraded'
-  default_dir=$(make_run "$default_run")
+  default_dir=$(cb_make_run "$default_run")
   default_config="$TMP_ROOT/config-default-degraded.json"
   write_config "$default_config"
   jq 'del(.reviewer)' "$default_config" >"$TMP_ROOT/config-default-degraded.tmp"
@@ -221,7 +216,7 @@ test_accepts_reviewer_options() {
 # -- 3/5 CORE · test_rejects_shared_adapter --
 test_rejects_shared_adapter() {
   local run=plan-shared-adapter run_dir config
-  run_dir=$(make_run "$run")
+  run_dir=$(cb_make_run "$run")
   config="$TMP_ROOT/config-shared-adapter.json"
   write_config "$config"
   jq '
@@ -251,7 +246,7 @@ test_rejects_invalid_configs() {
   while IFS= read -r mutation; do
     index=$((index + 1))
     run="invalid-$index"
-    run_dir=$(make_run "$run")
+    run_dir=$(cb_make_run "$run")
     config="$TMP_ROOT/config-invalid-$index.json"
     jq --arg fake "$fake" "$mutation | .adapters.launcher.argv[0] = \$fake" "$base" >"$config"
     CB_PLAN_TEST_MARKER="$marker" run_plan "$run" "$config"
@@ -287,14 +282,14 @@ test_rejects_path_attacks() {
   assert_absent "$outside/plan.json" "symlink run must not publish outside runs root"
 
   local run=config-link run_dir
-  run_dir=$(make_run "$run")
+  run_dir=$(cb_make_run "$run")
   ln -s "$config" "$TMP_ROOT/config-link.json"
   run_plan "$run" "$TMP_ROOT/config-link.json"
   expect_code 73 "$CMD_STATUS" "symlink config"
   assert_absent "$run_dir/plan.json" "symlink config must not publish a plan"
 
   run='plan-link'
-  run_dir=$(make_run "$run")
+  run_dir=$(cb_make_run "$run")
   local victim="$outside/victim"
   printf 'precious\n' >"$victim"
   ln -s "$victim" "$run_dir/plan.json"

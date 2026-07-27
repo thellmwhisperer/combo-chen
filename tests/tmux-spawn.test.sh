@@ -22,6 +22,7 @@ fi
 BIN="$ROOT/bin"
 REAL_MKDIR=$(command -v mkdir)
 REAL_CAT=$(command -v cat)
+REAL_STAT=$(command -v stat)
 AGENTS=(launcher coder reviewer gate cleaner)
 HAVE_PYTHON3=0
 command -v python3 >/dev/null 2>&1 && HAVE_PYTHON3=1
@@ -265,6 +266,23 @@ test_preserves_dead_owner_recovery() {
   expect_code 0 "$CMD_STATUS" "dead-owner spawn lock${CMD_STDERR:+: $CMD_STDERR}"
   assert_absent "$lock" "dead-owner lock should be removed"
   pass "cb-agent-spawn: preserves well-formed dead-owner spawn lock recovery"
+}
+
+test_reclaims_aged_dead_spawn_lock_with_gnu_stat() {
+  setup_home
+  local run=aged-dead-owner
+  ensure_run "$run"; local rd="$TMUX_RUNS/$run"; local lock="$rd/.spawn.lock"
+  local fakebin; fakebin=$(cb_fakebin "$TMUX_HOME")
+  mkdir -p "$lock"
+  printf '99999999 abandoned-owner-token\n' >"$lock/owner"
+  touch -t 202001010000 "$lock"
+  cb_write_gnu_stat_fake "$fakebin/stat"
+  PATH="$fakebin:$PATH" CB_TEST_REAL_STAT="$REAL_STAT" \
+    CB_SPAWN_LOCK_STALE_SECONDS=30 CB_SPAWN_LOCK_TIMEOUT_SECONDS=1 \
+    run_sh cb-agent-spawn.sh "$run" coder
+  expect_code 0 "$CMD_STATUS" "aged dead-owner spawn lock should be reclaimed with GNU stat${CMD_STDERR:+: $CMD_STDERR}"
+  assert_absent "$lock" "aged dead-owner spawn lock should be removed"
+  pass "cb-agent-spawn: reclaims an aged dead-owner lock with a non-zero threshold under GNU stat"
 }
 
 test_no_steal_ownerless_gains_live_owner() {
@@ -617,6 +635,7 @@ test_isolates_alpha_from_alphabet
 test_serializes_concurrent_same_agent_spawn
 test_reclaims_stale_spawn_lock
 test_preserves_dead_owner_recovery
+test_reclaims_aged_dead_spawn_lock_with_gnu_stat
 test_no_steal_ownerless_gains_live_owner
 test_one_owner_snapshot_liveness_and_deletion
 test_meta_staging_path_safety

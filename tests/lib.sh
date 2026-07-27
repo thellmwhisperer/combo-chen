@@ -6,7 +6,7 @@
 #   READING GUIDE
 #   -------------
 #   1. cb_tmproot             <- shared lifecycle and cleanup contract.
-#   2. cb_fakebin             <- tool shims and stable file digests.
+#   2. cb_fakebin             <- tool shims, file probes, and run fixtures.
 #   3. cb_candidate_repo      <- deterministic Git fixtures.
 #   4. assert_contains        <- common contract assertions.
 #
@@ -19,7 +19,10 @@
 #   fail, pass                         Test result reporters.
 #   cb_tmproot                         Allocate a self-cleaning project temp root.
 #   cb_fakebin, cb_write_fake          Build deterministic PATH shims.
+#   cb_write_gnu_stat_fake             Emulate GNU lock-mtime probe behavior.
+#   cb_file_mode                       Read a portable numeric file mode.
 #   cb_file_sha256                     Compute a fail-closed SHA-256 file digest.
+#   cb_make_run                        Create and print a run fixture directory.
 #   cb_git_identity, cb_candidate_repo Build deterministic Git fixtures.
 #   assert_*, expect_code              Assert strings, files, and exit codes.
 #
@@ -27,11 +30,12 @@
 #   ---------
 #   cb_cleanup
 #
-# @exports fail, pass, cb_tmproot, cb_fakebin, cb_write_fake, cb_file_sha256,
+# @exports fail, pass, cb_tmproot, cb_fakebin, cb_write_fake,
+#   cb_write_gnu_stat_fake, cb_file_mode, cb_file_sha256, cb_make_run,
 #   cb_git_identity, cb_candidate_repo, assert_contains, assert_not_contains,
 #   expect_code, assert_grep, assert_no_grep, assert_match, assert_not_match,
 #   assert_absent, assert_present, assert_symlink
-# @deps bash, git, mktemp, sha256sum/shasum
+# @deps bash, git, mkdir, mktemp, sha256sum/shasum, stat
 
 # Idempotent guard: a test file may source this library plus its own helpers.
 if [ -n "${CB_TEST_LIB_SOURCED:-}" ]; then
@@ -86,7 +90,7 @@ cb_tmproot() {
 }
 # -/ 2/5
 
-# -- 3/5 HELPER · cb_fakebin, cb_write_fake, and cb_file_sha256 --
+# -- 3/5 HELPER · cb_fakebin, cb_write_fake, cb_write_gnu_stat_fake, cb_file_mode, cb_file_sha256, and cb_make_run --
 #
 # cb_fakebin <dir> creates <dir>/fakebin and echoes it; prepend it to PATH to
 # shadow real tools with stubs.
@@ -103,6 +107,30 @@ cb_write_fake() {
   chmod +x "$1"
 }
 
+# cb_write_gnu_stat_fake <path>: emulate GNU stat's noisy BSD-form failure and
+# return a deterministic old epoch for the GNU lock-mtime form.
+cb_write_gnu_stat_fake() {
+  cb_write_fake "$1" '#!/bin/sh
+if [ "$1" = "-f" ] && [ "$2" = "%m" ]; then
+  printf "  File: fake-lock\n"
+  exit 1
+fi
+if [ "$1" = "-c" ] && [ "$2" = "%Y" ]; then
+  mtime=$("$CB_TEST_REAL_STAT" -c %Y "$3" 2>/dev/null) \
+    || mtime=$("$CB_TEST_REAL_STAT" -f %m "$3" 2>/dev/null) \
+    || exit 1
+  printf "%s\n" "$mtime"
+  exit 0
+fi
+exec "$CB_TEST_REAL_STAT" "$@"
+'
+}
+
+# cb_file_mode <path>: print the numeric mode through GNU or BSD stat.
+cb_file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
 # cb_file_sha256 <path>: print a SHA-256 digest or fail when no digest tool works.
 cb_file_sha256() {
   local digest output
@@ -117,6 +145,12 @@ cb_file_sha256() {
   fi
   [ -n "$digest" ] || fail "no working SHA-256 digest tool"
   printf '%s\n' "$digest"
+}
+
+# cb_make_run <run-id>: create and print a fixture directory under RUNS_DIR.
+cb_make_run() {
+  mkdir -p "$RUNS_DIR/$1"
+  printf '%s/%s\n' "$RUNS_DIR" "$1"
 }
 # -/ 3/5
 
