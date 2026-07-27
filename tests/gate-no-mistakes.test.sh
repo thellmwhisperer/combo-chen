@@ -16,12 +16,12 @@
 #   2. test_recovers_exact_pr       <- returned URL plus unique branch fallback.
 #   3. test_seals_configured_identity <- immutable runtime/model + AXI surface.
 #   4. test_rejects_candidate_drift <- no Gate call after the reviewed SHA moves.
-#   5. test_maps_terminal_outcomes  <- passed, failed, and cancelled normalization.
+#   5. test_maps_terminal_outcomes  <- normalization plus untrusted-result rejection.
 #   6. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
-#   10. test_arms_auto_merge_once   <- exact arm, bounded wait, final recovery.
+#   10. test_arms_auto_merge_once   <- exact arm, stdin isolation, replay contracts.
 #   11. test_seals_github_terminal_outcomes <- failed/cancelled fact recovery.
 #
 #   MAIN FLOW
@@ -38,7 +38,7 @@
 #   invocation_args, wait_for_path
 #
 # @exports none
-# @deps awk, bash, cksum, date, git, gh-compatible fake, jq, ps, stat, touch,
+# @deps bash, cksum, date, git, gh-compatible fake, jq, mkfifo, ps, stat, touch,
 #   tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh, bin/cb-gate.sh
 set -u
 
@@ -196,17 +196,22 @@ fi
 status=completed
 [ "$outcome" != failed ] || status=failed
 [ "$outcome" != cancelled ] || status=cancelled
+nm_run_id=${CB_GATE_TEST_NM_RUN_ID:-fake-gate-run}
+nm_branch=${CB_GATE_TEST_NM_BRANCH:-$CB_GATE_TEST_BRANCH}
+nm_head=${CB_GATE_TEST_NM_HEAD:-${CB_GATE_TEST_HEAD:0:8}}
 
 cat <<EOF
 run:
-  id: "fake-gate-run"
-  branch: $CB_GATE_TEST_BRANCH
+  id: "$nm_run_id"
+  branch: $nm_branch
   status: $status
-  head: ${CB_GATE_TEST_HEAD:0:8}
+  head: $nm_head
   pr: "$pr"
   findings: none
 outcome: $outcome
 EOF
+[ -z "${CB_GATE_TEST_NM_EXIT_STATUS:-}" ] ||
+  exit "$CB_GATE_TEST_NM_EXIT_STATUS"
 [ "$outcome" = passed ] || [ "$outcome" = checks-passed ]
 '
 
@@ -427,6 +432,13 @@ case "$1" in
           }"
         ;;
       url,headRefName,headRefOid,baseRefName,baseRefOid,state,autoMergeRequest,mergeStateStatus,mergeable,mergedAt,mergeCommit)
+        if [ -n "${CB_GATE_TEST_GH_STDIN_ENTERED:-}" ]; then
+          : >"$CB_GATE_TEST_GH_STDIN_ENTERED"
+          if IFS= read -r; then
+            exit 70
+          fi
+          : >"$CB_GATE_TEST_GH_STDIN_CLOSED"
+        fi
         auto_merge=null
         state=OPEN
         merged_at=null
@@ -653,8 +665,8 @@ invocation_args() {
 }
 
 wait_for_path() {
-  local path=$1 pid=${2:-} deadline
-  deadline=$(( $(date +%s) + 30 ))
+  local path=$1 pid=${2:-} wait_seconds=${3:-30} deadline
+  deadline=$(( $(date +%s) + wait_seconds ))
   while [ ! -e "$path" ]; do
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
       return 1
@@ -974,7 +986,75 @@ test_maps_terminal_outcomes() {
     .exit_class=="cancelled" and .events==[] and
     .reasons==["no_mistakes_cancelled"] and .errors==[]
   ' "$result" >/dev/null || fail "cancelled should remain a universal cancelled exit"
-  pass "Gate maps documented passed, failed, and cancelled outcomes"
+
+  run=gate-unknown-outcome
+  make_run "$run" bogus
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "unknown outcome rejection${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:70"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "an undocumented No-Mistakes outcome must fail with adapter exit 70"
+
+  export CB_GATE_TEST_NM_BRANCH=combo/untrusted-branch
+  run=gate-nm-branch-mismatch
+  make_run "$run" passed
+  run_gate "$run" "$RUN_HEAD"
+  unset CB_GATE_TEST_NM_BRANCH
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"no_mistakes_branch_mismatch"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "a No-Mistakes receipt for another branch must fail Gate"
+
+  export CB_GATE_TEST_NM_RUN_ID=invalid/run
+  run=gate-nm-run-id-invalid
+  make_run "$run" passed
+  run_gate "$run" "$RUN_HEAD"
+  unset CB_GATE_TEST_NM_RUN_ID
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"no_mistakes_run_id_invalid"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "an invalid No-Mistakes run id must fail Gate"
+
+  export CB_GATE_TEST_NM_HEAD=0000000
+  run=gate-nm-head-mismatch
+  make_run "$run" passed
+  run_gate "$run" "$RUN_HEAD"
+  unset CB_GATE_TEST_NM_HEAD
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"no_mistakes_head_mismatch"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "a No-Mistakes receipt for another head must fail Gate"
+
+  export CB_GATE_TEST_NM_EXIT_STATUS=9
+  run=gate-nm-exit-mismatch
+  make_run "$run" passed
+  run_gate "$run" "$RUN_HEAD"
+  unset CB_GATE_TEST_NM_EXIT_STATUS
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"no_mistakes_exit_mismatch"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "a successful No-Mistakes outcome with a failing exit must fail Gate"
+
+  pass "Gate maps terminal outcomes and rejects untrusted No-Mistakes results"
 }
 # -/ 5/11
 
@@ -1010,25 +1090,6 @@ test_guards_argument_edges() {
     .errors==["adapter_exit:64"]
   ' "$result" >/dev/null || fail "bare --skip review must not bypass review=true"
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
-  if ! awk '
-    /^observe_exact_merge_state\(\) \{/ { in_observe=1 }
-    in_observe && /"\$github_binary" pr view "\$pr"/ { saw_view=1 }
-    in_observe && saw_view && /<\/dev\/null/ { found=1 }
-    in_observe && /^}/ { exit }
-    END { exit(found ? 0 : 1) }
-  ' "$BIN/cb-gate.sh"; then
-    fail "merge-state GitHub observation must close stdin locally"
-  fi
-  if ! awk '
-    index($0, "[ -n \"$terminal_arm_json\" ]") { guard=NR }
-    index($0, "--argjson arm \"$terminal_arm_json\"") {
-      found=(guard>0 && guard<NR)
-      exit
-    }
-    END { exit(found ? 0 : 1) }
-  ' "$BIN/cb-gate.sh"; then
-    fail "terminal replay must guard non-empty merge-arm JSON before --argjson"
-  fi
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
 # -/ 6/11
@@ -1315,7 +1376,7 @@ test_serializes_global_gate() {
 # -- 10/11 CORE · test_arms_auto_merge_once --
 test_arms_auto_merge_once() {
   local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls nm_calls
-  local arm_mode outcome_mode poison
+  local arm_mode outcome_mode poison terminal_backup
   local pending=gate-auto-merge-timeout
   local deadline=gate-auto-merge-deadline
   local zero_poll=gate-auto-merge-zero-poll
@@ -1325,6 +1386,59 @@ test_arms_auto_merge_once() {
   local loose=gate-auto-merge-loose-policy
   local stale=gate-auto-merge-stale-checks
   local partial=gate-auto-merge-partial-checks
+  local stdin_run=gate-auto-merge-stdin stdin_pipe stdin_release
+  local stdin_entered stdin_closed stdin_out stdin_err stdin_result
+  local stdin_writer_pid stdin_gate_pid stdin_status
+
+  rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
+  make_run "$stdin_run" passed auto
+  stdin_pipe="$TMP_ROOT/$stdin_run.stdin"
+  stdin_release="$TMP_ROOT/$stdin_run.stdin-release"
+  stdin_entered="$TMP_ROOT/$stdin_run.gh-entered"
+  stdin_closed="$TMP_ROOT/$stdin_run.gh-closed"
+  stdin_out="$TMP_ROOT/$stdin_run.out"
+  stdin_err="$TMP_ROOT/$stdin_run.err"
+  mkfifo "$stdin_pipe"
+  (
+    exec 9>"$stdin_pipe"
+    while [ ! -e "$stdin_release" ]; do
+      sleep 0.02
+    done
+  ) &
+  stdin_writer_pid=$!
+  export CB_GATE_TEST_GH_STDIN_ENTERED="$stdin_entered"
+  export CB_GATE_TEST_GH_STDIN_CLOSED="$stdin_closed"
+  export CB_GATE_TEST_GH_MERGE_EFFECT=merged
+  HOME="$FAKE_NM_HOME" \
+    CB_GATE_TEST_BRANCH=$RUN_BRANCH CB_GATE_TEST_HEAD=$RUN_HEAD \
+    bash "$BIN/cb-step.sh" \
+      "$stdin_run" gate 1 --candidate-sha "$RUN_HEAD" \
+      <"$stdin_pipe" >"$stdin_out" 2>"$stdin_err" &
+  stdin_gate_pid=$!
+  if ! wait_for_path "$stdin_closed" "$stdin_gate_pid" 3; then
+    : >"$stdin_release"
+    kill "$stdin_gate_pid" 2>/dev/null || true
+    wait "$stdin_gate_pid" 2>/dev/null || true
+    wait "$stdin_writer_pid" 2>/dev/null || true
+    unset CB_GATE_TEST_GH_STDIN_ENTERED CB_GATE_TEST_GH_STDIN_CLOSED
+    unset CB_GATE_TEST_GH_MERGE_EFFECT
+    fail "merge-state GitHub observation hung on the Gate parent stdin"
+  fi
+  : >"$stdin_release"
+  wait "$stdin_writer_pid"
+  wait "$stdin_gate_pid" && stdin_status=0 || stdin_status=$?
+  unset CB_GATE_TEST_GH_STDIN_ENTERED CB_GATE_TEST_GH_STDIN_CLOSED
+  unset CB_GATE_TEST_GH_MERGE_EFFECT
+  expect_code 0 "$stdin_status" \
+    "closed-stdin GitHub observation$(test ! -s "$stdin_err" || printf ': %s' "$(cat "$stdin_err")")"
+  assert_present "$stdin_entered" \
+    "the hanging GitHub fixture must reach merge-state observation"
+  stdin_result=$(cat "$stdin_out")
+  assert_present "$stdin_result" \
+    "closed-stdin Gate should publish its universal result"
+  jq -e '.events[0].payload.outcome=="merged"' "$stdin_result" >/dev/null \
+    || fail "closing GitHub stdin must preserve the authenticated merge result"
+
   rm -f "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ARM_INTERRUPT"
 
   export CB_GATE_TEST_GH_MERGE_EFFECT=armed
@@ -1607,6 +1721,24 @@ test_arms_auto_merge_once() {
     || fail "terminal replay must never duplicate the merge arm"
   [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
     || fail "terminal replay must not observe GitHub again after a final merge"
+  terminal_backup="$terminal.original"
+  cp -p "$terminal" "$terminal_backup"
+  poison="$terminal.poison"
+  jq '.merge.arm=""' "$terminal" >"$poison"
+  chmod 0444 "$poison"
+  mv -f "$poison" "$terminal"
+  run_gate "$run" "$RUN_HEAD" 3
+  expect_code 0 "$CMD_STATUS" \
+    "merge outcome without arm replay${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="technical_error" and .events==[] and
+    .errors==["adapter_exit:73"]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "terminal replay must reject a merge outcome without its merge arm"
+  [ "$(wc -l <"$GH_CALLS" | tr -d " ")" -eq "$gh_calls" ] \
+    || fail "missing-arm terminal evidence must not query or mutate GitHub"
+  cp -p "$terminal_backup" "$poison"
+  mv -f "$poison" "$terminal"
   poison="$outcome.poison"
   jq '
     .requirements.checks[1]={
@@ -1616,7 +1748,7 @@ test_arms_auto_merge_once() {
   ' "$outcome" >"$poison"
   chmod 0444 "$poison"
   mv -f "$poison" "$outcome"
-  run_gate "$run" "$RUN_HEAD" 3
+  run_gate "$run" "$RUN_HEAD" 4
   expect_code 0 "$CMD_STATUS" \
     "mismatched merge evidence replay${CMD_STDERR:+: $CMD_STDERR}"
   jq -e '
