@@ -181,7 +181,7 @@ EOF
 }
 while ! mkdir "$lock" 2>/dev/null; do
   now=$(date +%s)
-  mtime=$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || printf '%s' "$now")
+  mtime=$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null || printf '%s' "$now")
   case "$mtime" in *[!0-9]*) mtime="$now" ;; esac
   if [ $((now - mtime)) -ge "$stale_after" ]; then reclaim_dead_lock; fi
   [ $((now - started)) -lt "$lock_timeout" ] || { echo "cb-emit: journal lock timeout" >&2; exit 75; }
