@@ -6,9 +6,9 @@
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
 #   records its target branch's strict app-aware check policy with paginated
 #   exact-SHA check/status evidence, seals authenticated GitHub merged/failed/cancelled
-#   outcomes, bounds armed-OPEN merge waiting before the host-global lease can
-#   starve sibling runs, and replays durable invocation/terminal seals without
-#   starting a duplicate delivery or PR lookup.
+#   outcomes, bounds every external child, releases shared runtime custody
+#   before GitHub-only waiting, and replays durable invocation/terminal seals
+#   without starting a duplicate delivery or PR lookup.
 #
 #   READING GUIDE
 #   -------------
@@ -21,8 +21,10 @@
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_serializes_global_gate  <- cross-run exclusion and stale recovery.
-#   10. test_arms_auto_merge_once   <- exact arm, stdin isolation, replay contracts.
-#   11. test_seals_github_terminal_outcomes <- failed/cancelled fact recovery.
+#   10. test_releases_lease_before_github <- GitHub waits cannot starve siblings.
+#   11. test_bounds_external_commands <- hung No-Mistakes/GitHub children die.
+#   12. test_arms_auto_merge_once   <- exact arm, stdin isolation, replay contracts.
+#   13. test_seals_github_terminal_outcomes <- failed/cancelled fact recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -66,9 +68,14 @@ NM_SERIAL_ACTIVE="$TMP_ROOT/no-mistakes.serial-active"
 NM_SERIAL_ENTERED="$TMP_ROOT/no-mistakes.serial-entered"
 NM_SERIAL_OVERLAP="$TMP_ROOT/no-mistakes.serial-overlap"
 NM_SERIAL_RELEASE="$TMP_ROOT/no-mistakes.serial-release"
+NM_HANG_ENTERED="$TMP_ROOT/no-mistakes.hang-entered"
+NM_HANG_PIDS="$TMP_ROOT/no-mistakes.hang-pids"
 GH_CALLS="$TMP_ROOT/gh.calls"
 GH_AUTO_MERGE_STATE="$TMP_ROOT/gh.auto-merge-state"
 GH_ARM_INTERRUPT="$TMP_ROOT/gh.arm-interrupt"
+GH_ENTERED="$TMP_ROOT/gh.entered"
+GH_HANG_ENTERED="$TMP_ROOT/gh.hang-entered"
+GH_HANG_PIDS="$TMP_ROOT/gh.hang-pids"
 GATE_LEASES_DIR="$TMP_ROOT/gate-leases"
 mkdir -p "$RUNS_DIR"
 mkdir -p "$FAKE_BIN_DIR"
@@ -86,8 +93,12 @@ export CB_GATE_TEST_SERIAL_ACTIVE="$NM_SERIAL_ACTIVE"
 export CB_GATE_TEST_SERIAL_ENTERED="$NM_SERIAL_ENTERED"
 export CB_GATE_TEST_SERIAL_OVERLAP="$NM_SERIAL_OVERLAP"
 export CB_GATE_TEST_SERIAL_RELEASE="$NM_SERIAL_RELEASE"
+export CB_GATE_TEST_NM_HANG_ENTERED="$NM_HANG_ENTERED"
+export CB_GATE_TEST_NM_HANG_PIDS="$NM_HANG_PIDS"
 export CB_GATE_TEST_GH_CALLS="$GH_CALLS"
 export CB_GATE_TEST_GH_AUTO_MERGE_STATE="$GH_AUTO_MERGE_STATE"
+export CB_GATE_TEST_GH_HANG_ENTERED="$GH_HANG_ENTERED"
+export CB_GATE_TEST_GH_HANG_PIDS="$GH_HANG_PIDS"
 export CB_GATE_TEST_GH_MODE=exact
 export PATH="$FAKE_BIN_DIR:$PATH"
 
@@ -178,7 +189,8 @@ if [ "$outcome" = interrupt-once ]; then
   if [ ! -f "$CB_GATE_TEST_ACTIVE" ]; then
     printf "fake-gate-run\n" >"$CB_GATE_TEST_ACTIVE"
     printf "started\n" >>"$CB_GATE_TEST_STARTS"
-    gate_pid=$(ps -o ppid= -p "$PPID" | tr -d " ")
+    bounded_pid=$(ps -o ppid= -p "$PPID" | tr -d " ")
+    gate_pid=$(ps -o ppid= -p "$bounded_pid" | tr -d " ")
     kill -TERM "$gate_pid"
     exit 75
   fi
@@ -192,6 +204,22 @@ if [ "$outcome" = slow-passed ]; then
     sleep 0.02
   done
   outcome=passed
+fi
+if [ "$outcome" = hang ]; then
+  : >"$CB_GATE_TEST_NM_HANG_ENTERED"
+  sleep 30 &
+  hang_child=$!
+  timeout_pid=$PPID
+  bounded_pid=$(ps -o ppid= -p "$timeout_pid" | tr -d " ")
+  gate_pid=$(ps -o ppid= -p "$bounded_pid" | tr -d " ")
+  printf "%s\n%s\n%s\n%s\n%s\n" \
+    "$gate_pid" "$bounded_pid" "$timeout_pid" "$$" "$hang_child" \
+    >"$CB_GATE_TEST_NM_HANG_PIDS"
+  ps -o pid= -P "$gate_pid" | tr -d " " \
+    >>"$CB_GATE_TEST_NM_HANG_PIDS"
+  trap "kill \"\$hang_child\" 2>/dev/null || true; wait \"\$hang_child\" 2>/dev/null || true; cleanup_serial; exit 143" HUP INT TERM
+  wait "$hang_child"
+  exit 75
 fi
 status=completed
 [ "$outcome" != failed ] || status=failed
@@ -225,6 +253,26 @@ set -eu
   done
   printf "\n"
 } >>"$CB_GATE_TEST_GH_CALLS"
+
+if [ -n "${CB_GATE_TEST_GH_ENTERED:-}" ]; then
+  : >"$CB_GATE_TEST_GH_ENTERED"
+fi
+if [ "${CB_GATE_TEST_GH_HANG_MODE:-}" = pr-view ] &&
+  [ "$1" = pr ] && [ "${2:-}" = view ] &&
+  [ "${5:-}" = url,headRefName,headRefOid ]; then
+  : >"$CB_GATE_TEST_GH_HANG_ENTERED"
+  sleep 30 &
+  hang_child=$!
+  timeout_pid=$PPID
+  bounded_pid=$(ps -o ppid= -p "$timeout_pid" | tr -d " ")
+  gate_pid=$(ps -o ppid= -p "$bounded_pid" | tr -d " ")
+  printf "%s\n%s\n%s\n%s\n%s\n" \
+    "$gate_pid" "$bounded_pid" "$timeout_pid" "$$" "$hang_child" \
+    >"$CB_GATE_TEST_GH_HANG_PIDS"
+  trap "kill \"\$hang_child\" 2>/dev/null || true; wait \"\$hang_child\" 2>/dev/null || true; exit 143" HUP INT TERM
+  wait "$hang_child"
+  exit 75
+fi
 
 mode=${CB_GATE_TEST_GH_MODE:-exact}
 url=https://example.test/pull/7
@@ -535,7 +583,8 @@ case "$1" in
     if [ -n "${CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM:-}" ] &&
       [ ! -e "$CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM" ]; then
       : >"$CB_GATE_TEST_GH_INTERRUPT_AFTER_ARM"
-      gate_pid=$(ps -o ppid= -p "$PPID" | tr -d " ")
+      bounded_pid=$(ps -o ppid= -p "$PPID" | tr -d " ")
+      gate_pid=$(ps -o ppid= -p "$bounded_pid" | tr -d " ")
       kill -TERM "$gate_pid"
       exit 75
     fi
@@ -563,6 +612,7 @@ write_no_mistakes_identity "deepseek/deepseek-v4-pro"
 write_config() {
   local path=$1 outcome=$2 arguments=${3:-} merge=${4:-manual}
   local merge_poll_seconds=${5:-} merge_wait_seconds=${6:-}
+  local nm_timeout_seconds=${7:-} github_timeout_seconds=${8:-}
   if [ -z "$arguments" ]; then
     arguments=$(jq -cn --arg outcome "$outcome" '[("--fake-outcome=" + $outcome)]')
   fi
@@ -573,6 +623,8 @@ write_config() {
     --arg merge "$merge" \
     --arg merge_poll_seconds "$merge_poll_seconds" \
     --arg merge_wait_seconds "$merge_wait_seconds" \
+    --arg nm_timeout_seconds "$nm_timeout_seconds" \
+    --arg github_timeout_seconds "$github_timeout_seconds" \
     --argjson arguments "$arguments" '
       {
         schema:"combo.config/v1",
@@ -606,6 +658,14 @@ write_config() {
               end) +
               (if $merge_wait_seconds=="" then {} else
                 {merge_wait_seconds:($merge_wait_seconds|tonumber)}
+              end) +
+              (if $nm_timeout_seconds=="" then {} else
+                {no_mistakes_command_timeout_seconds:
+                  ($nm_timeout_seconds|tonumber)}
+              end) +
+              (if $github_timeout_seconds=="" then {} else
+                {github_command_timeout_seconds:
+                  ($github_timeout_seconds|tonumber)}
               end)
             )
           },
@@ -617,7 +677,8 @@ write_config() {
 
 make_run() {
   local run=$1 outcome=$2 merge=${3:-manual}
-  local merge_poll_seconds=${4:-} merge_wait_seconds=${5:-} config base
+  local merge_poll_seconds=${4:-} merge_wait_seconds=${5:-}
+  local nm_timeout_seconds=${6:-} github_timeout_seconds=${7:-} config base
   config="$TMP_ROOT/$run.config.json"
   RUN_REPO="$TMP_ROOT/$run-repo"
   read -r base RUN_HEAD < <(cb_candidate_repo "$RUN_REPO" "$run")
@@ -643,7 +704,8 @@ make_run() {
     ' >"$RUNS_DIR/$run/agents/launcher.ownership.json"
   write_config \
     "$config" "$outcome" "" "$merge" \
-    "$merge_poll_seconds" "$merge_wait_seconds"
+    "$merge_poll_seconds" "$merge_wait_seconds" \
+    "$nm_timeout_seconds" "$github_timeout_seconds"
   sh "$BIN/cb-plan.sh" "$run" --config "$config" >/dev/null \
     || fail "could not compile Gate fixture plan for $run"
 }
@@ -676,7 +738,7 @@ wait_for_path() {
   done
 }
 
-# -- 1/11 CORE · test_validates_exact_sha -- <- START HERE
+# -- 1/13 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -730,9 +792,9 @@ test_validates_exact_sha() {
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/11
+# -/ 1/13
 
-# -- 2/11 CORE · test_recovers_exact_pr --
+# -- 2/13 CORE · test_recovers_exact_pr --
 test_recovers_exact_pr() {
   local run result terminal calls
 
@@ -853,9 +915,9 @@ test_recovers_exact_pr() {
   export CB_GATE_TEST_GH_MODE=exact
   pass "Gate recovers and seals one exact PR without duplicate delivery or lookup"
 }
-# -/ 2/11
+# -/ 2/13
 
-# -- 3/11 CORE · test_seals_configured_identity --
+# -- 3/13 CORE · test_seals_configured_identity --
 test_seals_configured_identity() {
   local mismatch=gate-configured-identity-mismatch
   local run=gate-configured-identity result invocation poison
@@ -925,9 +987,9 @@ test_seals_configured_identity() {
     || fail "identity mismatch must not start or attach another No-Mistakes run"
   pass "Gate seals configured runtime/model identity and the supported AXI surface"
 }
-# -/ 3/11
+# -/ 3/13
 
-# -- 4/11 CORE · test_rejects_candidate_drift --
+# -- 4/13 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -949,9 +1011,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 4/11
+# -/ 4/13
 
-# -- 5/11 CORE · test_maps_terminal_outcomes --
+# -- 5/13 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -1056,9 +1118,9 @@ test_maps_terminal_outcomes() {
 
   pass "Gate maps terminal outcomes and rejects untrusted No-Mistakes results"
 }
-# -/ 5/11
+# -/ 5/13
 
-# -- 6/11 CORE · test_guards_argument_edges --
+# -- 6/13 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -1092,9 +1154,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 6/11
+# -/ 6/13
 
-# -- 7/11 CORE · test_replays_terminal_seal --
+# -- 7/13 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -1161,9 +1223,9 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 7/11
+# -/ 7/13
 
-# -- 8/11 CORE · test_adopts_interrupted_run --
+# -- 8/13 CORE · test_adopts_interrupted_run --
 test_adopts_interrupted_run() {
   local run=gate-interrupted-recovery first_result second_result invocation
   local invocation_before invocation_after invocation_mode terminal
@@ -1244,9 +1306,9 @@ test_adopts_interrupted_run() {
     || fail "recovered terminal seal should bind the adopted run and its receipt"
   pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
 }
-# -/ 8/11
+# -/ 8/13
 
-# -- 9/11 CORE · test_serializes_global_gate --
+# -- 9/13 CORE · test_serializes_global_gate --
 test_serializes_global_gate() {
   local first=gate-serial-first second=gate-serial-second stale=gate-serial-stale
   local first_repo first_head first_branch second_repo second_head second_branch
@@ -1371,9 +1433,197 @@ test_serializes_global_gate() {
     || fail "serialization fixture must use independently isolated worktrees"
   pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
 }
-# -/ 9/11
+# -/ 9/13
 
-# -- 10/11 CORE · test_arms_auto_merge_once --
+# -- 10/13 CORE · test_releases_lease_before_github --
+test_releases_lease_before_github() {
+  local first=gate-github-wait-first second=gate-github-wait-second
+  local first_head first_branch second_head second_branch
+  local first_out first_err second_out second_err first_pid second_pid
+  local first_status second_status owner_pid deadline entries
+  local first_lease second_lease lock owner
+  local first_result second_result
+
+  rm -rf "$GATE_LEASES_DIR" "$NM_SERIAL_ACTIVE"
+  rm -f \
+    "$NM_SERIAL_ENTERED" "$NM_SERIAL_OVERLAP" "$NM_SERIAL_RELEASE" \
+    "$NM_CALLS" "$GH_CALLS" "$GH_AUTO_MERGE_STATE" "$GH_ENTERED"
+
+  make_run "$first" passed auto 1 3
+  first_head=$RUN_HEAD
+  first_branch=$RUN_BRANCH
+  make_run "$second" slow-passed
+  second_head=$RUN_HEAD
+  second_branch=$RUN_BRANCH
+
+  first_out="$TMP_ROOT/$first.out"
+  first_err="$TMP_ROOT/$first.background.err"
+  HOME="$FAKE_NM_HOME" \
+    CB_GATE_TEST_BRANCH=$first_branch CB_GATE_TEST_HEAD=$first_head \
+    CB_GATE_TEST_GH_ENTERED=$GH_ENTERED \
+    CB_GATE_TEST_GH_MERGE_EFFECT=armed \
+    bash "$BIN/cb-step.sh" \
+      "$first" gate 1 --candidate-sha "$first_head" \
+      >"$first_out" 2>"$first_err" &
+  first_pid=$!
+  if ! wait_for_path "$GH_ENTERED" "$first_pid" 5; then
+    kill "$first_pid" 2>/dev/null || true
+    wait "$first_pid" 2>/dev/null || true
+    fail "first Gate did not reach GitHub after its No-Mistakes invocation"
+  fi
+
+  lock="$GATE_LEASES_DIR/no-mistakes.lock"
+  owner="$lock/owner.json"
+  first_lease="$RUNS_DIR/$first/artifacts/gate/no-mistakes-lease-attempt-1.json"
+  owner_pid=$(jq -r '.pid' "$first_lease")
+  kill -0 "$owner_pid" 2>/dev/null \
+    || fail "the first Gate process must remain live during GitHub-only waiting"
+  jq -e '.state=="acquired" and .recovered_from==null' "$first_lease" >/dev/null \
+    || fail "the first Gate must have acquired normally, without stale recovery"
+  assert_absent "$lock" \
+    "No-Mistakes custody must end before the first GitHub command"
+
+  second_out="$TMP_ROOT/$second.out"
+  second_err="$TMP_ROOT/$second.background.err"
+  HOME="$FAKE_NM_HOME" \
+    CB_GATE_LEASE_WAIT_SECONDS=1 \
+    CB_GATE_TEST_BRANCH=$second_branch CB_GATE_TEST_HEAD=$second_head \
+    bash "$BIN/cb-step.sh" \
+      "$second" gate 1 --candidate-sha "$second_head" \
+      >"$second_out" 2>"$second_err" &
+  second_pid=$!
+
+  deadline=$(( $(date +%s) + 2 ))
+  entries=0
+  while kill -0 "$second_pid" 2>/dev/null; do
+    entries=$(wc -l <"$NM_SERIAL_ENTERED" | tr -d ' ')
+    [ "$entries" -ge 2 ] && break
+    [ "$(date +%s)" -lt "$deadline" ] || break
+    sleep 0.02
+  done
+  if [ "$entries" -lt 2 ]; then
+    : >"$NM_SERIAL_RELEASE"
+    wait "$first_pid" 2>/dev/null || true
+    wait "$second_pid" 2>/dev/null || true
+    fail "sibling Gate could not enter No-Mistakes during the first Gate's GitHub-only wait"
+  fi
+  kill -0 "$first_pid" 2>/dev/null \
+    || fail "sibling entry must precede the first Gate's GitHub terminal outcome"
+  assert_absent "$NM_SERIAL_OVERLAP" \
+    "releasing GitHub custody must not overlap No-Mistakes runtimes"
+
+  wait "$first_pid" && first_status=0 || first_status=$?
+  expect_code 0 "$first_status" \
+    "first GitHub-waiting Gate$(test ! -s "$first_err" || printf ': %s' "$(cat "$first_err")")"
+  first_result=$(cat "$first_out")
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_auto_merge_timeout"}
+    }]
+  ' "$first_result" >/dev/null \
+    || fail "first Gate should finish only with its truthful local GitHub wait timeout"
+
+  [ -f "$owner" ] \
+    || fail "first Gate cleanup must not remove the sibling-owned lease"
+  jq -e --arg run "$second" '.run_id==$run' "$owner" >/dev/null \
+    || fail "the surviving lease must belong exactly to the sibling Gate"
+  kill -0 "$(jq -r '.pid' "$owner")" 2>/dev/null \
+    || fail "the sibling lease must remain live while its runtime is active"
+
+  : >"$NM_SERIAL_RELEASE"
+  wait "$second_pid" && second_status=0 || second_status=$?
+  expect_code 0 "$second_status" \
+    "sibling Gate$(test ! -s "$second_err" || printf ': %s' "$(cat "$second_err")")"
+  second_result=$(cat "$second_out")
+  jq -e '.events[0].event=="gate_ok"' "$second_result" >/dev/null \
+    || fail "sibling Gate should validate within its own lease wait budget"
+  second_lease="$RUNS_DIR/$second/artifacts/gate/no-mistakes-lease-attempt-1.json"
+  jq -e '.state=="acquired" and .recovered_from==null' "$second_lease" >/dev/null \
+    || fail "sibling progress must come from timely release, not stale-owner recovery"
+  assert_absent "$lock" "sibling completion should release its exact owned lease"
+
+  pass "Gate releases No-Mistakes custody before GitHub-only arm and polling"
+}
+# -/ 10/13
+
+# -- 11/13 CORE · test_bounds_external_commands --
+test_bounds_external_commands() {
+  local nm_run=gate-hung-no-mistakes gh_run=gate-hung-github
+  local pid lock
+
+  rm -rf "$GATE_LEASES_DIR"
+  rm -f \
+    "$NM_HANG_ENTERED" "$NM_HANG_PIDS" "$GH_HANG_ENTERED" \
+    "$GH_HANG_PIDS" "$GH_CALLS"
+  make_run "$nm_run" hang manual "" "" 1 2
+  export CB_GATE_COMMAND_TIMEOUT_KILL_AFTER_SECONDS=1
+  run_gate "$nm_run" "$RUN_HEAD"
+  unset CB_GATE_COMMAND_TIMEOUT_KILL_AFTER_SECONDS
+  expect_code 0 "$CMD_STATUS" \
+    "hung No-Mistakes command${CMD_STDERR:+: $CMD_STDERR}"
+  assert_present "$NM_HANG_ENTERED" \
+    "No-Mistakes timeout must reach the intended hanging child"
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"no_mistakes_command_timeout"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "hung No-Mistakes must become a typed Gate failure"
+  while IFS= read -r pid; do
+    kill -0 "$pid" 2>/dev/null \
+      && fail "timed-out No-Mistakes or lease-heartbeat process survived: $pid"
+  done <"$NM_HANG_PIDS"
+  lock="$GATE_LEASES_DIR/no-mistakes.lock"
+  assert_absent "$lock" \
+    "No-Mistakes timeout must release the exact host-global lease"
+  assert_absent "$RUNS_DIR/$nm_run/artifacts/gate/merge-arm.json" \
+    "No-Mistakes timeout must not fabricate a GitHub merge arm"
+  assert_absent "$RUNS_DIR/$nm_run/artifacts/gate/merge-outcome.json" \
+    "No-Mistakes timeout must not fabricate GitHub terminal evidence"
+
+  rm -f "$GH_HANG_ENTERED" "$GH_HANG_PIDS" "$GH_CALLS"
+  make_run "$gh_run" passed manual "" "" 2 9
+  export CB_GATE_NO_MISTAKES_COMMAND_TIMEOUT_SECONDS=2
+  export CB_GATE_GITHUB_COMMAND_TIMEOUT_SECONDS=1
+  export CB_GATE_COMMAND_TIMEOUT_KILL_AFTER_SECONDS=1
+  export CB_GATE_TEST_GH_HANG_MODE=pr-view
+  run_gate "$gh_run" "$RUN_HEAD"
+  unset CB_GATE_NO_MISTAKES_COMMAND_TIMEOUT_SECONDS
+  unset CB_GATE_GITHUB_COMMAND_TIMEOUT_SECONDS
+  unset CB_GATE_COMMAND_TIMEOUT_KILL_AFTER_SECONDS
+  unset CB_GATE_TEST_GH_HANG_MODE
+  expect_code 0 "$CMD_STATUS" \
+    "hung GitHub command${CMD_STDERR:+: $CMD_STDERR}"
+  assert_present "$GH_HANG_ENTERED" \
+    "GitHub timeout must reach the intended hanging child"
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"github_command_timeout"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "hung GitHub must become a typed Gate failure"
+  while IFS= read -r pid; do
+    kill -0 "$pid" 2>/dev/null \
+      && fail "timed-out GitHub child process survived: $pid"
+  done <"$GH_HANG_PIDS"
+  assert_absent "$lock" \
+    "GitHub timeout must occur after shared No-Mistakes custody ends"
+  assert_absent "$RUNS_DIR/$gh_run/artifacts/gate/merge-arm.json" \
+    "GitHub timeout must not fabricate a merge arm"
+  assert_absent "$RUNS_DIR/$gh_run/artifacts/gate/merge-outcome.json" \
+    "GitHub timeout must not fabricate GitHub terminal evidence"
+
+  pass "Gate bounds hung No-Mistakes and GitHub commands with truthful failures"
+}
+# -/ 11/13
+
+# -- 12/13 CORE · test_arms_auto_merge_once --
 test_arms_auto_merge_once() {
   local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls nm_calls
   local arm_mode outcome_mode poison terminal_backup
@@ -1905,9 +2155,9 @@ test_arms_auto_merge_once() {
 
   pass "Gate binds strict exact-SHA checks, arms once, observes merge, and recovers"
 }
-# -/ 10/11
+# -/ 12/13
 
-# -- 11/11 CORE · test_seals_github_terminal_outcomes --
+# -- 13/13 CORE · test_seals_github_terminal_outcomes --
 test_seals_github_terminal_outcomes() {
   local closed=gate-auto-merge-closed auto_cancelled=gate-auto-merge-cancelled
   local failed=gate-auto-merge-check-failed
@@ -2092,16 +2342,29 @@ test_seals_github_terminal_outcomes() {
 
   pass "Gate seals and replays authenticated GitHub failed/cancelled outcomes"
 }
-# -/ 11/11
+# -/ 13/13
 
-test_validates_exact_sha
-test_recovers_exact_pr
-test_seals_configured_identity
-test_rejects_candidate_drift
-test_maps_terminal_outcomes
-test_guards_argument_edges
-test_replays_terminal_seal
-test_adopts_interrupted_run
-test_serializes_global_gate
-test_arms_auto_merge_once
-test_seals_github_terminal_outcomes
+case "${CB_GATE_TEST_ONLY:-all}" in
+  bounds)
+    test_bounds_external_commands
+    ;;
+  release)
+    test_releases_lease_before_github
+    ;;
+  all)
+    test_validates_exact_sha
+    test_recovers_exact_pr
+    test_seals_configured_identity
+    test_rejects_candidate_drift
+    test_maps_terminal_outcomes
+    test_guards_argument_edges
+    test_replays_terminal_seal
+    test_adopts_interrupted_run
+    test_serializes_global_gate
+    test_releases_lease_before_github
+    test_bounds_external_commands
+    test_arms_auto_merge_once
+    test_seals_github_terminal_outcomes
+    ;;
+  *) fail "unknown focused Gate test: $CB_GATE_TEST_ONLY" ;;
+esac

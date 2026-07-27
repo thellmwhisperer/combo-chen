@@ -4,10 +4,11 @@
 #   axi invocation, verifies configured runtime/model against the effective
 #   No-Mistakes config and doctor surface, seals that identity with the observed
 #   version/help plus effective binary/argv before launch, serializes the
-#   invocation through a host-global lease with run-local evidence, adopts the
-#   same invocation after interruption, and seals/replays the typed terminal
-#   outcome plus one GitHub-verified exact PR. Explicit auto authority arms that
-#   PR once with GitHub auto-rebase, while manual authority remains mutation-free;
+#   invocation through a host-global lease with run-local evidence, bounds every
+#   No-Mistakes and GitHub child, releases shared runtime custody before GitHub,
+#   adopts the same invocation after interruption, and seals/replays the typed
+#   terminal outcome plus one GitHub-verified exact PR. Explicit auto authority
+#   arms that PR once with GitHub auto-rebase, while manual authority remains mutation-free;
 #   authenticated state and the target branch's strict required-check policy
 #   recover an interrupted arm without replaying the effect, keep an armed OPEN
 #   PR inside a bounded wait, and seal all paginated exact-candidate check
@@ -38,7 +39,9 @@
 #   capture_no_mistakes_config_identity, capture_no_mistakes_probe,
 #   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
 #   reclaim_stale_lease, validate_github_pr_object, resolve_exact_github_pr,
-#   resolve_github_binary, validate_required_checks,
+#   release_gate_lease, run_bounded_external, external_command_timed_out,
+#   require_github_command_success, resolve_github_binary,
+#   validate_required_checks,
 #   required_checks_satisfied, required_checks_failed, validate_merge_arm,
 #   validate_merge_observation, validate_merge_outcome,
 #   resolve_github_repository, capture_github_requirements,
@@ -47,7 +50,7 @@
 #   ensure_auto_merge_armed, wait_for_auto_merge_outcome
 #
 # @exports none
-# @deps bash, date, gh, git, jq, od, realpath, sleep, stat, touch, tr,
+# @deps bash, date, gh, git, jq, od, realpath, sleep, stat, timeout, touch, tr,
 #   no-mistakes-compatible configured binary
 set -euo pipefail
 
@@ -102,9 +105,46 @@ gate_lease_lock=
 gate_lease_owner=
 gate_lease_owner_json=
 gate_lease_owned=0
+gate_lease_owner_removed=0
 gate_lease_heartbeat_pid=
+release_gate_lease() {
+  local current_owner release_attempt=0
+  if [ -n "$gate_lease_heartbeat_pid" ]; then
+    kill "$gate_lease_heartbeat_pid" 2>/dev/null || true
+    wait "$gate_lease_heartbeat_pid" 2>/dev/null || true
+    gate_lease_heartbeat_pid=
+  fi
+  if [ "$gate_lease_owned" -eq 1 ]; then
+    if [ "$gate_lease_owner_removed" -eq 0 ]; then
+      current_owner=$(cat "$gate_lease_owner" 2>/dev/null || true)
+      if [ "$current_owner" = "$gate_lease_owner_json" ]; then
+        rm -f -- "$gate_lease_owner"
+        if [ ! -e "$gate_lease_owner" ] && [ ! -L "$gate_lease_owner" ]; then
+          gate_lease_owner_removed=1
+        fi
+      else
+        gate_lease_owned=0
+      fi
+    fi
+    while [ "$gate_lease_owned" -eq 1 ] \
+      && [ "$gate_lease_owner_removed" -eq 1 ]; do
+      if [ -e "$gate_lease_owner" ] || [ -L "$gate_lease_owner" ]; then
+        gate_lease_owned=0
+        break
+      fi
+      if rmdir "$gate_lease_lock" 2>/dev/null; then
+        gate_lease_owned=0
+        break
+      fi
+      release_attempt=$((release_attempt + 1))
+      [ "$release_attempt" -lt 100 ] || break
+      sleep 0.01
+    done
+  fi
+  [ "$gate_lease_owned" -eq 0 ]
+}
+
 cleanup() {
-  local current_owner
   [ "$output_tmp_owned" -eq 0 ] || rm -f -- "$output_tmp"
   [ "$receipt_tmp_owned" -eq 0 ] || rm -f -- "$receipt_tmp"
   [ "$terminal_tmp_owned" -eq 0 ] || rm -f -- "$terminal_tmp"
@@ -112,18 +152,7 @@ cleanup() {
   [ "$lease_tmp_owned" -eq 0 ] || rm -f -- "$lease_tmp"
   [ "$merge_arm_tmp_owned" -eq 0 ] || rm -f -- "$merge_arm_tmp"
   [ "$merge_outcome_tmp_owned" -eq 0 ] || rm -f -- "$merge_outcome_tmp"
-  if [ -n "$gate_lease_heartbeat_pid" ]; then
-    kill "$gate_lease_heartbeat_pid" 2>/dev/null || true
-    wait "$gate_lease_heartbeat_pid" 2>/dev/null || true
-    gate_lease_heartbeat_pid=
-  fi
-  if [ "$gate_lease_owned" -eq 1 ]; then
-    current_owner=$(cat "$gate_lease_owner" 2>/dev/null || true)
-    if [ "$current_owner" = "$gate_lease_owner_json" ]; then
-      rm -f -- "$gate_lease_owner"
-      rmdir "$gate_lease_lock" 2>/dev/null || true
-    fi
-  fi
+  release_gate_lease || true
 }
 trap cleanup 0
 trap 'exit 130' 1 2 15
@@ -167,8 +196,9 @@ if ! jq -e '
       ] - $keys) | length==0) and
       (($keys - [
         "approval","arguments","binary","intent","merge",
-        "merge_poll_seconds","merge_wait_seconds","model","review",
-        "runtime","schema"
+        "github_command_timeout_seconds","merge_poll_seconds",
+        "merge_wait_seconds","model","no_mistakes_command_timeout_seconds",
+        "review","runtime","schema"
       ]) | length==0)) and
     .schema=="combo.gate.no-mistakes/v1" and
     (.binary|clean_string) and
@@ -184,6 +214,12 @@ if ! jq -e '
         type=="number" and floor==. and .>0)) and
     ((has("merge_wait_seconds")|not) or
       (.merge_wait_seconds |
+        type=="number" and floor==. and .>0)) and
+    ((has("no_mistakes_command_timeout_seconds")|not) or
+      (.no_mistakes_command_timeout_seconds |
+        type=="number" and floor==. and .>0)) and
+    ((has("github_command_timeout_seconds")|not) or
+      (.github_command_timeout_seconds |
         type=="number" and floor==. and .>0)))
 ' "$input" >/dev/null 2>&1; then
   fail_contract "invalid universal Gate input or No-Mistakes config"
@@ -199,8 +235,15 @@ configured_merge_poll_seconds=$(jq -r \
   '.config.merge_poll_seconds // 5' "$input")
 configured_merge_wait_seconds=$(jq -r \
   '.config.merge_wait_seconds // 600' "$input")
+configured_no_mistakes_command_timeout_seconds=$(jq -r \
+  '.config.no_mistakes_command_timeout_seconds // 3600' "$input")
+configured_github_command_timeout_seconds=$(jq -r \
+  '.config.github_command_timeout_seconds // 60' "$input")
 merge_poll_seconds=${CB_GATE_MERGE_POLL_SECONDS:-$configured_merge_poll_seconds}
 merge_wait_seconds=${CB_GATE_MERGE_WAIT_SECONDS:-$configured_merge_wait_seconds}
+no_mistakes_command_timeout_seconds=${CB_GATE_NO_MISTAKES_COMMAND_TIMEOUT_SECONDS:-$configured_no_mistakes_command_timeout_seconds}
+github_command_timeout_seconds=${CB_GATE_GITHUB_COMMAND_TIMEOUT_SECONDS:-$configured_github_command_timeout_seconds}
+command_timeout_kill_after_seconds=${CB_GATE_COMMAND_TIMEOUT_KILL_AFTER_SECONDS:-5}
 case "$merge_poll_seconds" in
   ''|0|0*|*[!0-9]*)
     fail_contract "Gate merge poll interval must be a positive integer"
@@ -209,6 +252,21 @@ esac
 case "$merge_wait_seconds" in
   ''|0|0*|*[!0-9]*)
     fail_contract "Gate merge wait duration must be a positive integer"
+    ;;
+esac
+case "$no_mistakes_command_timeout_seconds" in
+  ''|0|0*|*[!0-9]*)
+    fail_contract "Gate No-Mistakes command timeout must be a positive integer"
+    ;;
+esac
+case "$github_command_timeout_seconds" in
+  ''|0|0*|*[!0-9]*)
+    fail_contract "Gate GitHub command timeout must be a positive integer"
+    ;;
+esac
+case "$command_timeout_kill_after_seconds" in
+  ''|0|0*|*[!0-9]*)
+    fail_contract "Gate command timeout kill delay must be a positive integer"
     ;;
 esac
 run_dir=$(jq -r '.paths.run_dir' "$input")
@@ -1194,6 +1252,31 @@ fi
 [ ! -e "$terminal_tmp" ] && [ ! -L "$terminal_tmp" ] \
   || fail_contract "Gate terminal staging path already exists" 73
 
+timeout_binary=$(command -v timeout 2>/dev/null) \
+  || fail_contract "timeout is required to bound Gate commands" 73
+case "$timeout_binary" in
+  /*) ;;
+  *) fail_contract "timeout path must be absolute" 73 ;;
+esac
+[ -f "$timeout_binary" ] && [ -x "$timeout_binary" ] \
+  || fail_contract "timeout is missing or unsafe" 73
+timeout_binary=$(realpath "$timeout_binary" 2>/dev/null) \
+  || fail_contract "cannot resolve timeout binary" 73
+
+run_bounded_external() {
+  local budget=$1
+  shift
+  "$timeout_binary" -k "$command_timeout_kill_after_seconds" "$budget" "$@"
+}
+
+external_command_timed_out() {
+  case "$1" in
+    124|137) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+artifacts='[]'
 binary=$(jq -r '.config.binary' "$input")
 case "$binary" in
   */*)
@@ -1309,26 +1392,31 @@ capture_no_mistakes_config_identity() {
 }
 
 capture_no_mistakes_probe() {
-  local label=$1 value status
-  shift
+  local label=$1 destination=$2 value status
+  shift 2
   set +e
-  value=$("$binary_path" "$@")
+  value=$(run_bounded_external \
+    "$no_mistakes_command_timeout_seconds" "$binary_path" "$@")
   status=$?
   set -e
+  if external_command_timed_out "$status"; then
+    publish_gate_failed no_mistakes_command_timeout "$artifacts"
+    exit 0
+  fi
   [ "$status" -eq 0 ] \
     || fail_contract "No-Mistakes $label probe failed" 73
   [ -n "$value" ] \
     || fail_contract "No-Mistakes $label probe returned no evidence" 73
-  printf '%s' "$value"
+  printf -v "$destination" '%s' "$value"
 }
 
 capture_no_mistakes_config_identity
-nm_version=$(capture_no_mistakes_probe version --version)
-nm_doctor=$(capture_no_mistakes_probe doctor doctor)
-nm_axi_run_help=$(capture_no_mistakes_probe "axi run help" axi run --help)
-nm_axi_status_help=$(capture_no_mistakes_probe "axi status help" axi status --help)
-nm_axi_respond_help=$(capture_no_mistakes_probe \
-  "axi respond help" axi respond --help)
+capture_no_mistakes_probe version nm_version --version
+capture_no_mistakes_probe doctor nm_doctor doctor
+capture_no_mistakes_probe "axi run help" nm_axi_run_help axi run --help
+capture_no_mistakes_probe "axi status help" nm_axi_status_help axi status --help
+capture_no_mistakes_probe \
+  "axi respond help" nm_axi_respond_help axi respond --help
 case "$nm_version" in
   *"no-mistakes version"*) ;;
   *) fail_contract "No-Mistakes version evidence is unrecognized" 73 ;;
@@ -1783,7 +1871,9 @@ set +C
 set +e
 (
   cd "$worktree" || exit 73
-  "$sealed_binary" "${sealed_args[@]}"
+  run_bounded_external \
+    "$no_mistakes_command_timeout_seconds" \
+    "$sealed_binary" "${sealed_args[@]}"
 ) </dev/null >&4
 nm_status=$?
 set -e
@@ -1803,6 +1893,12 @@ artifacts=$(jq -cn \
       {id:"no-mistakes-outcome",path:$receipt}
     ]
   ')
+release_gate_lease \
+  || fail_contract "cannot release global No-Mistakes Gate lease" 73
+if external_command_timed_out "$nm_status"; then
+  publish_gate_failed no_mistakes_command_timeout "$artifacts"
+  exit 0
+fi
 # -/ 4/5
 
 # -- 5/5 CORE · Validate typed identity and normalize terminal outcome --
@@ -1834,6 +1930,15 @@ github_merge_observation=
 github_repository=
 github_requirements=
 github_check_evidence=
+
+require_github_command_success() {
+  local status=$1 failure=$2
+  if external_command_timed_out "$status"; then
+    publish_gate_failed github_command_timeout "$artifacts"
+    exit 0
+  fi
+  [ "$status" -eq 0 ] || fail_contract "$failure" 73
+}
 
 resolve_github_binary() {
   local discovered
@@ -1867,21 +1972,22 @@ resolve_exact_github_pr() {
   if [ -n "$returned_url" ]; then
     github_evidence=$(
       cd "$worktree" || exit 73
-      "$github_binary" pr view "$returned_url" \
+      run_bounded_external "$github_command_timeout_seconds" \
+        "$github_binary" pr view "$returned_url" \
         --json url,headRefName,headRefOid </dev/null
     )
     github_status=$?
   else
     github_evidence=$(
       cd "$worktree" || exit 73
-      "$github_binary" pr list --head "$branch" --state open --limit 2 \
+      run_bounded_external "$github_command_timeout_seconds" \
+        "$github_binary" pr list --head "$branch" --state open --limit 2 \
         --json url,headRefName,headRefOid </dev/null
     )
     github_status=$?
   fi
   set -e
-  [ "$github_status" -eq 0 ] \
-    || fail_contract "GitHub PR lookup failed" 73
+  require_github_command_success "$github_status" "GitHub PR lookup failed"
 
   if [ -n "$returned_url" ]; then
     validate_github_pr_object "$github_evidence" \
@@ -1969,12 +2075,12 @@ resolve_github_repository() {
   set +e
   evidence=$(
     cd "$worktree" || exit 73
-    "$github_binary" repo view --json nameWithOwner,url </dev/null
+    run_bounded_external "$github_command_timeout_seconds" \
+      "$github_binary" repo view --json nameWithOwner,url </dev/null
   )
   status=$?
   set -e
-  [ "$status" -eq 0 ] \
-    || fail_contract "GitHub repository lookup failed" 73
+  require_github_command_success "$status" "GitHub repository lookup failed"
   if ! printf '%s\n' "$evidence" | jq -e '
     def clean:
       type=="string" and length>0 and
@@ -2014,12 +2120,13 @@ capture_github_requirements() {
   set +e
   evidence=$(
     cd "$worktree" || exit 73
-    "$github_binary" api "$endpoint" </dev/null
+    run_bounded_external "$github_command_timeout_seconds" \
+      "$github_binary" api "$endpoint" </dev/null
   )
   status=$?
   set -e
-  [ "$status" -eq 0 ] \
-    || fail_contract "GitHub required-check policy lookup failed" 73
+  require_github_command_success \
+    "$status" "GitHub required-check policy lookup failed"
   if ! printf '%s\n' "$evidence" | jq -e '
     def clean:
       type=="string" and length>0 and
@@ -2078,7 +2185,8 @@ capture_github_requirements() {
 
 capture_github_check_evidence() {
   local repository_name checks_endpoint statuses_endpoint
-  local checks_json statuses_json checks_status statuses_status
+  local checks_pages statuses_pages checks_json statuses_json
+  local checks_status statuses_status
   resolve_github_repository
   repository_name=$(printf '%s\n' "$github_repository" |
     jq -r '.name_with_owner') \
@@ -2086,61 +2194,67 @@ capture_github_check_evidence() {
   checks_endpoint="repos/$repository_name/commits/$candidate_sha/check-runs?filter=latest&per_page=100"
   statuses_endpoint="repos/$repository_name/commits/$candidate_sha/status?per_page=100"
   set +e
-  checks_json=$(
+  checks_pages=$(
     cd "$worktree" || exit 73
-    "$github_binary" api --paginate --slurp "$checks_endpoint" </dev/null |
-      jq -c '
-        if length==0 then
-          error("missing check-run pages")
-        else
-          .[0] as $first |
-          {
-            total_count:$first.total_count,
-            check_runs:[
-              .[] as $page |
-              if (($page|type)!="object" or
-                  $page.total_count!=$first.total_count or
-                  ($page.check_runs|type)!="array") then
-                error("inconsistent check-run pages")
-              else
-                $page.check_runs[]
-              end
-            ]
-          }
-        end
-      '
+    run_bounded_external "$github_command_timeout_seconds" \
+      "$github_binary" api --paginate --slurp "$checks_endpoint" </dev/null
   )
   checks_status=$?
-  statuses_json=$(
+  set -e
+  require_github_command_success \
+    "$checks_status" "GitHub exact-SHA check lookup failed"
+  set +e
+  statuses_pages=$(
     cd "$worktree" || exit 73
-    "$github_binary" api --paginate --slurp "$statuses_endpoint" </dev/null |
-      jq -c '
-        if length==0 then
-          error("missing status pages")
-        else
-          .[0] as $first |
-          {
-            sha:$first.sha,
-            total_count:$first.total_count,
-            statuses:[
-              .[] as $page |
-              if (($page|type)!="object" or
-                  $page.sha!=$first.sha or
-                  $page.total_count!=$first.total_count or
-                  ($page.statuses|type)!="array") then
-                error("inconsistent status pages")
-              else
-                $page.statuses[]
-              end
-            ]
-          }
-        end
-      '
+    run_bounded_external "$github_command_timeout_seconds" \
+      "$github_binary" api --paginate --slurp "$statuses_endpoint" </dev/null
   )
   statuses_status=$?
   set -e
-  [ "$checks_status" -eq 0 ] && [ "$statuses_status" -eq 0 ] \
-    || fail_contract "GitHub exact-SHA check lookup failed" 73
+  require_github_command_success \
+    "$statuses_status" "GitHub exact-SHA status lookup failed"
+  checks_json=$(printf '%s\n' "$checks_pages" | jq -c '
+    if length==0 then
+      error("missing check-run pages")
+    else
+      .[0] as $first |
+      {
+        total_count:$first.total_count,
+        check_runs:[
+          .[] as $page |
+          if (($page|type)!="object" or
+              $page.total_count!=$first.total_count or
+              ($page.check_runs|type)!="array") then
+            error("inconsistent check-run pages")
+          else
+            $page.check_runs[]
+          end
+        ]
+      }
+    end
+  ') || fail_contract "cannot fold GitHub exact-SHA check-run pages" 73
+  statuses_json=$(printf '%s\n' "$statuses_pages" | jq -c '
+    if length==0 then
+      error("missing status pages")
+    else
+      .[0] as $first |
+      {
+        sha:$first.sha,
+        total_count:$first.total_count,
+        statuses:[
+          .[] as $page |
+          if (($page|type)!="object" or
+              $page.sha!=$first.sha or
+              $page.total_count!=$first.total_count or
+              ($page.statuses|type)!="array") then
+            error("inconsistent status pages")
+          else
+            $page.statuses[]
+          end
+        ]
+      }
+    end
+  ') || fail_contract "cannot fold GitHub exact-SHA status pages" 73
   if ! printf '%s\n' "$checks_json" | jq -e \
     --arg sha "$candidate_sha" '
     def clean:
@@ -2215,14 +2329,14 @@ observe_exact_merge_state() {
   set +e
   evidence=$(
     cd "$worktree" || exit 73
-    "$github_binary" pr view "$pr" \
+    run_bounded_external "$github_command_timeout_seconds" \
+      "$github_binary" pr view "$pr" \
       --json url,headRefName,headRefOid,baseRefName,baseRefOid,state,autoMergeRequest,mergeStateStatus,mergeable,mergedAt,mergeCommit \
       </dev/null
   )
   status=$?
   set -e
-  [ "$status" -eq 0 ] \
-    || fail_contract "GitHub merge-state lookup failed" 73
+  require_github_command_success "$status" "GitHub merge-state lookup failed"
   validate_merge_state_object "$evidence" \
     || fail_contract "invalid GitHub merge-state evidence" 73
   github_merge_observation=$(printf '%s\n' "$evidence" | jq -c '.') \
@@ -2474,10 +2588,15 @@ ensure_auto_merge_armed() {
     set +e
     (
       cd "$worktree" || exit 73
-      "$github_binary" pr merge "$pr" --auto --rebase </dev/null
+      run_bounded_external "$github_command_timeout_seconds" \
+        "$github_binary" pr merge "$pr" --auto --rebase </dev/null
     ) >/dev/null 2>&1
     command_status=$?
     set -e
+    if external_command_timed_out "$command_status"; then
+      publish_gate_failed github_command_timeout "$artifacts"
+      exit 0
+    fi
     verify_candidate \
       || { publish_gate_failed candidate_head_changed "$artifacts"; exit 0; }
     observe_exact_merge_state "$pr"
@@ -2815,4 +2934,4 @@ terminal_tmp_owned=0
 publish_terminal_result "$terminal_json"
 # -/ 5/5
 
-# merge-wait deadline (configurable, default 600s): prevents unbounded lease hold
+# GitHub-only merge wait remains bounded independently of released NM custody.
