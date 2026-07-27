@@ -35,7 +35,9 @@
 #
 #   INTERNALS
 #   ---------
-#   usage, fail_contract, publish_result, publish_gate_failed,
+#   usage, fail_contract, reserve_staged_artifact, discard_staged_artifact,
+#   publish_reserved_staged_artifact, publish_staged_text,
+#   publish_result, publish_gate_failed,
 #   verify_candidate, toon_scalar, publish_terminal_result,
 #   capture_no_mistakes_config_identity, capture_no_mistakes_probe,
 #   validate_no_mistakes_preflight, validate_invocation, validate_lease_owner,
@@ -51,8 +53,8 @@
 #   ensure_auto_merge_armed, wait_for_auto_merge_outcome
 #
 # @exports none
-# @deps bash, date, gh, git, jq, od, realpath, sleep, stat, timeout, touch, tr,
-#   no-mistakes-compatible configured binary
+# @deps bash, cat, date, gh, git, jq, od, realpath, sleep, stat, timeout, touch,
+#   tr, no-mistakes-compatible configured binary
 set -euo pipefail
 
 usage() {
@@ -89,19 +91,14 @@ command -v jq >/dev/null 2>&1 || fail_contract "jq is required" 73
 command -v realpath >/dev/null 2>&1 || fail_contract "realpath is required" 73
 
 output_tmp=
-output_tmp_owned=0
 receipt_tmp=
-receipt_tmp_owned=0
 terminal_tmp=
-terminal_tmp_owned=0
 invocation_tmp=
-invocation_tmp_owned=0
 lease_tmp=
-lease_tmp_owned=0
 merge_arm_tmp=
-merge_arm_tmp_owned=0
 merge_outcome_tmp=
-merge_outcome_tmp_owned=0
+staged_tmp=
+staged_tmp_owned=0
 gate_lease_lock=
 gate_lease_owner=
 gate_lease_owner_json=
@@ -163,13 +160,8 @@ release_gate_lease() {
 }
 
 cleanup() {
-  [ "$output_tmp_owned" -eq 0 ] || rm -f -- "$output_tmp"
-  [ "$receipt_tmp_owned" -eq 0 ] || rm -f -- "$receipt_tmp"
-  [ "$terminal_tmp_owned" -eq 0 ] || rm -f -- "$terminal_tmp"
-  [ "$invocation_tmp_owned" -eq 0 ] || rm -f -- "$invocation_tmp"
-  [ "$lease_tmp_owned" -eq 0 ] || rm -f -- "$lease_tmp"
-  [ "$merge_arm_tmp_owned" -eq 0 ] || rm -f -- "$merge_arm_tmp"
-  [ "$merge_outcome_tmp_owned" -eq 0 ] || rm -f -- "$merge_outcome_tmp"
+  exec 9>&- 2>/dev/null || true
+  [ "$staged_tmp_owned" -eq 0 ] || rm -f -- "$staged_tmp"
   release_gate_lease || true
 }
 trap cleanup 0
@@ -318,24 +310,54 @@ output_tmp=$invocation_dir/.adapter-output.json.tmp.$$
   || fail_contract "output staging path already exists" 73
 # -/ 1/5
 
-publish_result() {
-  local json=$1
+reserve_staged_artifact() {
+  local path=$1 label=$2
+  staged_tmp=$path
   set -C
-  if exec 3>"$output_tmp"; then
-    output_tmp_owned=1
+  if exec 9>"$staged_tmp"; then
+    staged_tmp_owned=1
   else
     set +C
-    fail_contract "cannot reserve output staging path" 73
+    fail_contract "cannot reserve $label staging path" 73
   fi
   set +C
-  printf '%s\n' "$json" >&3
-  exec 3>&-
-  chmod 0444 "$output_tmp" || fail_contract "cannot make output read-only" 73
-  if ! ln "$output_tmp" "$output" 2>/dev/null; then
+}
+
+discard_staged_artifact() {
+  rm -f -- "$staged_tmp"
+  staged_tmp_owned=0
+  staged_tmp=
+}
+
+publish_reserved_staged_artifact() {
+  local target=$1 label=$2
+  if ! exec 9>&-; then
+    fail_contract "cannot close $label staging file" 73
+  fi
+  chmod 0444 "$staged_tmp" \
+    || fail_contract "cannot make $label read-only" 73
+  if ! ln "$staged_tmp" "$target" 2>/dev/null; then
+    return 1
+  fi
+  discard_staged_artifact
+}
+
+publish_staged_text() {
+  local text=$1 staging=$2 target=$3 label=$4
+  reserve_staged_artifact "$staging" "$label"
+  if ! printf '%s\n' "$text" >&9; then
+    exec 9>&- 2>/dev/null || true
+    fail_contract "cannot write $label staging file" 73
+  fi
+  publish_reserved_staged_artifact "$target" "$label"
+}
+
+publish_result() {
+  local json=$1
+  if ! publish_staged_text \
+    "$json" "$output_tmp" "$output" "Gate adapter output"; then
     fail_contract "output publication collision" 73
   fi
-  rm -f -- "$output_tmp"
-  output_tmp_owned=0
 }
 
 publish_gate_failed() {
@@ -1592,24 +1614,9 @@ else
         preflight:$preflight
       }
     ')
-  set -C
-  if exec 6>"$invocation_tmp"; then
-    invocation_tmp_owned=1
-  else
-    set +C
-    fail_contract "cannot reserve Gate invocation staging path" 73
-  fi
-  set +C
-  printf '%s\n' "$invocation_json" >&6
-  exec 6>&-
-  chmod 0444 "$invocation_tmp" \
-    || fail_contract "cannot make Gate invocation read-only" 73
-  if ln "$invocation_tmp" "$invocation" 2>/dev/null; then
-    rm -f -- "$invocation_tmp"
-    invocation_tmp_owned=0
-  else
-    rm -f -- "$invocation_tmp"
-    invocation_tmp_owned=0
+  if ! publish_staged_text \
+    "$invocation_json" "$invocation_tmp" "$invocation" "Gate invocation"; then
+    discard_staged_artifact
     [ -f "$invocation" ] && [ ! -L "$invocation" ] \
       || fail_contract "Gate invocation publication collision" 73
   fi
@@ -1816,7 +1823,11 @@ if ! printf '%s\n' "$gate_lease_owner_json" >&7; then
   rmdir "$gate_lease_lock" 2>/dev/null || true
   fail_contract "cannot record global Gate lease owner" 73
 fi
-exec 7>&-
+if ! exec 7>&-; then
+  rm -f -- "$gate_lease_owner"
+  rmdir "$gate_lease_lock" 2>/dev/null || true
+  fail_contract "cannot close global Gate lease owner" 73
+fi
 chmod 0444 "$gate_lease_owner" \
   || fail_contract "cannot make global Gate lease owner read-only" 73
 gate_lease_owner_published=1
@@ -1839,23 +1850,10 @@ lease_json=$(printf '%s\n' "$gate_lease_owner_json" | jq -c \
     .state=$state |
     .recovered_from=$recovered
   ')
-set -C
-if exec 8>"$lease_tmp"; then
-  lease_tmp_owned=1
-else
-  set +C
-  fail_contract "cannot reserve Gate lease evidence staging path" 73
-fi
-set +C
-printf '%s\n' "$lease_json" >&8
-exec 8>&-
-chmod 0444 "$lease_tmp" \
-  || fail_contract "cannot make Gate lease evidence read-only" 73
-if ! ln "$lease_tmp" "$lease" 2>/dev/null; then
+if ! publish_staged_text \
+  "$lease_json" "$lease_tmp" "$lease" "Gate lease evidence"; then
   fail_contract "Gate lease evidence publication collision" 73
 fi
-rm -f -- "$lease_tmp"
-lease_tmp_owned=0
 validate_lease_evidence "$lease" "$attempt" \
   || fail_contract "invalid published Gate lease evidence" 73
 
@@ -1879,14 +1877,7 @@ receipt_tmp=$gate_artifacts/.no-mistakes-attempt-$attempt.toon.tmp.$$
   || fail_contract "No-Mistakes receipt already exists" 73
 [ ! -e "$receipt_tmp" ] && [ ! -L "$receipt_tmp" ] \
   || fail_contract "No-Mistakes receipt staging path already exists" 73
-set -C
-if exec 4>"$receipt_tmp"; then
-  receipt_tmp_owned=1
-else
-  set +C
-  fail_contract "cannot reserve No-Mistakes receipt staging path" 73
-fi
-set +C
+reserve_staged_artifact "$receipt_tmp" "No-Mistakes receipt"
 
 set +e
 (
@@ -1894,16 +1885,18 @@ set +e
   run_bounded_external \
     "$no_mistakes_command_timeout_seconds" \
     "$sealed_binary" "${sealed_args[@]}"
-) </dev/null >&4
-nm_status=$?
+) </dev/null | cat -- >&9
+receipt_pipeline_status=("${PIPESTATUS[@]}")
 set -e
-exec 4>&-
-chmod 0444 "$receipt_tmp" || fail_contract "cannot make No-Mistakes receipt read-only" 73
-if ! ln "$receipt_tmp" "$receipt" 2>/dev/null; then
+nm_status=${receipt_pipeline_status[0]}
+receipt_write_status=${receipt_pipeline_status[1]}
+if [ "$receipt_write_status" -ne 0 ]; then
+  exec 9>&- 2>/dev/null || true
+  fail_contract "cannot write No-Mistakes receipt staging file" 73
+fi
+if ! publish_reserved_staged_artifact "$receipt" "No-Mistakes receipt"; then
   fail_contract "No-Mistakes receipt publication collision" 73
 fi
-rm -f -- "$receipt_tmp"
-receipt_tmp_owned=0
 artifacts=$(jq -cn \
   --arg invocation "$invocation_rel" --arg lease "$lease_rel" \
   --arg receipt "$receipt_rel" '
@@ -2423,26 +2416,12 @@ publish_merge_arm() {
 
   [ ! -e "$merge_arm_tmp" ] && [ ! -L "$merge_arm_tmp" ] \
     || fail_contract "Gate merge-arm staging path already exists" 73
-  set -C
-  if exec 8>"$merge_arm_tmp"; then
-    merge_arm_tmp_owned=1
-  else
-    set +C
-    fail_contract "cannot reserve Gate merge-arm staging path" 73
-  fi
-  set +C
-  printf '%s\n' "$arm_json" >&8
-  exec 8>&-
-  chmod 0444 "$merge_arm_tmp" \
-    || fail_contract "cannot make Gate merge-arm evidence read-only" 73
-  if ln "$merge_arm_tmp" "$merge_arm" 2>/dev/null; then
-    rm -f -- "$merge_arm_tmp"
-    merge_arm_tmp_owned=0
+  if publish_staged_text \
+    "$arm_json" "$merge_arm_tmp" "$merge_arm" "Gate merge-arm evidence"; then
     return 0
   fi
 
-  rm -f -- "$merge_arm_tmp"
-  merge_arm_tmp_owned=0
+  discard_staged_artifact
   [ -f "$merge_arm" ] && [ ! -L "$merge_arm" ] \
     || fail_contract "Gate merge-arm publication collision" 73
   existing=$(jq -c '.' "$merge_arm" 2>/dev/null) \
@@ -2532,26 +2511,13 @@ publish_merge_outcome() {
 
   [ ! -e "$merge_outcome_tmp" ] && [ ! -L "$merge_outcome_tmp" ] \
     || fail_contract "Gate merge-outcome staging path already exists" 73
-  set -C
-  if exec 9>"$merge_outcome_tmp"; then
-    merge_outcome_tmp_owned=1
-  else
-    set +C
-    fail_contract "cannot reserve Gate merge-outcome staging path" 73
-  fi
-  set +C
-  printf '%s\n' "$outcome_json" >&9
-  exec 9>&-
-  chmod 0444 "$merge_outcome_tmp" \
-    || fail_contract "cannot make Gate merge-outcome evidence read-only" 73
-  if ln "$merge_outcome_tmp" "$merge_outcome" 2>/dev/null; then
-    rm -f -- "$merge_outcome_tmp"
-    merge_outcome_tmp_owned=0
+  if publish_staged_text \
+    "$outcome_json" "$merge_outcome_tmp" "$merge_outcome" \
+    "Gate merge-outcome evidence"; then
     return 0
   fi
 
-  rm -f -- "$merge_outcome_tmp"
-  merge_outcome_tmp_owned=0
+  discard_staged_artifact
   [ -f "$merge_outcome" ] && [ ! -L "$merge_outcome" ] \
     || fail_contract "Gate merge-outcome publication collision" 73
   existing=$(jq -c '.' "$merge_outcome" 2>/dev/null) \
@@ -2935,22 +2901,10 @@ terminal_json=$(jq -cn \
       result:$result
     }
   ')
-set -C
-if exec 5>"$terminal_tmp"; then
-  terminal_tmp_owned=1
-else
-  set +C
-  fail_contract "cannot reserve Gate terminal staging path" 73
-fi
-set +C
-printf '%s\n' "$terminal_json" >&5
-exec 5>&-
-chmod 0444 "$terminal_tmp" || fail_contract "cannot make Gate terminal seal read-only" 73
-if ! ln "$terminal_tmp" "$terminal" 2>/dev/null; then
+if ! publish_staged_text \
+  "$terminal_json" "$terminal_tmp" "$terminal" "Gate terminal seal"; then
   fail_contract "Gate terminal publication collision" 73
 fi
-rm -f -- "$terminal_tmp"
-terminal_tmp_owned=0
 publish_terminal_result "$terminal_json"
 # -/ 5/5
 

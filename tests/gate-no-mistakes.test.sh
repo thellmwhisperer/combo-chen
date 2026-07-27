@@ -6,7 +6,8 @@
 #   documented axi argv, resolves one GitHub PR at that exact branch/head,
 #   records its target branch's strict app-aware check policy with paginated
 #   exact-SHA check/status evidence, seals authenticated GitHub merged/failed/cancelled
-#   outcomes, bounds every external child, releases shared runtime custody
+#   outcomes, rejects failed staged-artifact writes before publication, bounds
+#   every external child, releases shared runtime custody
 #   before GitHub-only waiting, and replays durable invocation/terminal seals
 #   without starting a duplicate delivery or PR lookup.
 #
@@ -20,12 +21,13 @@
 #   6. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
-#   9. test_serializes_global_gate + test_releases_provisional_gate_lease
-#                                    <- durable and provisional lease custody.
-#   10. test_releases_lease_before_github <- GitHub waits cannot starve siblings.
-#   11. test_bounds_external_commands <- hung No-Mistakes/GitHub children die.
-#   12. test_arms_auto_merge_once   <- exact arm, stdin isolation, replay contracts.
-#   13. test_seals_github_terminal_outcomes <- failed/cancelled fact recovery.
+#   9. test_rejects_staged_artifact_write_failures <- no partial authority.
+#   10. test_serializes_global_gate + test_releases_provisional_gate_lease
+#                                     <- durable and provisional lease custody.
+#   11. test_releases_lease_before_github <- GitHub waits cannot starve siblings.
+#   12. test_bounds_external_commands <- hung No-Mistakes/GitHub children die.
+#   13. test_arms_auto_merge_once   <- exact arm, stdin isolation, replay contracts.
+#   14. test_seals_github_terminal_outcomes <- failed/cancelled fact recovery.
 #
 #   MAIN FLOW
 #   ---------
@@ -38,7 +40,7 @@
 #   INTERNALS
 #   ---------
 #   write_config, write_no_mistakes_identity, make_run, run_gate,
-#   invocation_args, wait_for_path
+#   invocation_args, wait_for_path, exercise_provisional_owner_mismatch
 #
 # @exports none
 # @deps bash, cksum, date, git, gh-compatible fake, jq, mkfifo, ps, realpath,
@@ -56,8 +58,10 @@ FAKE_ROLE="$TMP_ROOT/fake-role-adapter"
 FAKE_NM="$TMP_ROOT/fake-no-mistakes"
 FAKE_BIN_DIR="$TMP_ROOT/fake-bin"
 FAKE_CHMOD="$FAKE_BIN_DIR/chmod"
+FAKE_CAT="$FAKE_BIN_DIR/cat"
 FAKE_GH="$FAKE_BIN_DIR/gh"
 FAKE_REALPATH="$FAKE_BIN_DIR/realpath"
+REAL_CAT=$(type -P cat)
 REAL_CHMOD=$(command -v chmod)
 REAL_REALPATH=$(command -v realpath)
 FAKE_NM_HOME="$TMP_ROOT/no-mistakes-home"
@@ -106,6 +110,7 @@ export CB_GATE_TEST_GH_CALLS="$GH_CALLS"
 export CB_GATE_TEST_GH_AUTO_MERGE_STATE="$GH_AUTO_MERGE_STATE"
 export CB_GATE_TEST_GH_HANG_ENTERED="$GH_HANG_ENTERED"
 export CB_GATE_TEST_GH_HANG_PIDS="$GH_HANG_PIDS"
+export CB_GATE_TEST_REAL_CAT="$REAL_CAT"
 export CB_GATE_TEST_REAL_CHMOD="$REAL_CHMOD"
 export CB_GATE_TEST_REAL_REALPATH="$REAL_REALPATH"
 export CB_GATE_TEST_GH_MODE=exact
@@ -134,6 +139,14 @@ if [ "${CB_GATE_TEST_LEASE_BOUNDARY_MODE:-}" = signal ] &&
   exit 143
 fi
 exec "$CB_GATE_TEST_REAL_CHMOD" "$@"
+'
+
+cb_write_fake "$FAKE_CAT" '#!/bin/sh
+if [ "${CB_GATE_TEST_STAGE_WRITE_FAILURE:-}" = receipt ] &&
+  [ "$#" -eq 1 ] && [ "$1" = -- ]; then
+  exit 74
+fi
+exec "$CB_GATE_TEST_REAL_CAT" "$@"
 '
 
 cb_write_fake "$FAKE_REALPATH" '#!/usr/bin/env bash
@@ -801,7 +814,7 @@ wait_for_path() {
   done
 }
 
-# -- 1/13 CORE · test_validates_exact_sha -- <- START HERE
+# -- 1/14 CORE · test_validates_exact_sha -- <- START HERE
 test_validates_exact_sha() {
   local run=gate-exact result receipt
   make_run "$run" passed
@@ -855,9 +868,9 @@ test_validates_exact_sha() {
   assert_grep "outcome: passed" "$receipt" "Gate outcome receipt should contain the trusted terminal fact"
   pass "Gate validates the exact candidate and builds documented No-Mistakes argv"
 }
-# -/ 1/13
+# -/ 1/14
 
-# -- 2/13 CORE · test_recovers_exact_pr --
+# -- 2/14 CORE · test_recovers_exact_pr --
 test_recovers_exact_pr() {
   local run result terminal calls
 
@@ -978,9 +991,9 @@ test_recovers_exact_pr() {
   export CB_GATE_TEST_GH_MODE=exact
   pass "Gate recovers and seals one exact PR without duplicate delivery or lookup"
 }
-# -/ 2/13
+# -/ 2/14
 
-# -- 3/13 CORE · test_seals_configured_identity --
+# -- 3/14 CORE · test_seals_configured_identity --
 test_seals_configured_identity() {
   local mismatch=gate-configured-identity-mismatch
   local run=gate-configured-identity result invocation poison
@@ -1050,9 +1063,9 @@ test_seals_configured_identity() {
     || fail "identity mismatch must not start or attach another No-Mistakes run"
   pass "Gate seals configured runtime/model identity and the supported AXI surface"
 }
-# -/ 3/13
+# -/ 3/14
 
-# -- 4/13 CORE · test_rejects_candidate_drift --
+# -- 4/14 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
   local run=gate-drift result
   make_run "$run" passed
@@ -1074,9 +1087,9 @@ test_rejects_candidate_drift() {
   assert_absent "$NM_CALLED" "No-Mistakes must not run after the reviewed candidate moves"
   pass "Gate rejects candidate drift before invoking No-Mistakes"
 }
-# -/ 4/13
+# -/ 4/14
 
-# -- 5/13 CORE · test_maps_terminal_outcomes --
+# -- 5/14 CORE · test_maps_terminal_outcomes --
 test_maps_terminal_outcomes() {
   local run result
 
@@ -1181,9 +1194,9 @@ test_maps_terminal_outcomes() {
 
   pass "Gate maps terminal outcomes and rejects untrusted No-Mistakes results"
 }
-# -/ 5/13
+# -/ 5/14
 
-# -- 6/13 CORE · test_guards_argument_edges --
+# -- 6/14 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
   local run result config
 
@@ -1217,9 +1230,9 @@ test_guards_argument_edges() {
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
   pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
 }
-# -/ 6/13
+# -/ 6/14
 
-# -- 7/13 CORE · test_replays_terminal_seal --
+# -- 7/14 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
   local run=gate-terminal-replay first_result second_result terminal poison
   rm -f "$NM_CALLS"
@@ -1286,9 +1299,9 @@ test_replays_terminal_seal() {
     || fail "a poisoned terminal seal must not trigger another delivery"
   pass "Gate replays a durable terminal seal without duplicating No-Mistakes"
 }
-# -/ 7/13
+# -/ 7/14
 
-# -- 8/13 CORE · test_adopts_interrupted_run --
+# -- 8/14 CORE · test_adopts_interrupted_run --
 test_adopts_interrupted_run() {
   local run=gate-interrupted-recovery first_result second_result invocation
   local invocation_before invocation_after invocation_mode terminal
@@ -1369,9 +1382,107 @@ test_adopts_interrupted_run() {
     || fail "recovered terminal seal should bind the adopted run and its receipt"
   pass "Gate adopts an interrupted No-Mistakes run from one immutable invocation seal"
 }
-# -/ 8/13
+# -/ 8/14
 
-# -- 9/13 CORE · test_serializes_global_gate --
+# -- 9/14 CORE · test_rejects_staged_artifact_write_failures --
+test_rejects_staged_artifact_write_failures() {
+  local surface run marker artifact merge staging
+  for surface in invocation lease receipt terminal output merge-arm merge-outcome; do
+    run="gate-stage-write-$surface"
+    marker=
+    artifact=
+    merge=manual
+    case "$surface" in
+      invocation)
+        marker=combo.gate-invocation/v3
+        artifact="$RUNS_DIR/$run/artifacts/gate/invocation.json"
+        ;;
+      lease)
+        marker=combo.gate-lease/v1
+        artifact="$RUNS_DIR/$run/artifacts/gate/no-mistakes-lease-attempt-1.json"
+        ;;
+      receipt)
+        marker=receipt
+        artifact="$RUNS_DIR/$run/artifacts/gate/no-mistakes-attempt-1.toon"
+        ;;
+      terminal)
+        marker=combo.gate-terminal/
+        artifact="$RUNS_DIR/$run/artifacts/gate/terminal.json"
+        ;;
+      output)
+        marker=combo.step-output/v1
+        ;;
+      merge-arm)
+        marker=combo.gate-merge-arm/v2
+        artifact="$RUNS_DIR/$run/artifacts/gate/merge-arm.json"
+        merge=auto
+        ;;
+      merge-outcome)
+        marker=combo.gate-merge-outcome/v2
+        artifact="$RUNS_DIR/$run/artifacts/gate/merge-outcome.json"
+        merge=auto
+        export CB_GATE_TEST_GH_MERGE_EFFECT=merged
+        ;;
+      esac
+
+    rm -f "$GH_AUTO_MERGE_STATE"
+    make_run "$run" passed "$merge"
+    printf() {
+      local argument
+      if [ "${0##*/}" = cb-gate.sh ] &&
+        [ -n "${CB_GATE_TEST_STAGE_WRITE_FAILURE:-}" ]; then
+        for argument in "$@"; do
+          case "$argument" in
+            *"$CB_GATE_TEST_STAGE_WRITE_FAILURE"*) return 74 ;;
+          esac
+        done
+      fi
+      builtin printf "$@"
+    }
+    export -f printf
+    export CB_GATE_TEST_STAGE_WRITE_FAILURE=$marker
+    if [ "$merge" = auto ]; then
+      export CB_GATE_MERGE_POLL_SECONDS=1
+      export CB_GATE_MERGE_WAIT_SECONDS=2
+    fi
+    run_gate "$run" "$RUN_HEAD"
+    unset CB_GATE_TEST_STAGE_WRITE_FAILURE
+    if [ "$merge" = auto ]; then
+      unset CB_GATE_MERGE_POLL_SECONDS CB_GATE_MERGE_WAIT_SECONDS
+    fi
+    unset -f printf
+    [ "$surface" != merge-outcome ] || unset CB_GATE_TEST_GH_MERGE_EFFECT
+
+    expect_code 0 "$CMD_STATUS" \
+      "$surface staged-write normalization${CMD_STDERR:+: $CMD_STDERR}"
+    if [ "$surface" = output ]; then
+      for artifact in \
+        "$RUNS_DIR/$run"/steps/*-gate/attempt-1/adapter-output.json; do
+        assert_absent "$artifact" \
+          "failed output write must not publish an authoritative artifact"
+      done
+    else
+      assert_absent "$artifact" \
+        "failed $surface write must not publish an authoritative artifact"
+    fi
+    for staging in "$RUNS_DIR/$run"/artifacts/gate/.*.tmp.* \
+      "$RUNS_DIR/$run"/steps/*-gate/attempt-1/.*.tmp.*; do
+      assert_absent "$staging" \
+        "failed $surface write must not leave owned staging state"
+    done
+    jq -e '
+      .exit_class=="technical_error" and .events==[] and
+      (.errors|length==1) and
+      (.errors[0]|test("^adapter_exit:[1-9][0-9]*$"))
+    ' "$CMD_STDOUT" >/dev/null \
+      || fail "$surface write failure must remain a truthful adapter error: $(cat "$CMD_STDOUT")"
+  done
+
+  pass "Gate rejects every staged artifact writer failure before publication"
+}
+# -/ 9/14
+
+# -- 10/14 CORE · test_serializes_global_gate --
 test_serializes_global_gate() {
   local first=gate-serial-first second=gate-serial-second stale=gate-serial-stale
   local first_repo first_head first_branch second_repo second_head second_branch
@@ -1497,8 +1608,79 @@ test_serializes_global_gate() {
   pass "Gate serializes No-Mistakes across runs and recovers a stale owner"
 }
 
+exercise_provisional_owner_mismatch() (
+  local run=$1 forced_failure=${2:-none}
+  local lock owner expected_owner current_owner
+  lock="$GATE_LEASES_DIR/no-mistakes.lock"
+  owner="$lock/owner.json"
+  expected_owner=$(jq -cn --argjson pid "$$" '{
+    schema:"combo.gate-lease-owner/v1",
+    scope:"host-global",
+    adapter:"no-mistakes",
+    run_id:"gate-sibling-owner",
+    branch:"combo/gate-sibling-owner",
+    worktree:"/sibling/worktree",
+    candidate_sha:"0000000000000000000000000000000000000000",
+    attempt:1,
+    pid:$pid,
+    token:"sibling-owner",
+    acquired_at:1
+  }')
+
+  cleanup_provisional_owner_fixture() {
+    local original_status=$?
+    trap - EXIT
+    current_owner=$(jq -c . "$owner" 2>/dev/null || true)
+    if [ "$current_owner" = "$expected_owner" ]; then
+      "$REAL_CHMOD" u+w "$owner" 2>/dev/null || true
+      rm -f -- "$owner"
+      rmdir "$lock" 2>/dev/null || true
+    fi
+    exit "$original_status"
+  }
+
+  trap cleanup_provisional_owner_fixture EXIT
+  rm -rf "$GATE_LEASES_DIR"
+  rm -f "$LEASE_BOUNDARY_REACHED" "$NM_CALLED"
+  make_run "$run" passed
+  export CB_GATE_TEST_LEASE_BOUNDARY_MODE=owner-mismatch
+  export CB_GATE_TEST_LEASE_BOUNDARY_REACHED=$LEASE_BOUNDARY_REACHED
+  export CB_GATE_TEST_SIBLING_PID=$$
+  run_gate "$run" "$RUN_HEAD"
+  unset \
+    CB_GATE_TEST_LEASE_BOUNDARY_MODE \
+    CB_GATE_TEST_LEASE_BOUNDARY_REACHED \
+    CB_GATE_TEST_SIBLING_PID
+
+  case "$forced_failure" in
+    assertion)
+      fail "forced post-publication provisional-owner assertion failure"
+      ;;
+    unrelated)
+      "$REAL_CHMOD" u+w "$owner"
+      jq -c '.token="unrelated-sibling-owner"' "$owner" >"$owner.replacement"
+      "$REAL_CHMOD" 0444 "$owner.replacement"
+      mv -f "$owner.replacement" "$owner"
+      fail "forced failure after unrelated custody replacement"
+      ;;
+    none) ;;
+    *) fail "unknown provisional-owner forced failure" ;;
+  esac
+
+  expect_code 0 "$CMD_STATUS" \
+    "provisional owner mismatch${CMD_STDERR:+: $CMD_STDERR}"
+  [ "$(cat "$LEASE_BOUNDARY_REACHED" 2>/dev/null)" = \
+    valid-sibling-owner-published ] \
+    || fail "owner-mismatch path did not publish a valid sibling owner"
+  jq -e --argjson pid "$$" '
+    .run_id=="gate-sibling-owner" and .pid==$pid and
+    .token=="sibling-owner"
+  ' "$owner" >/dev/null \
+    || fail "provisional cleanup removed or changed the valid sibling owner"
+)
+
 test_releases_provisional_gate_lease() {
-  local mode run sibling lock owner lease pid
+  local mode run sibling lock owner lease pid failure_err failure_status
   lock="$GATE_LEASES_DIR/no-mistakes.lock"
   owner="$lock/owner.json"
 
@@ -1570,37 +1752,63 @@ test_releases_provisional_gate_lease() {
       "sibling after provisional $mode must release its exact lease"
   done
 
-  run=gate-provisional-owner-mismatch
-  rm -rf "$GATE_LEASES_DIR"
-  rm -f "$LEASE_BOUNDARY_REACHED" "$NM_CALLED"
-  make_run "$run" passed
-  export CB_GATE_TEST_LEASE_BOUNDARY_MODE=owner-mismatch
-  export CB_GATE_TEST_LEASE_BOUNDARY_REACHED=$LEASE_BOUNDARY_REACHED
-  export CB_GATE_TEST_SIBLING_PID=$$
-  run_gate "$run" "$RUN_HEAD"
-  unset \
-    CB_GATE_TEST_LEASE_BOUNDARY_MODE \
-    CB_GATE_TEST_LEASE_BOUNDARY_REACHED \
-    CB_GATE_TEST_SIBLING_PID
+  failure_err="$TMP_ROOT/provisional-owner-forced-failure.err"
+  if exercise_provisional_owner_mismatch \
+    gate-provisional-owner-forced assertion 2>"$failure_err"; then
+    fail "forced provisional-owner assertion unexpectedly passed"
+  else
+    failure_status=$?
+  fi
+  expect_code 1 "$failure_status" \
+    "forced provisional-owner assertion status"
+  assert_grep \
+    "forced post-publication provisional-owner assertion failure" \
+    "$failure_err" \
+    "fixture cleanup must preserve the original assertion failure"
+
+  sibling=gate-after-provisional-owner-assertion
+  make_run "$sibling" passed
+  export CB_GATE_LEASE_WAIT_SECONDS=1
+  run_gate "$sibling" "$RUN_HEAD"
+  unset CB_GATE_LEASE_WAIT_SECONDS
   expect_code 0 "$CMD_STATUS" \
-    "provisional owner mismatch${CMD_STDERR:+: $CMD_STDERR}"
-  [ "$(cat "$LEASE_BOUNDARY_REACHED" 2>/dev/null)" = \
-    valid-sibling-owner-published ] \
-    || fail "owner-mismatch path did not publish a valid sibling owner"
-  jq -e --argjson pid "$$" '
-    .run_id=="gate-sibling-owner" and .pid==$pid and
-    .token=="sibling-owner"
-  ' "$owner" >/dev/null \
-    || fail "provisional cleanup removed or changed the valid sibling owner"
+    "sibling after assertion cleanup${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].event=="gate_ok"' "$CMD_STDOUT" >/dev/null \
+    || fail "assertion cleanup must let the following Gate enter immediately"
+  lease="$RUNS_DIR/$sibling/artifacts/gate/no-mistakes-lease-attempt-1.json"
+  jq -e '.state=="acquired" and .recovered_from==null' "$lease" >/dev/null \
+    || fail "post-assertion sibling must enter without stale recovery"
+  assert_absent "$owner" \
+    "assertion abort must remove the exact read-only sibling owner"
+  assert_absent "$lock" \
+    "assertion abort must release the exact fixture lock"
+
+  failure_err="$TMP_ROOT/provisional-owner-unrelated-failure.err"
+  if exercise_provisional_owner_mismatch \
+    gate-provisional-owner-unrelated unrelated 2>"$failure_err"; then
+    fail "forced unrelated-owner assertion unexpectedly passed"
+  else
+    failure_status=$?
+  fi
+  expect_code 1 "$failure_status" \
+    "forced unrelated-owner assertion status"
+  jq -e '.token=="unrelated-sibling-owner"' "$owner" >/dev/null \
+    || fail "fixture cleanup must preserve unrelated sibling custody"
   "$REAL_CHMOD" u+w "$owner"
-  rm -f "$owner"
+  rm -f -- "$owner"
   rmdir "$lock"
+
+  exercise_provisional_owner_mismatch gate-provisional-owner-mismatch
+  assert_absent "$owner" \
+    "successful owner-mismatch fixture must remove its exact owner"
+  assert_absent "$lock" \
+    "successful owner-mismatch fixture must release its exact lock"
 
   pass "Gate releases provisional custody after failure and SIGTERM"
 }
-# -/ 9/13
+# -/ 10/14
 
-# -- 10/13 CORE · test_releases_lease_before_github --
+# -- 11/14 CORE · test_releases_lease_before_github --
 test_releases_lease_before_github() {
   local first=gate-github-wait-first second=gate-github-wait-second
   local first_head first_branch second_head second_branch
@@ -1711,9 +1919,9 @@ test_releases_lease_before_github() {
 
   pass "Gate releases No-Mistakes custody before GitHub-only arm and polling"
 }
-# -/ 10/13
+# -/ 11/14
 
-# -- 11/13 CORE · test_bounds_external_commands --
+# -- 12/14 CORE · test_bounds_external_commands --
 test_bounds_external_commands() {
   local nm_run=gate-hung-no-mistakes gh_run=gate-hung-github
   local pid lock
@@ -1786,9 +1994,9 @@ test_bounds_external_commands() {
 
   pass "Gate bounds hung No-Mistakes and GitHub commands with truthful failures"
 }
-# -/ 11/13
+# -/ 12/14
 
-# -- 12/13 CORE · test_arms_auto_merge_once --
+# -- 13/14 CORE · test_arms_auto_merge_once --
 test_arms_auto_merge_once() {
   local run=gate-auto-merge result arm outcome terminal merge_calls gh_calls nm_calls
   local arm_mode outcome_mode poison terminal_backup
@@ -2320,9 +2528,9 @@ test_arms_auto_merge_once() {
 
   pass "Gate binds strict exact-SHA checks, arms once, observes merge, and recovers"
 }
-# -/ 12/13
+# -/ 13/14
 
-# -- 13/13 CORE · test_seals_github_terminal_outcomes --
+# -- 14/14 CORE · test_seals_github_terminal_outcomes --
 test_seals_github_terminal_outcomes() {
   local closed=gate-auto-merge-closed auto_cancelled=gate-auto-merge-cancelled
   local failed=gate-auto-merge-check-failed
@@ -2507,7 +2715,7 @@ test_seals_github_terminal_outcomes() {
 
   pass "Gate seals and replays authenticated GitHub failed/cancelled outcomes"
 }
-# -/ 13/13
+# -/ 14/14
 
 case "${CB_GATE_TEST_ONLY:-all}" in
   bounds)
@@ -2515,6 +2723,9 @@ case "${CB_GATE_TEST_ONLY:-all}" in
     ;;
   provisional)
     test_releases_provisional_gate_lease
+    ;;
+  publication)
+    test_rejects_staged_artifact_write_failures
     ;;
   release)
     test_releases_lease_before_github
@@ -2528,6 +2739,7 @@ case "${CB_GATE_TEST_ONLY:-all}" in
     test_guards_argument_edges
     test_replays_terminal_seal
     test_adopts_interrupted_run
+    test_rejects_staged_artifact_write_failures
     test_serializes_global_gate
     test_releases_provisional_gate_lease
     test_releases_lease_before_github
