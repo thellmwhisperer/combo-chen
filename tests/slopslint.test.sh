@@ -57,10 +57,9 @@ YAML
 }
 
 write_tombstone() {
-  local id=${1:-T-HISTORICAL-DUPLICATE}
-  cat >"$FIXTURE/.slop/tombstones/$id.yml" <<YAML
+  cat >"$FIXTURE/.slop/tombstones/T-HISTORICAL-DUPLICATE.yml" <<YAML
 schema: 1
-id: $id
+id: T-HISTORICAL-DUPLICATE
 status: resolved
 category: duplication
 title: "Historical duplicate helper"
