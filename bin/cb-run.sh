@@ -21,9 +21,10 @@
 #
 #   INTERNALS
 #   ---------
-#   usage, fail_contract, validate_run_root, publish_text, shell_quote,
-#   run_endpoint_job, dispatch_step, mount_endpoints, result_exit_status,
-#   print_terminal_outcome
+#   usage, fail_contract, resolve_dispatcher_executable, validate_run_root,
+#   validate_bare_dispatch_name, validate_dispatch_directory,
+#   validate_dispatch_destination, publish_text, shell_quote, run_endpoint_job,
+#   dispatch_step, mount_endpoints, result_exit_status, print_terminal_outcome
 #
 # @exports none
 # @deps bash, jq, realpath, tmux, bin/cb-agent-spawn.sh, bin/cb-send.sh,
@@ -40,8 +41,35 @@ fail_contract() {
   exit "${2:-64}"
 }
 
-script_dir=$(CDPATH='' cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-script_path=$script_dir/cb-run.sh
+resolve_dispatcher_executable() {
+  local source=${BASH_SOURCE[0]} directory target hops=0
+  case "$source" in
+    /*) ;;
+    *) source=$PWD/$source ;;
+  esac
+  while [ -L "$source" ]; do
+    hops=$((hops + 1))
+    [ "$hops" -le 40 ] || return 1
+    directory=$(CDPATH='' cd -P -- "$(dirname "$source")" 2>/dev/null \
+      && pwd) || return 1
+    target=$(readlink "$source" 2>/dev/null) || return 1
+    [ -n "$target" ] || return 1
+    case "$target" in
+      /*) source=$target ;;
+      *) source=$directory/$target ;;
+    esac
+  done
+  directory=$(CDPATH='' cd -P -- "$(dirname "$source")" 2>/dev/null \
+    && pwd) || return 1
+  source=$directory/$(basename "$source")
+  [ -f "$source" ] && [ ! -L "$source" ] && [ -x "$source" ] || return 1
+  [ "$(realpath "$source" 2>/dev/null)" = "$source" ] || return 1
+  printf '%s\n' "$source"
+}
+
+script_path=$(resolve_dispatcher_executable) \
+  || fail_contract "dispatcher executable is missing or unsafe" 73
+script_dir=${script_path%/*}
 runs_dir=${CB_RUNS_DIR:-"$HOME/.combo-chen/runs"}
 
 validate_run_root() {
@@ -54,8 +82,42 @@ validate_run_root() {
   [ "$run_root" = "$runs_root/$run" ]
 }
 
+validate_bare_dispatch_name() {
+  local name=$1 suffix=$2
+  case "$name" in
+    ''|.*|*/*|*\\*|*..*|*[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  case "$name" in
+    *"$suffix") ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_dispatch_directory() {
+  local directory=$1 expected=$2
+  [ -d "$directory" ] && [ ! -L "$directory" ] || return 1
+  [ "$(realpath "$directory" 2>/dev/null)" = "$expected" ]
+}
+
+validate_dispatch_destination() {
+  local directory=$1 name=$2 suffix=$3
+  validate_bare_dispatch_name "$name" "$suffix" || return 1
+  validate_dispatch_directory "$directory" "$directory" || return 1
+  [ ! -e "$directory/$name" ] && [ ! -L "$directory/$name" ]
+}
+
 publish_text() {
-  local text=$1 staging=$2 target=$3 label=$4
+  local text=$1 directory=$2 staging_name=$3 target_name=$4 label=$5
+  local staging target
+  validate_bare_dispatch_name "$target_name" .json \
+    || fail_contract "invalid $label basename" 73
+  validate_dispatch_directory "$directory" "$directory" \
+    || fail_contract "$label directory is unsafe" 73
+  staging=$directory/$staging_name
+  target=$directory/$target_name
+  [ "$staging" = "$directory/$staging_name" ] \
+    && [ "$target" = "$directory/$target_name" ] \
+    || fail_contract "$label path escapes dispatch directory" 73
   [ ! -e "$staging" ] && [ ! -L "$staging" ] \
     || fail_contract "$label staging path already exists" 73
   set -C
@@ -67,6 +129,11 @@ publish_text() {
   fi
   set +C
   chmod 0444 "$staging" || fail_contract "cannot protect $label" 73
+  validate_dispatch_directory "$directory" "$directory" \
+    || fail_contract "$label directory changed before publication" 73
+  [ "$target" = "$directory/$target_name" ] \
+    && [ ! -e "$target" ] && [ ! -L "$target" ] \
+    || fail_contract "$label destination became unsafe" 73
   if ! ln "$staging" "$target" 2>/dev/null; then
     rm -f -- "$staging"
     return 1
@@ -82,53 +149,65 @@ shell_quote() {
 
 # -- 1/4 CORE · run_endpoint_job -- <- START HERE
 run_endpoint_job() {
-  local job=$1 run role step attempt candidate prior receipt receipt_tmp
+  local run=$1 job_name=$2 job job_json role step attempt candidate prior
+  local dispatch_dir jobs_dir receipt_name receipt receipt_tmp
   local meta expected_window actual_window pane_id result_path status
   local completed event log log_line
 
-  [ -n "${TMUX_PANE:-}" ] \
-    || fail_contract "endpoint job is not running inside tmux" 73
+  validate_run_root "$run" \
+    || fail_contract "endpoint job run directory is unsafe" 73
+  dispatch_dir=$run_root/dispatch
+  jobs_dir=$dispatch_dir/jobs
+  validate_dispatch_directory "$dispatch_dir" "$run_root/dispatch" \
+    || fail_contract "dispatch directory is missing or unsafe" 73
+  validate_dispatch_directory "$jobs_dir" "$run_root/dispatch/jobs" \
+    || fail_contract "endpoint jobs directory is missing or unsafe" 73
+  validate_bare_dispatch_name "$job_name" .job.json \
+    || fail_contract "invalid endpoint job basename" 73
+  job=$jobs_dir/$job_name
+  [ "$job" = "$jobs_dir/$job_name" ] \
+    || fail_contract "endpoint job escapes dispatch directory" 73
   [ -f "$job" ] && [ ! -L "$job" ] \
     || fail_contract "endpoint job is missing or unsafe" 73
   [ "$(realpath "$job" 2>/dev/null)" = "$job" ] \
     || fail_contract "endpoint job path must be canonical" 73
-  run=$(jq -r '.run_id' "$job" 2>/dev/null || true)
-  validate_run_root "$run" \
-    || fail_contract "endpoint job run directory is unsafe" 73
-  case "$job" in "$run_root"/dispatch/jobs/*.json) ;;
-    *) fail_contract "endpoint job escapes dispatch directory" 73 ;;
-  esac
-  if ! jq -e --arg run "$run" --arg job "$job" '
+  job_json=$(jq -cS '.' "$job" 2>/dev/null) \
+    || fail_contract "invalid endpoint job" 73
+  if ! jq -e --arg run "$run" --arg job "$job_name" '
     def sha:
       type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
     type=="object" and
     keys==[
-      "attempt","candidate_sha","job_path","prior_artifacts","receipt_path",
+      "attempt","candidate_sha","job_name","prior_artifacts","receipt_name",
       "role","run_id","schema","step_id"
     ] and
-    .schema=="combo.endpoint-job/v1" and .run_id==$run and .job_path==$job and
+    .schema=="combo.endpoint-job/v1" and .run_id==$run and .job_name==$job and
     (.role=="launcher" or .role=="coder" or .role=="reviewer" or
       .role=="gate" or .role=="cleaner") and
     (.step_id|type=="string" and length>0) and
     (.attempt|type=="number" and floor==. and .>0) and
     (.candidate_sha==null or (.candidate_sha|sha)) and
     (.prior_artifacts|type=="array") and
-    (.receipt_path|type=="string" and length>0)
-  ' "$job" >/dev/null 2>&1; then
+    (.receipt_name|type=="string" and length>0)
+  ' <<<"$job_json" >/dev/null 2>&1; then
     fail_contract "invalid endpoint job" 73
   fi
+  receipt_name=$(jq -r '.receipt_name' <<<"$job_json")
+  validate_bare_dispatch_name "$receipt_name" .receipt.json \
+    || fail_contract "invalid endpoint receipt basename" 73
+  receipt=$dispatch_dir/$receipt_name
+  [ "$receipt" = "$dispatch_dir/$receipt_name" ] \
+    || fail_contract "endpoint receipt escapes dispatch directory" 73
+  validate_dispatch_destination "$dispatch_dir" "$receipt_name" .receipt.json \
+    || fail_contract "endpoint receipt already exists or is unsafe" 73
 
-  role=$(jq -r '.role' "$job")
-  step=$(jq -r '.step_id' "$job")
-  attempt=$(jq -r '.attempt' "$job")
-  candidate=$(jq -c '.candidate_sha' "$job")
-  prior=$(jq -c '.prior_artifacts' "$job")
-  receipt=$(jq -r '.receipt_path' "$job")
-  case "$receipt" in "$run_root"/dispatch/*.receipt.json) ;;
-    *) fail_contract "endpoint receipt escapes dispatch directory" 73 ;;
-  esac
-  [ ! -e "$receipt" ] && [ ! -L "$receipt" ] \
-    || fail_contract "endpoint receipt already exists" 73
+  [ -n "${TMUX_PANE:-}" ] \
+    || fail_contract "endpoint job is not running inside tmux" 73
+  role=$(jq -r '.role' <<<"$job_json")
+  step=$(jq -r '.step_id' <<<"$job_json")
+  attempt=$(jq -r '.attempt' <<<"$job_json")
+  candidate=$(jq -c '.candidate_sha' <<<"$job_json")
+  prior=$(jq -c '.prior_artifacts' <<<"$job_json")
 
   meta=$run_root/agents/$role.meta
   [ -f "$meta" ] && [ ! -L "$meta" ] \
@@ -173,8 +252,9 @@ run_endpoint_job() {
         status:$status,result_path:$result,completed_at:$completed
       }
     ')
-  receipt_tmp=$run_root/dispatch/.receipt.tmp.$$
-  publish_text "$event" "$receipt_tmp" "$receipt" "endpoint receipt" \
+  receipt_tmp=.receipt.tmp.$$
+  publish_text "$event" "$dispatch_dir" "$receipt_tmp" "$receipt_name" \
+    "endpoint receipt" \
     || fail_contract "endpoint receipt publication collision" 73
 
   log=$run_root/dispatch-log.jsonl
@@ -200,7 +280,8 @@ run_endpoint_job() {
 dispatch_step() {
   [ "$#" -eq 6 ] || fail_contract "invalid internal dispatch arguments"
   local run=$1 role=$2 step=$3 attempt=$4 candidate=$5 prior=$6
-  local safe_step dispatch_dir job receipt job_tmp command deadline status
+  local safe_step dispatch_dir jobs_dir job_name receipt_name job receipt
+  local job_tmp command deadline status
   local receipt_json result wait_seconds ticks
 
   validate_run_root "$run" || fail_contract "unsafe dispatch run" 73
@@ -221,37 +302,46 @@ dispatch_step() {
     || fail_contract "invalid dispatch artifacts"
 
   dispatch_dir=$run_root/dispatch
-  [ -d "$dispatch_dir" ] && [ ! -L "$dispatch_dir" ] \
+  jobs_dir=$dispatch_dir/jobs
+  validate_dispatch_directory "$dispatch_dir" "$run_root/dispatch" \
     || fail_contract "dispatch directory is missing or unsafe" 73
-  [ "$(realpath "$dispatch_dir" 2>/dev/null)" = "$run_root/dispatch" ] \
-    || fail_contract "dispatch directory escapes run" 73
+  validate_dispatch_directory "$jobs_dir" "$run_root/dispatch/jobs" \
+    || fail_contract "endpoint jobs directory is missing or unsafe" 73
   safe_step=${step//\//-}
-  case "$safe_step" in ''|*[!A-Za-z0-9._-]*)
+  case "$safe_step" in
+    ''|.*|*..*|*[!A-Za-z0-9._-]*)
     fail_contract "invalid dispatch step" ;;
   esac
-  job=$dispatch_dir/jobs/$safe_step-attempt-$attempt.json
-  receipt=$dispatch_dir/$safe_step-attempt-$attempt.receipt.json
-  job_tmp=$dispatch_dir/jobs/.job.tmp.$$
-  [ ! -e "$job" ] && [ ! -L "$job" ] \
-    || fail_contract "endpoint job already exists" 73
-  [ ! -e "$receipt" ] && [ ! -L "$receipt" ] \
-    || fail_contract "endpoint receipt already exists" 73
+  job_name=$safe_step-attempt-$attempt.job.json
+  receipt_name=$safe_step-attempt-$attempt.receipt.json
+  validate_bare_dispatch_name "$job_name" .job.json \
+    || fail_contract "invalid endpoint job basename" 73
+  validate_bare_dispatch_name "$receipt_name" .receipt.json \
+    || fail_contract "invalid endpoint receipt basename" 73
+  job=$jobs_dir/$job_name
+  receipt=$dispatch_dir/$receipt_name
+  job_tmp=.job.tmp.$$
+  validate_dispatch_destination "$jobs_dir" "$job_name" .job.json \
+    || fail_contract "endpoint job already exists or is unsafe" 73
+  validate_dispatch_destination "$dispatch_dir" "$receipt_name" .receipt.json \
+    || fail_contract "endpoint receipt already exists or is unsafe" 73
 
   job_json=$(jq -cn \
     --arg run "$run" --arg role "$role" --arg step "$step" \
     --argjson attempt "$attempt" --argjson candidate "$candidate" \
-    --argjson prior "$prior" --arg job "$job" --arg receipt "$receipt" '
+    --argjson prior "$prior" --arg job "$job_name" \
+    --arg receipt "$receipt_name" '
       {
         schema:"combo.endpoint-job/v1",
         run_id:$run,role:$role,step_id:$step,attempt:$attempt,
         candidate_sha:$candidate,prior_artifacts:$prior,
-        job_path:$job,receipt_path:$receipt
+        job_name:$job,receipt_name:$receipt
       }
     ')
-  publish_text "$job_json" "$job_tmp" "$job" "endpoint job" \
+  publish_text "$job_json" "$jobs_dir" "$job_tmp" "$job_name" "endpoint job" \
     || fail_contract "endpoint job publication collision" 73
 
-  command="bash $(shell_quote "$script_path") --endpoint-job $(shell_quote "$job")"
+  command="bash $(shell_quote "$script_path") --endpoint-job $(shell_quote "$run") $(shell_quote "$job_name")"
   CB_RUNS_DIR=$runs_dir sh "$script_dir/cb-send.sh" \
     "$run" "$role" "$command" </dev/null >/dev/null \
     || fail_contract "cannot steer $role endpoint" 75
@@ -304,8 +394,8 @@ dispatch_step() {
 # -/ 2/4
 
 if [ "${1:-}" = --endpoint-job ]; then
-  [ "$#" -eq 2 ] || usage
-  run_endpoint_job "$2"
+  [ "$#" -eq 3 ] || usage
+  run_endpoint_job "$2" "$3"
 fi
 if [ "${1:-}" = --dispatch ]; then
   shift

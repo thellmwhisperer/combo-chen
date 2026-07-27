@@ -146,8 +146,8 @@ resolve_effective_attempt() {
   effective=$requested
   while [ -e "$step_dir/attempt-$effective" ] \
     || [ -L "$step_dir/attempt-$effective" ] \
-    || [ -e "$run_root/dispatch/jobs/$safe_step-attempt-$effective.json" ] \
-    || [ -L "$run_root/dispatch/jobs/$safe_step-attempt-$effective.json" ] \
+    || [ -e "$run_root/dispatch/jobs/$safe_step-attempt-$effective.job.json" ] \
+    || [ -L "$run_root/dispatch/jobs/$safe_step-attempt-$effective.job.json" ] \
     || [ -e "$run_root/dispatch/$safe_step-attempt-$effective.receipt.json" ] \
     || [ -L "$run_root/dispatch/$safe_step-attempt-$effective.receipt.json" ]; do
     effective=$((effective + 1))

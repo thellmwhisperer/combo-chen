@@ -11,7 +11,8 @@
 #   3. test_accepts_role_outcomes            <- allowed 0/1 product matrix.
 #   4. test_normalizes_non_product_exits     <- technical/cancelled classes.
 #   5. test_rejects_unsafe_invocations       <- artifacts, paths, collisions.
-#   6. test_native_end_envelopes              <- Launcher/Cleaner P4 failures.
+#   6. test_native_end_envelopes             <- Launcher/Cleaner P4 failures.
+#   7. test_cleaner_security_contracts       <- latest Gate + safe staging.
 #
 #   MAIN FLOW
 #   ---------
@@ -24,10 +25,14 @@
 #   INTERNALS
 #   ---------
 #   write_config, make_planned_run, run_step, run_step_with_stdin,
-#   test_native_end_envelopes
+#   test_native_end_envelopes, make_cleaner_security_fixture,
+#   write_gate_terminal, write_cleaner_seal, run_cleaner_adapter,
+#   assert_cleaner_rejects_without_release, test_cleaner_latest_gate_attempt,
+#   test_cleaner_unpredictable_staging, test_cleaner_security_contracts
 #
 # @exports none
-# @deps bash, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh
+# @deps bash, git, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh,
+#   bin/cb-cleaner-adapter.sh
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -52,6 +57,7 @@ export CB_STEP_TEST_STDIN_CAPTURE="$STDIN_CAPTURE"
 SHA_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 REAL_MKDIR=$(command -v mkdir)
 REAL_JQ=$(command -v jq)
+REAL_REALPATH=$(command -v realpath)
 
 CMD_STATUS=
 CMD_STDOUT=
@@ -173,7 +179,7 @@ run_step_with_stdin() {
   CMD_STDERR=$(cat "$errfile" 2>/dev/null || true)
 }
 
-# -- 1/6 CORE · test_invokes_with_universal_envelope -- <- START HERE
+# -- 1/7 CORE · test_invokes_with_universal_envelope -- <- START HERE
 test_invokes_with_universal_envelope() {
   local run=step-envelope prior result input
   make_planned_run "$run"
@@ -216,9 +222,9 @@ test_invokes_with_universal_envelope() {
   ' "$result" >/dev/null || fail "validated result should preserve normalized adapter output"
   pass "cb-step: invokes configured argv with an immutable universal envelope"
 }
-# -/ 1/6
+# -/ 1/7
 
-# -- 2/6 CORE · test_closes_adapter_stdin --
+# -- 2/7 CORE · test_closes_adapter_stdin --
 test_closes_adapter_stdin() {
   local run=step-stdin-closed
   make_planned_run "$run"
@@ -234,9 +240,9 @@ test_closes_adapter_stdin() {
     || fail "cb-step must prevent adapters from consuming caller stdin"
   pass "cb-step: closes adapter stdin at the universal process boundary"
 }
-# -/ 2/6
+# -/ 2/7
 
-# -- 3/6 CORE · test_accepts_role_outcomes --
+# -- 3/7 CORE · test_accepts_role_outcomes --
 test_accepts_role_outcomes() {
   local run=step-role-outcomes spec step args result
   make_planned_run "$run"
@@ -298,9 +304,9 @@ cleaner|clean_failed|--candidate-sha $SHA_A
 EOF
   pass "cb-step: accepts only the role-specific 0/1 product outcome matrix"
 }
-# -/ 3/6
+# -/ 3/7
 
-# -- 4/6 CORE · test_normalizes_non_product_exits --
+# -- 4/7 CORE · test_normalizes_non_product_exits --
 test_normalizes_non_product_exits() {
   local run=step-technical result
   make_planned_run "$run"
@@ -387,9 +393,9 @@ test_normalizes_non_product_exits() {
   ' "$CMD_STDOUT" >/dev/null || fail "timeout should become a normalized cancellation"
   pass "cb-step: normalizes process errors, invalid outputs, cancellation, and timeout"
 }
-# -/ 4/6
+# -/ 4/7
 
-# -- 5/6 CORE · test_rejects_unsafe_invocations --
+# -- 5/7 CORE · test_rejects_unsafe_invocations --
 test_rejects_unsafe_invocations() {
   local run='step-directory-race' outside="$TMP_ROOT/outside"
   local fakebin="$TMP_ROOT/race-bin" barrier="$TMP_ROOT/mkdir-barrier"
@@ -510,9 +516,9 @@ exec \"$REAL_JQ\" \"\$@\"
     || fail "temp-path poisoning must still publish only the validated result"
   pass "cb-step: rejects unsafe artifacts, paths, attempts, collisions, and result poisoning"
 }
-# -/ 5/6
+# -/ 5/7
 
-# -- 6/6 CORE · test_native_end_envelopes --
+# -- 6/7 CORE · test_native_end_envelopes --
 test_native_end_envelopes() {
   local run=step-native-launcher result combined
   make_planned_run "$run"
@@ -570,14 +576,346 @@ test_native_end_envelopes() {
       reasons:["ownership:missing_or_unsafe"]
     }}]
   ' <"$CMD_STDOUT" >/dev/null \
-    || fail "native Cleaner should normalize a non-vacuous P4 failure"
+    || fail "native Cleaner should normalize a non-vacuous P4 failure: $(cat "$CMD_STDOUT"); adapter stderr: $(cat "$RUNS_DIR/$run/steps/05-cleaner/attempt-1/stderr.log")"
   combined=$(cat "$RUNS_DIR/$run/steps/05-cleaner/attempt-1/stdout.log" \
     "$RUNS_DIR/$run/steps/05-cleaner/attempt-1/stderr.log")
   assert_not_contains "$combined" native-secret \
     "native Cleaner must not consume caller stdin"
   pass "native Launcher/Cleaner: honor P4 envelopes with isolated failures"
 }
-# -/ 6/6
+# -/ 6/7
+
+# -- 7/7 CORE · test_cleaner_security_contracts --
+CLEANER_FAKE_BIN="$TMP_ROOT/cleaner-fake-bin"
+CLEANER_INPUT=
+CLEANER_OUTPUT=
+CLEANER_RUN_ROOT=
+CLEANER_WORKTREE=
+CLEANER_RETURN_CALLS=
+
+mkdir -p "$CLEANER_FAKE_BIN"
+cb_write_fake "$CLEANER_FAKE_BIN/treehouse" '#!/bin/sh
+case "${1:-}" in
+  status)
+    printf "alpha leased %s (held by %s)\n" \
+      "$CB_CLEANER_TEST_WORKTREE" "$CB_CLEANER_TEST_RUN"
+    ;;
+  return)
+    printf "%s\n" "${2:-}" >>"$CB_CLEANER_TEST_RETURN_CALLS"
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+'
+
+make_cleaner_security_fixture() {
+  local run=$1 fixture repo base invocation ownership
+  fixture="$TMP_ROOT/cleaner-$run"
+  repo="$fixture/repo"
+  CLEANER_RUN_ROOT="$RUNS_DIR/$run"
+  CLEANER_WORKTREE="$fixture/worktree"
+  CLEANER_RETURN_CALLS="$fixture/treehouse-return.calls"
+  invocation="$CLEANER_RUN_ROOT/steps/05-cleaner/attempt-1"
+  CLEANER_INPUT="$invocation/input.json"
+  CLEANER_OUTPUT="$invocation/adapter-output.json"
+  mkdir -p "$repo" "$CLEANER_RUN_ROOT/agents" \
+    "$CLEANER_RUN_ROOT/steps/04-gate" "$invocation"
+  git -C "$repo" init -q -b main
+  git -C "$repo" config user.name "Cleaner Security Test"
+  git -C "$repo" config user.email "cleaner-security@example.test"
+  printf 'base\n' >"$repo/file.txt"
+  git -C "$repo" add file.txt
+  git -C "$repo" commit -qm "fixture base"
+  base=$(git -C "$repo" rev-parse HEAD)
+  git -C "$repo" worktree add -q -b "combo/$run" \
+    "$CLEANER_WORKTREE" "$base"
+  ownership="$CLEANER_RUN_ROOT/agents/launcher.ownership.json"
+  jq -cn \
+    --arg run "$run" --arg repo "$repo" --arg worktree "$CLEANER_WORKTREE" \
+    --arg branch "combo/$run" --arg base "$base" '
+      {
+        run:$run,runway_kind:"treehouse",repo_dir:$repo,
+        worktree:$worktree,branch:$branch,base_sha:$base,lease_id:$run
+      }
+    ' >"$ownership"
+  chmod 0444 "$ownership"
+  {
+    printf "CB_REPO_DIR='%s'\n" "$repo"
+    printf "CB_CLEAN_CUSTODY_CMD='exit 0'\n"
+  } >"$CLEANER_RUN_ROOT/config.env"
+  jq -cn \
+    --arg run "$run" --arg input "$CLEANER_INPUT" \
+    --arg output "$CLEANER_OUTPUT" --arg root "$CLEANER_RUN_ROOT" \
+    --arg invocation "$invocation" '
+      {
+        schema:"combo.step-input/v1",run_id:$run,step_id:"cleaner",
+        adapter_id:"cleaner",role:"cleaner",attempt:1,candidate_sha:null,
+        config:{schema:"combo.cleaner/treehouse/v1"},
+        prior_artifacts:[],
+        paths:{
+          run_dir:$root,artifacts_dir:($root+"/artifacts"),
+          steps_dir:($root+"/steps"),invocation_dir:$invocation,
+          input_path:$input,output_path:$output
+        }
+      }
+    ' >"$CLEANER_INPUT"
+  chmod 0444 "$CLEANER_INPUT"
+}
+
+write_gate_terminal() {
+  local attempt=$1 event=${2:-gate_failed}
+  local attempt_dir="$CLEANER_RUN_ROOT/steps/04-gate/attempt-$attempt"
+  mkdir -p "$attempt_dir"
+  if [ "$event" = gate_failed ]; then
+    jq -cn \
+      --arg run "${CLEANER_RUN_ROOT##*/}" --argjson attempt "$attempt" '
+        {
+          schema:"combo.step-output/v1",run_id:$run,step_id:"gate",
+          role:"gate",attempt:$attempt,exit_class:"completed",
+          events:[{code:1,event:"gate_failed",payload:{reason:"fixture"}}],
+          artifacts:[],reasons:[],errors:[]
+        }
+      ' >"$attempt_dir/result.json"
+  else
+    jq -cn \
+      --arg run "${CLEANER_RUN_ROOT##*/}" --argjson attempt "$attempt" \
+      --arg event "$event" '
+        {
+          schema:"combo.step-output/v1",run_id:$run,step_id:"gate",
+          role:"gate",attempt:$attempt,exit_class:"completed",
+          events:[{code:0,event:$event,payload:{}}],
+          artifacts:[],reasons:[],errors:[]
+        }
+      ' >"$attempt_dir/result.json"
+  fi
+  chmod 0444 "$attempt_dir/result.json"
+}
+
+write_cleaner_seal() {
+  local ownership="$CLEANER_RUN_ROOT/agents/launcher.ownership.json"
+  jq -c '. + {released:true,reasons:[]} | del(.lease_id)' "$ownership" \
+    >"$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  chmod 0444 "$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+}
+
+run_cleaner_adapter() {
+  local extra_path=${1:-} err="$TMP_ROOT/cleaner-adapter.err"
+  local run="${CLEANER_RUN_ROOT##*/}"
+  CMD_STDOUT=$(
+    PATH="${extra_path:+$extra_path:}$CLEANER_FAKE_BIN:$PATH" \
+      CB_RUNS_DIR="$RUNS_DIR" \
+      CB_CLEANER_TEST_RUN="$run" \
+      CB_CLEANER_TEST_WORKTREE="$CLEANER_WORKTREE" \
+      CB_CLEANER_TEST_RETURN_CALLS="$CLEANER_RETURN_CALLS" \
+      bash "$BIN/cb-cleaner-adapter.sh" \
+        --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" 2>"$err"
+  ) && CMD_STATUS=0 || CMD_STATUS=$?
+  CMD_STDERR=$(cat "$err" 2>/dev/null || true)
+}
+
+assert_cleaner_rejects_without_release() {
+  run_cleaner_adapter "${1:-}"
+  expect_code 0 "$CMD_STATUS" \
+    "Cleaner rejection should normalize${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .exit_class=="completed" and
+    .events[0].code==1 and .events[0].event=="clean_failed" and
+    (.events[0].payload.reasons[0] | startswith("gate:"))
+  ' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "Cleaner did not reject unsafe latest Gate custody"
+  assert_absent "$CLEANER_RETURN_CALLS" \
+    "Cleaner released Treehouse custody after rejecting Gate evidence"
+  assert_present "$CLEANER_WORKTREE" \
+    "Cleaner removed the worktree after rejecting Gate evidence"
+}
+
+test_cleaner_latest_gate_attempt() {
+  local attempt target race_bin replacement
+
+  make_cleaner_security_fixture cleaner-inflight-latest
+  write_gate_terminal 1
+  mkdir "$CLEANER_RUN_ROOT/steps/04-gate/attempt-2"
+  assert_cleaner_rejects_without_release
+
+  make_cleaner_security_fixture cleaner-numeric-latest
+  for attempt in 1 2 3 4 5 6 7 8 9; do
+    write_gate_terminal "$attempt"
+  done
+  write_gate_terminal 10 lgtm
+  assert_cleaner_rejects_without_release
+
+  make_cleaner_security_fixture cleaner-gap
+  write_gate_terminal 1
+  write_gate_terminal 3
+  assert_cleaner_rejects_without_release
+
+  make_cleaner_security_fixture cleaner-malformed-latest
+  write_gate_terminal 1
+  mkdir "$CLEANER_RUN_ROOT/steps/04-gate/attempt-2"
+  printf 'not-json\n' \
+    >"$CLEANER_RUN_ROOT/steps/04-gate/attempt-2/result.json"
+  chmod 0444 "$CLEANER_RUN_ROOT/steps/04-gate/attempt-2/result.json"
+  assert_cleaner_rejects_without_release
+
+  make_cleaner_security_fixture cleaner-symlink-latest
+  write_gate_terminal 1
+  mkdir "$CLEANER_RUN_ROOT/steps/04-gate/attempt-2"
+  target="$TMP_ROOT/symlinked-gate-result.json"
+  printf '{}\n' >"$target"
+  ln -s "$target" \
+    "$CLEANER_RUN_ROOT/steps/04-gate/attempt-2/result.json"
+  assert_cleaner_rejects_without_release
+
+  make_cleaner_security_fixture cleaner-nonterminal-latest
+  write_gate_terminal 1
+  write_gate_terminal 2 lgtm
+  assert_cleaner_rejects_without_release
+
+  make_cleaner_security_fixture cleaner-replaced-latest
+  write_gate_terminal 1
+  target="$CLEANER_RUN_ROOT/steps/04-gate/attempt-1/result.json"
+  replacement="$TMP_ROOT/replacement-gate-result.json"
+  jq '.events[0].event="lgtm"' "$target" >"$replacement"
+  chmod 0444 "$replacement"
+  race_bin="$TMP_ROOT/cleaner-race-bin"
+  mkdir "$race_bin"
+  cb_write_fake "$race_bin/jq" '#!/usr/bin/env bash
+target=${CB_CLEANER_TEST_RACE_TARGET:-}
+last=${!#}
+if [ -n "$target" ] && [ "$last" = "$target" ] \
+  && [ ! -e "$CB_CLEANER_TEST_RACE_DONE" ]; then
+  "$CB_CLEANER_TEST_REAL_JQ" "$@"
+  code=$?
+  if [ "$code" -eq 0 ]; then
+    mv "$CB_CLEANER_TEST_RACE_REPLACEMENT" "$target"
+    touch "$CB_CLEANER_TEST_RACE_DONE"
+  fi
+  exit "$code"
+fi
+exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
+'
+  export CB_CLEANER_TEST_RACE_TARGET="$target"
+  export CB_CLEANER_TEST_RACE_REPLACEMENT="$replacement"
+  export CB_CLEANER_TEST_RACE_DONE="$TMP_ROOT/cleaner-race.done"
+  export CB_CLEANER_TEST_REAL_JQ="$REAL_JQ"
+  assert_cleaner_rejects_without_release "$race_bin"
+  unset CB_CLEANER_TEST_RACE_TARGET CB_CLEANER_TEST_RACE_REPLACEMENT
+  unset CB_CLEANER_TEST_RACE_DONE CB_CLEANER_TEST_REAL_JQ
+
+  pass "native Cleaner: only the immutable highest numeric Gate attempt authorizes release"
+}
+
+test_cleaner_unpredictable_staging() {
+  local run pid status ready release poison victim blocker_bin
+  local out="$TMP_ROOT/cleaner-pid.out" err="$TMP_ROOT/cleaner-pid.err"
+
+  make_cleaner_security_fixture cleaner-pid-guess
+  write_gate_terminal 1
+  write_cleaner_seal
+  run="${CLEANER_RUN_ROOT##*/}"
+  ready="$TMP_ROOT/cleaner-realpath.ready"
+  release="$TMP_ROOT/cleaner-realpath.release"
+  blocker_bin="$TMP_ROOT/cleaner-realpath-bin"
+  mkdir "$blocker_bin"
+  cb_write_fake "$blocker_bin/realpath" '#!/bin/sh
+touch "$CB_CLEANER_TEST_BLOCK_READY"
+while [ ! -e "$CB_CLEANER_TEST_BLOCK_RELEASE" ]; do sleep 0.01; done
+exec "$CB_CLEANER_TEST_REAL_REALPATH" "$@"
+'
+  PATH="$blocker_bin:$CLEANER_FAKE_BIN:$PATH" \
+    CB_RUNS_DIR="$RUNS_DIR" \
+    CB_CLEANER_TEST_RUN="$run" \
+    CB_CLEANER_TEST_WORKTREE="$CLEANER_WORKTREE" \
+    CB_CLEANER_TEST_RETURN_CALLS="$CLEANER_RETURN_CALLS" \
+    CB_CLEANER_TEST_BLOCK_READY="$ready" \
+    CB_CLEANER_TEST_BLOCK_RELEASE="$release" \
+    CB_CLEANER_TEST_REAL_REALPATH="$REAL_REALPATH" \
+    bash "$BIN/cb-cleaner-adapter.sh" \
+      --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" \
+      >"$out" 2>"$err" &
+  pid=$!
+  while [ ! -e "$ready" ]; do sleep 0.01; done
+  victim="$TMP_ROOT/cleaner-pid-victim"
+  poison="$CLEANER_RUN_ROOT/steps/05-cleaner/attempt-1/.cleaner-adapter-output.$pid"
+  ln -s "$victim" "$poison"
+  touch "$release"
+  wait "$pid" && status=0 || status=$?
+  expect_code 0 "$status" "PID-guess staging attack$(cat "$err")"
+  jq -e '.events[0].event=="cleaned"' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "PID-guess staging attack poisoned the Cleaner outcome"
+  assert_symlink "$poison" "Cleaner replaced the attacker-owned PID symlink"
+  assert_absent "$victim" "Cleaner wrote through the attacker-owned PID symlink"
+  rm -f "$poison"
+
+  make_cleaner_security_fixture cleaner-interrupted-stage
+  write_gate_terminal 1
+  write_cleaner_seal
+  run="${CLEANER_RUN_ROOT##*/}"
+  ready="$TMP_ROOT/cleaner-jq.ready"
+  release="$TMP_ROOT/cleaner-jq.release"
+  blocker_bin="$TMP_ROOT/cleaner-jq-bin"
+  mkdir "$blocker_bin"
+  cb_write_fake "$blocker_bin/jq" '#!/usr/bin/env bash
+for argument in "$@"; do
+  case "$argument" in
+    *combo.step-output/v1*)
+      touch "$CB_CLEANER_TEST_BLOCK_READY"
+      while [ ! -e "$CB_CLEANER_TEST_BLOCK_RELEASE" ]; do sleep 0.01; done
+      break
+      ;;
+  esac
+done
+exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
+'
+  PATH="$blocker_bin:$CLEANER_FAKE_BIN:$PATH" \
+    CB_RUNS_DIR="$RUNS_DIR" \
+    CB_CLEANER_TEST_RUN="$run" \
+    CB_CLEANER_TEST_WORKTREE="$CLEANER_WORKTREE" \
+    CB_CLEANER_TEST_RETURN_CALLS="$CLEANER_RETURN_CALLS" \
+    CB_CLEANER_TEST_BLOCK_READY="$ready" \
+    CB_CLEANER_TEST_BLOCK_RELEASE="$release" \
+    CB_CLEANER_TEST_REAL_JQ="$REAL_JQ" \
+    bash "$BIN/cb-cleaner-adapter.sh" \
+      --input "$CLEANER_INPUT" --output "$CLEANER_OUTPUT" \
+      >"$out" 2>"$err" &
+  pid=$!
+  while [ ! -e "$ready" ]; do sleep 0.01; done
+  kill -TERM "$pid"
+  touch "$release"
+  wait "$pid" && status=0 || status=$?
+  [ "$status" -ne 0 ] || fail "interrupted Cleaner staging unexpectedly succeeded"
+  assert_absent "$CLEANER_OUTPUT" \
+    "interrupted Cleaner staging published an authoritative output"
+  if find "$CLEANER_RUN_ROOT/steps/05-cleaner/attempt-1" -maxdepth 1 \
+    -name '.cleaner-adapter-output.*' -print -quit | grep . >/dev/null; then
+    fail "interrupted Cleaner staging poisoned a future invocation"
+  fi
+  run_cleaner_adapter
+  expect_code 0 "$CMD_STATUS" \
+    "Cleaner retry after interruption${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].event=="cleaned"' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "Cleaner retry after interrupted staging did not converge"
+
+  pass "native Cleaner: unpredictable owned staging survives PID guesses and interruption"
+}
+
+test_cleaner_security_contracts() {
+  test_cleaner_latest_gate_attempt
+  test_cleaner_unpredictable_staging
+}
+# -/ 7/7
+
+case "${CB_STEP_ADAPTER_SECURITY_ONLY:-}" in
+  latest-gate)
+    test_cleaner_latest_gate_attempt
+    exit 0
+    ;;
+  staging)
+    test_cleaner_unpredictable_staging
+    exit 0
+    ;;
+esac
 
 test_invokes_with_universal_envelope
 test_closes_adapter_stdin
@@ -585,5 +923,6 @@ test_accepts_role_outcomes
 test_normalizes_non_product_exits
 test_rejects_unsafe_invocations
 test_native_end_envelopes
+test_cleaner_security_contracts
 
 printf '\nstep-adapter-contract: all tests passed\n'

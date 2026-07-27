@@ -9,7 +9,8 @@
 #   1. Fixture commands and config       <- deterministic five-seat inputs.
 #   2. run_mounted_chain                 <- interrupt then resume one run.
 #   3. assert_mounted_evidence           <- artifact-only acceptance checks.
-#   4. run_mutation_checks               <- prove each bypass is detected.
+#   4. assert_dispatch_security           <- installed link + path containment.
+#   5. run_mutation_checks                <- prove each bypass is detected.
 #
 #   MAIN FLOW
 #   ---------
@@ -22,7 +23,8 @@
 #   INTERNALS
 #   ---------
 #   cleanup_fixture, tmux_command, meta_value, write_config,
-#   run_mounted_chain, assert_mounted_evidence, run_mutation_checks
+#   assert_chain_rejects_symlink_dispatcher, run_mounted_chain,
+#   assert_mounted_evidence, assert_dispatch_security, run_mutation_checks
 #
 # @exports none
 # @deps bash, git, jq, tmux, tests/lib.sh, bin/cb-plan.sh, bin/cb-run.sh,
@@ -78,7 +80,7 @@ meta_value() {
   ' "$RUNS_DIR/$RUN/agents/$role.meta"
 }
 
-# -- 1/4 HELPER · Fixture commands and immutable config --
+# -- 1/5 HELPER · Fixture commands and immutable config --
 git -C "$REPO" init -q -b main
 git -C "$REPO" config user.name "Combo Mount Test"
 git -C "$REPO" config user.email "combo-mount@example.test"
@@ -323,9 +325,9 @@ chmod 0444 "$RUNS_DIR/$RUN/launcher-readiness.json"
   printf "CB_CLEAN_CUSTODY_CMD='exit 0'\n"
 } >"$RUNS_DIR/$RUN/config.env"
 chmod 0600 "$RUNS_DIR/$RUN/config.env"
-# -/ 1/4
+# -/ 1/5
 
-# -- 2/4 CORE · run_mounted_chain -- <- START HERE
+# -- 2/5 CORE · run_mounted_chain -- <- START HERE
 export PATH="$FAKE_BIN:$PATH"
 export SHELL=/bin/bash
 export CB_RUNS_DIR="$RUNS_DIR"
@@ -345,6 +347,14 @@ export CB_CHAIN_TEST_NM_CALLS="$NM_CALLS"
 export CB_CHAIN_TEST_GH_CALLS="$GH_CALLS"
 export CB_CHAIN_TEST_MUTATION="$MUTATION"
 
+INSTALLED_BIN="$TMP_ROOT/installed/bin"
+INSTALLED_LIBEXEC="$TMP_ROOT/installed/libexec"
+ARBITRARY_CWD="$TMP_ROOT/arbitrary-cwd"
+INSTALLED_DISPATCHER="$INSTALLED_BIN/combo-chain"
+mkdir -p "$INSTALLED_BIN" "$INSTALLED_LIBEXEC" "$ARBITRARY_CWD"
+ln -s "$BIN/cb-run.sh" "$INSTALLED_LIBEXEC/cb-run.sh"
+ln -s ../libexec/cb-run.sh "$INSTALLED_DISPATCHER"
+
 RUN_STATUS=
 RUN_STDOUT=
 RUN_STDERR=
@@ -355,12 +365,28 @@ run_dispatcher() {
       bash "$BIN/cb-chain.sh" "$RUN" 2>"$err") \
       && RUN_STATUS=0 || RUN_STATUS=$?
   else
-    RUN_STDOUT=$(CB_CHAIN_STOP_AFTER_ROLE="$stop_after" \
-      bash "$BIN/cb-run.sh" "$RUN" 2>"$err") \
+    RUN_STDOUT=$(cd "$ARBITRARY_CWD" && \
+      CB_CHAIN_STOP_AFTER_ROLE="$stop_after" \
+      "$INSTALLED_DISPATCHER" "$RUN" 2>"$err") \
       && RUN_STATUS=0 || RUN_STATUS=$?
   fi
   RUN_STDERR=$(cat "$err" 2>/dev/null || true)
 }
+
+assert_chain_rejects_symlink_dispatcher() {
+  local err="$TMP_ROOT/canonical-dispatcher.err" status
+  CB_CHAIN_DISPATCHER="$INSTALLED_DISPATCHER" \
+    bash "$BIN/cb-chain.sh" "$RUN" >"$TMP_ROOT/canonical-dispatcher.out" \
+    2>"$err" && status=0 || status=$?
+  expect_code 73 "$status" "cb-chain canonical dispatcher guard"
+  assert_contains "$(cat "$err")" \
+    "endpoint dispatcher is missing or unsafe" \
+    "cb-chain must retain its canonical non-symlink executable check"
+  assert_absent "$RUNS_DIR/$RUN/agents/launcher.ownership.json" \
+    "rejected symlink dispatcher must fail before Launcher execution"
+}
+
+assert_chain_rejects_symlink_dispatcher
 
 run_mounted_chain() {
   if [ "$MUTATION" != bypass-endpoint ]; then
@@ -374,8 +400,8 @@ run_mounted_chain() {
     CUSTODY_SHA=$(cb_file_sha256 \
       "$RUNS_DIR/$RUN/agents/launcher.ownership.json")
     printf '{"schema":"stale-endpoint-job/v1"}\n' \
-      >"$RUNS_DIR/$RUN/dispatch/jobs/coder-attempt-1.json"
-    chmod 0444 "$RUNS_DIR/$RUN/dispatch/jobs/coder-attempt-1.json"
+      >"$RUNS_DIR/$RUN/dispatch/jobs/coder-attempt-1.job.json"
+    chmod 0444 "$RUNS_DIR/$RUN/dispatch/jobs/coder-attempt-1.job.json"
     printf 'advanced after custody\n' >"$REPO/base-advance.txt"
     git -C "$REPO" add base-advance.txt
     git -C "$REPO" commit -qm "fixture advances symbolic base"
@@ -398,9 +424,9 @@ run_mounted_chain() {
 }
 
 run_mounted_chain
-# -/ 2/4
+# -/ 2/5
 
-# -- 3/4 CORE · assert_mounted_evidence --
+# -- 3/5 CORE · assert_mounted_evidence --
 assert_mounted_evidence() {
   local expected_names actual_names role mode receipt window_id
   local expected_order calls plan launcher_argv return_path
@@ -526,9 +552,121 @@ assert_mounted_evidence() {
 
 assert_mounted_evidence
 pass "cb-run: mounts, resumes, rejects before publication, and cleans exactly"
-# -/ 3/4
+# -/ 3/5
 
-# -- 4/4 CORE · run_mutation_checks --
+# -- 4/5 CORE · assert_dispatch_security --
+assert_dispatch_security() {
+  local unsafe_target="$INSTALLED_BIN/unsafe-target"
+  local unsafe_link="$INSTALLED_BIN/unsafe-link"
+  local broken_link="$INSTALLED_BIN/broken-link"
+  local cycle_a="$INSTALLED_BIN/cycle-a"
+  local cycle_b="$INSTALLED_BIN/cycle-b"
+  local err="$TMP_ROOT/dispatcher-link.err" status before_returns
+  local bad job name receipt_name victim
+  local index=0
+
+  cp "$BIN/cb-run.sh" "$unsafe_target"
+  chmod 0644 "$unsafe_target"
+  ln -s "$unsafe_target" "$unsafe_link"
+  ln -s "$INSTALLED_BIN/missing-target" "$broken_link"
+  ln -s "$cycle_b" "$cycle_a"
+  ln -s "$cycle_a" "$cycle_b"
+  before_returns=$(wc -l <"$TREEHOUSE_RETURN_CALLS" | tr -d ' ')
+
+  bash "$unsafe_link" "$RUN" >"$TMP_ROOT/unsafe-link.out" 2>"$err" \
+    && status=0 || status=$?
+  [ "$status" -ne 0 ] || fail "non-executable dispatcher target was accepted"
+  assert_contains "$(cat "$err")" "dispatcher executable is missing or unsafe" \
+    "unsafe installed dispatcher should fail closed"
+  bash "$broken_link" "$RUN" >"$TMP_ROOT/broken-link.out" 2>"$err" \
+    && status=0 || status=$?
+  [ "$status" -ne 0 ] || fail "broken dispatcher symlink was accepted"
+  bash "$cycle_a" "$RUN" >"$TMP_ROOT/cyclic-link.out" 2>"$err" \
+    && status=0 || status=$?
+  [ "$status" -ne 0 ] || fail "cyclic dispatcher symlink was accepted"
+  [ "$(wc -l <"$TREEHOUSE_RETURN_CALLS" | tr -d ' ')" = "$before_returns" ] \
+    || fail "unsafe dispatcher links duplicated custody release"
+
+  for bad in \
+    '/absolute.job.json' '../escape.job.json' 'nested/escape.job.json' \
+    '.hidden.job.json' 'evil..job.json' 'encoded%2f.job.json' \
+    'back\slash.job.json'; do
+    TMUX_PANE=%fixture "$INSTALLED_DISPATCHER" \
+      --endpoint-job "$RUN" "$bad" >"$TMP_ROOT/bad-job.out" 2>"$err" \
+      && status=0 || status=$?
+    expect_code 73 "$status" "hostile endpoint job basename: $bad"
+    assert_contains "$(cat "$err")" "invalid endpoint job basename" \
+      "hostile job basename was not rejected before path joining"
+  done
+
+  victim="$TMP_ROOT/job-symlink-victim"
+  printf 'precious\n' >"$victim"
+  ln -s "$victim" "$RUNS_DIR/$RUN/dispatch/jobs/symlink.job.json"
+  TMUX_PANE=%fixture "$INSTALLED_DISPATCHER" \
+    --endpoint-job "$RUN" symlink.job.json \
+    >"$TMP_ROOT/symlink-job.out" 2>"$err" \
+    && status=0 || status=$?
+  expect_code 73 "$status" "symlinked endpoint job"
+  [ "$(cat "$victim")" = precious ] \
+    || fail "symlinked endpoint job modified its target"
+
+  for receipt_name in \
+    '/absolute.receipt.json' '../escape.receipt.json' \
+    'nested/escape.receipt.json' '.hidden.receipt.json' \
+    'evil..receipt.json' 'encoded%2f.receipt.json' \
+    'back\slash.receipt.json'; do
+    index=$((index + 1))
+    name="security-$index.job.json"
+    job="$RUNS_DIR/$RUN/dispatch/jobs/$name"
+    jq -cn \
+      --arg run "$RUN" --arg job "$name" --arg receipt "$receipt_name" \
+      --argjson attempt "$((100 + index))" '
+        {
+          schema:"combo.endpoint-job/v1",run_id:$run,role:"coder",
+          step_id:"coder",attempt:$attempt,candidate_sha:null,
+          prior_artifacts:[],job_name:$job,receipt_name:$receipt
+        }
+      ' >"$job"
+    chmod 0444 "$job"
+    TMUX_PANE=%fixture "$INSTALLED_DISPATCHER" \
+      --endpoint-job "$RUN" "$name" \
+      >"$TMP_ROOT/bad-receipt.out" 2>"$err" \
+      && status=0 || status=$?
+    expect_code 73 "$status" "hostile endpoint receipt basename: $receipt_name"
+    assert_contains "$(cat "$err")" "invalid endpoint receipt basename" \
+      "hostile receipt basename was not rejected before path joining"
+  done
+
+  name=security-symlink.job.json
+  job="$RUNS_DIR/$RUN/dispatch/jobs/$name"
+  receipt_name=security-symlink.receipt.json
+  jq -cn \
+    --arg run "$RUN" --arg job "$name" --arg receipt "$receipt_name" '
+      {
+        schema:"combo.endpoint-job/v1",run_id:$run,role:"coder",
+        step_id:"coder",attempt:200,candidate_sha:null,
+        prior_artifacts:[],job_name:$job,receipt_name:$receipt
+      }
+    ' >"$job"
+  chmod 0444 "$job"
+  ln -s "$victim" "$RUNS_DIR/$RUN/dispatch/$receipt_name"
+  TMUX_PANE=%fixture "$INSTALLED_DISPATCHER" \
+    --endpoint-job "$RUN" "$name" \
+    >"$TMP_ROOT/symlink-receipt.out" 2>"$err" \
+    && status=0 || status=$?
+  expect_code 73 "$status" "symlinked endpoint receipt"
+  [ "$(cat "$victim")" = precious ] \
+    || fail "symlinked endpoint receipt modified its target"
+  assert_absent "$TMP_ROOT/escape.receipt.json" \
+    "hostile endpoint receipt escaped the canonical dispatch directory"
+
+  pass "cb-run: resolves installed links and contains hostile job/receipt names"
+}
+
+assert_dispatch_security
+# -/ 4/5
+
+# -- 5/5 CORE · run_mutation_checks --
 run_mutation_checks() {
   local mutation status
   [ -z "${CB_CHAIN_MOUNT_MUTATION_ACTIVE:-}" ] || return 0
@@ -547,6 +685,6 @@ run_mutation_checks() {
 }
 
 run_mutation_checks
-# -/ 4/4
+# -/ 5/5
 
 printf '\nchain-mount-integration: all tests passed\n'
