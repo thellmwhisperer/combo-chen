@@ -1198,6 +1198,10 @@ set -eu
 case "${1:-}" in
   status)
     [ "$#" -eq 1 ]
+    count=0
+    [ ! -f "$CB_CLEANER_TEST_RETRY_COUNT" ] ||
+      count=$(cat "$CB_CLEANER_TEST_RETRY_COUNT")
+    [ "$count" -lt 2 ] || exit 0
     display=$CB_CLEANER_TEST_WORKTREE
     case "$display" in
       "$HOME"/*) display="~/${display#"$HOME"/}" ;;

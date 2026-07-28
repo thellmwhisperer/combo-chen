@@ -1,12 +1,13 @@
 #!/bin/sh
-# @overview Mechanical Combo v1 Cleaner. Verifies Launcher custody and releases
-#   only the exact recorded Treehouse lease path or explicit Git worktree.
+# @overview Mechanical Combo v1 Cleaner. Verifies Launcher custody, releases
+#   only the exact recorded Treehouse lease path or explicit Git worktree, and
+#   re-observes Treehouse custody before sealing success.
 #
 #   READING GUIDE
 #   -------------
 #   1. Ownership validation      <- rejects copied, guessed, or mismatched facts.
 #   2. Custody refusal           <- generic P7 boundary; no Gate integration here.
-#   3. Exact release dispatch    <- runway_kind selects one non-forcing backend.
+#   3. Exact release dispatch    <- non-forcing backend plus custody recheck.
 #
 #   MAIN FLOW
 #   ---------
@@ -216,6 +217,17 @@ case "$kind" in
     if treehouse_lease_owned "$worktree" "$run"; then
       if ! (cd "$repo_dir" && treehouse return "$worktree") </dev/null >/dev/null 2>&1; then
         add_reason "treehouse:release_refused"
+      else
+        if treehouse_lease_owned "$worktree" "$run"; then
+          post_return_status=0
+        else
+          post_return_status=$?
+        fi
+        case "$post_return_status" in
+          0) add_reason "treehouse:release_unconfirmed" ;;
+          1) ;;
+          *) add_reason "treehouse:release_unverified" ;;
+        esac
       fi
     else
       add_reason "treehouse:lease_identity_changed"
