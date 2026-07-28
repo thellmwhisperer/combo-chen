@@ -223,9 +223,8 @@ direct_binding() {
 }
 
 gnhf_binding() {
-  local agent=${1:-"$GNHF_FAKE"}
   jq -cn \
-    --arg adapter gnhf --arg agent "$agent" '
+    --arg adapter gnhf --arg agent "$GNHF_FAKE" '
       {
         adapter:$adapter,
         config:{
