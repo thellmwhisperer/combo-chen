@@ -6,10 +6,11 @@
 #
 #   READING GUIDE
 #   -------------
-#   1. Hard authorization guards  <- exact repo, clean implementation, tools.
-#   2. Compile docs-only plan     <- fresh main-combo-v1 plus operator bindings.
-#   3. Interrupt and resume       <- five endpoints and immutable custody.
-#   4. Verify terminal evidence   <- validated PR, docs-only diff, exact release.
+#   1. Changed-path helpers       <- lossless API query and docs-only validation.
+#   2. Hard authorization guards  <- exact repo, clean implementation, tools.
+#   3. Compile docs-only plan     <- fresh main-combo-v1 plus operator bindings.
+#   4. Interrupt and resume       <- five endpoints and immutable custody.
+#   5. Verify terminal evidence   <- validated PR, docs-only diff, exact release.
 #
 #   MAIN FLOW
 #   ---------
@@ -24,10 +25,77 @@
 #   COMBO_CHEN_E2E_NM_MODEL=<effective No-Mistakes model>
 #   bash tests/chain-mount-e2e.test.sh
 #
-# @exports none
-# @deps bash, git, gh-axi, gnhf, grep, jq, no-mistakes, tmux, treehouse,
+# @exports cb_e2e_pr_changed_paths, cb_e2e_require_docs_only_paths when sourced
+# @deps bash, gh, gh-axi, git, gnhf, grep, jq, no-mistakes, tmux, treehouse,
 #   tests/lib.sh, bin/cb-plan.sh, bin/cb-run.sh
 set -euo pipefail
+
+# -- 1/5 HELPER · Query and validate exact PR changed paths --
+
+cb_e2e_pr_changed_paths() {
+  local pr_url=${1:-}
+  local prefix=https://github.com/thellmwhisperer/combo-chen/pull/
+  local pr_number
+
+  case "$pr_url" in
+    "$prefix"*) pr_number=${pr_url#"$prefix"} ;;
+    *)
+      printf 'unauthorized PR URL: %s\n' "$pr_url" >&2
+      return 64
+      ;;
+  esac
+  case "$pr_number" in
+    [1-9]*)
+      case "$pr_number" in
+        *[!0-9]*)
+          printf 'invalid PR number in URL: %s\n' "$pr_url" >&2
+          return 64
+          ;;
+      esac
+      ;;
+    *)
+      printf 'invalid PR number in URL: %s\n' "$pr_url" >&2
+      return 64
+      ;;
+  esac
+
+  # gh-axi api emits TOON and its diff surface cannot project filenames.
+  # Native gh's API projection preserves path characters and follows every page.
+  command gh api \
+    "/repos/thellmwhisperer/combo-chen/pulls/$pr_number/files?per_page=100" \
+    --paginate --jq '.[].filename'
+}
+
+cb_e2e_require_docs_only_paths() {
+  local changed_paths=${1-}
+  local path
+
+  if [ -z "$changed_paths" ]; then
+    printf 'docs PR has no changed paths\n' >&2
+    return 65
+  fi
+  while IFS= read -r path; do
+    case "$path" in
+      README.md)
+        printf 'generated PR touched README.md\n' >&2
+        return 65
+        ;;
+      docs/?*) ;;
+      *)
+        printf 'generated PR escaped strict docs-only scope: %s\n' \
+          "$path" >&2
+        return 65
+        ;;
+    esac
+  done <<<"$changed_paths"
+}
+# -/ 1/5
+
+# This acceptance wrapper exposes only its deterministic changed-path helpers
+# when sourced by their focused regression suite.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
 
 authorization=${COMBO_CHEN_E2E_ENABLE:-}
 if [ "$authorization" != course-correction-8cbcf1108dc5cf43 ]; then
@@ -54,7 +122,7 @@ fi
 [ -z "$(git -C "$root" status --porcelain)" ] \
   || fail "implementation worktree must be clean before the real run"
 
-for tool in gh-axi git gnhf jq no-mistakes realpath tmux treehouse; do
+for tool in gh gh-axi git gnhf jq no-mistakes realpath tmux treehouse; do
   command -v "$tool" >/dev/null 2>&1 || fail "required tool is missing: $tool"
 done
 gnhf_agent=${COMBO_CHEN_E2E_GNHF_AGENT:-}
@@ -79,7 +147,7 @@ printf '%s\n' "$repo_evidence" |
   grep -Fxq 'default_branch: main-combo-v1' \
   || fail "gh-axi did not confirm the authorized base branch"
 
-# -- 1/4 CORE · Freeze one fresh authorized base -- <- START HERE
+# -- 2/5 CORE · Freeze one fresh authorized base -- <- START HERE
 git -C "$root" fetch origin main-combo-v1 >/dev/null
 base_sha=$(git -C "$root" rev-parse --verify \
   'origin/main-combo-v1^{commit}')
@@ -105,9 +173,9 @@ run_dir=$runs_dir/$run
 config=$evidence_root/config.json
 [ ! -e "$evidence_root" ] || fail "E2E run evidence already exists"
 mkdir -p "$run_dir"
-# -/ 1/4
+# -/ 2/5
 
-# -- 2/4 CORE · Compile the zero-Reviewer docs-only plan --
+# -- 3/5 CORE · Compile the zero-Reviewer docs-only plan --
 gnhf_binary=$(realpath "$(command -v gnhf)")
 nm_binary=$(realpath "$(command -v no-mistakes)")
 prompt="Act as the GNHF Coder seat for Combo Chen issue #339. Produce a
@@ -207,9 +275,9 @@ jq -n \
 CB_RUNS_DIR=$runs_dir bash "$bin/cb-plan.sh" \
   "$run" --config "$config" >/dev/null
 plan_sha=$(cb_file_sha256 "$run_dir/plan.json")
-# -/ 2/4
+# -/ 3/5
 
-# -- 3/4 CORE · Interrupt after Launcher, then resume through Cleaner --
+# -- 4/5 CORE · Interrupt after Launcher, then resume through Cleaner --
 export CB_RUNS_DIR=$runs_dir
 export CB_TMUX_SOCKET=cb-e2e-"$run"
 export CB_TMUX_CONF=/dev/null
@@ -249,9 +317,9 @@ set -e
   || fail "real chain ended nonzero; inspect $run_dir/chain-result.json"
 [ "$terminal_output" = validated ] \
   || fail "manual Gate did not print the truthful validated outcome"
-# -/ 3/4
+# -/ 4/5
 
-# -- 4/4 CORE · Verify machine-readable topology, PR, replay, and release --
+# -- 5/5 CORE · Verify machine-readable topology, PR, replay, and release --
 [ "$(cb_file_sha256 "$run_dir/plan.json")" = "$plan_sha" ] \
   || fail "real chain mutated plan.json"
 [ "$(cb_file_sha256 "$custody")" = "$custody_sha" ] \
@@ -342,15 +410,14 @@ jq -e --arg worktree "$worktree" '
 ' "$run_dir/agents/cleaner.ownership.json" >/dev/null \
   || fail "Cleaner release seal does not match Launcher custody"
 
-changed_paths=$(gh-axi pr diff "$pr_url" --name-only)
-[ -n "$changed_paths" ] || fail "docs PR has no changed paths"
-while IFS= read -r path; do
-  case "$path" in
-    README.md) fail "generated PR touched README.md" ;;
-    docs/*) ;;
-    *) fail "generated PR escaped strict docs-only scope: $path" ;;
-  esac
-done <<<"$changed_paths"
+changed_paths=
+if ! changed_paths=$(cb_e2e_pr_changed_paths "$pr_url"); then
+  fail "authenticated PR changed-path query failed"
+fi
+path_error=
+if ! path_error=$(cb_e2e_require_docs_only_paths "$changed_paths" 2>&1); then
+  fail "$path_error"
+fi
 
 dispatch_before=$(wc -l <"$run_dir/dispatch-log.jsonl" | tr -d ' ')
 replay_output=$(bash "$bin/cb-run.sh" "$run" </dev/null)
@@ -379,4 +446,4 @@ jq -n \
 chmod 0444 "$summary"
 printf 'ok - real #339 chain validated %s\n' "$pr_url"
 printf 'evidence: %s\n' "$summary"
-# -/ 4/4
+# -/ 5/5
