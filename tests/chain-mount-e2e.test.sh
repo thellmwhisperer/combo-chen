@@ -25,7 +25,7 @@
 #   bash tests/chain-mount-e2e.test.sh
 #
 # @exports none
-# @deps bash, git, gh-axi, gnhf, jq, no-mistakes, tmux, treehouse,
+# @deps bash, git, gh-axi, gnhf, grep, jq, no-mistakes, tmux, treehouse,
 #   tests/lib.sh, bin/cb-plan.sh, bin/cb-run.sh
 set -euo pipefail
 
@@ -71,11 +71,13 @@ case "$origin_url" in
   git@github.com:thellmwhisperer/combo-chen.git) ;;
   *) fail "origin is not the authorized Combo Chen repository" ;;
 esac
-repo_evidence=$(gh-axi repo view -R "$target")
-case "$repo_evidence" in
-  *https://github.com/thellmwhisperer/combo-chen*) ;;
-  *) fail "gh-axi did not confirm the authorized repository" ;;
-esac
+repo_evidence=$(gh-axi api "/repos/$target")
+printf '%s\n' "$repo_evidence" |
+  grep -Fxq 'full_name: thellmwhisperer/combo-chen' \
+  || fail "gh-axi did not confirm the authorized repository"
+printf '%s\n' "$repo_evidence" |
+  grep -Fxq 'default_branch: main-combo-v1' \
+  || fail "gh-axi did not confirm the authorized base branch"
 
 # -- 1/4 CORE · Freeze one fresh authorized base -- <- START HERE
 git -C "$root" fetch origin main-combo-v1 >/dev/null
