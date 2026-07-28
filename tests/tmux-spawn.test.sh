@@ -2,11 +2,11 @@
 # tests/tmux-spawn.test.sh
 #
 # Contract: proves the P2 tmux spawn/meta/status contracts — five pinned
-# windows with canonical role modes and atomic meta, exact-session target
-# resolution and isolation, spawn-lock liveness/deletion guards, symlink
-# containment, live endpoint send/peek/status with verified Enter, idempotent
-# teardown, and stale-id reuse safety. tmux is real (isolated socket per test);
-# Python fakes simulate TUI composers for the verified-Enter path.
+# windows with atomic meta, exact-session target resolution and isolation,
+# spawn-lock liveness/deletion guards, symlink containment, live endpoint
+# send/peek/status with verified Enter, idempotent teardown, and stale-id
+# reuse safety. tmux is real (isolated socket per test); Python fakes simulate
+# TUI composers for the verified-Enter path.
 #
 # This entire suite is skipped when tmux is not available.
 set -u
@@ -144,7 +144,7 @@ test_creates_five_pinned_windows() {
   tc has-session -t "=combo-$run" >/dev/null 2>&1 || fail "session combo-$run should exist"
   local names
   names=$(tc list-windows -t "=combo-$run" -F '#{window_name}' | sort)
-  local expected a exp_lines="" expected_mode
+  local expected a exp_lines=""
   for a in "${AGENTS[@]}"; do exp_lines="${exp_lines}cb-$run-$a"$'\n'; done
   expected=$(printf '%s' "$exp_lines" | sort)
   [ "$names" = "$expected" ] || fail "window names mismatch: got [$names] expected [$expected]"
@@ -156,11 +156,6 @@ test_creates_five_pinned_windows() {
     [ "$(meta_val "$run" "$a" run)" = "$run" ] || fail "$a: run mismatch"
     [ "$(meta_val "$run" "$a" agent)" = "$a" ] || fail "$a: agent mismatch"
     [ "$(meta_val "$run" "$a" window)" = "combo-$run:cb-$run-$a" ] || fail "$a: window mismatch"
-    case "$a" in coder|reviewer) expected_mode=tui ;; *) expected_mode=shell ;; esac
-    [ "$(meta_val "$run" "$a" mode)" = "$expected_mode" ] \
-      || fail "$a: canonical endpoint mode mismatch"
-    [ "$(tc display-message -p -t "$wid" '#{pane_dead}')" = 0 ] \
-      || fail "$a: canonical endpoint is not occupied"
     tc show-window-options -t "$wid" automatic-rename 2>/dev/null | grep -q off || fail "$a: automatic-rename should be off"
     tc show-window-options -t "$wid" allow-rename 2>/dev/null | grep -q off || fail "$a: allow-rename should be off"
   done

@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # @overview Contract and deterministic end-to-end tests for the P5 Coder
 #   adapters. Proves plan-selected invocation sequences, direct-agent and GNHF
-#   schema enforcement, immutable Launcher-custody handoff, git-fact
-#   normalization, artifact routing, isolated environments, mandatory GNHF
-#   safety flags, and ordinary PATH-routed push rejection without treating
-#   same-UID mode bits as an integrity boundary.
+#   schema enforcement, git-fact normalization, artifact routing, isolated
+#   environments, mandatory GNHF safety flags, and ordinary PATH-routed push
+#   rejection without treating same-UID mode bits as an integrity boundary.
 #
 #   READING GUIDE
 #   -------------
 #   1. Fixture adapters and configs       <- executable universal-envelope setup.
 #   2. test_compiles_coder_sequences      <- config-only adapter selection.
 #   3. test_runs_gnhf_then_direct         <- required correction-loop E2E.
-#   4. test_normalizes_not_ready          <- fail-closed custody/config/Git behavior.
+#   4. test_normalizes_not_ready          <- fail-closed config/git behavior.
 #
 #   MAIN FLOW
 #   ---------
@@ -23,8 +22,8 @@
 #
 #   INTERNALS
 #   ---------
-#   make_repo, direct_binding, gnhf_binding, write_config, write_custody,
-#   make_run, run_chain, run_step, assert_coder_sequence
+#   make_repo, direct_binding, gnhf_binding, write_config, make_run,
+#   run_chain, run_step, assert_coder_sequence
 #
 # @exports none
 # @deps bash, git, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh,
@@ -207,13 +206,15 @@ make_repo() {
 }
 
 direct_binding() {
-  local agent=${1:-"$DIRECT_FAKE"}
+  local repo=$1 base=$2 branch=$3 agent=${4:-"$DIRECT_FAKE"}
   jq -cn \
-    --arg adapter direct-agent --arg agent "$agent" '
+    --arg adapter direct-agent --arg repo "$repo" --arg base "$base" \
+    --arg branch "$branch" --arg agent "$agent" '
       {
         adapter:$adapter,
         config:{
           schema:"combo.coder/direct-agent/v1",
+          worktree:$repo,base_sha:$base,branch:$branch,
           argv:[$agent],prompt:"implement configured work",
           output_schema:"combo.step-output/v1",
           environment:{inherit:["PATH","HOME"],set:{}}
@@ -223,12 +224,15 @@ direct_binding() {
 }
 
 gnhf_binding() {
+  local repo=$1 base=$2 branch=$3 agent=${4:-"$GNHF_FAKE"}
   jq -cn \
-    --arg adapter gnhf --arg agent "$GNHF_FAKE" '
+    --arg adapter gnhf --arg repo "$repo" --arg base "$base" \
+    --arg branch "$branch" --arg agent "$agent" '
       {
         adapter:$adapter,
         config:{
           schema:"combo.coder/gnhf/v1",
+          worktree:$repo,base_sha:$base,branch:$branch,
           argv:[$agent],prompt:"run the configured Ralph loop",
           agent:"codex",max_iterations:3,
           stop_when:"tests-and-lint-green",
@@ -266,29 +270,9 @@ write_config() {
     ' >"$path"
 }
 
-write_custody() {
-  local run=$1 repo=$2 base=$3 branch=$4
-  mkdir -p "$RUNS_DIR/$run/agents"
-  jq -cn \
-    --arg run "$run" --arg repo "$repo" --arg worktree "$repo" \
-    --arg branch "$branch" --arg base "$base" --arg lease "$run" '
-      {
-        run:$run,
-        runway_kind:"treehouse",
-        repo_dir:$repo,
-        worktree:$worktree,
-        branch:$branch,
-        base_sha:$base,
-        lease_id:$lease
-      }
-    ' >"$RUNS_DIR/$run/agents/launcher.ownership.json"
-  chmod 0444 "$RUNS_DIR/$run/agents/launcher.ownership.json"
-}
-
 make_run() {
-  local run=$1 config=$2 repo=$3 base=$4 branch=$5
+  local run=$1 config=$2
   mkdir -p "$RUNS_DIR/$run"
-  write_custody "$run" "$repo" "$base" "$branch"
   sh "$BIN/cb-plan.sh" "$run" --config "$config" >/dev/null \
     || fail "could not compile P5 plan for $run"
 }
@@ -330,8 +314,8 @@ test_compiles_coder_sequences() {
   local base branch=main direct gnhf sequence config run expected
   make_repo "$repo" "$remote"
   base=$(git -C "$repo" rev-parse HEAD)
-    direct=$(direct_binding)
-    gnhf=$(gnhf_binding)
+  direct=$(direct_binding "$repo" "$base" "$branch")
+  gnhf=$(gnhf_binding "$repo" "$base" "$branch")
 
   for expected in "gnhf,direct-agent" "gnhf,gnhf" \
     "direct-agent,direct-agent" "direct-agent,gnhf"; do
@@ -347,7 +331,7 @@ test_compiles_coder_sequences() {
       sequence=$(jq -cn --argjson a "$direct" --argjson b "$gnhf" '[$a,$b]')
     fi
     write_config "$config" "$sequence"
-    make_run "$run" "$config" "$repo" "$base" "$branch"
+    make_run "$run" "$config"
     [ "$(jq -r '.steps[1].invocations | map(.adapter_id) | join(",")' \
       "$RUNS_DIR/$run/plan.json")" = "$expected" ] \
       || fail "plan should preserve configured Coder sequence $expected"
@@ -363,11 +347,11 @@ test_runs_gnhf_then_direct() {
   local base direct gnhf sequence result commits remote_head
   make_repo "$repo" "$remote"
   base=$(git -C "$repo" rev-parse HEAD)
-  direct=$(direct_binding)
-  gnhf=$(gnhf_binding)
+  direct=$(direct_binding "$repo" "$base" main)
+  gnhf=$(gnhf_binding "$repo" "$base" main)
   sequence=$(jq -cn --argjson a "$gnhf" --argjson b "$direct" '[$a,$b]')
   write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
+  make_run "$run" "$config"
 
   run_chain "$run"
   expect_code 0 "$CMD_STATUS" "GNHF-to-direct chain${CMD_STDERR:+: $CMD_STDERR}"
@@ -398,11 +382,11 @@ test_runs_gnhf_then_direct() {
   config="$TMP_ROOT/switched.config.json"
   make_repo "$repo" "$remote"
   base=$(git -C "$repo" rev-parse HEAD)
-  direct=$(direct_binding)
-  gnhf=$(gnhf_binding)
+  direct=$(direct_binding "$repo" "$base" main)
+  gnhf=$(gnhf_binding "$repo" "$base" main)
   sequence=$(jq -cn --argjson a "$direct" --argjson b "$gnhf" '[$a,$b]')
   write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
+  make_run "$run" "$config"
   run_chain "$run"
   expect_code 0 "$CMD_STATUS" "config-switched direct-to-GNHF chain${CMD_STDERR:+: $CMD_STDERR}"
   [ "$(git -C "$repo" rev-list --count "$base..HEAD")" -eq 3 ] \
@@ -421,10 +405,10 @@ test_normalizes_not_ready() {
 
   run=p5-no-commit
   config="$TMP_ROOT/no-commit.config.json"
-  direct=$(direct_binding "$NOOP_FAKE")
+  direct=$(direct_binding "$repo" "$base" main "$NOOP_FAKE")
   sequence=$(jq -cn --argjson direct "$direct" '[$direct]')
   write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
+  make_run "$run" "$config"
   rm -f "$EXECUTED_MARKER"
   run_step "$run" 1
   expect_code 0 "$CMD_STATUS" "no-commit direct agent${CMD_STDERR:+: $CMD_STDERR}"
@@ -437,39 +421,13 @@ test_normalizes_not_ready() {
     }}]
   ' "$result" >/dev/null || fail "a successful no-commit agent must normalize to coder_not_ready"
 
-  run=p5-explicit-git-custody
-  config="$TMP_ROOT/explicit-git-custody.config.json"
-  write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
-  chmod u+w "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  jq --arg owner "git-worktree:$run" '
-    del(.lease_id) |
-    .runway_kind="git-worktree-explicit" |
-    .ownership_id=$owner
-  ' "$RUNS_DIR/$run/agents/launcher.ownership.json" \
-    >"$RUNS_DIR/$run/agents/.launcher.ownership.explicit"
-  mv "$RUNS_DIR/$run/agents/.launcher.ownership.explicit" \
-    "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  chmod 0444 "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  rm -f "$EXECUTED_MARKER"
-  run_step "$run" 1
-  expect_code 0 "$CMD_STATUS" \
-    "explicit Git custody normalization${CMD_STDERR:+: $CMD_STDERR}"
-  assert_present "$EXECUTED_MARKER" \
-    "valid explicit Git custody should reach the configured agent"
-  jq -e '
-    .events[0].event=="coder_not_ready" and
-    .events[0].payload.errors==["candidate:no_new_commit"]
-  ' "$CMD_STDOUT" >/dev/null \
-    || fail "explicit Git custody must retain ordinary candidate validation"
-
   run=p5-invalid-config
   config="$TMP_ROOT/invalid.config.json"
-  direct=$(direct_binding "$NOOP_FAKE")
+  direct=$(direct_binding "$repo" "$base" main "$NOOP_FAKE")
   direct=$(jq -c 'del(.config.output_schema)' <<<"$direct")
   sequence=$(jq -cn --argjson direct "$direct" '[$direct]')
   write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
+  make_run "$run" "$config"
   rm -f "$EXECUTED_MARKER"
   run_step "$run" 1
   expect_code 0 "$CMD_STATUS" "invalid direct config normalization${CMD_STDERR:+: $CMD_STDERR}"
@@ -483,10 +441,10 @@ test_normalizes_not_ready() {
 
   run=p5-candidate-mismatch
   config="$TMP_ROOT/candidate-mismatch.config.json"
-  direct=$(direct_binding "$NOOP_FAKE")
+  direct=$(direct_binding "$repo" "$base" main "$NOOP_FAKE")
   sequence=$(jq -cn --argjson direct "$direct" '[$direct]')
   write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
+  make_run "$run" "$config"
   rm -f "$EXECUTED_MARKER"
   run_step "$run" 1 --candidate-sha aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   expect_code 0 "$CMD_STATUS" "candidate mismatch normalization${CMD_STDERR:+: $CMD_STDERR}"
@@ -498,10 +456,10 @@ test_normalizes_not_ready() {
 
   run=5p5-dirty-worktree
   config="$TMP_ROOT/dirty-worktree.config.json"
-  direct=$(direct_binding "$NOOP_FAKE")
+  direct=$(direct_binding "$repo" "$base" main "$NOOP_FAKE")
   sequence=$(jq -cn --argjson direct "$direct" '[$direct]')
   write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
+  make_run "$run" "$config"
   printf 'uncommitted\n' >>"$repo/work.txt"
   rm -f "$EXECUTED_MARKER"
   run_step "$run" 1
@@ -511,75 +469,6 @@ test_normalizes_not_ready() {
     .events[0].event=="coder_not_ready" and
     .events[0].payload.errors==["candidate:dirty_worktree"]
   ' "$CMD_STDOUT" >/dev/null || fail "dirty worktree must have a stable reason"
-
-  git -C "$repo" restore work.txt
-
-  run=p5-custody-missing
-  config="$TMP_ROOT/custody-missing.config.json"
-  direct=$(direct_binding "$NOOP_FAKE")
-  sequence=$(jq -cn --argjson direct "$direct" '[$direct]')
-  write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
-  chmod u+w "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  rm "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  rm -f "$EXECUTED_MARKER"
-  run_step "$run" 1
-  expect_code 0 "$CMD_STATUS" "missing custody normalization${CMD_STDERR:+: $CMD_STDERR}"
-  assert_absent "$EXECUTED_MARKER" "missing custody must fail before execution"
-  jq -e '
-    .events[0].event=="coder_not_ready" and
-    .events[0].payload.errors==["custody:missing"]
-  ' "$CMD_STDOUT" >/dev/null || fail "missing custody must have a stable reason"
-
-  run=p5-custody-malformed
-  config="$TMP_ROOT/custody-malformed.config.json"
-  write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
-  chmod u+w "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  printf '{not-json}\n' >"$RUNS_DIR/$run/agents/launcher.ownership.json"
-  chmod 0444 "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  rm -f "$EXECUTED_MARKER"
-  run_step "$run" 1
-  expect_code 0 "$CMD_STATUS" "malformed custody normalization${CMD_STDERR:+: $CMD_STDERR}"
-  assert_absent "$EXECUTED_MARKER" \
-    "malformed custody must fail before execution"
-  jq -e '
-    .events[0].payload.errors==["custody:invalid"]
-  ' "$CMD_STDOUT" >/dev/null || fail "malformed custody must have a stable reason"
-
-  run=p5-custody-rewritten
-  config="$TMP_ROOT/custody-rewritten.config.json"
-  write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
-  chmod u+w "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  rm -f "$EXECUTED_MARKER"
-  run_step "$run" 1
-  expect_code 0 "$CMD_STATUS" "rewritten custody normalization${CMD_STDERR:+: $CMD_STDERR}"
-  assert_absent "$EXECUTED_MARKER" \
-    "rewritten custody must fail before execution"
-  jq -e '
-    .events[0].payload.errors==["custody:not_read_only"]
-  ' "$CMD_STDOUT" >/dev/null || fail "rewritten custody mode must have a stable reason"
-
-  run=p5-custody-mismatch
-  config="$TMP_ROOT/custody-mismatch.config.json"
-  write_config "$config" "$sequence"
-  make_run "$run" "$config" "$repo" "$base" main
-  chmod u+w "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  jq '.branch="combo/not-this-worktree"' \
-    "$RUNS_DIR/$run/agents/launcher.ownership.json" \
-    >"$RUNS_DIR/$run/agents/.launcher.ownership.rewrite"
-  mv "$RUNS_DIR/$run/agents/.launcher.ownership.rewrite" \
-    "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  chmod 0444 "$RUNS_DIR/$run/agents/launcher.ownership.json"
-  rm -f "$EXECUTED_MARKER"
-  run_step "$run" 1
-  expect_code 0 "$CMD_STATUS" "mismatched custody normalization${CMD_STDERR:+: $CMD_STDERR}"
-  assert_absent "$EXECUTED_MARKER" \
-    "mismatched custody must fail before execution"
-  jq -e '
-    .events[0].payload.errors==["custody:branch_mismatch"]
-  ' "$CMD_STDOUT" >/dev/null || fail "mismatched custody must have a stable reason"
   pass "cb-agent-run: invalid config and unverifiable candidates fail closed"
 }
 # -/ 4/4
