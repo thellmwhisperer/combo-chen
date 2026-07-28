@@ -1,0 +1,7 @@
+{
+  "protocol": "combo-fixture/v1",
+  "topology": "agent-to-direct-pr",
+  "gate": "none",
+  "reviewer_activity": 0,
+  "delivery": "direct-pr"
+}
