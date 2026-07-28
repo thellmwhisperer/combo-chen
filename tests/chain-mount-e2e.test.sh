@@ -87,6 +87,16 @@ case "$base_sha" in
   [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
   *) fail "fresh main-combo-v1 did not resolve to a commit" ;;
 esac
+expected_base_branch=main-combo-v1
+expected_base_ref=refs/heads/$expected_base_branch
+if git -C "$root" show-ref --verify --quiet "$expected_base_ref"; then
+  [ "$(git -C "$root" rev-parse --verify "$expected_base_ref^{commit}")" \
+    = "$base_sha" ] \
+    || fail "local expected-base branch disagrees with fresh origin"
+else
+  git -C "$root" update-ref "$expected_base_ref" "$base_sha" "" \
+    || fail "could not materialize the fresh local expected-base branch"
+fi
 run=${COMBO_CHEN_E2E_RUN_ID:-e2e-339-$(date -u +%Y%m%d%H%M%S)}
 case "$run" in ''|-*|*[!a-z0-9-]*) fail "invalid E2E run id" ;; esac
 evidence_root=$root/.tmp/chain-mount-e2e/$run
@@ -122,6 +132,7 @@ jq -n \
   --arg gate "$bin/cb-gate.sh" \
   --arg cleaner "$bin/cb-cleaner-adapter.sh" \
   --arg repo "$root" --arg base "$base_sha" \
+  --arg expected_base_branch "$expected_base_branch" \
   --arg gnhf "$gnhf_binary" --arg agent "$gnhf_agent" \
   --arg prompt "$prompt" --arg nm "$nm_binary" \
   --arg runtime "$nm_runtime" --arg model "$nm_model" '
@@ -139,7 +150,7 @@ jq -n \
           config:{
             schema:"combo.launcher/treehouse/v1",
             repo_dir:$repo,
-            base_ref:"origin/main-combo-v1",
+            base_ref:$expected_base_branch,
             setup_command:"",
             readiness:{
               required_seats:["coder","gate"],
@@ -179,7 +190,7 @@ jq -n \
             approval:"auto",
             review:false,
             merge:"manual",
-            expected_base_branch:"origin/main-combo-v1",
+            expected_base_branch:$expected_base_branch,
             expected_base_sha:$base,
             allowed_paths:["docs/"],
             no_mistakes_command_timeout_seconds:14400,
@@ -204,10 +215,14 @@ export CB_TMUX_SOCKET=cb-e2e-"$run"
 export CB_TMUX_CONF=/dev/null
 teardown() {
   if [ -f "${custody:-}" ]; then
-    leftover=$(jq -r '.worktree // empty' "$custody" 2>/dev/null || true)
-    if [ -n "$leftover" ] && [ -e "$leftover" ]; then
-      printf 'warning - exact custody remains for typed recovery: %s\n' \
-        "$leftover" >&2
+    holder_status=$(cd "$root" && treehouse status 2>/dev/null || true)
+    if printf '%s\n' "$holder_status" |
+      awk -v holder="$run" '
+        NF==6 && $4=="(held" && $5=="by" && $6==holder ")" { found=1 }
+        END { exit !found }
+      '; then
+      printf 'warning - exact custody holder remains for typed recovery: %s\n' \
+        "$run" >&2
     fi
   fi
   tmux -L "$CB_TMUX_SOCKET" -f /dev/null kill-server \
@@ -252,6 +267,43 @@ for role in launcher coder reviewer gate cleaner; do
     -p -t "$window_id" '#{pane_dead}' | grep -qx 0 \
     || fail "real endpoint is not occupied: $role"
 done
+reviewer_plan_count=$(jq \
+  '[.steps[] | select(.role=="reviewer")] | length' \
+  "$run_dir/plan.json")
+reviewer_dispatch_count=$(jq -R \
+  'fromjson? | select(.role=="reviewer")' \
+  "$run_dir/dispatch-log.jsonl" | wc -l | tr -d ' ')
+reviewer_job_count=$(find "$run_dir/dispatch/jobs" -type f \
+  -name 'reviewer-*' -print | wc -l | tr -d ' ')
+reviewer_step_count=$(find "$run_dir/steps" -mindepth 1 -maxdepth 1 \
+  -type d -name '*-reviewer*' -print | wc -l | tr -d ' ')
+reviewer_event_count=$(jq -R \
+  'fromjson? | select(.agent=="reviewer" or .role=="reviewer")' \
+  "$run_dir/journal.jsonl" | wc -l | tr -d ' ')
+reviewer_artifact_count=$(find "$run_dir/artifacts" -type f \
+  -path '*reviewer*' -print 2>/dev/null | wc -l | tr -d ' ')
+for count in \
+  "$reviewer_plan_count" "$reviewer_dispatch_count" "$reviewer_job_count" \
+  "$reviewer_step_count" "$reviewer_event_count" "$reviewer_artifact_count"; do
+  [ "$count" -eq 0 ] || fail "Reviewer endpoint recorded forbidden activity"
+done
+reviewer_absence=$evidence_root/reviewer-absence.json
+jq -n --arg run "$run" '
+  {
+    schema:"combo.reviewer-absence-evidence/v1",
+    run_id:$run,
+    endpoint_present:true,
+    plan_members:0,
+    endpoint_dispatches:0,
+    endpoint_jobs:0,
+    step_attempts:0,
+    journal_events:0,
+    artifacts:0,
+    llm_invocations:0,
+    basis:"no plan member, dispatch, job, step attempt, journal event, or artifact"
+  }
+' >"$reviewer_absence"
+chmod 0444 "$reviewer_absence"
 roles=$(jq -Rrs '[split("\n")[] | fromjson? | .role] | join(",")' \
   "$run_dir/dispatch-log.jsonl")
 [ "$roles" = launcher,launcher,coder,gate,cleaner ] \
@@ -275,7 +327,15 @@ case "$pr_url" in
   *) fail "Gate did not seal a full authorized Combo Chen PR URL" ;;
 esac
 worktree=$(jq -r '.worktree' "$custody")
-[ ! -e "$worktree" ] || fail "Cleaner did not release the exact custody path"
+released_status=$(cd "$root" && treehouse status) \
+  || fail "Treehouse status failed while verifying exact release"
+if printf '%s\n' "$released_status" |
+  awk -v holder="$run" '
+    NF==6 && $4=="(held" && $5=="by" && $6==holder ")" { found=1 }
+    END { exit !found }
+  '; then
+  fail "Cleaner did not release the exact custody holder"
+fi
 jq -e --arg worktree "$worktree" '
   .released==true and .worktree==$worktree and .runway_kind=="treehouse" and
   .reasons==[]
@@ -312,6 +372,7 @@ jq -n \
       released_worktree:$worktree,
       changed_paths:($paths|split("\n")),
       reviewers:0,
+      reviewer_absence:"reviewer-absence.json",
       replay:"no-duplicate-effects"
     }
   ' >"$summary"
