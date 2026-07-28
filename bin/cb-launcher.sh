@@ -145,20 +145,12 @@ publish_ownership() {
   } >"$ownership_tmp"; then
     :
   else
+    write_status=$?
     set +C
-    add_reason "ownership:write_failed"
-    return 0
+    return "$write_status"
   fi
   set +C
-  if ! chmod 0444 "$ownership_tmp"; then
-    add_reason "ownership:protect_failed"
-    return 0
-  fi
-  if ! ln "$ownership_tmp" "$ownership_file" 2>/dev/null; then
-    add_reason "ownership:publication_collision"
-    return 0
-  fi
-  rm -f "$ownership_tmp"
+  mv "$ownership_tmp" "$ownership_file"
   ownership_tmp_owned=0
 }
 rollback_acquisition() {

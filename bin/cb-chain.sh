@@ -6,13 +6,13 @@
 #   READING GUIDE
 #   -------------
 #   1. Plan validation and publication guard <- freeze the traversal boundary.
-#   2. invoke_step and fold helpers           <- endpoint-backed adapter interaction.
+#   2. invoke_step and fold helpers           <- universal adapter interaction.
 #   3. Coder/Reviewer loop                    <- same-input full-round fold.
 #   4. Gate, Cleaner, and result publication  <- preserve terminal + cleanup.
 #
 #   MAIN FLOW
 #   ---------
-#   plan -> role endpoints -> Launcher -> Coder <-> Reviewer* -> Gate -> Cleaner
+#   plan -> Launcher -> Coder <-> Reviewer* -> Gate -> Cleaner -> chain result
 #
 #   PUBLIC API
 #   ----------
@@ -20,13 +20,12 @@
 #
 #   INTERNALS
 #   ---------
-#   usage, fail_contract, resolve_effective_attempt, invoke_step,
-#   merge_result_artifacts,
+#   usage, fail_contract, invoke_step, merge_result_artifacts,
 #   add_findings_artifact, record_reviewer_failure, set_terminal_from_result,
 #   set_invocation_failure, cleanup
 #
 # @exports none
-# @deps bash, jq, realpath, bin/cb-step.sh, optional bin/cb-run.sh dispatcher
+# @deps bash, jq, realpath, bin/cb-step.sh
 set -euo pipefail
 
 usage() {
@@ -107,16 +106,6 @@ script_dir=$(CDPATH='' cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 step_runner=$script_dir/cb-step.sh
 [ -f "$step_runner" ] && [ ! -L "$step_runner" ] \
   || fail_contract "step runner is missing or unsafe" 73
-dispatcher=${CB_CHAIN_DISPATCHER:-}
-if [ -n "$dispatcher" ]; then
-  case "$dispatcher" in /*) ;; *)
-    fail_contract "endpoint dispatcher path must be absolute" 73 ;;
-  esac
-  [ -f "$dispatcher" ] && [ ! -L "$dispatcher" ] && [ -x "$dispatcher" ] \
-    || fail_contract "endpoint dispatcher is missing or unsafe" 73
-  [ "$(realpath "$dispatcher" 2>/dev/null)" = "$dispatcher" ] \
-    || fail_contract "endpoint dispatcher path must be canonical" 73
-fi
 
 max_rounds=${CB_CHAIN_MAX_REVIEW_ROUNDS:-20}
 case "$max_rounds" in ''|0|0*|*[!0-9]*) fail_contract "invalid max review rounds" ;; esac
@@ -128,56 +117,18 @@ reviewer_degraded=$(jq -r '.reviewer.degraded' "$plan")
 reviewer_member_failures='[]'
 # -/ 1/4
 
-# -- 2/4 HELPER · Invoke endpoint-backed steps and carry artifact references --
-resolve_effective_attempt() {
-  local step=$1 requested=$2 step_index ordinal safe_step step_dir effective
-  if [ -z "$dispatcher" ]; then
-    printf '%s\n' "$requested"
-    return 0
-  fi
-  step_index=$(jq -r --arg id "$step" '
-    [.steps | to_entries[] | select(.value.id==$id) | .key] |
-    if length==1 then .[0] else empty end
-  ' "$plan")
-  [ -n "$step_index" ] || return 1
-  printf -v ordinal '%02d' "$((step_index + 1))"
-  safe_step=${step//\//-}
-  step_dir=$run_root/steps/$ordinal-$safe_step
-  effective=$requested
-  while [ -e "$step_dir/attempt-$effective" ] \
-    || [ -L "$step_dir/attempt-$effective" ] \
-    || [ -e "$run_root/dispatch/jobs/$safe_step-attempt-$effective.job.json" ] \
-    || [ -L "$run_root/dispatch/jobs/$safe_step-attempt-$effective.job.json" ] \
-    || [ -e "$run_root/dispatch/$safe_step-attempt-$effective.receipt.json" ] \
-    || [ -L "$run_root/dispatch/$safe_step-attempt-$effective.receipt.json" ]; do
-    effective=$((effective + 1))
-  done
-  printf '%s\n' "$effective"
-}
-
+# -- 2/4 HELPER · Invoke universal steps and carry artifact references --
 invoke_step() {
   local step=$1 attempt=$2 candidate=$3
-  local output status expected_root effective_attempt endpoint_role
-  effective_attempt=$(resolve_effective_attempt "$step" "$attempt") \
-    || { last_step_status=65; return 1; }
-  local -a args=("$run" "$step" "$effective_attempt")
+  local output status expected_root
+  local -a args=("$run" "$step" "$attempt")
   if [ "$candidate" != null ]; then
     args+=(--candidate-sha "$candidate")
   fi
   args+=(--prior-artifacts "$prior_artifacts")
 
   set +e
-  if [ -n "$dispatcher" ]; then
-    endpoint_role=$(jq -r --arg id "$step" '
-      .steps[] | select(.id==$id) | .role
-    ' "$plan")
-    output=$(
-      "$dispatcher" --dispatch "$run" "$endpoint_role" "$step" \
-        "$effective_attempt" "$candidate" "$prior_artifacts" </dev/null
-    )
-  else
-    output=$(bash "$step_runner" "${args[@]}" </dev/null)
-  fi
+  output=$(bash "$step_runner" "${args[@]}" </dev/null)
   status=$?
   set -e
   last_step_status=$status
@@ -194,8 +145,7 @@ invoke_step() {
     *) last_step_status=65; return 1 ;;
   esac
   if ! jq -e \
-    --arg run "$run" --arg step "$step" \
-    --argjson attempt "$effective_attempt" '
+    --arg run "$run" --arg step "$step" --argjson attempt "$attempt" '
       .schema=="combo.step-output/v1" and .run_id==$run and
       .step_id==$step and .attempt==$attempt
     ' "$output" >/dev/null 2>&1; then
@@ -309,10 +259,6 @@ if invoke_step launcher 1 null; then
 else
   set_invocation_failure launcher
   terminal_set=1
-fi
-if [ "$terminal_set" -eq 0 ] \
-  && [ "${CB_CHAIN_STOP_AFTER_ROLE:-}" = launcher ]; then
-  exit 130
 fi
 
 coder_attempt=0
