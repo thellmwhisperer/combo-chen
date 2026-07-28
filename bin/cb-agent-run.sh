@@ -7,13 +7,13 @@
 #   READING GUIDE
 #   -------------
 #   1. Universal input validation   <- contain paths and identify the adapter.
-#   2. Config and Git preflight     <- fail closed before tool execution.
+#   2. Custody/config/Git preflight <- consume the Launcher handoff exactly once.
 #   3. Isolated tool invocation     <- direct prompt or bounded GNHF loop.
 #   4. Candidate normalization      <- publish exact local SHA or stable error.
 #
 #   MAIN FLOW
 #   ---------
-#   step input -> config/Git preflight -> isolated tool -> Git facts -> output
+#   step input -> Launcher custody -> config/Git preflight -> tool -> output
 #
 #   PUBLIC API
 #   ----------
@@ -22,10 +22,10 @@
 #   INTERNALS
 #   ---------
 #   usage, fail_contract, publish_outcome, reject, valid_config,
-#   build_environment, install_git_guard
+#   build_environment, install_git_guard, canonical_git_common
 #
 # @exports none
-# @deps bash, env, git, jq, realpath
+# @deps bash, env, git, jq, realpath, stat
 set -euo pipefail
 
 usage() {
@@ -166,12 +166,8 @@ valid_config() {
           (explode|all(.[]; .!=0)));
       .config |
       type=="object" and
-      keys==["argv","base_sha","branch","environment","output_schema",
-        "prompt","schema","worktree"] and
+      keys==["argv","environment","output_schema","prompt","schema"] and
       .schema=="combo.coder/direct-agent/v1" and
-      (.worktree|type=="string" and startswith("/")) and
-      (.base_sha|type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$")) and
-      (.branch|type=="string" and length>0) and
       (.argv|strings and
         all(.[]; ((.=="--push" or startswith("--push="))|not))) and
       (.prompt|type=="string" and length>0) and
@@ -196,13 +192,10 @@ valid_config() {
           (explode|all(.[]; .!=0)));
       .config |
       type=="object" and
-      keys==["agent","argv","base_sha","branch","current_branch",
-        "environment","max_iterations","meteor_frequency","output_schema",
-        "prevent_sleep","prompt","schema","stop_when","worktree"] and
+      keys==["agent","argv","current_branch","environment","max_iterations",
+        "meteor_frequency","output_schema","prevent_sleep","prompt","schema",
+        "stop_when"] and
       .schema=="combo.coder/gnhf/v1" and
-      (.worktree|type=="string" and startswith("/")) and
-      (.base_sha|type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$")) and
-      (.branch|type=="string" and length>0) and
       (.argv|strings and
         all(.[]; ((.=="--push" or startswith("--push="))|not))) and
       (.prompt|type=="string" and length>0) and
@@ -234,22 +227,87 @@ if ! valid_config; then
   fi
 fi
 
-worktree=$(jq -r '.config.worktree' "$input")
-base_sha=$(jq -r '.config.base_sha' "$input")
-branch=$(jq -r '.config.branch' "$input")
+run_dir=$(jq -r '.paths.run_dir' "$input")
+[ -d "$run_dir" ] && [ ! -L "$run_dir" ] \
+  || reject "custody:run_dir_invalid"
+run_root=$(realpath "$run_dir" 2>/dev/null) \
+  || reject "custody:run_dir_invalid"
+[ "$run_root" = "$run_dir" ] || reject "custody:run_dir_invalid"
+case "$invocation_root" in "$run_root"/steps/*/attempt-"$attempt") ;;
+  *) reject "custody:run_dir_invalid" ;;
+esac
+
+ownership=$run_root/agents/launcher.ownership.json
+if [ ! -e "$ownership" ] && [ ! -L "$ownership" ]; then
+  reject "custody:missing"
+fi
+[ -f "$ownership" ] && [ ! -L "$ownership" ] \
+  || reject "custody:invalid"
+[ "$(realpath "$ownership" 2>/dev/null || true)" = "$ownership" ] \
+  || reject "custody:invalid"
+ownership_mode=$(stat -c '%a' "$ownership" 2>/dev/null \
+  || stat -f '%Lp' "$ownership" 2>/dev/null || true)
+[ "$ownership_mode" = 444 ] || reject "custody:not_read_only"
+if ! jq -e --arg run "$run_id" '
+  def sha:
+    type=="string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+  def text:
+    type=="string" and length>0 and
+    (explode | all(.[]; .>=32 and .!=127));
+  type=="object" and
+  .run==$run and
+  (.runway_kind=="treehouse" or .runway_kind=="git-worktree-explicit") and
+  (.repo_dir|text and startswith("/")) and
+  (.worktree|text and startswith("/")) and
+  (.branch|text) and (.base_sha|sha) and
+  if .runway_kind=="treehouse" then
+    keys==[
+      "base_sha","branch","lease_id","repo_dir","run","runway_kind","worktree"
+    ] and .lease_id==$run
+  else
+    keys==[
+      "base_sha","branch","ownership_id","repo_dir","run","runway_kind",
+      "worktree"
+    ] and .ownership_id==("git-worktree:" + $run)
+  end
+' "$ownership" >/dev/null 2>&1; then
+  reject "custody:invalid"
+fi
+
+repo_dir=$(jq -r '.repo_dir' "$ownership")
+worktree=$(jq -r '.worktree' "$ownership")
+base_sha=$(jq -r '.base_sha' "$ownership")
+branch=$(jq -r '.branch' "$ownership")
+[ -d "$repo_dir" ] && [ ! -L "$repo_dir" ] \
+  || reject "custody:repo_mismatch"
+[ "$(realpath "$repo_dir" 2>/dev/null || true)" = "$repo_dir" ] \
+  || reject "custody:repo_mismatch"
 [ -d "$worktree" ] && [ ! -L "$worktree" ] \
-  || reject "config:unsafe_worktree"
+  || reject "custody:worktree_mismatch"
 worktree_root=$(realpath "$worktree" 2>/dev/null) \
-  || reject "config:unsafe_worktree"
-[ "$worktree_root" = "$worktree" ] || reject "config:unsafe_worktree"
+  || reject "custody:worktree_mismatch"
+[ "$worktree_root" = "$worktree" ] || reject "custody:worktree_mismatch"
 [ "$(git -C "$worktree" rev-parse --show-toplevel 2>/dev/null || true)" = "$worktree" ] \
-  || reject "config:not_worktree_root"
+  || reject "custody:worktree_mismatch"
+canonical_git_common() {
+  local directory=$1 common
+  common=$(git -C "$directory" rev-parse --git-common-dir 2>/dev/null) \
+    || return 1
+  case "$common" in
+    /*) realpath "$common" 2>/dev/null ;;
+    *) realpath "$directory/$common" 2>/dev/null ;;
+  esac
+}
+repo_common=$(canonical_git_common "$repo_dir" || true)
+worktree_common=$(canonical_git_common "$worktree" || true)
+[ -n "$repo_common" ] && [ "$worktree_common" = "$repo_common" ] \
+  || reject "custody:repo_mismatch"
 git check-ref-format --branch "$branch" >/dev/null 2>&1 \
-  || reject "config:invalid_branch"
+  || reject "custody:invalid"
 [ "$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null || true)" = "$branch" ] \
-  || reject "candidate:branch_mismatch"
+  || reject "custody:branch_mismatch"
 git -C "$worktree" cat-file -e "$base_sha^{commit}" 2>/dev/null \
-  || reject "config:base_commit_missing"
+  || reject "custody:base_mismatch"
 
 pre_head=$(git -C "$worktree" rev-parse HEAD 2>/dev/null) \
   || reject "candidate:head_unreadable"

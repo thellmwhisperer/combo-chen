@@ -15,7 +15,8 @@
 #   PUBLIC API
 #   ----------
 #   canonical_git_common DIR             Print canonical Git common directory
-#   treehouse_lease_owned PATH HOLDER     Verify exactly one Treehouse lease
+#   treehouse_lease_owned PATH HOLDER     Verify exactly one Treehouse lease;
+#                                        return 1 when absent, 2 if unobservable
 #
 #   INTERNALS
 #   ---------
@@ -38,7 +39,7 @@ canonical_git_common() {
 # -- 2/2 CORE · treehouse_lease_owned --
 treehouse_lease_owned() {
   lease_path=$1 lease_holder=$2
-  status=$(cd "$repo_dir" && treehouse status 2>/dev/null) || return 1
+  status=$(cd "$repo_dir" && treehouse status 2>/dev/null) || return 2
   display_path=$lease_path
   case "$lease_path" in
     "$HOME"/*)
