@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # @overview Contract tests for the plan-driven P4 Combo state machine.
-#   Proves fixed role order with no Addressing state or Gate re-entry, full
-#   Reviewer rounds, needs-change correction, normalized terminal classes,
-#   empty Reviewer plans, replay collision safety, and mandatory cleanup.
+#   Proves fixed role order, full Reviewer rounds, needs-change correction,
+#   normalized terminal classes, empty Reviewer plans, and mandatory cleanup.
 #
 #   READING GUIDE
 #   -------------
@@ -243,10 +242,6 @@ test_runs_success_path() {
   [ "$(call_steps "$calls")" = \
     "launcher,coder,reviewer/review-a,reviewer/review-b,gate,cleaner" ] \
     || fail "chain should follow the frozen plan order"
-  [ "$(jq -s '[.[] | select(.step_id=="gate")] | length' "$calls")" -eq 1 ] \
-    || fail "the state machine must never re-enter Gate"
-  jq -s -e 'all(.[]; (.step_id | contains("address") | not))' \
-    "$calls" >/dev/null || fail "the state machine must not invent Addressing"
   jq -e --arg sha "$SHA_A" '
     .schema=="combo.chain-result/v1" and .run_id=="chain-success" and
     .exit_class=="completed" and .candidate_sha==$sha and
@@ -262,7 +257,7 @@ test_runs_success_path() {
     || fail "an existing chain result must remain byte-identical"
   [ "$(wc -l <"$calls")" -eq "$before_calls" ] \
     || fail "an existing chain result must block before another adapter runs"
-  pass "cb-chain: follows five-role order without Addressing or Gate re-entry"
+  pass "cb-chain: follows Launcher, Coder, every Reviewer, Gate, and Cleaner"
 }
 # -/ 1/6
 

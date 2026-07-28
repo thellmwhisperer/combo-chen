@@ -1112,14 +1112,5 @@ conversation, nothing else. Lingering processes die with the tmux session.
    `tests/plan-contract.test.sh`, `tests/step-adapter-contract.test.sh`,
    and `tests/chain-state-machine.test.sh`.
 
-The current mounted Bash v1 product that extends this foundation is specified
-in the
-[Bash v1 mounted chain architecture and operator guide](bash-v1-chain.md).
-That guide is normative for `cb-run.sh` topology, endpoint dispatch, Reviewer
-cardinality and routing, Launcher custody, Gate admission and replay, terminal
-outcomes, exact Cleaner release behavior, and operator commands. The earlier
-v0 sections above must not be used to infer behavior for the plan-driven
-mounted chain.
-
 Public role names are now **coder**, **gatekeeper**, and **reviewer** so the
 contract describes each role directly before the project has external users.
