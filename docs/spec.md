@@ -1122,7 +1122,7 @@ conversation, nothing else. Lingering processes die with the tmux session.
 The current mounted Bash v1 product that extends this foundation is specified
 in the
 [Bash v1 mounted chain architecture and operator guide](bash-v1-chain.md).
-That guide is normative for `cb-run.sh` topology, endpoint dispatch, Reviewer
+That guide is normative for the mounted-chain topology, endpoint dispatch, Reviewer
 cardinality and routing, Launcher custody, Gate admission and replay, terminal
 outcomes, exact Cleaner release behavior, and operator commands. The earlier
 v0 sections above must not be used to infer behavior for the plan-driven
