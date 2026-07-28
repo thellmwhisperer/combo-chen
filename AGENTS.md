@@ -3,6 +3,11 @@
 combo-chen is a deterministic director harness for autonomous work-item-to-PR
 work. It coordinates existing tools; it does not collapse their roles.
 
+The mounted [Bash v1 chain](docs/bash-v1-chain.md) is the normative product
+architecture for the checked-in `cb-*.sh` pipeline. Where this agent contract
+describes the v0 director harness, the mounted-chain contract governs the Bash
+product line.
+
 ## Role Boundaries
 
 - **Director**: orchestrates only. Starts phases, watches hard signals, writes
@@ -180,26 +185,15 @@ it; otherwise search before adding helpers), reviewer anti-slop guardrails
 (duplicate helper check, config plausibility, surface budget awareness),
 anti-slop surface probes (`pnpm slop:check`, `pnpm slop:report`,
 `pnpm surface`), and `needs-human-report` operational metrics.
-P1 adds the v1 Bash journal spine (`bin/cb-emit.sh`, `bin/cb-wait.sh`,
-`bin/cb-run-state.sh`) with a five-agent event enum, JSONL append locking,
-and deterministic phase folding.
-P2 adds multi-run-safe tmux spawn (`bin/cb-tmux.sh`, `bin/cb-agent-spawn.sh`,
-`bin/cb-send.sh`, `bin/cb-peek.sh`, `bin/cb-status.sh`) with atomic
-`runs/<runId>/agents/*.meta`, pinned `combo-<runId>` sessions, and
-`cb-<runId>-{launcher,coder,reviewer,gate,cleaner}` windows.
-P3 adds the mechanical `bin/cb-launcher.sh` and `bin/cb-cleaner.sh` ends:
-Treehouse holder/path custody is exact and live-verified, Git fallback is an
-explicit distinct ownership kind, and run-local readiness/custody commands are
-generic P4/P7 input boundaries rather than model or Gate orchestration.
-P4 adds the immutable `combo.config/v1` → `combo.run-plan/v1` compiler
-(`bin/cb-plan.sh`), the provider-neutral `combo.step-input/v1` /
-`combo.step-output/v1` boundary (`bin/cb-step.sh`), and the plan-driven
-Launcher → Coder ↔ Reviewer* → Gate → Cleaner state machine
-(`bin/cb-chain.sh`). Product routing uses only normalized exit classes and
-role-specific 0/1 events; configured adapter argv and opaque config slices are
-the extension boundary for P5-P7.
-Deferred: issue preflight scoring, counterfactual
-automerge log, and ACP role driving.
+The [Bash v1 mounted chain](docs/bash-v1-chain.md) bundles P1-P4 as a complete
+product: journal spine (`cb-emit.sh`, `cb-wait.sh`, `cb-run-state.sh`), tmux
+spawn (`cb-tmux.sh`, `cb-agent-spawn.sh`, `cb-send.sh`, `cb-peek.sh`,
+`cb-status.sh`), mechanical Launcher/Cleaner ends (`cb-launcher.sh`,
+`cb-cleaner.sh`), and the plan→chain→step toolchain (`cb-plan.sh`,
+`cb-step.sh`, `cb-chain.sh`). The mounted-chain contract is the normative
+architecture, artifact, routing, replay, and operator guide for that pipeline.
+Deferred: issue preflight scoring, counterfactual automerge log, and ACP role
+driving.
 
 ## Maintaining this file
 
