@@ -185,7 +185,7 @@ jq -n \
             binary:$nm,
             runtime:$runtime,
             model:$model,
-            arguments:[],
+            arguments:["--skip=document"],
             intent:"Update Combo Chen docs, architecture, specifications, and guides to match the real Bash v1 chain while excluding README and all non-docs payloads.",
             approval:"auto",
             review:false,

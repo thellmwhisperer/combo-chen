@@ -19,7 +19,7 @@
 #   3. test_seals_configured_identity <- immutable runtime/model + AXI surface.
 #   4. test_rejects_candidate_drift <- no Gate call after candidate/base drift.
 #   5. test_maps_terminal_outcomes  <- normalization plus untrusted-result rejection.
-#   6. test_guards_argument_edges   <- Bash 3.2 empty arrays and skip policy.
+#   6. test_guards_argument_edges   <- Bash 3.2 arrays and composed skip policy.
 #   7. test_replays_terminal_seal   <- idempotent terminal recovery.
 #   8. test_adopts_interrupted_run  <- retry one sealed in-progress invocation.
 #   9. test_rejects_staged_artifact_write_failures <- no partial authority.
@@ -1390,7 +1390,7 @@ test_maps_terminal_outcomes() {
 
 # -- 6/14 CORE · test_guards_argument_edges --
 test_guards_argument_edges() {
-  local run result config
+  local run result config config_next
 
   run=gate-empty-arguments
   make_run "$run" passed
@@ -1420,7 +1420,27 @@ test_guards_argument_edges() {
     .errors==["adapter_exit:64"]
   ' "$result" >/dev/null || fail "bare --skip review must not bypass review=true"
   assert_absent "$NM_CALLED" "invalid review skip must be rejected before No-Mistakes"
-  pass "Gate handles empty argv on Bash 3.2 and rejects bare review skips"
+
+  run=gate-review-document-skip
+  make_run "$run" passed
+  config="$TMP_ROOT/$run.skip.config.json"
+  config_next="$config.next"
+  write_config \
+    "$config" passed '["--fake-outcome=passed","--skip=document"]'
+  jq '.roles.gate.config.review=false' "$config" >"$config_next" \
+    || fail "could not stage review-disabled document-skip config"
+  mv "$config_next" "$config"
+  rm -f "$RUNS_DIR/$run/plan.json"
+  sh "$BIN/cb-plan.sh" "$run" --config "$config" >/dev/null \
+    || fail "could not compile review-disabled document-skip Gate plan"
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "review-disabled document skip${CMD_STDERR:+: $CMD_STDERR}"
+  [ "$(invocation_args)" = \
+    '["axi","run","--intent","validate exact candidate","--fake-outcome=passed","--skip=document,review","--yes"]' ] \
+    || fail "Gate must compose document and review into one No-Mistakes skip"
+
+  pass "Gate handles Bash 3.2 arrays and composes safe review/document skips"
 }
 # -/ 6/14
 

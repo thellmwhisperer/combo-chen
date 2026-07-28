@@ -1618,6 +1618,7 @@ review=$(jq -r '.config.review' "$input")
 intent=$(jq -r '.config.intent' "$input")
 nm_args=(axi run --intent "$intent")
 configured_args=()
+review_disabled_skip=
 while IFS= read -r -d '' argument; do
   configured_args+=("$argument")
 done < <(jq -j '.config.arguments[] | . + "\u0000"' "$input")
@@ -1633,35 +1634,47 @@ while [ "$argument_index" -lt "$expected_args" ]; do
       fail_contract "reserved No-Mistakes argument: $argument"
       ;;
     --skip)
-      [ "$review" = true ] \
-        || fail_contract "review=false cannot be combined with a configured --skip"
       argument_index=$((argument_index + 1))
       [ "$argument_index" -lt "$expected_args" ] \
         || fail_contract "configured --skip is missing its value"
       skip_value=${configured_args[$argument_index]}
-      case ",$skip_value," in
-        *,review,*) fail_contract "review=true forbids skipping review" ;;
-      esac
-      nm_args+=(--skip "$skip_value")
       ;;
     --skip=*)
-      [ "$review" = true ] \
-        || fail_contract "review=false cannot be combined with a configured --skip"
       skip_value=${argument#*=}
-      [ -n "$skip_value" ] || fail_contract "configured --skip is missing its value"
-      case ",$skip_value," in
-        *,review,*) fail_contract "review=true forbids skipping review" ;;
-      esac
-      nm_args+=("$argument")
       ;;
     *)
       nm_args+=("$argument")
+      argument_index=$((argument_index + 1))
+      continue
       ;;
   esac
+  [ -n "$skip_value" ] || fail_contract "configured --skip is missing its value"
+  if [ "$review" = true ]; then
+    case ",$skip_value," in
+      *,review,*) fail_contract "review=true forbids skipping review" ;;
+    esac
+    case "$argument" in
+      --skip) nm_args+=(--skip "$skip_value") ;;
+      *) nm_args+=("$argument") ;;
+    esac
+  else
+    case ",$skip_value," in
+      *,review,*) fail_contract "review=false reserves the review skip" ;;
+    esac
+    if [ -n "$review_disabled_skip" ]; then
+      review_disabled_skip=$review_disabled_skip,$skip_value
+    else
+      review_disabled_skip=$skip_value
+    fi
+  fi
   argument_index=$((argument_index + 1))
 done
 if [ "$review" = false ]; then
-  nm_args+=(--skip=review)
+  if [ -n "$review_disabled_skip" ]; then
+    nm_args+=("--skip=$review_disabled_skip,review")
+  else
+    nm_args+=(--skip=review)
+  fi
 fi
 if [ "$approval" = auto ]; then
   nm_args+=(--yes)
