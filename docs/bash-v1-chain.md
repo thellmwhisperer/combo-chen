@@ -1,229 +1,167 @@
-# Bash v1 mounted chain architecture and operator guide
+# Combo Chen Bash v1 mounted chain
 
-This document is the normative architecture, runtime contract, and operator
-guide for the mounted Bash v1 product. It describes the implementation reached
-through `bin/cb-plan.sh` and `bin/cb-run.sh`, not the earlier long-running v0
-capsule loop described elsewhere in [the protocol spec](spec.md).
+This document is the normative architecture, runtime specification, and
+operator guide for the mounted Bash v1 product. It covers the checked-in
+`cb-plan.sh` → `cb-run.sh` path and its native Launcher, Coder, Gate, and
+Cleaner adapters. The broader director protocol and historical decisions
+remain in [the protocol spec](spec.md).
 
-The mounted product has one state machine, five visible tmux endpoints, and a
-provider-neutral step boundary:
+The Bash chain is deliberately small in authority:
+
+- `cb-plan.sh` compiles one immutable plan.
+- `cb-run.sh` mounts and dispatches through five visible tmux endpoints.
+- `cb-chain.sh` is the only product state machine.
+- `cb-step.sh` is the only adapter process and normalization boundary.
+- Adapters own tool-specific behavior; routing sees only normalized artifacts.
+
+There is no second orchestration loop and no pane-text decision path.
+
+## 1. Architecture at a glance
 
 ```text
 combo.config/v1
       |
       v
-  cb-plan.sh  -----> immutable combo.run-plan/v1
-                            |
-                            v
-                       cb-run.sh
-                  mounts five endpoints
-                            |
-                            v
-                      cb-chain.sh
-                            |
-          Launcher -> Coder <-> Reviewer* -> Gate
-              |                                  |
-              +------------> Cleaner <-----------+
+  cb-plan.sh ---------------------> plan.json (0444, write once)
+                                          |
+                                          v
+                                      cb-run.sh
+                                          |
+              session combo-<runId>       |
+              +---------------------------+--------------------------+
+              |              |             |           |             |
+              v              v             v           v             v
+      cb-<run>-launcher  cb-<run>-coder  cb-<run>-reviewer
+                                              cb-<run>-gate  cb-<run>-cleaner
+              |              |             |           |             |
+              +---------- endpoint jobs and immutable receipts ------+
+                                          |
+                                          v
+                                      cb-chain.sh
+                                          |
+        Launcher -> Coder -> Reviewer round (zero or more members)
+                      ^          |
+                      | needs_change
+                      +----------+
+                                 |
+                       all current / skipped
+                                 v
+                               Gate -> Cleaner
+                                          |
+                                          v
+                                  chain-result.json
 ```
 
-`Reviewer*` means zero or more configured Reviewer members and zero or more
-complete review rounds. It does not mean zero visible Reviewer endpoints: the
-single Reviewer endpoint is always mounted.
+The tmux layer is an execution transport, not a state machine. `cb-run.sh`
+publishes a job, sends one command to the owning endpoint, waits for its
+receipt, and returns the normalized step result to `cb-chain.sh`. The chain
+never routes on adapter stdout, stderr, terminal text, or the append-only
+dispatch log.
 
-## 1. Scope and authority
+### Component ownership
 
-The mounted stack separates orchestration from role implementations:
-
-- `cb-plan.sh` validates configuration and freezes the ordered run plan.
-- `cb-run.sh` owns endpoint visibility, dispatch, receipt attestation, terminal
-  presentation, and process status.
-- `cb-chain.sh` is the only product state machine. It owns ordering and routing.
-- `cb-step.sh` owns the universal process and artifact boundary.
-- Role adapters own provider-specific execution and normalize their outcome.
-- Mechanical Launcher and Cleaner scripts own Treehouse acquisition and return.
-
-The state machine never routes on pane text, adapter stdout, adapter stderr,
-provider output, or journal prose. It routes only on a validated
-`combo.step-output/v1` exit class and the single role-specific event inside a
-completed result.
-
-The canonical entry point for a mounted run is:
-
-```sh
-bin/cb-run.sh "$run_id"
-```
-
-Running `cb-chain.sh` directly omits the dispatcher unless the caller supplies
-the internal `CB_CHAIN_DISPATCHER` contract. That direct mode is useful for
-contract tests, but it is not the visible mounted product.
-
-The run plan and all published result or custody artifacts are collision-safe
-records. Operators must not edit them to repair a run. A configuration change
-requires a new run because an existing `plan.json` is never replaced.
-
-## 2. Runtime layers and ownership
-
-The product has three runtime layers:
-
-| Layer | Owner | Responsibility |
+| Component | Owns | Does not own |
 | --- | --- | --- |
-| Plan | `cb-plan.sh` | Validate adapter bindings and freeze order, argv, and opaque config. |
-| Chain | `cb-chain.sh` | Route Launcher, Coder, Reviewer rounds, Gate, and Cleaner. |
-| Mount | `cb-run.sh` | Keep five endpoints visible and dispatch every step through its endpoint. |
+| `cb-plan.sh` | Config validation, role order, immutable plan publication | Runtime facts or execution |
+| `cb-run.sh` | Five endpoints, job/receipt transport, terminal presentation | Product transitions |
+| `cb-chain.sh` | Launcher → Coder ↔ Reviewer* → Gate → Cleaner traversal | Provider or tool behavior |
+| `cb-step.sh` | Attempt directories, universal envelope, timeouts, normalized output | Interpretation of tool logs |
+| Native adapters | Role-specific validation and effects | Cross-role routing |
+| Mechanical Launcher/Cleaner | Exact runway acquisition/release | Plan compilation or Gate policy |
 
-Role ownership remains narrow:
+## 2. Five visible execution endpoints
 
-| Role | Owns | Does not own |
-| --- | --- | --- |
-| Launcher | Exact runway acquisition and immutable custody facts. | Candidate changes, publication, or cleanup. |
-| Coder | A clean local candidate commit descended from the prior candidate. | Ordinary publication or merge. |
-| Reviewer | An exact-SHA `lgtm` or `needs_change` member result. | Candidate mutation or publication. |
-| Gate | No-Mistakes delivery, exact PR identity, and optional merge authority. | Worktree release. |
-| Cleaner | Exact custody-path release after terminal Gate evidence. | Routing, publication, or tmux teardown. |
+Every mounted run has exactly one tmux session named `combo-<runId>` and these
+five endpoint windows:
 
-The Gate is the trusted publisher. The Coder adapter installs a PATH-level Git
-guard that rejects ordinary `git push`, but the guard is an accident-prevention
-measure rather than a same-user security boundary. Publication authority comes
-from routing all successful candidates through Gate.
+| Role | Window | Mode | What executes there |
+| --- | --- | --- | --- |
+| Launcher | `cb-<runId>-launcher` | shell | Launcher `cb-step.sh` invocation |
+| Coder | `cb-<runId>-coder` | TUI-capable shell | Every Coder attempt |
+| Reviewer | `cb-<runId>-reviewer` | TUI-capable shell | Every configured Reviewer member |
+| Gate | `cb-<runId>-gate` | shell | Gate attempt |
+| Cleaner | `cb-<runId>-cleaner` | shell | Cleaner attempt |
 
-The run-local directory is the evidence boundary. With the default
-`CB_RUNS_DIR`, one run lives at:
+All five windows are mounted even when `reviewer_count` is zero. Reviewer
+cardinality belongs to the plan; it does not change the visible topology.
+Multiple Reviewer members execute serially through the one Reviewer endpoint.
 
-```text
-~/.combo-chen/runs/<run-id>/
-```
+`agents/<role>.meta` records each endpoint's immutable tmux window id plus its
+expected name. Before running a job, `cb-run.sh` proves that:
 
-Important children are:
+1. it is executing inside tmux;
+2. `TMUX_PANE` belongs to the recorded window id;
+3. that window still has the canonical role name inside the exact run session;
+4. its pane is live.
 
-```text
-plan.json
-chain-result.json
-agents/
-  launcher.meta
-  launcher.ownership.json
-  coder.meta
-  reviewer.meta
-  gate.meta
-  cleaner.meta
-  cleaner.ownership.json
-dispatch/
-  jobs/
-  <step>-attempt-<n>.receipt.json
-dispatch-log.jsonl
-steps/
-  <ordinal>-<step>/attempt-<n>/
-artifacts/
-  gate/
-```
+A renamed, reused, dead, or cross-session window cannot satisfy dispatch.
+`cb-status.sh` and `cb-peek.sh` use the same metadata, but their phase and pane
+output is advisory. Neither command feeds the state machine.
 
-The absence of an artifact is meaningful. In particular, an early Gate
-rejection does not fabricate No-Mistakes, PR, merge, or terminal evidence for a
-stage that was never reached.
+## 3. Immutable plan and universal step ABI
 
-## 3. Immutable configuration and run plan
+### Plan order
 
-`cb-plan.sh <runId> --config <path>` accepts `combo.config/v1`. The top-level
-configuration contains:
-
-- an adapter registry;
-- Launcher, Coder, Gate, and Cleaner bindings;
-- a possibly empty ordered Reviewer array;
-- an optional Reviewer degradation policy.
-
-Each adapter registry entry has exactly an argv array and a non-empty set of
-compatible roles. Each role binding selects an adapter and supplies an opaque
-configuration object. The plan compiler does not interpret providers, models,
-or tool-specific flags.
-
-The Coder binding may be a single binding or an ordered `invocations` array.
-Coder attempt 1 uses the first invocation, attempt 2 uses the second, and so on.
-Once attempts exceed the configured array, the final invocation is reused for
-later correction rounds.
-
-Every Reviewer member has a unique member id. A Reviewer adapter id may not
-equal any configured Coder invocation adapter id. This is the enforced
-`reviewer != coder` boundary at plan publication.
-
-The compiler produces this fixed plan order:
+`cb-plan.sh <runId> --config <path>` accepts `combo.config/v1` and publishes
+one read-only `combo.run-plan/v1` at `runs/<runId>/plan.json`. Its step order is
+always:
 
 ```text
 launcher
 coder
-reviewer/<member-1>
-...
-reviewer/<member-N>
+reviewer/<member-id> ...  # zero or more
 gate
 cleaner
 ```
 
-An abridged field map of `combo.run-plan/v1` follows. The empty `steps` value is
-only a placeholder; a valid plan always contains the fixed role sequence.
+The plan records `reviewer_count`, the Reviewer degradation policy, the
+run-local paths, and each adapter's argv plus opaque config. It contains no
+worktree, branch, lease, candidate, PR, or other post-launch fact. The
+compiler refuses to replace an existing plan.
 
-```json
-{
-  "schema": "combo.run-plan/v1",
-  "run_id": "<run-id>",
-  "paths": {
-    "run_dir": "<canonical-run-dir>",
-    "artifacts_dir": "<canonical-run-dir>/artifacts",
-    "steps_dir": "<canonical-run-dir>/steps"
-  },
-  "reviewer": {
-    "degraded": "fail"
-  },
-  "reviewer_count": 0,
-  "steps": []
-}
-```
+The Coder binding may contain one adapter invocation or an ordered invocation
+list. Attempt 1 selects invocation 1, attempt 2 selects invocation 2, and so
+on; attempts beyond the configured list reuse the last invocation. Reviewer
+adapter ids must differ from every configured Coder adapter id.
 
-`steps` contains the full ordered bindings. `reviewer.degraded` is `fail` by
-default and may be set to `skip`.
+### Step input
 
-The compiler reads the caller's config through a contained snapshot, validates
-it, writes a staged plan, changes the plan mode to `0444`, and publishes it with
-a non-replacing hard link. It refuses an existing `plan.json`; no resume path
-recompiles or mutates the plan.
-
-## 4. Universal step ABI
-
-For each invocation, `cb-step.sh` creates:
+For each attempt, `cb-step.sh` creates:
 
 ```text
-steps/<ordinal>-<safe-step>/attempt-<n>/
+steps/<ordinal>-<step-id>/attempt-<N>/
   input.json
   stdout.log
   stderr.log
-  adapter-output.json   # adapter-owned and optional on adapter failure
+  adapter-output.json  # present only when the adapter publishes it
   result.json
 ```
 
-The input is an immutable `combo.step-input/v1` containing:
+It appends `--input <input.json> --output <adapter-output.json>` to the
+configured argv and closes process stdin. `input.json` is
+`combo.step-input/v1` and carries:
 
 - run, step, role, adapter, and attempt identity;
 - canonical run, artifact, step, invocation, input, and output paths;
 - the current candidate SHA or `null`;
-- the selected opaque adapter configuration;
+- the step's opaque config;
 - validated references to prior run-local artifacts.
 
-The adapter argv is executed as an array without `eval`. `cb-step.sh` appends
-`--input <path> --output <path>`, closes stdin, bounds the child with `timeout`,
-and records stdout and stderr without reading either for product routing.
+The adapter's stdout and stderr go only to the attempt logs. A nonzero adapter
+exit, timeout, missing output, invalid schema, unsafe path, or invalid artifact
+reference becomes a normalized `technical_error` or `cancelled` result.
 
-An adapter may publish `adapter-output.json`. `cb-step.sh` accepts it only when
-its schema, identity, event, candidate, and artifact references match the
-selected role and attempt. Otherwise it publishes a normalized technical or
-cancelled `result.json`. Missing adapter output is therefore evidence of an
-adapter failure, not an untyped state.
+### Step output
 
-Every normalized result uses one of three exit classes:
+Every accepted `combo.step-output/v1` has one of three exit classes:
 
-| Exit class | Events | Required detail |
-| --- | --- | --- |
-| `completed` | Exactly one role event with code 0 or 1. | Role-specific payload. |
-| `technical_error` | None. | One or more `errors`. |
-| `cancelled` | None. | One or more `reasons`. |
+| Exit class | Required shape |
+| --- | --- |
+| `completed` | Exactly one role-specific code 0 or 1 product event |
+| `technical_error` | No events and at least one error |
+| `cancelled` | No events and at least one reason |
 
-Completed role events are:
+The completed event vocabulary is fixed:
 
 | Role | Code 0 | Code 1 |
 | --- | --- | --- |
@@ -233,641 +171,502 @@ Completed role events are:
 | Gate | `gate_ok` | `gate_failed` |
 | Cleaner | `cleaned` | `clean_failed` |
 
-`result.json` is made `0444` and published without replacement. The chain
-consumes only that normalized file.
+`result.json` is the normalized authority consumed by the chain. An adapter's
+own output is never trusted directly by another role.
 
-Prior artifacts are run-contained immutable references:
+## 4. Endpoint job and receipt protocol
 
-```json
-{
-  "id": "gate-terminal",
-  "path": "artifacts/gate/terminal.json"
-}
-```
+When `cb-chain.sh` asks for a step, `cb-run.sh`:
 
-Paths outside `artifacts/`, dot traversal, symlinks, missing regular files, and
-duplicate artifact ids are rejected.
+1. selects an unused effective attempt number;
+2. publishes a read-only `combo.endpoint-job/v1` below `dispatch/jobs/`;
+3. sends `cb-run.sh --endpoint-job ...` to the role's canonical window;
+4. runs `cb-step.sh` there with stdin closed;
+5. publishes a read-only `combo.endpoint-receipt/v1`;
+6. validates run, role, step, attempt, job path, window id, pane id, status, and
+   result path before returning the result.
 
-## 5. Five visible tmux endpoints
+Job and receipt basenames are generated, validated as bare names, and
+contained in their canonical directories. Symlinks, nesting, dot prefixes,
+`..`, encoded escape shapes, collisions, and replacement paths are rejected.
 
-Every mounted run has exactly one tmux session:
+The receipt wait is bounded by `CB_DISPATCH_WAIT_SECONDS` (default 3660).
+Every tenth tick checks endpoint liveness. A final receipt observation occurs
+before reporting a timeout or dead endpoint, so a just-published receipt is
+not lost to a concurrent pane exit.
 
-```text
-combo-<run-id>
-```
+`dispatch-log.jsonl` is an operator/acceptance trace of successful dispatches.
+It is not workflow truth.
 
-It has exactly five canonical endpoint windows:
+## 5. Product routing
 
-| Endpoint role | Window | Mode |
-| --- | --- | --- |
-| Launcher | `cb-<run-id>-launcher` | shell |
-| Coder | `cb-<run-id>-coder` | TUI |
-| Reviewer | `cb-<run-id>-reviewer` | TUI |
-| Gate | `cb-<run-id>-gate` | shell |
-| Cleaner | `cb-<run-id>-cleaner` | shell |
+### Launcher
 
-The temporary `_cb_boot` window used to create a new session is disposable and
-is removed when the first endpoint is established. It is not a sixth endpoint.
+Launcher runs once logically. A successful result establishes the candidate
+workspace and then the chain enters the Coder loop. Any Launcher code 1,
+technical error, cancellation, or invocation failure becomes the terminal
+product result.
 
-All five endpoints exist even when the plan has zero Reviewer members. In that
-case the Reviewer endpoint remains visible and steerable but receives no
-Reviewer job, creates no Reviewer attempt, and invokes no Reviewer tool.
+### Coder and Reviewer rounds
 
-Configured Reviewer members do not get additional windows. Every
-`reviewer/<member>` step in every round is dispatched sequentially through the
-one Reviewer endpoint.
+Each Coder success supplies a new exact local candidate SHA. The chain then
+runs one complete Reviewer round:
 
-Each endpoint has `agents/<role>.meta`, including its exact tmux window id and
-canonical window name. Resolution accepts the recorded id only while that id is
-still the live expected window inside the exact `=combo-<run-id>` session. A
-name fallback may resolve only the same canonical role window.
+- all configured Reviewer members receive the same candidate SHA;
+- all members receive the same artifact snapshot from the start of that round;
+- their output artifacts are aggregated only after each independent result;
+- one or more `needs_change` events route to the next Coder attempt after the
+  full round completes;
+- a round with only `lgtm` results advances to Gate;
+- a zero-member round advances directly to Gate.
 
-For one step, `cb-run.sh`:
-
-1. Publishes an immutable `combo.endpoint-job/v1` under `dispatch/jobs/`.
-2. Sends one `cb-run.sh --endpoint-job ...` command to the owning endpoint.
-3. Verifies that the command is executing in the window recorded for that role.
-4. Runs `cb-step.sh` with stdin closed.
-5. Publishes a `combo.endpoint-receipt/v1` with pane id, window id, status, and
-   result path.
-6. Revalidates the receipt against the original dispatch before returning the
-   result to `cb-chain.sh`.
-
-Job and receipt names are bare validated names. They cannot contain traversal,
-slashes, backslashes, dot prefixes, or nested destinations. A dispatch never
-adopts a stale receipt.
-
-Pane capture is a human/debug surface. `cb-peek.sh` and the composer check used
-by `cb-send.sh` may inspect pane text, but no pane text is a product decision.
-
-Cleaner releases the worktree; it does not tear down the tmux session or erase
-run evidence. The five endpoints remain visible after convergence.
-
-## 6. State machine and Reviewer routing
-
-The only routing order is:
-
-```text
-Launcher -> Coder -> all Reviewer members -> [Coder -> all Reviewers]* -> Gate
-                                                                    |
-                                                                    v
-                                                                 Cleaner
-```
-
-Launcher runs first. A nonzero completed event, technical error, cancellation,
-or invocation failure becomes the product terminal state.
-
-On Coder success, the chain replaces the current candidate with the exact SHA
-from `coder_ready`. The Coder adapter itself obtains worktree, branch, and base
-facts from Launcher custody; those runtime facts do not leak into the plan's
-opaque Coder config.
-
-One review round has these rules:
-
-1. Every configured member receives the same candidate SHA.
-2. Every member receives the same artifact snapshot captured at round start.
-3. Member artifacts are aggregated after each result without exposing one
-   member's same-round findings as another member's input.
-4. `lgtm` contributes no correction request.
-5. Any `needs_change` records its immutable findings artifact and requests one
-   more Coder attempt.
-6. After that Coder produces a new candidate, every configured Reviewer member
-   runs again in a complete new round.
-
-There is no separate Addressing role or endpoint. Correction is another Coder
-attempt in the same chain.
-
-When every member returns `lgtm`, or when the Reviewer array is empty, the
-candidate proceeds to Gate.
-
-The default maximum is 20 complete review rounds. A positive
-`CB_CHAIN_MAX_REVIEW_ROUNDS` may override it. Reaching the limit while changes
-are still requested terminates with the technical error
+`CB_CHAIN_MAX_REVIEW_ROUNDS` bounds correction rounds (default 20). Reaching
+the limit after a `needs_change` round terminates with
 `review_round_limit`.
 
-Reviewer degradation applies only to normalized member technical errors:
+`reviewer.degraded` controls normalized Reviewer technical errors:
 
-- `fail` records all member failures in the chain result, completes the current
-  member pass, and terminates before another Coder or Gate invocation.
-- `skip` records the member as skipped and allows the remaining members and
-  normal needs-change routing to continue.
+- `fail` (the default) records every member failure, completes the round, and
+  then terminates the chain as a Reviewer technical error;
+- `skip` records the member as skipped and lets the other members and routing
+  continue.
 
-A Reviewer cancellation terminates immediately. A dispatcher or step
-invocation failure is a chain technical error rather than a degradable member
-result.
+An endpoint/invocation failure is not a degradable Reviewer opinion; it
+terminates immediately. Cancellation also terminates. The final chain result
+retains all normalized Reviewer member failures.
 
-## 7. Launcher custody and Coder consumption
+### Gate and Cleaner
 
-The mounted Launcher adapter accepts only the Treehouse configuration schema.
-It publishes run-local readiness and mechanical configuration once, then calls
-`cb-launcher.sh`.
+Gate runs once after a current Reviewer round, or immediately after Coder when
+there are no Reviewer members. Gate never routes back to Coder or Reviewer.
 
-Before acquisition, the mechanical Launcher aggregates:
+Cleaner is invoked after every terminal chain path. The native Cleaner can
+release custody only when a latest, immutable Gate attempt result exists.
+Consequently, a pre-Gate Coder or Launcher termination still produces a
+Cleaner result, but cleanup is refused and any existing custody is retained
+for typed recovery.
 
-- required `git`, `jq`, `tmux`, and `treehouse` availability;
-- repository and base-ref validity;
-- branch and custody-record collisions;
-- every required seat's harness availability and non-interactive auth check.
+## 6. Immutable Launcher custody
 
-It calls:
+The mounted native Launcher adapter accepts only
+`combo.launcher/treehouse/v1`. It publishes run-local readiness and mechanical
+configuration, invokes `cb-launcher.sh`, and normalizes its result. The
+mechanical Launcher:
 
-```sh
-treehouse get --lease --lease-holder "$run_id"
-```
+1. validates required harness and authentication checks;
+2. resolves the configured base ref;
+3. acquires a Treehouse lease held by the run id;
+4. publishes exact custody;
+5. creates `combo/<runId>` at the resolved base SHA;
+6. optionally copies the tracked `.no-mistakes.yaml` and runs setup;
+7. emits `launch_ready`.
 
-The returned path must be the sole absolute response and Treehouse status must
-prove that the same run id holds that exact path. The worktree must share the
-repository's Git common directory and be clean.
-
-The mounted branch is:
-
-```text
-combo/<run-id>
-```
-
-Launcher resolves the configured base to an exact commit, records custody, and
-creates the branch at that commit. The Treehouse custody record has exactly
-seven keys:
+The custody authority is the read-only, write-once
+`agents/launcher.ownership.json`:
 
 ```json
 {
-  "base_sha": "<full-sha>",
-  "branch": "combo/<run-id>",
-  "lease_id": "<run-id>",
-  "repo_dir": "<canonical-repository>",
-  "run": "<run-id>",
+  "run": "<runId>",
   "runway_kind": "treehouse",
-  "worktree": "<canonical-leased-path>"
+  "repo_dir": "/canonical/source/repository",
+  "worktree": "/canonical/leased/worktree",
+  "branch": "combo/<runId>",
+  "base_sha": "<full lowercase commit>",
+  "lease_id": "<runId>"
 }
 ```
 
-The record is published at:
+The key set is exact. The native adapter rejects a different runway kind,
+branch, lease identity, repository, mode, or rewritten record. On a resumed
+Launcher attempt, existing custody is validated and returned; the lease is not
+acquired again and `plan.json` is not changed.
 
-```text
-agents/launcher.ownership.json
-```
+The lower-level mechanical Launcher retains a separately configured explicit
+Git-worktree mode. That is not part of the mounted native adapter contract,
+which is Treehouse-only.
 
-It is `0444`, canonical, run-contained, and non-replacing. On a supported
-resume, the Launcher adapter validates this same seven-key record rather than
-acquiring a second lease. A different or mutable record is a failure; it is
-never rewritten into agreement.
+### Coder consumption
 
-The Coder adapter consumes the custody record directly and verifies:
+`cb-agent-run.sh` reads custody out of band. Before starting either the
+`direct-agent` or `gnhf` adapter it proves:
 
-- the repository and leased worktree still share one Git common directory;
+- source repository and worktree are canonical and share one Git common dir;
 - the recorded branch is checked out;
-- the recorded base exists and is an ancestor;
-- the worktree is clean;
-- the current HEAD equals the base for the first Coder attempt, or equals the
-  incoming candidate for a correction attempt.
+- the recorded base commit exists and is an ancestor of the current HEAD;
+- the supplied candidate, when present, equals HEAD;
+- the worktree is clean.
 
-Direct-agent and GNHF tools run in the leased worktree with closed stdin and an
-allowlisted environment. The adapter adds only the selected environment plus:
+The configured tool runs in an allowlisted `env -i` environment in the leased
+worktree with stdin closed. A PATH-level Git wrapper rejects ordinary
+`git push`; it is an accident guard, not a same-user security boundary. A
+successful Coder result requires a new, clean, forward local commit with a
+nonempty changeset. Publication remains Gate authority.
 
-```text
-COMBO_CODER_ADAPTER_ID
-COMBO_CODER_STEP_INPUT
-COMBO_CODER_WORKTREE
-```
+## 7. Gate admission, publication, and replay
 
-A successful Coder must leave a new commit, preserve the branch, advance
-history without rewriting it, change the tree, remain descended from the
-Launcher base, and leave a clean worktree. Only then is `coder_ready` emitted.
+The native Gate consumes the candidate plus the same Launcher custody. Its
+admission order is intentional.
 
-## 8. Gate admission, publication, and replay
+### Before any publication-shaped command
 
-The Gate adapter validates one exact candidate and a
-`combo.gate.no-mistakes/v1` configuration. Important configured authority
-includes:
+Gate first validates the universal envelope and then:
 
-- No-Mistakes binary, runtime, model, arguments, intent, approval, and review;
-- expected local base branch and exact expected base SHA;
-- optional allowed path prefixes;
-- manual or auto merge mode;
-- bounded No-Mistakes, GitHub, polling, and merge-wait durations.
+1. validates the exact read-only Launcher custody record;
+2. requires `config.expected_base_sha == custody.base_sha`;
+3. requires the worktree branch and HEAD to equal custody and candidate facts;
+4. when `allowed_paths` is configured, requires a nonempty
+   `expected_base_sha..candidate_sha` diff whose every path starts with one of
+   those relative directory prefixes;
+5. replays an existing valid Gate terminal seal, if present;
+6. for a new Gate arm, resolves and validates the expected base branch and
+   candidate ancestry.
 
-### New-arm admission order
+Steps 1–6 precede No-Mistakes execution and every GitHub command. A mismatch
+is a normalized `gate_failed`; unsafe or malformed local state is a technical
+contract failure.
 
-Gate uses this order for a new delivery:
-
-1. Validate the universal envelope and contain every path.
-2. Validate immutable Launcher custody.
-3. Require configured `expected_base_sha` to equal Launcher `base_sha`.
-4. Require the recorded branch, exact candidate HEAD, and clean worktree.
-5. If `allowed_paths` is configured, require a non-empty base-to-candidate diff
-   and require every changed path to start with an allowed prefix.
-6. Replay a valid existing terminal seal, if present.
-7. For a fresh arm, resolve only
-   `refs/heads/<expected_base_branch>^{commit}` in the source repository.
-8. Require that local head to equal `expected_base_sha` and require the base to
-   be an ancestor of the candidate.
-9. Verify and seal the effective No-Mistakes identity and argv.
-10. Acquire the host-global No-Mistakes lease, invoke once, and seal the
-    receipt.
-11. Release No-Mistakes custody before any GitHub-only merge wait.
-12. Verify the exact PR and normalize the terminal Gate outcome.
-
-This ordering has an intentional replay distinction. Immutable custody,
-candidate identity, and allowed-path scope are still checked on every Gate
-attempt. Once a valid terminal Gate seal exists, it is replayed before checking
-whether the mutable local expected-base branch has advanced. A completed
-delivery therefore remains replayable after base advance. A fresh delivery
-does not.
-
-The expected branch is a bare branch name. Values such as
-`refs/heads/main` are invalid configuration, and resolution is explicitly
-scoped to local `refs/heads/`; tags, remote-tracking refs, and ambiguous names
-cannot satisfy it.
-
-Early admission failures are normalized `gate_failed` events:
-
-| Reason | Meaning |
-| --- | --- |
-| `candidate_head_changed` | Branch, exact HEAD, or worktree cleanliness changed. |
-| `candidate_diff_empty` | Configured path scoping found no candidate changes. |
-| `candidate_path_outside_allowed_scope` | At least one candidate path is outside the configured prefixes. |
-| `expected_base_sha_mismatch` | Configured SHA disagrees with immutable Launcher custody. |
-| `expected_base_branch_unresolved` | The configured local head does not resolve. |
-| `expected_base_branch_mismatch` | The current local head advanced or otherwise differs. |
-| `expected_base_not_ancestor` | The exact expected base is not an ancestor of the candidate. |
-
-These rejections occur before a publication-shaped No-Mistakes or GitHub call.
-
-### No-Mistakes invocation
-
-Gate checks the effective No-Mistakes config, runtime, model, version, doctor,
-and `axi` help surface before sealing `artifacts/gate/invocation.json`.
-Configured arguments may not take over reserved intent, approval, or merge
-authority.
-
-`review: false` is translated exactly:
-
-- with no configured skips, Gate appends `--skip=review`;
-- with configured skips, Gate combines them and review in one
-  `--skip=<configured>,review` argument.
-
-`review: true` forbids a configured review skip. `approval: auto` appends
-`--yes`. Merge authority is not passed to No-Mistakes: `--auto-merge` is
-forbidden and auto merge is handled separately through authenticated GitHub
-state.
-
-The No-Mistakes lease is host-global. Its owner record binds run, branch,
-worktree, candidate, attempt, process, token, and acquisition time. A heartbeat
-keeps live custody fresh; bounded dead-owner recovery is evidence-backed. Each
-reached attempt publishes its own immutable lease record and receipt.
-
-### PR and merge authority
-
-A passed or checks-passed No-Mistakes receipt must identify the recorded branch
-and candidate. Gate resolves exactly one GitHub PR and verifies its full URL,
-head branch, and head SHA.
-
-Manual merge mode is mutation-free after PR verification and normalizes to:
+`expected_base_branch` is a local branch name, not an arbitrary Git revspec.
+For a fresh arm Gate resolves exactly:
 
 ```text
-gate_ok outcome=validated
+refs/heads/<expected_base_branch>
 ```
 
-Auto merge mode explicitly runs authenticated:
+It must resolve to `expected_base_sha`, and that SHA must be an ancestor of the
+candidate. A remote-tracking name is not implicitly resolved under
+`refs/remotes/`. Operators should verify the exact local ref before compiling:
 
-```sh
-gh pr merge <exact-pr-url> --auto --rebase
+```bash
+git -C /path/to/repo show-ref --verify \
+  "refs/heads/<expected_base_branch>"
 ```
 
-It seals strict target-branch required-check policy, observes all paginated
-check-run and commit-status evidence for the exact candidate, and waits within
-the configured bound. It never treats a different head or a changed required
-check policy as equivalent.
+Terminal replay deliberately happens before this fresh-arm branch-freshness
+check. A previously sealed Gate result remains replayable after the local base
+branch advances, but a new Gate effect cannot start against the stale SHA.
 
-Durable Gate terminal outcomes include:
+### No-Mistakes boundary
 
-| Normalized outcome | Result class/event | Typical evidence |
+For a new arm Gate freezes:
+
+- the effective No-Mistakes runtime and model from its config;
+- `no-mistakes --version`, `doctor`, and the supported `axi` help surfaces;
+- the canonical binary and exact argv;
+- the candidate, branch, worktree, merge mode, and initial attempt.
+
+The installed `axi run` surface must not expose base selection or auto-merge.
+Gate owns both policies. Configured arguments cannot smuggle `--intent`,
+`--yes`, or `--auto-merge`; `approval:auto` appends `--yes`, and
+`review:false` appends `--skip=review`.
+
+One host-global lease serializes the shared No-Mistakes invocation. Its
+owner/evidence is recorded before execution, stale dead ownership has bounded
+recovery, and a heartbeat keeps live ownership current. Gate captures a
+read-only receipt and releases that lease before any GitHub merge operation.
+
+Before any normalization, the No-Mistakes receipt must provide the expected
+run id and branch, a valid candidate-head prefix, and a recognized outcome.
+`passed` and `checks-passed` receipts additionally require an exact GitHub PR
+identity match. Failed and cancelled receipts are normalized without treating
+any PR URL they carry as authenticated evidence.
+
+### Manual and auto merge modes
+
+| Mode | Gate authority | Successful normalized outcome |
 | --- | --- | --- |
-| `validated` | completed, code 0 `gate_ok` | Manual mode, exact PR verified. |
-| `merged` | completed, code 0 `gate_ok` | Auto mode, exact PR merged with required checks satisfied. |
-| `failed` | completed, code 1 `gate_failed` | No-Mistakes failure, required-check failure, or merge wait timeout. |
-| `cancelled` | cancelled, no event | No-Mistakes cancellation, PR closure, or auto-merge cancellation. |
+| `manual` | Validate and publish an exact candidate PR; do not arm merge | `validated` |
+| `auto` | Require strict protected checks; arm auto-rebase and observe a bounded authenticated result | `merged` |
 
-The canonical terminal seal is:
+Auto mode arms exactly `gh pr merge <pr> --auto --rebase`.
+
+Auto mode can instead seal typed cancellation, required-check failure, or
+timeout outcomes. It verifies the exact candidate SHA, PR branch, repository,
+base branch, branch-protection requirements, paginated check runs, and commit
+statuses. Gate does not treat pane text or an unauthenticated PR URL as proof.
+
+### Gate seals
+
+Gate evidence accumulates under `artifacts/gate/` and may include:
+
+- `invocation.json`;
+- per-attempt host-lease evidence;
+- the No-Mistakes receipt;
+- optional merge-arm and merge-outcome evidence;
+- `terminal.json`.
+
+Every artifact that is published is read-only and cannot be replaced.
+Admission and verification rejections return a normalized Gate result without
+manufacturing evidence for stages they did not reach, so `terminal.json` is
+not guaranteed. When a terminal seal exists, a later Gate attempt with the
+same candidate validates the seal and its referenced evidence, then emits a
+new normalized step result without rerunning No-Mistakes or GitHub effects.
+
+## 8. Exact Cleaner behavior
+
+The native Cleaner adapter accepts only `combo.cleaner/treehouse/v1`. It does
+not infer custody from the plan, current directory, branch names, or tmux.
+
+Before release it:
+
+1. validates the exact seven-key, read-only Launcher custody;
+2. requires exactly one `steps/*-gate` directory;
+3. inventories every `attempt-N` directory and requires a contiguous `1..N`
+   sequence with no malformed, duplicate, symlinked, or missing attempt;
+4. selects the numerically highest attempt, not lexical order;
+5. requires that attempt's `result.json` to be read-only and a complete valid
+   Gate terminal result;
+6. snapshots the attempt-directory identities and selected result identity
+   plus normalized content;
+7. rechecks that snapshot immediately before and after release.
+
+Cleaner refuses an older successful Gate result while a newer Gate attempt is
+in flight or invalid. It also refuses a replaced result or changed attempt
+inventory.
+
+`cb-cleaner.sh` then revalidates repository, worktree, branch, base, lease
+holder, and Git common-directory identity. For Treehouse it performs exactly:
 
 ```text
-artifacts/gate/terminal.json
+treehouse return <recorded-absolute-worktree>
 ```
 
-It binds run, branch, worktree, candidate, invocation, lease, No-Mistakes run
-and receipt, PR, merge evidence, normalized outcome, and normalized result.
-Terminal replay validates all referenced evidence and republishes a new
-attempt's step result without another No-Mistakes or GitHub effect.
+It checks the recorded holder immediately before that path-only, non-forcing
+return. There is no guessed path, force flag, branch fallback, or plain-Git
+fallback in the mounted adapter.
 
-## 9. Exact Cleaner behavior
+The mechanical result is sealed at `agents/cleaner.ownership.json` with the
+custody facts, `released`, and `reasons`:
 
-`cb-chain.sh` invokes Cleaner after every terminal path, including Launcher,
-Coder, Reviewer, or Gate failure. Product truth and cleanup truth are stored
-separately.
+- a valid `released:true` seal is replayed as `cleaned` without another
+  backend call;
+- a later adapter invocation may retry only from an exact valid
+  `released:false` seal, after revalidating Gate and custody;
+- a malformed, foreign, mutable, or replaced seal is refused.
 
-Invocation does not imply release. If no Gate attempt produced a terminal
-`result.json`, Cleaner fails closed and preserves custody for diagnosis.
+Cleanup never overwrites the product terminal. `chain-result.json` stores
+terminal and cleanup outcomes in separate objects. Process status reports
+cleanup cancellation or technical failure, product cancellation or technical
+failure, and then either code 1 before it can report overall success.
 
-The mounted Cleaner adapter accepts only
-`combo.cleaner/treehouse/v1`. Before release it requires:
+## 9. Replay and interruption
 
-1. The exact immutable seven-key Treehouse Launcher custody record.
-2. Exactly one canonical Gate step directory.
-3. One or more Gate attempt directories named with positive integers and no
-   leading zero.
-4. A contiguous attempt inventory from 1 through the numeric latest attempt.
-5. A canonical, regular, `0444`, strictly valid `result.json` in that latest
-   attempt.
-6. A terminal Gate result: completed `gate_ok` or `gate_failed`,
-   `technical_error`, or `cancelled`.
+There are two replay levels.
 
-Latest means numeric latest, so attempt 10 is newer than attempt 2. Directory
-count must equal the highest attempt number; gaps and noncanonical names fail
-closed.
+### Incomplete run
 
-Cleaner snapshots the identity of every Gate attempt directory plus the latest
-result's identity and normalized content. It rechecks that full snapshot before
-release and again before publishing success. A replaced, added, removed, or
-rewritten Gate terminal cannot authorize cleanup.
+When `chain-result.json` does not exist, running `cb-run.sh <runId>` traverses
+the chain again. It chooses fresh attempt numbers by avoiding every existing
+step directory, endpoint job, and receipt. Adapter seals decide whether a
+logical effect is validated, retried, or reused:
 
-The mechanical Cleaner then revalidates custody against runtime configuration,
-Git repository identity, checked-out branch, base commit, and exact Treehouse
-lease holder. The mounted adapter supplies an idle custody check; it does not
-guess Gate state from processes or panes.
+- Launcher validates write-once custody instead of leasing again.
+- Gate validates a terminal seal instead of republishing.
+- Cleaner replays a successful release seal or permits a typed failed-release
+  retry.
 
-Immediately before release it proves that the same run still holds the exact
-recorded path, then calls:
+An interruption immediately after Launcher therefore produces a fresh
+Launcher attempt on resume while preserving the same custody bytes.
 
-```sh
-treehouse return "<exact-recorded-worktree-path>"
-```
+### Terminal run
 
-The call is path-only and non-forcing. Cleaner does not search for another
-worktree, return a guessed holder, delete an arbitrary branch, or fall back to
-another release mechanism.
+When `chain-result.json` exists, `cb-run.sh` mounts or verifies the five
+endpoints, validates the result, and reprints its terminal presentation. It
+does not publish a new endpoint job or duplicate Launcher, Coder, Gate, GitHub,
+or Cleaner effects.
 
-A zero exit from `treehouse return` is provisional. Cleaner immediately
-re-observes Treehouse status:
+Do not delete attempt directories, dispatch artifacts, custody records, or
+seals to manufacture a retry. They are replay evidence.
 
-- holder absent confirms release;
-- the same holder still present records `treehouse:release_unconfirmed`;
-- an unverifiable observation records `treehouse:release_unverified`.
+## 10. Terminal result and process status
 
-Only confirmed absence publishes an immutable
-`agents/cleaner.ownership.json` with `released: true` and an empty reasons
-array.
+`chain-result.json` is read-only `combo.chain-result/v1`. It records:
 
-Cleaner seal replay is exact:
+- the product `exit_class`, candidate SHA, and terminal role/code/event;
+- accumulated artifact references;
+- Reviewer degradation policy and member failures;
+- product reasons and errors;
+- a separate Cleaner exit class, code/event, reasons, and errors.
 
-- a valid immutable `released: true` seal replays `cleaned` without another
-  return;
-- a valid immutable `released: false` seal may be retried after Gate and seal
-  snapshots are revalidated;
-- a malformed, mutable, mismatched, or replaced seal is rejected;
-- a successful mechanical call must leave a new exact success seal before the
-  adapter can report `cleaned`.
+`cb-run.sh` prints exactly one line after a terminal result:
 
-Cleaner releases the Treehouse lease only. It does not remove run artifacts,
-kill the five tmux endpoints, or change the chain's product terminal record.
-
-## 10. Replay and interruption semantics
-
-There are three distinct replay surfaces.
-
-### Incomplete chain
-
-If `chain-result.json` does not exist, `cb-run.sh` drives `cb-chain.sh` again.
-When mounted dispatch artifacts already occupy an attempt number, the chain
-selects the next unused number across the step directory, endpoint job, and
-endpoint receipt.
-
-This collision-free mechanism supports evidence-preserving continuation. For
-example, after interruption immediately following Launcher, the next run
-replays immutable Launcher custody instead of acquiring again, then uses fresh
-attempt names for later roles.
-
-It does not authorize deletion or reuse of a stale job or receipt. A stale
-artifact is skipped, not adopted.
-
-### Gate terminal replay
-
-A valid Gate terminal seal is authoritative for the same run, custody,
-candidate, invocation, and supporting artifacts. A later Gate attempt emits an
-equivalent normalized result that references the original evidence and performs
-no new No-Mistakes or GitHub action.
-
-This replay survives a later local expected-base branch advance because that
-freshness check applies to new arms. It does not survive candidate or custody
-drift.
-
-### Completed chain replay
-
-Once immutable `chain-result.json` exists, `cb-run.sh` does not re-enter
-`cb-chain.sh`. It mounts or verifies the five endpoints, validates the existing
-result, and presents terminal truth. No Launcher, Coder, Reviewer, Gate, or
-Cleaner step is dispatched again.
-
-This means terminal replay does not duplicate Treehouse acquisition,
-No-Mistakes delivery, GitHub mutation, or Treehouse return.
-
-## 11. Terminal truth and process status
-
-`combo.chain-result/v1` preserves both:
-
-- `terminal`: the product role, exit class, event/code, reasons, and errors;
-- `cleanup`: the Cleaner exit class, event/code, reasons, and errors.
-
-Cleaner runs even when product routing has already failed. A cleanup failure
-does not erase the earlier product failure, and a successful product result
-does not erase a cleanup failure.
-
-Process status uses this exact precedence:
-
-1. Cleanup `cancelled` -> 130.
-2. Cleanup `technical_error` -> 70.
-3. Product terminal `cancelled` -> 130.
-4. Product terminal `technical_error` -> 70.
-5. Cleanup code 1 or product terminal code 1 -> 1.
-6. Otherwise -> 0.
-
-`cb-run.sh` prints exactly one human-facing line:
-
-| Trusted Gate terminal | Stdout |
+| Trusted Gate fact | stdout |
 | --- | --- |
-| `validated` | `validated` |
-| `merged` | `merged` |
-| Anything else | `failed` |
+| Manual Gate success | `validated` |
+| Authenticated auto-merge success | `merged` |
+| Any other or untrusted terminal | `failed` |
 
-Printing `validated` or `merged` requires the one canonical
-`artifacts/gate/terminal.json` reference, a regular canonical `0444` file,
-stable file identity while read, the exact run and candidate, and a complete
-successful Gate result. Missing, mutable, malformed, relocated, or
-identity-invalid terminal evidence prints `failed`.
+Exit status carries information that stdout alone cannot:
 
-If the chain result would otherwise exit 0 but Gate presentation cannot be
-trusted, `cb-run.sh` upgrades the process status to 70. Conversely, a trusted
-`validated` or `merged` line does not hide cleanup failure: stdout may show the
-trusted Gate outcome while the process exits 1, 70, or 130 because cleanup has
-higher status precedence.
+| Status | Meaning |
+| --- | --- |
+| `0` | Trusted `validated`/`merged` and successful cleanup |
+| `1` | Normalized product code 1 or `clean_failed` |
+| `70` | Technical result, malformed/untrusted success evidence, or presentation disagreement |
+| `130` | Product or cleanup cancellation |
 
-Operators must check both stdout and `$?`, then inspect `terminal` and `cleanup`
-in `chain-result.json`.
+Status selection is ordered: cleanup cancellation, cleanup technical error,
+product cancellation, product technical error, either code 1, then success. A
+missing or untrusted Gate presentation upgrades only an otherwise-successful
+status 0 to 70.
 
-## 12. Operator guide
+If Gate succeeded but Cleaner returned code 1, stdout still names the truthful
+Gate fact (`validated` or `merged`) and the process exits 1. Read
+`.cleanup` in `chain-result.json` to determine custody convergence. An
+intentional interruption before result publication exits 130 and prints no
+fabricated terminal line.
 
-### Prepare and compile
+## 11. Operator guide
 
-Use an absolute run root and a lowercase run id that does not begin with a
-hyphen and otherwise contains only letters, digits, and hyphens:
+### Compile one run
 
-```sh
-export CB_RUNS_DIR="$HOME/.combo-chen/runs"
-run_id=my-run
-config_path=/absolute/path/to/combo.config.json
+Use one absolute run root and pre-create the run directory:
 
+```bash
+export CB_RUNS_DIR=/absolute/path/to/combo-runs
+run_id=my-combo-run
 mkdir -p "$CB_RUNS_DIR/$run_id"
-bin/cb-plan.sh "$run_id" --config "$config_path"
+
+bash bin/cb-plan.sh \
+  "$run_id" \
+  --config /absolute/path/to/combo.config.json
 ```
 
-Compilation prints the canonical `plan.json` path. Treat any existing plan as a
-different immutable run; do not remove it merely to reuse the id.
+The config must be a regular, non-symlink file. The compiler prints the
+canonical plan path. Treat the plan as a one-time operation: recompiling the
+same run is a collision, not an update mechanism.
 
-### Run, resume, or replay
+At minimum, `combo.config/v1` must provide:
 
-The same command starts a fresh mounted run, continues a supported incomplete
-run, or presents a completed result:
+- an adapter registry whose argv arrays are compatible with declared roles;
+- bindings for Launcher, Coder, Gate, and Cleaner;
+- a `reviewers` array, which may be empty;
+- native Launcher config with repository, base ref, setup, and readiness;
+- a direct-agent or GNHF Coder config;
+- Gate config with exact expected local base branch/SHA and publication policy;
+- `{ "schema": "combo.cleaner/treehouse/v1" }` for native Cleaner.
 
-```sh
-bin/cb-run.sh "$run_id"
-status=$?
+Before compilation, resolve and record the same base commit in both Launcher
+and Gate policy:
+
+```bash
+base_sha=$(
+  git -C /absolute/path/to/repo rev-parse \
+    "refs/heads/<expected_base_branch>^{commit}"
+)
+printf '%s\n' "$base_sha"
 ```
 
-Keep the exit status. The single stdout word is not sufficient to establish
-cleanup success.
+Launcher `base_ref` may use any resolvable ref, but its resolved SHA must equal
+Gate `expected_base_sha`. Gate `expected_base_branch` remains the exact local
+branch name described in §7.
+
+### Mount or resume
+
+```bash
+CB_RUNS_DIR="$CB_RUNS_DIR" bash bin/cb-run.sh "$run_id"
+```
+
+The same command handles first mount, incomplete-run replay, and terminal
+replay. It can be invoked from another current directory because the
+dispatcher resolves its checked-in executable and sibling scripts, but the
+executable must remain canonical, regular, and executable.
 
 ### Observe
 
-Machine-readable advisory status:
-
-```sh
-bin/cb-status.sh "$run_id"
-bin/cb-status.sh "$run_id" reviewer
-```
-
-The status command reports journal phase, exact session liveness, metadata,
-endpoint resolution, and current pane command. Pane command is a hint, not
-workflow truth.
-
-Human/debug pane capture:
-
-```sh
-bin/cb-peek.sh "$run_id" coder 80
-bin/cb-peek.sh "$run_id" reviewer 80
-```
-
-`cb-run.sh` uses `cb-send.sh` internally. An operator can steer a live endpoint
-explicitly when recovery calls for it:
-
-```sh
-bin/cb-send.sh "$run_id" coder "<literal prompt or command>"
-```
-
-This is low-level input injection. It does not publish a product event or
-replace the endpoint job/receipt contract.
-
-Direct tmux attachment with the default tmux server:
-
-```sh
+```bash
+CB_RUNS_DIR="$CB_RUNS_DIR" sh bin/cb-status.sh "$run_id"
+CB_RUNS_DIR="$CB_RUNS_DIR" sh bin/cb-peek.sh "$run_id" reviewer 80
 tmux attach-session -t "=combo-$run_id"
 ```
 
-`CB_TMUX_SOCKET` and `CB_TMUX_CONF` are Combo wrapper variables, not native tmux
-environment controls. Translate them when invoking tmux directly.
+If `CB_TMUX_SOCKET` or `CB_TMUX_CONF` was set for the run, use the same values
+for status and peek. For direct attachment, translate those wrapper variables
+to tmux options:
 
-With a custom socket:
+With a custom socket, use the configured file or `/dev/null` by default:
 
-```sh
-tmux -L "$CB_TMUX_SOCKET" \
-  -f "${CB_TMUX_CONF:-/dev/null}" \
+```bash
+tmux -L "$CB_TMUX_SOCKET" -f "${CB_TMUX_CONF:-/dev/null}" \
   attach-session -t "=combo-$run_id"
 ```
 
 With only a custom config:
 
-```sh
+```bash
 tmux -f "$CB_TMUX_CONF" attach-session -t "=combo-$run_id"
 ```
 
-The helper scripts perform this translation automatically, so the same
-`CB_TMUX_SOCKET` and `CB_TMUX_CONF` exports are sufficient for
-`cb-run.sh`, `cb-status.sh`, and `cb-peek.sh`.
+`CB_TMUX_SOCKET` and `CB_TMUX_CONF` are Combo Chen variables, not native tmux
+environment settings. Pane capture is for human diagnosis only.
 
-### Inspect terminal evidence
+Inspect machine truth directly:
 
-Show product and cleanup truth:
-
-```sh
-jq '{
-  exit_class,
-  candidate_sha,
-  terminal,
-  reasons,
-  errors,
-  cleanup
-}' "$CB_RUNS_DIR/$run_id/chain-result.json"
-```
-
-Show immutable Launcher custody:
-
-```sh
+```bash
+jq . "$CB_RUNS_DIR/$run_id/chain-result.json"
 jq . "$CB_RUNS_DIR/$run_id/agents/launcher.ownership.json"
+jq . "$CB_RUNS_DIR/$run_id/agents/cleaner.ownership.json"
 ```
 
-Show a reached Gate terminal seal:
+The runner and Cleaner do not tear down the tmux session. Retain it for
+inspection or remove it explicitly after machine-readable terminal and custody
+evidence has been collected.
 
-```sh
-jq . "$CB_RUNS_DIR/$run_id/artifacts/gate/terminal.json"
-```
+### Diagnose by authority
 
-Show endpoint dispatch order without consulting pane text:
-
-```sh
-jq -R 'fromjson? | {
-  role,
-  step_id,
-  attempt,
-  window_id,
-  receipt
-}' "$CB_RUNS_DIR/$run_id/dispatch-log.jsonl"
-```
-
-### Diagnose without rewriting evidence
-
-Use this order:
-
-1. Save the `cb-run.sh` exit status and stdout.
-2. Read `chain-result.json` when present.
-3. Inspect the relevant latest `steps/.../attempt-.../result.json`.
-4. Inspect role custody or Gate artifacts referenced by that result.
-5. Use `cb-status.sh` for endpoint liveness and `cb-peek.sh` only for human
-   context.
-6. Rerun `cb-run.sh` only when the immutable artifacts still describe the same
-   run and candidate.
-
-Do not repair a run by editing `plan.json`, endpoint jobs, receipts, step
-results, Launcher custody, Gate seals, Cleaner seals, or `chain-result.json`.
-Their collision and identity checks are part of the product contract.
-
-Common safe interpretations are:
-
-| Evidence | Interpretation |
+| Question | Read |
 | --- | --- |
-| No `chain-result.json`, Launcher custody present | An incomplete run may be resumable with fresh attempt names. |
-| `gate_failed` with expected-base reason | No new publication arm was admitted. |
-| `gate_failed` plus successful cleanup | Product failed, exact worktree release succeeded. |
-| `gate_ok` plus failed cleanup | Publication truth is preserved, but operator action is required for custody. |
-| Existing `chain-result.json` | `cb-run.sh` will present it without another role effect. |
+| What was compiled? | `plan.json` |
+| Which endpoint executed a step? | endpoint receipt plus `agents/<role>.meta` |
+| What did an adapter say? | attempt `result.json` |
+| Which workspace is owned? | `agents/launcher.ownership.json` |
+| What publication was authenticated? | `artifacts/gate/terminal.json` and referenced evidence |
+| Was exact custody released? | `agents/cleaner.ownership.json` and `chain-result.json.cleanup` |
+| What should the operator report? | stdout together with process status and `chain-result.json` |
 
-Run evidence and the five tmux endpoints deliberately survive convergence.
-Retention or session teardown is an outer operator lifecycle decision, not a
-Cleaner side effect.
+Use stdout/stderr logs and `cb-peek.sh` only to explain an authoritative result,
+never to replace one.
+
+## 12. Runtime artifact map
+
+```text
+runs/<runId>/
+  plan.json
+  config.env
+  launcher-readiness.json
+  journal.jsonl
+  agents/
+    launcher.meta
+    coder.meta
+    reviewer.meta
+    gate.meta
+    cleaner.meta
+    launcher.ownership.json
+    cleaner.ownership.json
+  dispatch/
+    jobs/*.job.json
+    *.receipt.json
+  dispatch-log.jsonl
+  steps/
+    <ordinal>-<step>/attempt-<N>/
+      input.json
+      stdout.log
+      stderr.log
+      adapter-output.json  # when the adapter publishes one
+      result.json
+  artifacts/
+    gate/
+      invocation.json
+      no-mistakes-lease-attempt-<N>.json
+      no-mistakes-attempt-<N>.toon
+      merge-arm.json
+      merge-outcome.json
+      terminal.json        # only after a sealed Gate terminal outcome
+  chain-result.json
+```
+
+Optional merge artifacts exist only when the configured mode and observed
+outcome require them. Attempt directories and evidence are append-only by
+collision refusal. `launcher.ownership.json`, Gate evidence, normalized step
+results, and the chain result are read-only authorities; endpoint metadata and
+the Cleaner failure seal have narrowly defined recovery/replacement behavior
+described above.

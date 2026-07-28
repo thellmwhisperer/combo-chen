@@ -5,6 +5,13 @@ by configurable agents. Work items can be GitHub issues or local markdown work
 plans. This spec is the constitution: the CLI, the event schema, and the config
 schema must conform to it, not the other way around.
 
+> **Mounted Bash v1:** [The Bash v1 mounted-chain contract](bash-v1-chain.md)
+> is the normative architecture, artifact, routing, replay, and operator guide
+> for the checked-in `cb-*.sh` pipeline. This document retains the broader
+> director protocol and historical decisions; where its legacy v0 mechanics
+> differ from the mounted Bash chain, the mounted-chain contract governs that
+> product line.
+
 ## 1. Roles
 
 | Role           | Does                                                                                                                                                                                                                                                                                                                                                                                                              | Never does                        | Default agent                                               |
