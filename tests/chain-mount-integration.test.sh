@@ -32,7 +32,7 @@
 #   assert_dispatch_security, run_mutation_checks
 #
 # @exports none
-# @deps bash, git, jq, tmux, tests/lib.sh, bin/cb-plan.sh, bin/cb-run.sh,
+# @deps bash, git, jq, stat, tmux, tests/lib.sh, bin/cb-plan.sh, bin/cb-run.sh,
 #   bin/cb-launcher-adapter.sh, bin/cb-agent-run.sh, bin/cb-gate.sh,
 #   bin/cb-cleaner-adapter.sh
 set -u
@@ -62,6 +62,7 @@ CONFIG="$TMP_ROOT/config.json"
 TMUX_SOCKET="cbmount-$$-$RANDOM"
 RUN="mount-$RANDOM"
 MUTATION=${CB_CHAIN_MOUNT_MUTATION:-none}
+REAL_STAT=${CB_CHAIN_TEST_SYSTEM_STAT:-$(command -v stat)}
 mkdir -p "$RUNS_DIR" "$REPO" "$FAKE_BIN"
 
 cleanup_fixture() {
@@ -120,6 +121,15 @@ printf 'base\n' >"$REPO/work.txt"
 git -C "$REPO" add work.txt
 git -C "$REPO" commit -qm "fixture base"
 BASE_SHA=$(git -C "$REPO" rev-parse HEAD)
+
+cb_write_fake "$FAKE_BIN/stat" '#!/bin/sh
+if [ "$#" -eq 3 ] && [ "$1" = -c ] && [ "$2" = %i ]; then
+  case "$3" in
+    /dev/fd/*) printf "1\n"; exit 0 ;;
+  esac
+fi
+exec "$CB_CHAIN_TEST_SYSTEM_STAT" "$@"
+'
 
 cb_write_fake "$FAKE_BIN/treehouse" '#!/usr/bin/env bash
 set -eu
@@ -379,6 +389,7 @@ export CB_CHAIN_TEST_CODER_FACTS="$CODER_FACTS"
 export CB_CHAIN_TEST_NM_CALLS="$NM_CALLS"
 export CB_CHAIN_TEST_GH_CALLS="$GH_CALLS"
 export CB_CHAIN_TEST_MUTATION="$MUTATION"
+export CB_CHAIN_TEST_SYSTEM_STAT="$REAL_STAT"
 
 INSTALLED_BIN="$TMP_ROOT/installed/bin"
 INSTALLED_LIBEXEC="$TMP_ROOT/installed/libexec"

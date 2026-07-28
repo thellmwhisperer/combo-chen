@@ -35,7 +35,7 @@
 #   test_cleaner_security_contracts
 #
 # @exports none
-# @deps bash, git, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh,
+# @deps bash, git, jq, stat, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh,
 #   bin/cb-cleaner-adapter.sh
 set -u
 
@@ -51,7 +51,8 @@ CAPTURE="$TMP_ROOT/captured-input.json"
 MARKER="$TMP_ROOT/adapter-ran"
 VICTIM="$TMP_ROOT/result-temp-victim"
 STDIN_CAPTURE="$TMP_ROOT/stdin-capture"
-mkdir -p "$RUNS_DIR"
+LINUX_STAT_BIN="$TMP_ROOT/linux-stat-bin"
+mkdir -p "$RUNS_DIR" "$LINUX_STAT_BIN"
 export CB_RUNS_DIR="$RUNS_DIR"
 export CB_STEP_TEST_CAPTURE="$CAPTURE"
 export CB_STEP_TEST_MARKER="$MARKER"
@@ -62,6 +63,18 @@ SHA_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 REAL_MKDIR=$(command -v mkdir)
 REAL_JQ=$(command -v jq)
 REAL_REALPATH=$(command -v realpath)
+REAL_STAT=${CB_STEP_TEST_SYSTEM_STAT:-$(command -v stat)}
+
+cb_write_fake "$LINUX_STAT_BIN/stat" '#!/bin/sh
+if [ "$#" -eq 3 ] && [ "$1" = -c ] && [ "$2" = %i ]; then
+  case "$3" in
+    /dev/fd/*) printf "1\n"; exit 0 ;;
+  esac
+fi
+exec "$CB_STEP_TEST_SYSTEM_STAT" "$@"
+'
+export CB_STEP_TEST_SYSTEM_STAT="$REAL_STAT"
+export PATH="$LINUX_STAT_BIN:$PATH"
 
 CMD_STATUS=
 CMD_STDOUT=
