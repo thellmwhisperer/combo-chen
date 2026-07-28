@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # @overview Native P4 envelope for the mechanical Treehouse Cleaner. It
 #   validates Launcher custody plus a terminal Gate result, delegates one exact
-#   non-forcing release to cb-cleaner.sh, and replays a sealed release without
-#   duplicating the effect.
+#   non-forcing release to cb-cleaner.sh, retries only an exact immutable
+#   recorded failure, and replays a sealed release without duplicating the
+#   effect.
 #
 #   READING GUIDE
 #   -------------
 #   1. Envelope containment       <- reject untrusted paths and config.
 #   2. publish_outcome            <- one collision-safe P4 output.
 #   3. Custody/Gate verification  <- bind cleanup to Launcher and terminal Gate.
-#   4. Release or replay          <- exact Treehouse path, never a fallback.
+#   4. Retry, release, or replay  <- exact Treehouse path, never a fallback.
 #
 #   MAIN FLOW
 #   ---------
@@ -406,7 +407,7 @@ cleaner_seal=$run_root/agents/cleaner.ownership.json
 cleaner_seal_snapshot=
 cleaner_seal_json=
 validate_cleaner_seal() {
-  local mode mode_after identity identity_after json json_after
+  local expected=$1 mode mode_after identity identity_after json json_after
   [ -f "$cleaner_seal" ] && [ ! -L "$cleaner_seal" ] || return 1
   [ "$(realpath "$cleaner_seal" 2>/dev/null)" = "$cleaner_seal" ] \
     || return 1
@@ -415,7 +416,7 @@ validate_cleaner_seal() {
   [ "$mode" = 444 ] || return 1
   identity=$(file_identity "$cleaner_seal") || return 1
   json=$(jq -cS '.' "$cleaner_seal" 2>/dev/null) || return 1
-  jq -e --arg run "$run" \
+  jq -e --arg run "$run" --arg expected "$expected" \
     --arg kind "$(jq -r '.runway_kind' "$ownership")" \
     --arg repo "$(jq -r '.repo_dir' "$ownership")" \
     --arg worktree "$(jq -r '.worktree' "$ownership")" \
@@ -436,7 +437,16 @@ validate_cleaner_seal() {
       .base_sha==$base and
       (.run|text) and (.runway_kind|text) and (.repo_dir|text) and
       (.worktree|text) and (.branch|text) and (.base_sha|sha) and
-      .released==true and .reasons==[]
+      if $expected=="released" then
+        .released==true and .reasons==[]
+      elif $expected=="failed" then
+        .released==false and
+        (.reasons |
+          type=="array" and length>0 and
+          all(.[]; type=="string" and length>0))
+      else
+        false
+      end
     ' <<<"$json" >/dev/null 2>&1 || return 1
   identity_after=$(file_identity "$cleaner_seal") || return 1
   json_after=$(jq -cS '.' "$cleaner_seal" 2>/dev/null) || return 1
@@ -476,15 +486,28 @@ read_cleaner_failure_reasons() {
 }
 
 if [ -e "$cleaner_seal" ] || [ -L "$cleaner_seal" ]; then
-  validate_cleaner_seal || reject "cleaner:release_seal_invalid"
-  authorized_cleaner_seal_snapshot=$cleaner_seal_snapshot
-  recheck_authorized_gate_terminal \
-    || reject "${gate_validation_reason:-gate:terminal_replaced}"
-  validate_cleaner_seal \
-    && [ "$cleaner_seal_snapshot" = "$authorized_cleaner_seal_snapshot" ] \
-    || reject "cleaner:release_seal_replaced"
-  publish_outcome 0 "$(jq -c \
-    '{runway_kind:.runway_kind,worktree:.worktree}' <<<"$cleaner_seal_json")"
+  if validate_cleaner_seal released; then
+    authorized_cleaner_seal_snapshot=$cleaner_seal_snapshot
+    recheck_authorized_gate_terminal \
+      || reject "${gate_validation_reason:-gate:terminal_replaced}"
+    validate_cleaner_seal released \
+      && [ "$cleaner_seal_snapshot" = \
+        "$authorized_cleaner_seal_snapshot" ] \
+      || reject "cleaner:release_seal_replaced"
+    publish_outcome 0 "$(jq -c \
+      '{runway_kind:.runway_kind,worktree:.worktree}' \
+      <<<"$cleaner_seal_json")"
+  elif validate_cleaner_seal failed; then
+    authorized_cleaner_seal_snapshot=$cleaner_seal_snapshot
+    recheck_authorized_gate_terminal \
+      || reject "${gate_validation_reason:-gate:terminal_replaced}"
+    validate_cleaner_seal failed \
+      && [ "$cleaner_seal_snapshot" = \
+        "$authorized_cleaner_seal_snapshot" ] \
+      || reject "cleaner:release_seal_replaced"
+  else
+    reject "cleaner:release_seal_invalid"
+  fi
 fi
 
 recheck_authorized_gate_terminal \
@@ -501,11 +524,11 @@ if [ "$cleaner_status" -ne 0 ]; then
   publish_outcome 1 "$(jq -cn --argjson reasons "$reasons" \
     '{reasons:$reasons}')"
 fi
-validate_cleaner_seal || reject "cleaner:release_unsealed"
+validate_cleaner_seal released || reject "cleaner:release_unsealed"
 recheck_authorized_gate_terminal \
   || reject "${gate_validation_reason:-gate:terminal_replaced}"
 authorized_cleaner_seal_snapshot=$cleaner_seal_snapshot
-validate_cleaner_seal \
+validate_cleaner_seal released \
   && [ "$cleaner_seal_snapshot" = "$authorized_cleaner_seal_snapshot" ] \
   || reject "cleaner:release_seal_replaced"
 publish_outcome 0 "$(jq -c \

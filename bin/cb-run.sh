@@ -2,7 +2,8 @@
 # @overview Top-level Combo v1 Bash dispatcher. It mounts five canonical tmux
 #   endpoints, dispatches each cb-step invocation through the owning visible
 #   window, resumes collision-free attempts, and prints one truthful terminal
-#   outcome while cb-chain.sh remains the sole product state machine.
+#   outcome whose trusted Gate seal also binds process status, while
+#   cb-chain.sh remains the sole product state machine.
 #
 #   READING GUIDE
 #   -------------
@@ -604,6 +605,7 @@ print_terminal_outcome() {
     esac
   fi
   printf 'failed\n'
+  return 1
 }
 
 [ "$#" -eq 1 ] || usage
@@ -659,10 +661,14 @@ if ! jq -e --arg run "$run" '
 ' "$chain_result" >/dev/null 2>&1; then
   fail_contract "invalid chain result" 73
 fi
-print_terminal_outcome "$chain_result"
 set +e
+print_terminal_outcome "$chain_result"
+outcome_status=$?
 result_exit_status "$chain_result"
 chain_status=$?
 set -e
+if [ "$chain_status" -eq 0 ] && [ "$outcome_status" -ne 0 ]; then
+  chain_status=70
+fi
 exit "$chain_status"
 # -/ 4/4

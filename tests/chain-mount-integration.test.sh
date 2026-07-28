@@ -2,7 +2,8 @@
 # @overview Deterministic mounted-chain acceptance for the Combo v1 dispatcher.
 #   Uses real isolated tmux windows plus fake Treehouse, Coder, Reviewer,
 #   No-Mistakes, and GitHub boundaries to prove endpoint execution, immutable
-#   Launcher custody, expected-base rejection, resume, and exact cleanup.
+#   Launcher custody, expected-base rejection, trusted terminal/process truth,
+#   resume, and exact cleanup.
 #
 #   READING GUIDE
 #   -------------
@@ -829,7 +830,7 @@ write_printable_gate_terminal() {
 }
 
 assert_terminal_artifact_security() {
-  local chain="$RUNS_DIR/$RUN/chain-result.json" original attack
+  local chain="$RUNS_DIR/$RUN/chain-result.json" original attack nonzero
   local terminal_rel terminal out status err="$TMP_ROOT/terminal-artifact.err"
   local outside="$RUNS_DIR/controlled-forged-terminal.json"
   local exact="$RUNS_DIR/$RUN/artifacts/gate/terminal.json"
@@ -845,6 +846,41 @@ assert_terminal_artifact_security() {
   ')
   mkdir -p "$RUNS_DIR/$RUN/artifacts/gate"
 
+  rm -f "$exact"
+  install_chain_result "$(printf '%s\n' "$attack" | jq -c \
+    '.artifacts=[{
+      id:"gate-terminal",path:"artifacts/gate/terminal.json"
+    }]')"
+  run_dispatcher
+  expect_code 70 "$RUN_STATUS" "missing trusted gate-terminal artifact"
+  [ "$RUN_STDOUT" = failed ] \
+    || fail "missing trusted gate-terminal did not print failed"
+
+  write_printable_gate_terminal "$exact" validated
+  chmod 0644 "$exact"
+  run_dispatcher
+  expect_code 70 "$RUN_STATUS" "mutable trusted gate-terminal artifact"
+  [ "$RUN_STDOUT" = failed ] \
+    || fail "mutable trusted gate-terminal did not print failed"
+
+  rm -f "$exact"
+  printf '{"normalized_outcome":"merged"}\n' >"$exact"
+  chmod 0444 "$exact"
+  run_dispatcher
+  expect_code 70 "$RUN_STATUS" "malformed trusted gate-terminal artifact"
+  [ "$RUN_STDOUT" = failed ] \
+    || fail "malformed trusted gate-terminal did not print failed"
+
+  write_printable_gate_terminal "$exact" validated
+  chmod u+w "$exact"
+  jq '.run_id="another-run"' "$exact" >"$exact.rewrite"
+  chmod 0444 "$exact.rewrite"
+  mv -f "$exact.rewrite" "$exact"
+  run_dispatcher
+  expect_code 70 "$RUN_STATUS" "identity-invalid gate-terminal artifact"
+  [ "$RUN_STDOUT" = failed ] \
+    || fail "identity-invalid trusted gate-terminal did not print failed"
+
   write_printable_gate_terminal "$outside" merged
   for terminal_rel in \
     '../controlled-forged-terminal.json' \
@@ -859,7 +895,7 @@ assert_terminal_artifact_security() {
     install_chain_result "$(printf '%s\n' "$attack" | jq -c \
       --arg path "$terminal_rel" '.artifacts=[{id:"gate-terminal",path:$path}]')"
     run_dispatcher
-    expect_code 0 "$RUN_STATUS" "hostile gate-terminal path: $terminal_rel"
+    expect_code 70 "$RUN_STATUS" "hostile gate-terminal path: $terminal_rel"
     [ "$RUN_STDOUT" = failed ] \
       || fail "hostile gate-terminal path forged printed outcome: $terminal_rel"
   done
@@ -870,7 +906,7 @@ assert_terminal_artifact_security() {
   install_chain_result "$(printf '%s\n' "$attack" | jq -c \
     '.artifacts=[{id:"gate-terminal",path:"artifacts/gate/terminal.json"}]')"
   run_dispatcher
-  expect_code 0 "$RUN_STATUS" "symlinked gate-terminal artifact"
+  expect_code 70 "$RUN_STATUS" "symlinked gate-terminal artifact"
   [ "$RUN_STDOUT" = failed ] \
     || fail "symlinked gate-terminal artifact forged printed outcome"
 
@@ -878,7 +914,7 @@ assert_terminal_artifact_security() {
   printf '{"normalized_outcome":"merged"}\n' >"$exact"
   chmod 0444 "$exact"
   run_dispatcher
-  expect_code 0 "$RUN_STATUS" "malformed gate-terminal artifact"
+  expect_code 70 "$RUN_STATUS" "malformed gate-terminal artifact"
   [ "$RUN_STDOUT" = failed ] \
     || fail "malformed gate-terminal artifact forged printed outcome"
 
@@ -917,12 +953,47 @@ exec "$real" "$@"
   PATH=${PATH#"$race_bin:"}
   unset CB_TERMINAL_RACE_REAL_JQ CB_TERMINAL_RACE_PATH
   unset CB_TERMINAL_RACE_REPLACEMENT CB_TERMINAL_RACE_MARKER
-  expect_code 0 "$RUN_STATUS" "replaced gate-terminal artifact"
+  expect_code 70 "$RUN_STATUS" "replaced gate-terminal artifact"
   assert_present "$marker" \
     "gate-terminal replacement fixture did not reach the trusted read"
   [ "$RUN_STDOUT" = failed ] \
     || fail "replaced gate-terminal artifact forged printed outcome"
 
+  rm -f "$exact"
+  nonzero=$(printf '%s\n' "$attack" | jq -c '
+    .terminal={role:"gate",code:1,event:"gate_failed"}
+  ')
+  install_chain_result "$nonzero"
+  run_dispatcher
+  expect_code 1 "$RUN_STATUS" "untrusted seal with product failure"
+  [ "$RUN_STDOUT" = failed ] \
+    || fail "product failure lost its truthful human outcome"
+
+  nonzero=$(printf '%s\n' "$attack" | jq -c '
+    .exit_class="cancelled" |
+    .terminal={role:"gate",code:null,event:null}
+  ')
+  install_chain_result "$nonzero"
+  run_dispatcher
+  expect_code 130 "$RUN_STATUS" "untrusted seal with cancelled chain"
+  [ "$RUN_STDOUT" = failed ] \
+    || fail "cancelled chain lost its truthful human outcome"
+
+  nonzero=$(printf '%s\n' "$attack" | jq -c '
+    .exit_class="technical_error" |
+    .terminal={role:"gate",code:null,event:null}
+  ')
+  install_chain_result "$nonzero"
+  run_dispatcher
+  expect_code 70 "$RUN_STATUS" "untrusted seal with technical chain failure"
+  [ "$RUN_STDOUT" = failed ] \
+    || fail "technical chain failure lost its truthful human outcome"
+
+  install_chain_result "$(printf '%s\n' "$attack" | jq -c '
+    .artifacts=[{
+      id:"gate-terminal",path:"artifacts/gate/terminal.json"
+    }]
+  ')"
   write_printable_gate_terminal "$exact" validated
   run_dispatcher
   expect_code 0 "$RUN_STATUS" "valid canonical gate-terminal artifact"
@@ -931,7 +1002,7 @@ exec "$real" "$@"
 
   install_chain_result "$original"
   rm -f "$outside" "$exact" "$victim" "$replacement" "$marker"
-  pass "cb-run: contains and snapshots the exact typed Gate terminal artifact"
+  pass "cb-run: binds trusted Gate terminal truth to human and process outcomes"
 }
 
 assert_receipt_liveness_race

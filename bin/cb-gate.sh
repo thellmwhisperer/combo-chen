@@ -21,8 +21,8 @@
 #   READING GUIDE
 #   -------------
 #   1. Universal input validation <- contain paths and freeze adapter config.
-#   2. Launcher/base preflight    <- prove custody, expected base, exact HEAD.
-#   3. Invocation/terminal replay <- freeze identity and one documented axi run.
+#   2. Launcher/candidate preflight <- prove custody and exact reviewed HEAD.
+#   3. Replay/new-arm admission   <- replay first; then prove base and seal axi.
 #   4. Global lease and invocation <- exclude sibling runs; recover stale owner.
 #   5. Terminal normalization     <- exact PR, merge arm, final fact, typed outcome.
 #
@@ -483,7 +483,7 @@ publish_terminal_result() {
   )"
 }
 
-# -- 2/5 CORE · Verify Launcher custody, expected base, and reviewed candidate --
+# -- 2/5 CORE · Verify Launcher custody and reviewed candidate --
 ownership=$run_root/agents/launcher.ownership.json
 [ -f "$ownership" ] && [ ! -L "$ownership" ] \
   || fail_contract "Launcher ownership is missing or unsafe" 73
@@ -537,21 +537,6 @@ if [ "$expected_base_sha" != "$ownership_base_sha" ]; then
 fi
 git check-ref-format --branch "$expected_base_branch" >/dev/null 2>&1 \
   || fail_contract "invalid expected base branch" 64
-expected_base_observed=$(git -C "$repo_dir" rev-parse --verify \
-  "$expected_base_branch^{commit}" 2>/dev/null || true)
-if [ -z "$expected_base_observed" ]; then
-  publish_gate_failed expected_base_branch_unresolved
-  exit 0
-fi
-if [ "$expected_base_observed" != "$expected_base_sha" ]; then
-  publish_gate_failed expected_base_branch_mismatch
-  exit 0
-fi
-if ! git -C "$worktree" merge-base --is-ancestor \
-  "$expected_base_sha" "$candidate_sha" 2>/dev/null; then
-  publish_gate_failed expected_base_not_ancestor
-  exit 0
-fi
 
 verify_candidate() {
   local observed_branch observed_head dirty
@@ -615,7 +600,7 @@ if jq -e '.config | has("allowed_paths")' "$input" >/dev/null; then
 fi
 # -/ 2/5
 
-# -- 3/5 CORE · Replay terminal state or seal one No-Mistakes invocation --
+# -- 3/5 CORE · Replay terminal state or admit and seal one new Gate arm --
 artifacts_dir=$run_root/artifacts
 [ -d "$artifacts_dir" ] && [ ! -L "$artifacts_dir" ] \
   || fail_contract "artifacts directory is missing or unsafe" 73
@@ -1392,6 +1377,23 @@ if [ -e "$terminal" ] || [ -L "$terminal" ]; then
   publish_terminal_result "$terminal_json"
   exit 0
 fi
+
+expected_base_observed=$(git -C "$repo_dir" rev-parse --verify \
+  "refs/heads/$expected_base_branch^{commit}" 2>/dev/null || true)
+if [ -z "$expected_base_observed" ]; then
+  publish_gate_failed expected_base_branch_unresolved
+  exit 0
+fi
+if [ "$expected_base_observed" != "$expected_base_sha" ]; then
+  publish_gate_failed expected_base_branch_mismatch
+  exit 0
+fi
+if ! git -C "$worktree" merge-base --is-ancestor \
+  "$expected_base_sha" "$candidate_sha" 2>/dev/null; then
+  publish_gate_failed expected_base_not_ancestor
+  exit 0
+fi
+
 [ ! -e "$terminal_tmp" ] && [ ! -L "$terminal_tmp" ] \
   || fail_contract "Gate terminal staging path already exists" 73
 

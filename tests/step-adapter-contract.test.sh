@@ -2,7 +2,7 @@
 # @overview Contract tests for the universal Combo step-adapter boundary.
 #   Proves immutable run-local inputs/results, argv-safe configured execution,
 #   closed adapter stdin, role-specific 0/1 outcomes, normalized failures, and
-#   pre-execution guards.
+#   pre-execution guards, including exact Cleaner failure-seal recovery.
 #
 #   READING GUIDE
 #   -------------
@@ -26,11 +26,13 @@
 #   ---------
 #   write_config, make_planned_run, run_step, run_step_with_stdin,
 #   test_native_end_envelopes, make_cleaner_security_fixture,
-#   write_gate_terminal, write_cleaner_seal, run_cleaner_adapter,
+#   write_gate_terminal, write_cleaner_seal, write_cleaner_failure_seal,
+#   run_cleaner_adapter,
 #   wait_for_test_path, assert_cleaner_rejects_without_release,
 #   test_adapter_runs_root_binding, test_cleaner_latest_gate_attempt,
 #   test_cleaner_non_vacuous_failure_reasons, test_cleaner_seal_trust,
-#   test_cleaner_unpredictable_staging, test_cleaner_security_contracts
+#   test_cleaner_failure_seal_retry, test_cleaner_unpredictable_staging,
+#   test_cleaner_security_contracts
 #
 # @exports none
 # @deps bash, git, jq, tests/lib.sh, bin/cb-plan.sh, bin/cb-step.sh,
@@ -716,6 +718,15 @@ write_cleaner_seal() {
   chmod 0444 "$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
 }
 
+write_cleaner_failure_seal() {
+  local ownership="$CLEANER_RUN_ROOT/agents/launcher.ownership.json"
+  jq -c '
+    . + {released:false,reasons:["treehouse:release_refused"]} |
+    del(.lease_id)
+  ' "$ownership" >"$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  chmod 0444 "$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+}
+
 run_cleaner_adapter() {
   local extra_path=${1:-} err="$TMP_ROOT/cleaner-adapter.err"
   local run="${CLEANER_RUN_ROOT##*/}"
@@ -1173,6 +1184,144 @@ exec "$CB_CLEANER_TEST_REAL_JQ" "$@"
   pass "native Cleaner: trusts only an exact immutable canonical release seal"
 }
 
+test_cleaner_failure_seal_retry() {
+  local retry_bin="$TMP_ROOT/cleaner-failure-retry-bin"
+  local retry_count="$TMP_ROOT/cleaner-failure-retry.count"
+  local run invocation prior_input seal call_count
+
+  make_cleaner_security_fixture cleaner-failure-retry
+  write_gate_terminal 1
+  run="${CLEANER_RUN_ROOT##*/}"
+  mkdir "$retry_bin"
+  cb_write_fake "$retry_bin/treehouse" '#!/bin/sh
+set -eu
+case "${1:-}" in
+  status)
+    [ "$#" -eq 1 ]
+    display=$CB_CLEANER_TEST_WORKTREE
+    case "$display" in
+      "$HOME"/*) display="~/${display#"$HOME"/}" ;;
+    esac
+    printf "alpha leased %s (held by %s)\n" \
+      "$display" "$CB_CLEANER_TEST_RUN"
+    ;;
+  return)
+    [ "$#" -eq 2 ]
+    [ "$2" = "$CB_CLEANER_TEST_WORKTREE" ]
+    count=0
+    [ ! -f "$CB_CLEANER_TEST_RETRY_COUNT" ] ||
+      count=$(cat "$CB_CLEANER_TEST_RETRY_COUNT")
+    count=$((count + 1))
+    printf "%s\n" "$count" >"$CB_CLEANER_TEST_RETRY_COUNT"
+    printf "return|%s\n" "$2" >>"$CB_CLEANER_TEST_RETURN_CALLS"
+    [ "$count" -gt 1 ]
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+'
+  export CB_CLEANER_TEST_RETRY_COUNT="$retry_count"
+
+  run_cleaner_adapter "$retry_bin"
+  expect_code 0 "$CMD_STATUS" \
+    "recorded Cleaner release failure${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events==[{
+      code:1,event:"clean_failed",
+      payload:{reasons:["treehouse:release_refused"]}
+    }]
+  ' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "the first mechanical failure was not reported truthfully: $(cat "$CLEANER_OUTPUT"); $CMD_STDERR"
+  seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  jq -e '
+    .released==false and .reasons==["treehouse:release_refused"]
+  ' "$seal" >/dev/null \
+    || fail "the first mechanical failure did not publish its retry seal"
+  [ "$(cb_file_mode "$seal")" = 444 ] \
+    || fail "the retryable Cleaner failure seal is mutable"
+
+  prior_input=$CLEANER_INPUT
+  invocation="$CLEANER_RUN_ROOT/steps/05-cleaner/attempt-2"
+  CLEANER_INPUT="$invocation/input.json"
+  CLEANER_OUTPUT="$invocation/adapter-output.json"
+  mkdir "$invocation"
+  jq --arg input "$CLEANER_INPUT" --arg output "$CLEANER_OUTPUT" \
+    --arg invocation "$invocation" '
+      .attempt=2 |
+      .paths.input_path=$input |
+      .paths.output_path=$output |
+      .paths.invocation_dir=$invocation
+    ' "$prior_input" >"$CLEANER_INPUT"
+  chmod 0444 "$CLEANER_INPUT"
+
+  run_cleaner_adapter "$retry_bin"
+  expect_code 0 "$CMD_STATUS" \
+    "Cleaner retry after recorded failure${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].event=="cleaned"' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "an exact same-run failure seal prevented mechanical recovery"
+  jq -e '.released==true and .reasons==[]' "$seal" >/dev/null \
+    || fail "successful Cleaner retry did not replace failure with completion"
+  call_count=$(wc -l <"$CLEANER_RETURN_CALLS" | tr -d ' ')
+  [ "$call_count" = 2 ] \
+    || fail "fail-once recovery did not make exactly one bounded retry"
+  assert_no_grep "--force" "$CLEANER_RETURN_CALLS" \
+    "Cleaner recovery introduced a forced release"
+  [ "$(sort -u "$CLEANER_RETURN_CALLS")" = \
+    "return|$CLEANER_WORKTREE" ] \
+    || fail "Cleaner retry released anything except exact recorded custody"
+
+  prior_input=$CLEANER_INPUT
+  invocation="$CLEANER_RUN_ROOT/steps/05-cleaner/attempt-3"
+  CLEANER_INPUT="$invocation/input.json"
+  CLEANER_OUTPUT="$invocation/adapter-output.json"
+  mkdir "$invocation"
+  jq --arg input "$CLEANER_INPUT" --arg output "$CLEANER_OUTPUT" \
+    --arg invocation "$invocation" '
+      .attempt=3 |
+      .paths.input_path=$input |
+      .paths.output_path=$output |
+      .paths.invocation_dir=$invocation
+    ' "$prior_input" >"$CLEANER_INPUT"
+  chmod 0444 "$CLEANER_INPUT"
+  run_cleaner_adapter "$retry_bin"
+  expect_code 0 "$CMD_STATUS" \
+    "completed Cleaner replay after retry${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '.events[0].event=="cleaned"' "$CLEANER_OUTPUT" >/dev/null \
+    || fail "completed Cleaner retry did not replay"
+  [ "$(wc -l <"$CLEANER_RETURN_CALLS" | tr -d ' ')" = 2 ] \
+    || fail "completed Cleaner retry duplicated the release effect"
+  unset CB_CLEANER_TEST_RETRY_COUNT
+
+  make_cleaner_security_fixture cleaner-failure-mutable
+  write_gate_terminal 1
+  write_cleaner_failure_seal
+  seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  chmod 0644 "$seal"
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-failure-malformed
+  write_gate_terminal 1
+  seal="$CLEANER_RUN_ROOT/agents/cleaner.ownership.json"
+  printf '{"released":false\n' >"$seal"
+  chmod 0444 "$seal"
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-failure-mismatched
+  write_gate_terminal 1
+  write_cleaner_failure_seal
+  rewrite_cleaner_seal '.run="another-run"'
+  assert_cleaner_rejects_invalid_seal
+
+  make_cleaner_security_fixture cleaner-failure-tampered
+  write_gate_terminal 1
+  write_cleaner_failure_seal
+  rewrite_cleaner_seal '.worktree="/tampered/worktree"'
+  assert_cleaner_rejects_invalid_seal
+
+  pass "native Cleaner: retries only exact immutable same-run failure seals"
+}
+
 test_cleaner_unpredictable_staging() {
   local run pid status ready release poison victim blocker_bin blocker_stage
   local adapter=${CB_CLEANER_ADAPTER_UNDER_TEST:-"$BIN/cb-cleaner-adapter.sh"}
@@ -1297,6 +1446,7 @@ test_cleaner_security_contracts() {
   test_cleaner_latest_gate_attempt
   test_cleaner_non_vacuous_failure_reasons
   test_cleaner_seal_trust
+  test_cleaner_failure_seal_retry
   test_cleaner_unpredictable_staging
 }
 # -/ 7/7
@@ -1316,6 +1466,10 @@ case "${CB_STEP_ADAPTER_SECURITY_ONLY:-}" in
     ;;
   seals)
     test_cleaner_seal_trust
+    exit 0
+    ;;
+  failure-seals)
+    test_cleaner_failure_seal_retry
     exit 0
     ;;
   staging)

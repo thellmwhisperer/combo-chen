@@ -1093,7 +1093,7 @@ test_seals_configured_identity() {
 
 # -- 4/14 CORE · test_rejects_candidate_drift --
 test_rejects_candidate_drift() {
-  local run=gate-drift result plan gate_stderr
+  local run=gate-drift result plan gate_stderr advanced
   make_run "$run" passed
   printf 'drift\n' >>"$RUN_REPO/file.txt"
   git -C "$RUN_REPO" add file.txt
@@ -1158,6 +1158,50 @@ test_rejects_candidate_drift() {
     "wrong expected base branch must reject before No-Mistakes"
   assert_absent "$GH_CALLS" \
     "wrong expected base branch must reject before GitHub"
+
+  run=gate-expected-base-branch-namespace
+  make_run "$run" passed
+  git -C "$RUN_REPO" tag accepted-base "$RUN_HEAD"
+  rm -f "$NM_CALLED" "$GH_CALLS"
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "same-named expected-base tag${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e --arg sha "$RUN_HEAD" '
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"validated",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "a same-named tag overrode the expected base branch namespace"
+  assert_present "$NM_CALLED" \
+    "the authoritative expected-base branch did not admit the candidate"
+
+  run=gate-fresh-base-advance
+  make_run "$run" passed
+  advanced=$(printf 'fresh base advance\n' |
+    git -C "$RUN_REPO" commit-tree "$RUN_BASE^{tree}" -p "$RUN_BASE")
+  git -C "$RUN_REPO" branch -f accepted-base "$advanced"
+  rm -f "$NM_CALLED" "$GH_CALLS"
+  run_gate "$run" "$RUN_HEAD"
+  expect_code 0 "$CMD_STATUS" \
+    "fresh arm after expected-base advance${CMD_STDERR:+: $CMD_STDERR}"
+  jq -e '
+    .events==[{
+      code:1,
+      event:"gate_failed",
+      payload:{reason:"expected_base_branch_mismatch"}
+    }]
+  ' "$CMD_STDOUT" >/dev/null \
+    || fail "a genuinely new Gate arm ignored expected-base freshness"
+  assert_absent "$NM_CALLED" \
+    "a fresh arm with an advanced base reached No-Mistakes"
+  assert_absent "$GH_CALLS" \
+    "a fresh arm with an advanced base reached GitHub"
 
   run=gate-allowed-path-mismatch
   make_run "$run" passed
@@ -1382,7 +1426,8 @@ test_guards_argument_edges() {
 
 # -- 7/14 CORE · test_replays_terminal_seal --
 test_replays_terminal_seal() {
-  local run=gate-terminal-replay first_result second_result terminal poison
+  local run=gate-terminal-replay first_result second_result third_result
+  local terminal poison advanced
   rm -f "$NM_CALLS"
   make_run "$run" passed
 
@@ -1431,12 +1476,35 @@ test_replays_terminal_seal() {
   [ "$(wc -l <"$NM_CALLS" | tr -d ' ')" = 1 ] \
     || fail "terminal recovery must not start a second No-Mistakes delivery"
 
+  advanced=$(printf 'base advances after terminal seal\n' |
+    git -C "$RUN_REPO" commit-tree "$RUN_BASE^{tree}" -p "$RUN_BASE")
+  git -C "$RUN_REPO" branch -f accepted-base "$advanced"
+  run_gate "$run" "$RUN_HEAD" 3
+  expect_code 0 "$CMD_STATUS" \
+    "terminal replay after base advance${CMD_STDERR:+: $CMD_STDERR}"
+  third_result=$CMD_STDOUT
+  jq -e --arg sha "$RUN_HEAD" '
+    .attempt==3 and
+    .events==[{
+      code:0,
+      event:"gate_ok",
+      payload:{
+        outcome:"validated",
+        sha:$sha,
+        pr:"https://example.test/pull/7"
+      }
+    }]
+  ' "$third_result" >/dev/null \
+    || fail "expected-base freshness preempted an already sealed Gate outcome"
+  [ "$(wc -l <"$NM_CALLS" | tr -d ' ')" = 1 ] \
+    || fail "base-advance replay duplicated No-Mistakes delivery"
+
   poison="$terminal.poison"
   jq '.candidate_sha="0000000000000000000000000000000000000000"' \
     "$terminal" >"$poison"
   chmod 0444 "$poison"
   mv -f "$poison" "$terminal"
-  run_gate "$run" "$RUN_HEAD" 3
+  run_gate "$run" "$RUN_HEAD" 4
   expect_code 0 "$CMD_STATUS" "poisoned terminal normalization${CMD_STDERR:+: $CMD_STDERR}"
   jq -e '
     .exit_class=="technical_error" and .events==[] and
@@ -2872,6 +2940,9 @@ case "${CB_GATE_TEST_ONLY:-all}" in
     ;;
   preflight)
     test_rejects_candidate_drift
+    ;;
+  replay)
+    test_replays_terminal_seal
     ;;
   provisional)
     test_releases_provisional_gate_lease
