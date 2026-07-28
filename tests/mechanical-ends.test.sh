@@ -3,10 +3,11 @@
 #
 # Contract: proves the P3 mechanical Launcher/Cleaner contracts — Treehouse
 # runway acquisition/release with exact lease identity, explicit Git worktree
-# ownership with distinct custody, the generic seat/harness/auth readiness
-# boundary, and predictable-temp-path symlink/replace safety. tmux is not used
-# here; treehouse and git are real where the contract demands them, and
-# PATH-first fakes isolate refusal and identity-race branches.
+# ownership with distinct custody, immutable Launcher publication, the generic
+# seat/harness/auth readiness boundary, and predictable-temp-path
+# symlink/replace safety. tmux is not used here; treehouse and git are real
+# where the contract demands them, and PATH-first fakes isolate refusal,
+# identity-race, false-successful-return, and unobservable-release branches.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -212,6 +213,8 @@ test_th_persists_exact_lease_and_releases() {
   expect_code 0 "$CMD_STATUS" "launcher should succeed${CMD_STDERR:+: $CMD_STDERR}"
   local meta; meta=$(cat "$FIX_RUNS/$run/agents/launcher.ownership.json")
   local wt; wt=$(printf '%s' "$meta" | jq -r '.worktree')
+  [ "$(cb_file_mode "$FIX_RUNS/$run/agents/launcher.ownership.json")" = 444 ] \
+    || fail "Launcher ownership should be published read-only"
   for kv in "run:$run" "runway_kind:treehouse" "repo_dir:$FIX_REPO" "branch:combo/$run" "base_sha:$base_sha" "lease_id:$run"; do
     local k=${kv%%:*} v=${kv#*:}
     [ "$(printf '%s' "$meta" | jq -r ".$k")" = "$v" ] || fail "ownership $k mismatch"
@@ -255,6 +258,69 @@ exit 42
   assert_last_event "$run" cleaner 1 clean_failed "treehouse:release_refused"
   assert_contains "$(th status)" "held by $run" "lease should remain held"
   pass "cb-cleaner: journals refused Treehouse return and leaves lease held"
+}
+
+test_th_rejects_false_successful_return() {
+  make_fixture 1
+  local run=p3-th-false-return
+  make_run "$run"
+  run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "launcher"
+  local wt; wt=$(jq -r '.worktree' "$FIX_RUNS/$run/agents/launcher.ownership.json")
+  track_treehouse_fixture "$FIX_REPO" "$wt"
+  local marker="$FIX_OUTER/th-return-called"
+  local fb; fb=$(fake_th "#!/bin/sh
+if [ \"\$1\" = status ]; then exec $(command -v treehouse) \"\$@\"; fi
+if [ \"\$1\" = return ]; then printf called >\"$marker\"; exit 0; fi
+exec $(command -v treehouse) \"\$@\"
+")
+  CB_RUNS_DIR="$FIX_RUNS" PATH="$fb:$PATH" \
+    sh "$BIN/cb-cleaner.sh" "$run" 2>/dev/null \
+    && CMD_STATUS=0 || CMD_STATUS=$?
+  [ "$CMD_STATUS" -ne 0 ] \
+    || fail "successful no-op Treehouse return must fail"
+  assert_present "$marker" "Cleaner should call the exact Treehouse return"
+  assert_last_event \
+    "$run" cleaner 1 clean_failed "treehouse:release_unconfirmed"
+  jq -e '
+    .released==false and
+    .reasons==["treehouse:release_unconfirmed"]
+  ' "$FIX_RUNS/$run/agents/cleaner.ownership.json" >/dev/null \
+    || fail "false-successful return must seal released:false"
+  assert_contains "$(th status)" "held by $run" \
+    "false-successful return must leave the exact holder visible"
+  pass "cb-cleaner: rejects a zero-exit return while the exact holder persists"
+}
+
+test_th_rejects_unobservable_release() {
+  make_fixture 1
+  local run=p3-th-unobservable-return
+  make_run "$run"
+  run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "launcher"
+  local wt; wt=$(jq -r '.worktree' "$FIX_RUNS/$run/agents/launcher.ownership.json")
+  track_treehouse_fixture "$FIX_REPO" "$wt"
+  local marker="$FIX_OUTER/th-return-complete"
+  local fb; fb=$(fake_th "#!/bin/sh
+if [ \"\$1\" = status ]; then
+  [ -e \"$marker\" ] || exec $(command -v treehouse) \"\$@\"
+  exit 42
+fi
+if [ \"\$1\" = return ]; then printf returned >\"$marker\"; exit 0; fi
+exec $(command -v treehouse) \"\$@\"
+")
+  CB_RUNS_DIR="$FIX_RUNS" PATH="$fb:$PATH" \
+    sh "$BIN/cb-cleaner.sh" "$run" 2>/dev/null \
+    && CMD_STATUS=0 || CMD_STATUS=$?
+  [ "$CMD_STATUS" -ne 0 ] || fail "unobservable Treehouse release must fail"
+  assert_last_event \
+    "$run" cleaner 1 clean_failed "treehouse:release_unverified"
+  jq -e '
+    .released==false and
+    .reasons==["treehouse:release_unverified"]
+  ' "$FIX_RUNS/$run/agents/cleaner.ownership.json" >/dev/null \
+    || fail "unobservable release must seal released:false"
+  assert_contains "$(th status)" "held by $run" \
+    "unobservable fake return must leave the exact holder visible"
+  pass "cb-cleaner: rejects a release whose post-return status is unobservable"
 }
 
 test_th_rechecks_identity_before_return() {
@@ -400,7 +466,9 @@ test_git_refuses_copied_ownership_metadata() {
   run_cb cb-launcher.sh "$run"; expect_code 0 "$CMD_STATUS" "launcher"
   track_git_fixture "$FIX_REPO" "$git_path"
   local meta; meta=$(cat "$FIX_RUNS/$run/agents/launcher.ownership.json")
+  chmod u+w "$FIX_RUNS/$run/agents/launcher.ownership.json"
   printf '%s' "$meta" | jq -c '.run="another-run" | .ownership_id="git-worktree:another-run"' >"$FIX_RUNS/$run/agents/launcher.ownership.json"
+  chmod 0444 "$FIX_RUNS/$run/agents/launcher.ownership.json"
 
   run_cb cb-cleaner.sh "$run"
   [ "$CMD_STATUS" -ne 0 ] || fail "mismatched ownership should fail"
@@ -613,6 +681,8 @@ test_fixture_registry_survives_fixture_reset
 if [ "$HAS_TREEHOUSE" = "1" ]; then
   test_th_persists_exact_lease_and_releases
   test_th_journals_refused_return_and_leaves_held
+  test_th_rejects_false_successful_return
+  test_th_rejects_unobservable_release
   test_th_rechecks_identity_before_return
   test_th_recovers_wrong_absolute_output
   test_th_exact_cleanup_after_branch_fail
