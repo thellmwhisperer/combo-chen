@@ -47,7 +47,7 @@ describe("buildDirectorWatchStatusLine", () => {
         }),
         event("gate_validated", "2026-06-22T11:20:00.000Z", { sha: HEAD }),
         event("lgtm", "2026-06-22T11:25:00.000Z", { sha: HEAD }),
-        event("merged", "2026-06-22T11:55:00.000Z", { sha: HEAD, by: "javi" }),
+        event("merged", "2026-06-22T11:55:00.000Z", { sha: HEAD, by: "maintainer" }),
       ],
       pr: {
         state: "MERGED",

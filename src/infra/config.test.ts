@@ -178,7 +178,7 @@ describe("loadConfig", () => {
         'reviewer = ["claude"]',
         "",
         "[reviewer]",
-        'logins = ["the maintainer", "claude-reviewer"]',
+        'logins = ["maintainer", "claude-reviewer"]',
         "",
         "[reviewer.claude]",
         'command = "claude {prompt}"',
@@ -187,7 +187,7 @@ describe("loadConfig", () => {
 
     const config = loadConfig({ repoDir, userConfigPath: join(tempDir(), "missing.toml") });
 
-    expect(config.reviewerLogins).toEqual(["the maintainer", "claude-reviewer"]);
+    expect(config.reviewerLogins).toEqual(["maintainer", "claude-reviewer"]);
   });
 
   it("lets repo and env config override the promptable director command", () => {
